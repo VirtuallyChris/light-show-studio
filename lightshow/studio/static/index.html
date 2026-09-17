@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Light Show Studio</title>
+<link rel="icon" href="/static/icon.ico" sizes="16x16 32x32 48x48 256x256">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#0f1014">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Light Show Studio</div>
+  <input id="projectName" class="project-name" placeholder="untitled" title="Project name">
+  <div class="group">
+    <button id="btnOpen" title="Open a song (or drop one anywhere)">Open song</button>
+    <input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a" hidden>
+    <select id="recent" title="Saved shows"><option value="">Saved shows…</option></select>
+    <button id="btnSave" title="Save (Ctrl+S)">Save</button>
+    <button id="btnAuto" class="accent" title="Generate a full show from the detected structure">Auto-build show</button>
+    <button id="btnRedetect" title="Replace sections, drops and beat grid with a fresh analysis (keeps your clips)">Re-detect</button>
+  </div>
+  <div class="group transport">
+    <button id="btnStart" title="Go to start (Home)">|◀</button>
+    <button id="btnPlay" title="Play / pause (Space)">▶</button>
+    <button id="btnStop" title="Stop">■</button>
+    <span id="timeDisplay" class="time">0:00.000</span>
+    <span id="barDisplay" class="time small">bar 1.1</span>
+  </div>
+  <div class="group">
+    <label>BPM <input id="bpm" type="number" step="0.01" min="40" max="240" class="num"></label>
+    <button id="btnTap" title="Tap tempo">Tap</button>
+    <button id="btnHalf" title="Halve the tempo: keep every other beat. Use when the grid counts eighth notes.">&divide;2</button>
+    <button id="btnDouble" title="Double the tempo: add a beat between every pair.">&times;2</button>
+    <button id="btnNudgeL" title="Shift the beat grid 10 ms earlier">◁10ms</button>
+    <button id="btnNudgeR" title="Shift the beat grid 10 ms later">10ms▷</button>
+    <button id="btnRegrid" title="Rebuild a regular beat grid from BPM and offset">Regrid</button>
+    <button id="btnPhaseL" title="Move the downbeat one beat earlier">Bar−1</button>
+    <button id="btnPhase" title="Move the downbeat one beat later">Bar+1</button>
+  </div>
+  <div class="group">
+    <label>Snap <select id="snap">
+      <option value="4">bar</option><option value="1" selected>beat</option><option value="0.5">½ beat</option><option value="0.25">¼ beat</option><option value="0">off</option>
+    </select></label>
+    <button id="btnZoomOut" title="Zoom out (-)">−</button>
+    <button id="btnZoomIn" title="Zoom in (+)">+</button>
+    <button id="btnZoomFit" title="Fit whole song">Fit</button>
+    <button id="btnUndo" title="Undo (Ctrl+Z)">↶</button>
+    <button id="btnRedo" title="Redo (Ctrl+Y)">↷</button>
+  </div>
+  <div class="group cast">
+    <select id="castDevice" title="Google Cast speaker or group"><option value="">Cast: this PC</option></select>
+    <button id="btnCast" title="Play the song on the selected Cast speakers instead of this PC">Cast</button>
+    <label id="castOffsetWrap" hidden>Cast offset <input id="castOffset" type="number" step="25" value="0" class="num" title="Delay for lights and PC audio so they match the sound from the speakers"> ms</label>
+    <label class="toggle" id="castLocalWrap" hidden><input id="castLocal" type="checkbox" checked> PC audio</label>
+    <button id="btnSync" hidden title="Play the song on the speakers, then press this: the studio listens to the room and measures the real delay">Sync check</button>
+    <input id="castVolume" type="range" min="0" max="100" value="35" title="Speaker volume" hidden>
+  </div>
+  <div class="group right">
+    <label class="toggle"><input id="beatEdit" type="checkbox"> Beat edit</label>
+    <label class="toggle"><input id="outputOn" type="checkbox"> Lights on</label>
+    <label>Offset <input id="latency" type="number" step="5" value="30" class="num" title="Send lights this many ms ahead of the audio"> ms</label>
+    <label>Bright <input id="master" type="range" min="0" max="100" value="100" title="Master brightness"></label>
+    <span id="fpsLabel" class="time small" style="min-width:44px"></span>
+    <span id="wsState" class="dot" title="Server connection"></span>
+  </div>
+</header>
+
+<main>
+  <aside class="library">
+    <div class="panel">
+      <h3>Lights</h3>
+      <div id="lightList" class="light-list"></div>
+      <button id="btnRescan" class="small">Rescan</button>
+    </div>
+    <div class="panel">
+      <h3>Effects <span class="hint">drag onto a lane</span></h3>
+      <input id="effectSearch" placeholder="search…" class="search">
+      <div id="effectList" class="effect-list"></div>
+    </div>
+    <div class="panel">
+      <h3>Palettes <span class="hint">drag onto a clip</span></h3>
+      <div id="paletteList" class="palette-list"></div>
+      <button id="btnNewPalette" class="small">New palette</button>
+    </div>
+  </aside>
+
+  <section class="workspace">
+    <div class="preview-wrap"><canvas id="preview"></canvas></div>
+    <div class="timeline-wrap">
+      <canvas id="overview" title="Drag to scroll, drag the edges to zoom, click to jump. Wheel zooms."></canvas>
+      <canvas id="timeline"></canvas>
+    </div>
+    <div id="emptyState" class="empty">
+      <div class="big">Drop a song here</div>
+      <div>or click <b>Open song</b>, or pick a saved show. MP3, WAV, FLAC, OGG, M4A.</div>
+      <div class="path-open">Local file path: <input id="pathInput" placeholder="C:\Music\track.mp3"><button id="btnPath">Open</button></div>
+    </div>
+    <div id="busy" class="busy" hidden><div class="spinner"></div><div id="busyText">Analysing…</div></div>
+  </section>
+
+  <aside class="inspector" id="inspector">
+    <div class="panel"><h3>Inspector</h3><div class="hint">Select a clip, section, palette clip or beat.</div></div>
+  </aside>
+</main>
+
+<div id="dropOverlay" class="drop-overlay" hidden><div>Drop to open</div></div>
+<div id="toast" class="toast" hidden></div>
+<div id="ctxMenu" class="ctx-menu" hidden></div>
+
+<script src="/static/effects.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

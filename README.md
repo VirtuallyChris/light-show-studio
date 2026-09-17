@@ -1,0 +1,371 @@
+# LAN Light Show
+
+Listens to a microphone (or any audio input) and drives Govee smart lights
+over the local network in real time. No cloud, no Govee account, no API key.
+
+Two ways to use it: a live mic-reactive show (`lightshow run`), or the
+**Studio** (`lightshow studio`), a browser sequencer for building a show on a
+saved song beat by beat. See *Studio* below.
+
+Two ways of talking to the lights:
+
+* **Real-time per-segment mode (default).** Uses the same LAN protocol
+  Govee's desktop app uses for Razer Chroma: every segment (LED zone) of the
+  light is set individually, instantly, 60 times a second. No fade.
+* **Classic mode** (`--classic`). Uses the documented `colorwc` command. One
+  color for the whole light and the firmware fades towards it over a few
+  hundred milliseconds, so it looks soft and laggy. Useful for lights that do
+  not support real-time mode.
+
+## Setup
+
+1. In the **Govee Home** app open each light -> settings (gear) -> turn on
+   **LAN Control**. Lights without it will not answer the scan.
+2. Install Python 3.11+ and the dependencies:
+
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\python -m pip install -r requirements.txt
+   ```
+
+3. Optional: copy `config.example.json` to `config.json` and put your own
+   light's MAC and LED count in it. Without it the studio starts every light at
+   10 zones and you set the real count in the Lights panel, which saves it for
+   you. `config.json` holds your network's addresses, so it stays out of git,
+   as do the songs you drop in; the show designs saved next to them
+   (`shows/<song>/project.json`) are kept.
+
+`lightshow.cmd` in this folder runs the tool with the venv, so the commands
+below can be typed as `lightshow ...` from this directory (`.\lightshow ...` in PowerShell).
+**Double-click `Light Show Studio.vbs`** to open the Studio like an app: one
+window appears and nothing else. The server runs invisibly behind it, with no
+console window or taskbar entry, and shuts itself down a few seconds after you
+close the studio window. Its messages go to `studio.log` in this folder. A
+second double-click while it is running just opens another window on the same
+studio. `studio.cmd` is the same thing from a terminal, with the output visible.
+
+If the project lives on a network share, Windows asks "are you sure?" every
+time you open a file from it. A desktop shortcut avoids that: point it at
+`wscript.exe` with the path to the `.vbs` as its argument, so the program being
+launched is a local one. On this machine that shortcut is already on the
+desktop, with `Light Show Studio.ico` as its icon. The same icon is the page's
+favicon and web-app manifest icon, which is what the app window shows in its
+title bar and on the taskbar; `tools/make_icon.py` redraws every size. The other route is to add the
+file server to the *Local intranet* zone in Internet Options, which silences
+the prompt for everything on the share.
+
+The Studio opens in a **borderless app window** (Chrome, Edge or Brave, whichever
+is installed) with no tabs or address bar, using its own browser profile so it
+keeps its size and stays out of your normal browsing. Closing that window quits
+the studio, the way a desktop app would. Use `--tab` for an ordinary browser tab,
+`--stay` to leave the server running after the window is closed, and
+`--no-browser` to open nothing.
+
+## Usage
+
+```bash
+lightshow devices                       # scan the LAN, show IP / wifi MAC / SKU / segment count
+lightshow audio                         # list audio inputs (* = default)
+lightshow test 5C:E7:53:E9:C7:FE        # cycle red/green/blue/white on one light
+lightshow probe 5C:E7:53:E9:C7:FE       # light each segment in turn so you can count them
+lightshow probe 5C:E7:53:E9:C7:FE --save 12   # remember that this light has 12 segments
+lightshow run                           # all lights, default mic, concert mode
+lightshow run 5C:E7:53:E9:C7:FE -m eq   # one light, spectrum-analyser mode
+lightshow run --no-strobe               # concert mode without hard strobes
+lightshow run -a "Volt" -m pulse -p fire
+```
+
+Lights can be selected by IP, wifi MAC (as shown by your router), Govee
+device id, or SKU (`H608D` picks every H608D). With no selector every
+discovered light is used.
+
+### Modes (`-m`)
+
+| mode       | what it does |
+|------------|--------------|
+| `concert` (default) | Reads the *structure* of the music and changes the whole show with it. Chill: slow aurora fades. Groove: mood-colored gradient with kick pulses from the centre. Buildup: the strip fills from both ends toward the centre while a strobe accelerates from 2 Hz to 20 Hz. Drop: white blast, shockwave, then six seconds of fast rainbow chaos. Heavy: beat strobes, fast color-block chases, alternating halves. Hi-hats sparkle throughout. Base color follows the mood: dark bass-heavy = deep red, mid = violet, bright = cyan. |
+| `spectrum` | Hue follows the tonal centre of the music (bass = red, treble = violet), brightness follows loudness, beats ripple out from the centre of the light. |
+| `eq`       | Spectrum analyser: each segment is a frequency band, bass at one end, treble at the other. |
+| `vu`       | Loudness fills the light from one end (green -> yellow -> red) with a falling peak marker. |
+| `pulse`    | Palette color jumps on every beat, brightness pumps with the beat, beats ripple along the light. |
+| `rainbow`  | A rainbow runs along the light; energy sets its speed and brightness. |
+| `bands`    | Each *light* takes a band (bass / mid / treble). Good with several lights in a room. |
+| `strobe`   | Dark between beats, white flash on beats. |
+
+Palettes (`-p`): `neon`, `fire`, `ocean`, `party`.
+
+### Useful knobs
+
+| flag | meaning |
+|------|---------|
+| `--leds N` or `--leds MAC=N,IP=N` | LED count per light for this run (otherwise `config.json`, default 10). The H608D has 50 individually addressable LEDs; the protocol allows up to 84 per light |
+| `--fps 60` | color updates per second per light. 60 is confirmed smooth on the H608D; 90 also gets through |
+| `--sensitivity 1.4` | beat threshold in standard deviations. Lower = more beats |
+| `--floor 0.06` | minimum brightness while music plays |
+| `--flash 0.6` | how hard beats push brightness |
+| `--gradient` | ask the light to blend colors between segments |
+| `--no-strobe` | concert mode: smooth pulses instead of hard strobes (photosensitivity) |
+| `--classic` | use the normal color command instead of real-time mode |
+| `--off-on-exit` / `--exit-color 255,160,60` | what to do with the lights on Ctrl+C |
+
+
+## Studio: build a show on a saved song
+
+`lightshow studio` opens a full sequencer in your browser. Drag a song in,
+it finds the tempo, beat grid, sections and drops, and you arrange
+tempo-synced effects on layered lanes over the waveform.
+
+```bash
+lightshow studio
+```
+
+Then drag an audio file onto the page (MP3, WAV, FLAC, OGG, M4A) or click
+**Open song**. First analysis of a song takes 10-20 seconds; it is cached
+after that. Saved shows live in the `shows/` folder and reload from the
+**Saved shows** menu.
+
+**Workflow**
+
+1. **Pick lights** on the left. The strip you started with is ticked by
+   default; tick others to include them. Set each light's segment count here.
+2. **Auto-build show** generates a complete show from the detected structure
+   as a starting point: aurora in intros, gradients and beat pulses in verses,
+   an accelerating riser through buildups, a white blast and rainbow on drops,
+   and fades on the outro, with the palette changing per section.
+3. **Tweak**: drag effects from the library onto any layer, drag clip edges
+   to resize, drag the body to move, Alt-drag to copy. Layers are numbered
+   from the bottom; higher layers sit on top, so a comet on layer 2 rides over
+   a gradient on layer 1. Add as many layers as you like with the **+ add
+   layer** strip, right-click a layer name to insert, remove or reorder, and
+   click its eye to hide or show it.
+   Clips never overlap inside a layer: dropping one where another already is
+   places it on the next free layer up, resizing stops at the neighbour, and a
+   drag into an occupied spot slides to the nearest gap. Each clip has its own
+   parameters, opacity, blend mode and fades in the inspector, and can be
+   limited to specific lights.
+   **Selecting several at once** works as in a DAW: drag across empty space
+   to box-select, <kbd>Shift</kbd>+click to add or remove one,
+   <kbd>Ctrl</kbd>+<kbd>A</kbd> for everything. Drag any selected clip and
+   the whole block moves together, keeping its shape across layers; if the
+   block would land on something outside it, it stays put.
+   <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd> copy, cut and paste
+   the block at the playhead, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicates it right
+   after itself, <kbd>Delete</kbd> removes it, and right-clicking gives the
+   same menu, with *Paste here* landing the block where you clicked. The
+   inspector shows the group with one opacity slider and one color choice
+   for all of them.
+4. **Colors**: no effect owns a color; every clip does. Effects that used to
+   be named for one (White flash, Rainbow, Rainbow chaos) are now Flash, a
+   Gradient sweep with the Rainbow preset, and Chaos, and they simply start
+   out white or rainbow until you change them. Pick **Single color** in the
+   inspector when one color says it best, which is often. Every clip carries
+   its own colors, shown as a color bar
+   along the bottom of the clip on the timeline. Select a clip and pick from
+   the visual palette grid in the inspector, choose *Custom* for your own
+   color swatches, or drag a palette card from the library straight onto a
+   clip. Clips without their own choice use the project's default palette
+   (double-click a palette card to set it). Dropping an *effect* onto an
+   existing clip swaps the effect and keeps the clip's timing, layer, colors
+   and opacity. Click the eye on a layer name to hide that layer while you
+   work on the others.
+5. **Play** with **Lights on** ticked to drive the real lights in sync with a
+   live preview of every strip. The **Offset** box sends the lights a few
+   milliseconds ahead of the audio to line them up by eye.
+
+**Casting to Google speakers.** Pick a Cast speaker or speaker group in the
+*Cast* dropdown (groups are marked) and press **Cast**. The studio serves the
+song to the speakers over the LAN and follows *their* playback position, so
+the lights stay in sync with what you hear around the house. Play, pause,
+seek and stop work as usual. **PC audio** keeps playing the song on this
+computer too, delayed by the same **Cast offset** as the lights: turn the
+offset until the room and the house sound together, and the lights are in
+sync as well. The slider next to it is the speakers' volume. **Stop cast**
+returns playback to the PC.
+
+**The offset measures itself.** A few seconds after you start casting, the
+studio listens to the room through the microphone, lines up what it hears
+against the song's own audio, and fills in the offset. It mutes **PC audio**
+for those few seconds so it hears only the speakers, then puts it back. The
+answer is saved per speaker in `config.json` and reused the next time you cast
+there, with a quick re-check on each new session. Press **Sync check** to
+measure again at any time, and type your own number to override it for a
+project. On this setup Office Home 2 measures about 300 ms.
+
+Behind that: a Cast speaker asked to start at, say, 95 seconds has to guess
+which byte of the file that is. In a variable bitrate MP3 the guess is wrong
+by up to a second and a half, and it stays wrong for the rest of playback, so
+every start position drifted by a different amount. The studio now hands the
+speaker a stream that already begins at the requested second, so the speaker
+never seeks. What remains is that speaker's own fixed output delay, which one
+measurement pins down for the whole session. Measured on one speaker before
+the change, starting at four different points gave offsets spanning 1143 ms;
+after it, 47 ms, which is the measurement's own resolution.
+
+Seeking and pausing keep that figure. A seek loads a fresh stream at the exact
+new second, and if the speaker drops a long-paused session, the next play
+reloads it where you left off. The old chirp-based `lightshow calibrate
+<speaker>` command still exists, but the studio no longer needs it.
+
+**Tempo and bar lines**: if the grid counts eighth notes (the kick lands on
+only every other beat), press **÷2** to halve the tempo; **×2** doubles it.
+Clips keep their place in the song, so nothing moves, but a "1 beat" effect
+now means the new, longer beat. If the bar lines sit in the wrong place, press
+**Bar−1** or **Bar+1** to shift the downbeat a beat at a time, or right-click
+the waveform on a downbeat and choose *Set downbeat to nearest beat*. Sections
+snap to bar lines, so getting this right first saves nudging every boundary.
+
+**Beats**: turn on **Beat edit** to fix the grid. Click the waveform to add a
+beat, tap <kbd>Space</kbd> along with the music while it plays to lay beats
+down, drag a beat to move it, <kbd>Delete</kbd> to remove one. Or set the
+**BPM** (or **Tap** it) and press **Regrid** for a fresh even grid, and nudge
+the whole grid with the 10 ms buttons. **Bar+1** moves the downbeat.
+
+**Neural section analysis (optional, recommended).** With the SongFormer
+environment installed, the studio runs the SongFormer model (ASLP Lab, 2025)
+on every song and uses its sections, merged with the built-in detector's
+bass-drop instants: the model says *what* each part is (its pop labels are
+mapped: chorus becomes drop, pre-chorus becomes buildup, a quiet bridge
+becomes breakdown), and the energy detector says exactly which bar the bass
+slams in, splitting a chorus into its lead-in and its drop. Analysis takes a
+few seconds on an RTX-class GPU. On two hand-labelled tracks it agreed with
+the human labels 85-94% of the time. The Song panel shows "SongFormer" when
+the model produced the sections. To set it up (about 5 GB, once):
+
+```bash
+winget install --id Python.Python.3.12 --scope user
+%LOCALAPPDATA%\Programs\Python\Python312\python.exe -m venv %LOCALAPPDATA%\lanlightshowenv-songformer
+%LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+%LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
+```
+
+The weights download automatically on first use. The environment lives on
+the local disk on purpose: a network share is far too slow for PyTorch.
+Without it, the built-in detector below is used.
+
+**How sections are found.** The analyser works per bar over the whole file,
+with cues checked against hand-labelled tracks. A *drop* is loud **and**
+full-spectrum: a verse can be just as loud on a modern master, but its mids
+are sparse, while a drop's mids and highs light up together. A *breakdown*
+loses the sub bass and the level. A *buildup* is the 4-16 bars running into a
+drop, bounded by the nearest texture change and extended back while the
+brightness and level keep climbing. Everything else with a groove is a
+*verse*; quiet first and last stretches are intro and outro. On a
+hand-labelled Porter Robinson track it agrees with the human labels 95% of
+the time and lands every drop within a second. Press **Re-detect** to refresh
+sections, drops and the beat grid from analysis without touching your clips,
+then fix anything it got wrong by dragging section edges.
+
+**Sections and drops**: drag a section's left edge to move the boundary,
+double-click a section to change its type, right-click to split or merge. Drop
+markers (red) can be dragged, added and deleted; auto-build puts a blast on
+each one.
+
+**Getting around**: the strip across the top is an overview of the whole song
+(section colors, a summary waveform and the drop markers). The bright box on
+it is what you are looking at: drag it to scroll, drag its edges to zoom, or
+click anywhere to jump there. In the timeline the wheel zooms around the
+pointer, <kbd>Shift</kbd>+wheel pans, and <kbd>Ctrl</kbd>+wheel scrolls the
+layer stack. <kbd>Space</kbd> plays and pauses, clicking the waveform seeks,
+dragging the ruler scrubs, and <kbd>+</kbd>/<kbd>-</kbd>/<kbd>Fit</kbd> zoom
+from the keyboard.
+<kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo/redo, <kbd>Ctrl</kbd>+<kbd>S</kbd>
+to save. Everything auto-saves a couple of seconds after you stop editing.
+
+There are around 40 effects grouped as slow (aurora, gradient, breathe, wave,
+twinkle, embers), groove (pulse, chase, comets, dual comets, meteors, pulsar,
+orbit, color battle, spectrum, scanner, ripples, sparkles), fast
+(strobe, blackout strobe, hyper chase, lightning, chaos, glitch,
+halves) and one-shot accents (drop blast, riser, fades, flash, slam, sweep
+out). Effect timing is always in beats, so a "1 beat" pulse stays locked to
+the song whatever its tempo.
+
+**Signature flair: what makes each song sound like itself.** The analysis also
+listens for the parts a track is built on, and auto-build gives each one its
+own layer, only where the song actually has it:
+
+| Effect | Fires on |
+|---|---|
+| **Hook strike** | every return of the song's main riff, found by comparing every bar against every other and keeping the motif with the most twins |
+| **Lead trace** | notes of the wide lead instrument: a saw synth, horn line or riff. Color and position follow the note played |
+| **Lead glow** | lit only while that lead instrument is actually sounding |
+| **Ghost sparks** | drum hits landing *between* the beats: fills, ghost notes, shakers |
+| **Fill rush** | drum fills and breaks only, speeding up as the fill builds |
+| **Bass note** | color follows the bass note, swelling on each new one |
+
+The lead is taken from the stereo side channel (left minus right), which
+cancels anything panned dead centre, so lead vocals and kick largely drop out
+and the wide instruments remain. That is why it follows the synth rather than
+the singer.
+
+**Energy ramps with the song.** Intros, breakdowns and outros get slow fades
+and drifting comets and never flash. Buildups may strobe, because that is what
+a buildup is for. A drop only flashes on the beat when the track is genuinely
+hard-driving, judged from its own measured drive; a gentler song gets motion
+instead: scrolling gradients, crossing comets, orbits.
+
+**Flair punctuates, it does not blanket.** A drop keeps one base effect for its
+whole length, and the song's own moments are fired on top as one-shots: a
+strike each time the riff returns, a rush through each drum fill, and a
+sweep, slam or ripple on the biggest lead hits, spaced at least two
+bars apart so a long drop keeps surprising. Quiet sections get none of this.
+
+**Color** comes from the song, not from a fixed table. The key, brightness and
+drive pick a small family of palettes that suit the track, and each section
+gets its own rotation of one of them, so the show stays coherent without every
+drop looking like the last one.
+
+The design rule is *dark space*: a strip that is mostly dark with a few
+bright things moving over it feels far more alive than a wall of color, so
+the groove effects default to black between their bright parts, the sparse
+effects (meteors, pulsar, orbit, dual comets) draw on transparent black, and
+auto-build pairs a dim base with one sparse overlay. Auto-build keeps one base
+effect and one overlay for the whole of every drop; only the blast on its
+first beats is extra. The buildup riser is two effects: **Riser** fills the strip toward the centre
+and heats up, and **Strobe riser** is a separate blackout strobe on the layer
+above that accelerates smoothly to its maximum (default 8 flashes a beat)
+right at the drop. Auto-build stacks them; use one without the other if you
+prefer.
+
+## How it works
+
+`lightshow/audio.py` captures the input with `sounddevice`, runs a 512-sample
+FFT ~90 times a second and extracts loudness, bass/mid/treble energy, 24
+log-spaced spectrum bins, a spectral centroid and an energy-based beat
+detector. Everything is auto-gain controlled so a quiet mic and a loud line-in
+both fill the 0..1 range.
+
+`lightshow/music.py` tracks structure on the raw (not auto-gained) energies:
+slow references with a 40 s half-life give an *intensity* relative to the last
+minute, short vs. long averages of loudness, brightness and onset density give
+a *rising* score, and a bass-absence timer catches breakdowns. A drop fires
+when bass slams back after a breakdown or a buildup; sections (chill, groove,
+buildup, heavy) switch with hysteresis so they do not flicker.
+
+Intensity is judged against the dynamic range the tracker has heard, so the
+first loud section of a session is "heavy" until something louder arrives.
+The peak/trough references are saved to `config.json` after each run that
+heard real music and restored on the next start, so the show knows your room's
+loudness from the first bar. Delete the `calibration` block to reset it.
+
+`lightshow/show.py` maps those features to a color per segment, per light,
+for the selected mode and rate-limits the sends.
+
+`lightshow/govee_lan.py` is a small client for the Govee LAN API: multicast
+discovery on 239.255.255.250:4001, control on UDP 4003, plus the binary
+"razer" real-time protocol (`BB 00 len cmd data.. xor`, cmd `B1` = enable,
+`B0` = per-LED colors). The light leaves real-time mode by itself after about
+a minute without packets, so the show re-enables it periodically.
+
+## Segment counts
+
+Govee does not report how many zones a light has, so the tool cannot know
+whether your light has 6, 12 or 20 controllable segments. Run `probe` once
+per light, count the zones that light up, and save it with `--save N`. Sending
+more colors than the light has segments is harmless; the extras are ignored.
+
+## Capturing what is playing on the PC instead of a mic
+
+`sounddevice` on Windows does not expose WASAPI loopback devices. Options:
+enable "Stereo Mix" in Windows sound settings and pick it with `-a "Stereo Mix"`,
+use a virtual cable (VB-Cable) as the default output and pick its input here,
+or route a physical output back into a line-in.

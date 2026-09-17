@@ -1,0 +1,9 @@
+{
+  "segments": {
+    "AA:BB:CC:DD:EE:FF": 50
+  },
+  "cast_offsets": {
+    "Living Room speaker": 300
+  },
+  "cast_offset_ms": 250
+}

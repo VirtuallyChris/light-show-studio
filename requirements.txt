@@ -1,0 +1,7 @@
+numpy>=2.0
+sounddevice>=0.5
+librosa>=1.0
+soundfile>=0.12
+scipy>=1.11
+aiohttp>=3.9
+pychromecast>=14

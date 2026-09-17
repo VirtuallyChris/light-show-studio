@@ -1,0 +1,25 @@
+# Python
+.venv/
+.venv-songformer/
+__pycache__/
+*.pyc
+
+# Machine-specific: LAN addresses, light MACs, measured speaker delays.
+# Copy config.example.json to config.json to start; the studio fills in the rest.
+config.json
+studio.log
+
+# Songs are yours to supply (and mostly somebody else's copyright).
+# The show designs next to them (project.json) are kept.
+shows/**/song.*
+shows/**/cache/
+shows/_calibration/
+# scratch project used for automated UI tests
+shows/testsong_128bpm/
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
