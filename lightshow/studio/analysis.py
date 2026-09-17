@@ -19,6 +19,8 @@ import os
 
 import numpy as np
 
+from .matching import match_features
+
 SR = 22050
 HOP = 512
 FEATURE_FPS = 30.0
@@ -30,6 +32,21 @@ def analyze(path: str, cache_dir: str | None = None, use_model: bool = True) -> 
     import librosa
 
     y, sr = librosa.load(path, sr=SR, mono=True)
+    return analyze_audio(y, sr, path=path, cache_dir=cache_dir, use_model=use_model)
+
+
+def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_dir: str | None = None,
+                  use_model: bool = False, events: bool = True, bpm_hint: float | None = None) -> dict:
+    """The whole analysis, from audio already in memory.
+
+    `analyze` is this plus loading a file. Jam mode calls it directly on audio it
+    is relaying, which never touches the disk: `y` is mono at `sr`, `stereo` an
+    optional (2, n) array at the same rate for the instrument detectors, and
+    `bpm_hint` keeps a growing live analysis from flipping between half and
+    double time from one pass to the next.
+    """
+    import librosa
+
     duration = float(len(y) / sr)
     if duration < 5:
         raise ValueError("song is too short to analyse")
@@ -39,11 +56,12 @@ def analyze(path: str, cache_dir: str | None = None, use_model: bool = True) -> 
     onset_times = librosa.frames_to_time(np.arange(len(onset)), sr=sr, hop_length=HOP)
     tempo, beat_frames = librosa.beat.beat_track(onset_envelope=onset, sr=sr, hop_length=HOP, trim=False)
     tracked = librosa.frames_to_time(beat_frames, sr=sr, hop_length=HOP)
-    bpm, offset = fit_grid(onset, onset_times)
+    bpm, offset = fit_grid(onset, onset_times, bpm_hint)
     period = 60.0 / bpm
     first = offset - period * math.floor(offset / period)  # first beat at or after 0
     beats = np.arange(first, duration, period)
-    bpm, beats = fix_half_tempo(y, sr, bpm, beats)
+    if bpm_hint is None:
+        bpm, beats = fix_half_tempo(y, sr, bpm, beats)
     first = float(beats[0]) if len(beats) else first
 
     # --- frame features ---------------------------------------------------------------
@@ -70,7 +88,7 @@ def analyze(path: str, cache_dir: str | None = None, use_model: bool = True) -> 
     downbeats = beats[phase::4]
     structure_source = "builtin"
     builtin_sections, builtin_drops = sections, drops
-    if use_model:
+    if use_model and path:
         # SongFormer, when its environment is installed: better labels, mapped onto our grid
         from . import structure_model
         if structure_model.available():
@@ -85,15 +103,20 @@ def analyze(path: str, cache_dir: str | None = None, use_model: bool = True) -> 
 
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=HOP)[0]
     mood = song_mood(y, sr, energy, centroid)
-    try:
-        from .events import detect_events
-        ev = detect_events(path, [float(b) for b in beats], duration, phase, SR, HOP, FEATURE_FPS)
-    except Exception as e:  # noqa: BLE001 - a show without flair is better than no show
-        print(f"[events] skipped: {type(e).__name__}: {e}")
-        ev = {"events": {}, "fills": [], "hook": None, "curves": {}, "stereo": False}
+    ev = {"events": {}, "fills": [], "hook": None, "curves": {}, "stereo": False}
+    if events:
+        try:
+            from .events import detect_events
+            ev = detect_events(path, [float(b) for b in beats], duration, phase, SR, HOP, FEATURE_FPS,
+                               audio=(stereo if stereo is not None else y, sr) if path is None else None)
+        except Exception as e:  # noqa: BLE001 - a show without flair is better than no show
+            print(f"[events] skipped: {type(e).__name__}: {e}")
 
     return {
         "duration": duration,
+        # the opening 45 seconds as band onsets: enough to find this song's 0:00 by ear in a jam
+        "align_bands": [[round(float(v), 2) for v in row] for row in match_features(y[: int(45 * sr)], sr, HOP)],
+        "align_fps": round(sr / HOP, 4),
         "mood": mood,
         "events": ev["events"],
         "fills": ev["fills"],
@@ -165,7 +188,7 @@ def song_mood(y, sr, energy, centroid_hz) -> dict:
             "drive": round(drive, 3), "palette": family[0], "palettes": family}
 
 
-def fit_grid(onset: np.ndarray, times: np.ndarray) -> tuple[float, float]:
+def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) -> tuple[float, float]:
     """Precise constant tempo and beat phase from the onset envelope.
 
     Scores every candidate tempo by the magnitude of the onset envelope's
@@ -185,7 +208,8 @@ def fit_grid(onset: np.ndarray, times: np.ndarray) -> tuple[float, float]:
         prior = np.exp(-0.5 * ((np.log2(cands / 125.0)) / 0.5) ** 2)
         return (np.abs(c1) + 0.5 * np.abs(c2) + 0.25 * np.abs(c4)) * (0.6 + 0.4 * prior), c1
 
-    coarse = np.arange(65.0, 190.0, 0.1)
+    # with a hint, only look near it: a live analysis must not jump an octave mid-song
+    coarse = np.arange(65.0, 190.0, 0.1) if not hint else np.arange(hint * 0.96, hint * 1.04, 0.05)
     sc, _ = score(coarse)
     centre = float(coarse[int(np.argmax(sc))])
     fine = np.arange(centre - 1.0, centre + 1.0, 0.005)
@@ -457,7 +481,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     """Analyse once per (path, size, mtime); cache the JSON next to the project."""
     os.makedirs(cache_dir, exist_ok=True)
     st = os.stat(path)
-    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v14.json"
+    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v15.json"
     cache = os.path.join(cache_dir, key)
     if os.path.exists(cache):
         with open(cache, encoding="utf-8") as fh:

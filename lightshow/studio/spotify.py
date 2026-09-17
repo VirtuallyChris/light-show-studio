@@ -1,0 +1,176 @@
+"""A small Spotify Web API client: who is playing what, and what is queued.
+
+Jam mode never asks Spotify for audio, because Spotify does not give it out. It
+asks only what any remote control could: the current track and how far in it is,
+whether it is paused, and what comes next. It can also pause and resume, which
+is how the studio times the hand-over from an opening song on disk.
+
+Sign-in is the Authorization Code flow with PKCE, which needs a client id but no
+client secret, so nothing secret ships with the project. You sign in on
+Spotify's own page in your browser; the studio receives a code on its loopback
+address and keeps only the refresh token, in config.json (which is not in git).
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import secrets
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+
+AUTH_URL = "https://accounts.spotify.com/authorize"
+TOKEN_URL = "https://accounts.spotify.com/api/token"
+API = "https://api.spotify.com/v1"
+SCOPES = "user-read-playback-state user-read-currently-playing user-modify-playback-state"
+
+
+@dataclass
+class Track:
+    id: str
+    name: str
+    artists: list[str]
+    duration: float                       # seconds
+    uri: str = ""
+
+    @property
+    def label(self) -> str:
+        return f"{', '.join(self.artists)} - {self.name}" if self.artists else self.name
+
+    def to_json(self) -> dict:
+        return {"id": self.id, "name": self.name, "artists": self.artists, "duration": self.duration, "label": self.label}
+
+
+@dataclass
+class NowPlaying:
+    track: Track | None
+    progress: float = 0.0                 # seconds into the track when fetched
+    playing: bool = False
+    fetched_at: float = 0.0               # local clock when the answer arrived
+    device: str = ""
+    raw: dict = field(default_factory=dict, repr=False)
+
+    def progress_at(self, now: float) -> float:
+        return self.progress + (now - self.fetched_at if self.playing else 0.0)
+
+
+def parse_track(item: dict | None) -> Track | None:
+    if not item or item.get("type") not in (None, "track") or not item.get("id"):
+        return None
+    return Track(id=item["id"], name=item.get("name", ""), artists=[a.get("name", "") for a in item.get("artists", [])],
+                 duration=float(item.get("duration_ms", 0)) / 1000.0, uri=item.get("uri", ""))
+
+
+def http_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple[int, bytes]:
+    req = urllib.request.Request(url, data=body, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+class SpotifyClient:
+    """`store` is a dict-like that persists (client_id, refresh_token); `transport` is swappable for tests."""
+
+    def __init__(self, store: dict, save=lambda: None, transport=http_transport, clock=time.monotonic):
+        self.store, self.save, self.transport, self.clock = store, save, transport, clock
+        self.access_token = ""
+        self.expires_at = 0.0
+        self.verifier = ""
+        self.state = ""
+        self.last_error = ""
+
+    # -- sign-in -----------------------------------------------------------------------
+    @property
+    def client_id(self) -> str:
+        return self.store.get("client_id", "")
+
+    @property
+    def signed_in(self) -> bool:
+        return bool(self.client_id and self.store.get("refresh_token"))
+
+    def auth_url(self, redirect_uri: str) -> str:
+        self.verifier = secrets.token_urlsafe(64)[:96]
+        self.state = secrets.token_urlsafe(16)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(self.verifier.encode()).digest()).rstrip(b"=").decode()
+        q = {"client_id": self.client_id, "response_type": "code", "redirect_uri": redirect_uri, "scope": SCOPES,
+             "code_challenge_method": "S256", "code_challenge": challenge, "state": self.state}
+        return AUTH_URL + "?" + urllib.parse.urlencode(q)
+
+    def finish_auth(self, code: str, state: str, redirect_uri: str) -> None:
+        if not self.verifier or state != self.state:
+            raise PermissionError("sign-in did not start here, or the state did not match")
+        self._token_request({"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri,
+                             "client_id": self.client_id, "code_verifier": self.verifier})
+        self.verifier = self.state = ""
+
+    def sign_out(self) -> None:
+        self.store.pop("refresh_token", None)
+        self.access_token = ""
+        self.save()
+
+    def _token_request(self, form: dict) -> None:
+        status, body = self.transport("POST", TOKEN_URL, {"Content-Type": "application/x-www-form-urlencoded"},
+                                      urllib.parse.urlencode(form).encode())
+        data = json.loads(body or b"{}")
+        if status != 200 or "access_token" not in data:
+            raise PermissionError(f"Spotify refused the sign-in ({status}): {data.get('error_description') or data.get('error') or body[:120]}")
+        self.access_token = data["access_token"]
+        self.expires_at = self.clock() + float(data.get("expires_in", 3600)) - 60
+        if data.get("refresh_token"):
+            self.store["refresh_token"] = data["refresh_token"]
+            self.save()
+
+    def _token(self) -> str:
+        if not self.access_token or self.clock() >= self.expires_at:
+            if not self.store.get("refresh_token"):
+                raise PermissionError("not signed in to Spotify")
+            self._token_request({"grant_type": "refresh_token", "refresh_token": self.store["refresh_token"], "client_id": self.client_id})
+        return self.access_token
+
+    # -- calls -------------------------------------------------------------------------
+    def _call(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
+        headers = {"Authorization": "Bearer " + self._token()}
+        data = None
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(body).encode()
+        elif method != "GET":
+            headers["Content-Length"] = "0"
+        status, raw = self.transport(method, API + path, headers, data)
+        if status == 401:                                  # token died early: once more with a fresh one
+            self.access_token = ""
+            headers["Authorization"] = "Bearer " + self._token()
+            status, raw = self.transport(method, API + path, headers, data)
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except ValueError:
+            parsed = {}
+        if status >= 400:
+            self.last_error = f"{status}: {(parsed.get('error') or {}).get('message', '') if isinstance(parsed.get('error'), dict) else parsed.get('error', '')}"
+        return status, parsed
+
+    def now_playing(self) -> NowPlaying:
+        status, data = self._call("GET", "/me/player?additional_types=track")
+        now = self.clock()
+        if status == 204 or not data:
+            return NowPlaying(None, fetched_at=now)
+        return NowPlaying(parse_track(data.get("item")), float(data.get("progress_ms") or 0) / 1000.0, bool(data.get("is_playing")),
+                          now, (data.get("device") or {}).get("name", ""), data)
+
+    def queue(self) -> list[Track]:
+        status, data = self._call("GET", "/me/player/queue")
+        if status != 200:
+            return []
+        return [t for t in (parse_track(i) for i in data.get("queue", [])) if t]
+
+    def pause(self) -> bool:
+        return self._call("PUT", "/me/player/pause")[0] in (200, 202, 204)
+
+    def resume(self) -> bool:
+        return self._call("PUT", "/me/player/play")[0] in (200, 202, 204)

@@ -37,7 +37,8 @@ def mp3_frames(path: str) -> list[tuple[int, float]]:
     key = (path, st.st_mtime, st.st_size)
     if key in _cache:
         return _cache[key]
-    data = open(path, "rb").read()
+    with open(path, "rb") as fh:
+        data = fh.read()
     i, t, frames = _id3_end(data), 0.0, []
     n = len(data)
     while i + 4 <= n:

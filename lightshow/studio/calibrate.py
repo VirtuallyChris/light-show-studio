@@ -202,41 +202,92 @@ def _one_sync_pass(cast, song_path, seconds, mic_device, margin, log) -> dict:
     if len(ref) < SRC:
         raise RuntimeError("not enough of the song left at this position to compare against")
 
-    env = lambda y: librosa.onset.onset_strength(y=y, sr=SRC, hop_length=HOP)
-    a_env, b_env = env(audio), env(ref)
-    a_env = a_env - a_env.mean()
-    b_env = b_env - b_env.mean()
-    if a_env.std() < 1e-6 or b_env.std() < 1e-6:
+    m = measure_offset(audio, ref, SRC, used_margin, margin, HOP)
+    log(f"  peak {m['peak']:.3f}, {m['z']:.1f} above the rest, {m['edge'] * 100:.0f}% clear of the nearest rival")
+    return {**m, "seconds": seconds, "position": round(pos_at_start, 2)}
+
+
+def measure_offset(heard, reference, sr: int, used_margin: float, margin: float, hop: int = 256) -> dict:
+    """How much later the room heard something than it was believed to.
+
+    `heard` is a microphone recording; `reference` is the audio that should have
+    been playing, starting `used_margin` seconds before the recording did and
+    running `margin` seconds past its end, so every delay from -margin to +margin
+    is a place the recording can sit inside it. Positive means the room is later
+    than believed. See matching.py for why it is done the way it is.
+    """
+    import numpy as np
+
+    from .matching import best_match, match_features
+
+    if float(np.std(heard)) < 1e-5:
         raise RuntimeError("the room was too quiet to measure; turn the speakers up")
-    corr = fftconvolve(b_env, a_env[::-1], mode="full")
-    corr /= (np.linalg.norm(a_env) * np.linalg.norm(b_env) + 1e-9)
+    per_s = sr / hop
+    m = best_match(match_features(reference, sr, hop), match_features(heard, sr, hop), guard_frames=int(0.25 * per_s))
+    if len(m["scores"]) == 0:
+        raise RuntimeError("not enough audio to compare against")
+    offset = used_margin - m["index"] / per_s            # positive: the room hears it later
+    return {"offset_ms": int(round(offset * 1000)), "peak": round(m["peak"], 3), "z": round(m["z"], 1), "edge": round(m["edge"], 3)}
 
-    # Only alignments a speaker could physically produce are worth considering.
-    # Left unbounded, a repetitive track will happily match a bar several seconds
-    # away and report that with every appearance of confidence.
-    zero = len(a_env) - 1
-    per_s = SRC / HOP
-    lo = max(0, int(zero + (used_margin - margin) * per_s))
-    hi = min(len(corr) - 1, int(zero + (used_margin + margin) * per_s))
-    if hi <= lo:
-        lo, hi = 0, len(corr) - 1
-    window = corr[lo:hi + 1]
-    k = lo + int(np.argmax(window))
-    lag = (k - zero) * HOP / SRC
-    offset = used_margin - lag                        # positive: the room hears it later
 
-    # How far the winning alignment stands out. Music repeats, so the real test is
-    # whether the runner-up somewhere else in the window comes close: if it does,
-    # the song has told us the same story twice and the answer is a coin toss.
-    peak = float(corr[k])
-    z = (peak - float(window.mean())) / (float(window.std()) + 1e-9)
-    guard = int(0.25 * per_s)
-    rivals = np.concatenate([window[:max(0, k - lo - guard)], window[k - lo + guard + 1:]])
-    rival = float(rivals.max()) if rivals.size else 0.0
-    edge = (peak - rival) / (abs(peak) + 1e-9)
-    log(f"  peak {peak:.3f}, {z:.1f} above the rest, {edge * 100:.0f}% clear of the nearest rival")
-    return {"offset_ms": int(round(offset * 1000)), "peak": round(peak, 3), "z": round(z, 1),
-            "edge": round(edge, 3), "seconds": seconds, "position": round(pos_at_start, 2)}
+def _relay_pass(engine, seconds, mic_device, margin, recorder) -> dict:
+    SRC = 22050
+    if engine.room_capture_time() is None:
+        raise RuntimeError("the speakers are not playing the jam yet")
+    with recorder(mic_device, sr=SRC) as rec:
+        t0 = engine.clock()
+        rc0 = engine.room_capture_time()
+        if hasattr(rec, "wait"):
+            rec.wait(seconds)
+        else:
+            time.sleep(seconds)
+        heard, first_at = rec.audio()
+    if rc0 is None or len(heard) < SRC:
+        raise RuntimeError("the microphone recorded nothing")
+    believed = rc0 + (first_at - t0)                    # capture time the room was believed to be on when recording began
+    ref_start = max(engine.relay.oldest_time, believed - margin)
+    ref = engine.relay.audio(ref_start, believed + seconds + margin, SRC, mono=True)
+    return measure_offset(heard, ref, SRC, believed - ref_start, margin)
+
+
+def relay_sync_check(engine, seconds: float = 6.0, mic_device=None, margin: float = 1.2, log=print, recorder=None, repeats: int = 2) -> dict:
+    """The sync check for Jam mode: listen to the room and compare with the relay's own buffer.
+
+    There is no file to compare against here, but there is something better: the
+    relay still holds exactly what was sent to the speakers. The result is how
+    much to add to the speaker's delay so the lights land where the sound does.
+
+    Steady dance music matches itself a beat away nearly as well as in the right
+    place, so a single listen can be confidently wrong by a whole beat. Two
+    listens at different moments in the music will not make the same mistake
+    twice, so their agreement is what the confidence rests on.
+    """
+    import numpy as np
+
+    # A listen only counts if its winner is clear of every rival (see matching.py):
+    # during a looped stretch the music is the same a beat later and no answer is
+    # better than a guess. Keep listening, up to six times, until two clear listens
+    # agree; a fill or a change of section is never far away.
+    from .matching import CLEAR_EDGE
+
+    runs, clear, best = [], [], []
+    for _ in range(max(2, repeats) + 4):
+        runs.append(_relay_pass(engine, seconds, mic_device, margin, recorder or MicRecorder))
+        clear = [r["offset_ms"] for r in runs if r["edge"] >= CLEAR_EDGE]
+        best = max(([o for o in clear if abs(o - c) <= 60] for c in clear), key=len, default=[])
+        if len(best) >= 2:
+            break
+    offsets = [r["offset_ms"] for r in runs]
+    agree = len(best) >= 2
+    spread = int(max(best) - min(best)) if agree else 0
+    z = float(np.median([r["z"] for r in runs]))
+    confidence = float(np.clip((1 - spread / 150.0) * 0.5 + np.clip(z / 8.0, 0, 1) * 0.2 + min(1.0, len(best) / 2) * 0.3, 0, 1)) if agree else 0.15
+    out = {"offset_ms": int(round(float(np.median(best)))) if agree else 0, "passes": offsets, "clear": clear, "spread_ms": spread,
+           "z": round(z, 1), "confidence": round(confidence, 2), "listens": len(runs)}
+    if not agree:
+        out["reason"] = "the music was too repetitive just then to tell one beat from the next; try again in a moment"
+    log(f"  jam sync: {out['offset_ms']:+d} ms, clear listens {clear} of {offsets} (confidence {out['confidence']})")
+    return out
 
 
 def live_sync_check(cast, song_path, seconds=8.0, mic_device=None, margin=3.0, log=print, repeats=2) -> dict:

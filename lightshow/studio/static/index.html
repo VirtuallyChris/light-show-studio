@@ -58,6 +58,7 @@
     <label class="toggle" id="castLocalWrap" hidden><input id="castLocal" type="checkbox" checked> PC audio</label>
     <button id="btnSync" hidden title="Play the song on the speakers, then press this: the studio listens to the room and measures the real delay">Sync check</button>
     <input id="castVolume" type="range" min="0" max="100" value="35" title="Speaker volume" hidden>
+    <button id="btnJam" title="Spotify picks the music; the lights still know what is coming">Jam</button>
   </div>
   <div class="group right">
     <label class="toggle"><input id="beatEdit" type="checkbox"> Beat edit</label>
@@ -110,8 +111,13 @@
 <div id="dropOverlay" class="drop-overlay" hidden><div>Drop to open</div></div>
 <div id="toast" class="toast" hidden></div>
 <div id="ctxMenu" class="ctx-menu" hidden></div>
+<aside id="jamPanel" class="jam-panel" hidden>
+  <header><h3>Jam</h3><span class="hint">Spotify picks the music. The lights hear it first.</span><button id="jamClose" class="small" title="Close">&times;</button></header>
+  <div id="jamBody"></div>
+</aside>
 
 <script src="/static/effects.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/jam.js"></script>
 </body>
 </html>

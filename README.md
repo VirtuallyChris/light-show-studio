@@ -326,6 +326,75 @@ above that accelerates smoothly to its maximum (default 8 flashes a beat)
 right at the drop. Auto-build stacks them; use one without the other if you
 prefer.
 
+## Jam mode: someone else picks the music
+
+Somebody runs a Spotify Jam from their phone, adding and reordering songs all
+night, and the lights still know what is coming. Press **Jam** in the studio.
+
+**How it works.** Spotify plays on this PC. The studio listens to the PC's own
+audio output, holds it in memory, and sends it to the Cast speakers about 45
+seconds late. In that gap it studies music the room has not heard yet, so a drop
+is on the timeline, with a buildup running into it, before anybody hears it.
+Spotify is only ever asked what a remote control could ask: what is playing, how
+far in, whether it is paused, what is queued. It is never asked for audio, and
+no audio is written to disk: it exists only in a rolling memory buffer.
+
+Each track is one of three kinds, shown as a badge in the panel and the queue:
+
+| | |
+|---|---|
+| **your show** | The track matches a show you built (by title and artist, or by length; or pin it yourself). Your show plays, lined up to the music by ear. |
+| **learned** | The track has played through in a jam before. The studio kept its analysis: beat grid, sections, drops, the riff and the fills. It gets a full auto-built show from the first beat. Numbers only are kept, in `shows/_jam/learned/`. |
+| **first listen** | Analysed as it arrives. The show for the part the room has not reached is rebuilt every few seconds as more is learned; what is already playing is never changed under you. When it finishes it becomes *learned*. |
+
+**Setting up (once).**
+
+1. Spotify Premium is needed, since the studio pauses and resumes playback.
+2. At [developer.spotify.com](https://developer.spotify.com/dashboard) create an
+   app. In its settings add the Redirect URI the Jam panel shows you, exactly
+   (`http://127.0.0.1:8765/api/spotify/callback`), and tick *Web API*.
+3. Paste the app's **Client ID** into the Jam panel and press **Sign in to
+   Spotify**. You sign in on Spotify's own page. There is no client secret; the
+   studio keeps a refresh token in `config.json`, which is not in git.
+4. Make Spotify on this PC play to an output nobody hears: a muted device, a
+   monitor with no speakers, or a virtual cable. Choose that output under
+   *Listen to*. The house hears the music through the studio instead, late.
+
+**Starting a night.** A buffer only fills while the room listens to something
+else, so there are two ways in:
+
+- **Start jam** waits in silence until the buffer is full, then the speakers join.
+- **Start behind this song** is the good one. Cast one of your own shows and
+  press play, then press this. Spotify is held paused, released when your song
+  has exactly the delay left to run, and the speakers switch to the jam as it
+  ends. The room hears one song follow another.
+
+**What the phone does and how the room reacts.**
+
+| On the phone | In the room |
+|---|---|
+| Add, remove, reorder the queue | Nothing to notice; it just works |
+| Pause, resume | The speakers pause and resume within about a second, and the buffer is kept |
+| Skip, or tap a different song | The buffer is thrown away and the room joins the new song in a second or two. That song runs on a short lookahead; a few seconds of quiet are then added between the next songs until the delay is back |
+| Let a song end | Seamless |
+
+The phone shows what Spotify is playing, which is the delay ahead of the room.
+If Spotify's crossfade is on, enter its length in the panel: the studio cannot
+read it and needs it to tell a skip from a song that simply ended.
+
+**Sync.** The speaker delay measured by the ordinary Cast sync check carries
+over. **Sync check** in the Jam panel measures it again against the relay's own
+buffer. It listens until two clear readings agree, and says so rather than
+guessing when the music is too repetitive to tell one beat from the next.
+
+**Silent demo.** *Silent demo* runs the whole thing on synthetic songs with a
+pretend Spotify: no sound, no speakers, no sign-in. It is the quickest way to
+see what a jam looks like, and it is how Jam mode is tested:
+
+```bash
+.venv\Scripts\python -m unittest tests.test_jam
+```
+
 ## How it works
 
 `lightshow/audio.py` captures the input with `sounddevice`, runs a 512-sample

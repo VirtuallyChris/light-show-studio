@@ -154,6 +154,22 @@ class CastManager:
         self.last_time, self.last_at, self.state = 0.0, time.monotonic(), "BUFFERING"
         return self.status()
 
+    def play_stream(self, url: str, content_type: str, title: str) -> dict:
+        """Play an endless live stream (Jam mode's relay) rather than a file.
+
+        There is nothing to seek in and no length; the position the speaker
+        reports is simply how much of the stream it has played.
+        """
+        if self.cast is None:
+            raise RuntimeError("not connected to a Cast device")
+        self.media_root = self.media_path = ""
+        self.media_url, self.title, self.base, self.duration = url, title, 0.0, 0.0
+        mc = self.cast.media_controller
+        mc.play_media(url, content_type, title=title, stream_type="LIVE", autoplay=True)
+        mc.block_until_active(timeout=15)
+        self.last_time, self.last_at, self.state = 0.0, time.monotonic(), "BUFFERING"
+        return self.status()
+
     def pause(self) -> dict:
         if self.cast is not None:
             self.cast.media_controller.pause()

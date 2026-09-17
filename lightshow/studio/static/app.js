@@ -118,7 +118,7 @@
     return P();
   }
   async function save() {
-    if (!P() || !S.name) return;
+    if (!P() || !S.name || (S.jam && S.jam.live)) return;                  // a jam never writes over a saved show
     collectProject();
     try { await fetch(`/api/projects/${encodeURIComponent(S.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(P()) }); }
     catch (e) { toast('Save failed: ' + e, true); }
@@ -182,6 +182,7 @@
     S.audio.buffer = await S.audio.ctx.decodeAudioData(ab);
   }
   function pos() {
+    if (S.jam && S.jam.live) return clamp(S.jam.pos(), 0, duration());     // Spotify is driving: the room's place in the track
     if (S.cast.active) { const c = S.cast; const off = (parseFloat($('#castOffset').value) || 0) / 1000; const p = c.state === 'PLAYING' ? c.pos + (performance.now() - c.at) / 1000 : c.pos; return clamp(p - off, 0, duration()); }
     const a = S.audio; return a.playing ? clamp(a.startPos + (a.ctx.currentTime - a.startCtx), 0, duration()) : a.pos;
   }
@@ -200,8 +201,8 @@
   function pause() { if (S.cast.active) { castPause(); return; } const a = S.audio; if (!a.playing) return; a.pos = pos(); a.playing = false; stopSource(); updateTransport(); }
   function stopSource() { const a = S.audio; if (a.source) { try { a.source.onended = null; a.source.stop(); } catch (e) { } a.source = null; } }
   function stopPlayback() { pause(); S.audio.pos = 0; }
-  function seek(t) { t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
-  function togglePlay() { S.audio.playing ? pause() : play(); }
+  function seek(t) { if (S.jam && S.jam.live) return; t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
+  function togglePlay() { if (S.jam && S.jam.live) return toast('Spotify is in charge during a jam: play and pause from the phone'); S.audio.playing ? pause() : play(); }
   function updateTransport() { $('#btnPlay').textContent = S.audio.playing ? '❚❚' : '▶'; }
 
   // ------------------------------------------------------------------ Google Cast
@@ -1182,8 +1183,8 @@
     const k = ((n % cols.length) + cols.length) % cols.length;
     return cols.slice(k).concat(cols.slice(0, k));
   }
-  function autoBuild() {
-    if (!P()) return; beginChange(); const p = P();
+  function autoBuild(quiet = false) {
+    if (!P()) return; if (!quiet) beginChange(); const p = P();
     for (const lane of p.lanes) lane.clips = []; p.paletteClips = [];
     while (p.lanes.length < DEFAULT_LANES) p.lanes.push(newLane());
     // one palette carries the whole song, chosen from its key, brightness and drive
@@ -1199,6 +1200,7 @@
     // drop markers that are not section starts still get a blast
     for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
     S.view.sel = null; inspector(); changed();
+    if (quiet) return;
     const a = S.analysis, hooks = (a.hook && a.hook.times || []).length, fills = (a.fills || []).length;
     const bits = [`${p.sections.length} sections`, `palettes ${(S.songPals || []).join(' / ')}`];
     if (hooks) bits.push(`riff x${hooks}`);
@@ -1404,5 +1406,6 @@
   // ------------------------------------------------------------------ boot
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {}; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
-  window.Studio = { S, addClip, autoBuild, openPath, openProject, renderFrame, save, _draw, compose };
+  window.Studio = { S, P, $, addClip, autoBuild, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent };
 })();

@@ -167,14 +167,18 @@ def find_fills(drum_times, duration, beats):
     return [r for r in out if r[1] - r[0] >= win * 0.9]
 
 
-def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0) -> dict:
+def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None) -> dict:
+    """`audio` is (array, sr) already in memory, mono or (2, n); otherwise `path` is loaded."""
     import librosa
 
     out_times = np.arange(0, duration, 1.0 / feature_fps)
     beats = np.asarray(beats, dtype=float)
     period = float(np.median(np.diff(beats))) if len(beats) > 2 else 0.5
 
-    y, sr = librosa.load(path, sr=sr_target, mono=False)
+    if audio is not None:
+        y, sr = np.asarray(audio[0], dtype=np.float32), int(audio[1])
+    else:
+        y, sr = librosa.load(path, sr=sr_target, mono=False)
     if y.ndim == 1:
         mid, side = y, y
         wide = False

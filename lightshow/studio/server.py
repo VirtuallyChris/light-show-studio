@@ -24,6 +24,7 @@ from .. import govee_lan
 from .analysis import analyze_cached
 from . import audiotrim
 from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
+from .jam_service import JamService
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -153,6 +154,7 @@ class Studio:
         self.output = LightOutput()
         self.cast = CastManager(govee_lan.local_ip())
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
+        self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
         self.app.add_routes([
             web.get("/", self.index),
             web.get("/api/devices", self.devices),
@@ -178,6 +180,7 @@ class Studio:
             web.post("/api/cast/volume", self.cast_volume),
             web.get("/api/cast/status", self.cast_status),
             web.post("/api/cast/synccheck", self.cast_sync_check),
+            *self.jam.routes(),
             web.static("/static", STATIC),
         ])
         if self.quit_when_closed:

@@ -14,6 +14,8 @@ studio.log
 shows/**/song.*
 shows/**/cache/
 shows/_calibration/
+# what Jam mode has learned about tracks it has heard, and which tracks are pinned to which show
+shows/_jam/
 # scratch project used for automated UI tests
 shows/testsong_128bpm/
 
