@@ -173,3 +173,12 @@ main { display: grid; grid-template-columns: 252px 1fr 272px; grid-template-rows
 .jam-q { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 12.5px; }
 .jam-q span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jam-log { max-height: 120px; overflow-y: auto; font: 11px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--muted); }
+
+/* a light's name: reads as text, edits in place */
+.light-list .light-id { flex: 1 1 auto; min-width: 0; }
+.light-list .light-name { width: 100%; background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 1px 4px; margin-left: -5px;
+  color: var(--text); font: inherit; font-weight: 600; }
+.light-list .light-name::placeholder { color: var(--text); opacity: 1; font-weight: 600; }
+.light-list .light-name:hover { border-color: var(--line2); }
+.light-list .light-name:focus { border-color: var(--accent); background: var(--bg); outline: none; }
+.light-list .light-name:focus::placeholder { color: var(--dim); font-weight: 400; }

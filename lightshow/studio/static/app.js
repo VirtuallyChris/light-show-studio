@@ -332,7 +332,10 @@
     if (!S.lights.length) { el.innerHTML = '<div class="hint">No lights found. Enable LAN Control in the Govee app and rescan.</div>'; return; }
     for (const l of S.lights) {
       const row = document.createElement('label');
-      row.innerHTML = `<input type="checkbox" ${l.on ? 'checked' : ''}> <span>${l.sku}<div class="sku">${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
+      row.innerHTML = `<input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
+      const nm = row.querySelector('.light-name'); nm.value = l.name || '';
+      nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
+      nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
       if (l.online === false) row.style.opacity = '0.6';
       row.querySelector('input[type=checkbox]').onchange = e => { l.on = e.target.checked; sendSelect(); scheduleSave(); draw(); };
       row.querySelector('.seg').onchange = async e => { l.segments = parseInt(e.target.value) || 1; await fetch('/api/devices/segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: l.mac || l.ip, segments: l.segments }) }); };
@@ -340,6 +343,9 @@
     }
   }
   const selectedLights = () => S.lights.filter(l => l.on);
+  const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  /** what to call a light: the name you gave it, or its model and address */
+  const lightLabel = l => l.name || `${l.sku} ${l.ip}`;
   function connectWs() {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
     ws.onopen = () => { S.wsOpen = true; $('#wsState').classList.add('on'); sendSelect(); };
@@ -431,7 +437,7 @@
     const rowH = Math.min(36, (h - 8) / frame.length);
     frame.forEach((fr, r) => {
       const y = 6 + r * rowH; const n = fr.px.length / 3; const x0 = 110, x1 = w - 12; const pw = (x1 - x0) / n;
-      pctx.fillStyle = '#9aa'; pctx.font = '11px system-ui'; pctx.fillText(`${fr.light.sku} ${fr.light.ip}`, 8, y + rowH / 2 + 4);
+      pctx.fillStyle = '#9aa'; pctx.font = '11px system-ui'; pctx.fillText(lightLabel(fr.light), 8, y + rowH / 2 + 4);
       for (let i = 0; i < n; i++) {
         pctx.fillStyle = `rgb(${fr.px[i * 3]},${fr.px[i * 3 + 1]},${fr.px[i * 3 + 2]})`;
         const px = x0 + i * pw; pctx.beginPath(); pctx.roundRect(px + 1, y + 3, Math.max(1, pw - 2), rowH - 8, 3); pctx.fill();
@@ -1126,7 +1132,7 @@
         else if (d.type === 'bool') html += `<div class="row"><label>${d.label}</label><input data-p="${k}" type="checkbox" ${v ? 'checked' : ''}></div>`;
       }
       if (!Object.keys(e.params).length) html += '<div class="hint">No parameters.</div>';
-      html += `</div><div class="panel"><h3>Lights</h3><div class="light-pick"><label><input type="radio" name="cl" value="all" ${!clip.lights ? 'checked' : ''}> All selected lights</label>${S.lights.map(l => `<label><input type="checkbox" data-light="${l.ip}" ${clip.lights && clip.lights.includes(l.ip) ? 'checked' : ''}> ${l.sku} ${l.ip}</label>`).join('')}</div>
+      html += `</div><div class="panel"><h3>Lights</h3><div class="light-pick"><label><input type="radio" name="cl" value="all" ${!clip.lights ? 'checked' : ''}> All selected lights</label>${S.lights.map(l => `<label><input type="checkbox" data-light="${l.ip}" ${clip.lights && clip.lights.includes(l.ip) ? 'checked' : ''}> ${esc(lightLabel(l))}</label>`).join('')}</div>
         <div class="btns"><button id="cDup" class="small">Duplicate</button><button id="cFill" class="small">Fill section</button><button id="cDel" class="small">Delete</button></div></div>`;
       el.innerHTML = html;
       const upd = () => { scheduleSave(); draw(); };

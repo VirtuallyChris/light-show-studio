@@ -160,6 +160,7 @@ class Studio:
             web.get("/api/devices", self.devices),
             web.get("/api/output", self.output_status),
             web.post("/api/devices/segments", self.set_segments),
+            web.post("/api/devices/name", self.set_name),
             web.post("/api/song", self.upload_song),
             web.post("/api/open", self.open_path),
             web.get("/api/audio/{project}", self.audio),
@@ -249,12 +250,17 @@ class Studio:
             online |= set(await loop.run_in_executor(None, probe_all))
         self.known.sort(key=lambda d: tuple(int(p) for p in d.ip.split(".")))
         seg = cfg.get("segments", {})
+        # Govee keeps the names given in its app in its cloud; the LAN protocol never
+        # reports them, and the lights announce no hostname. So names are given here,
+        # keyed like segment counts: by MAC, with the light's own device id as a fallback.
+        names = cfg.get("light_names", {})
         out = []
         for d in self.known:
             if not d.mac:   # ARP may not have the entry yet; use what we remembered
                 d.mac = remembered.get(d.ip, {}).get("mac", "")
             n = seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or 10
-            out.append({"ip": d.ip, "mac": d.mac, "sku": d.sku, "segments": int(n), "online": d.ip in online,
+            name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""
+            out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online,
                         "default": d.mac.upper() == DEFAULT_LIGHT_MAC})
         return web.json_response(out)
 
@@ -263,6 +269,20 @@ class Studio:
         return web.json_response({"active": o.active, "devices": [d.ip for d in o.devices], "frames": o.frames,
                                   "errors": o.errors, "last_error": o.last_error,
                                   "seconds_since_last_frame": round(time.monotonic() - o.last_frame, 2) if o.last_frame else None})
+
+    async def set_name(self, request):
+        """Name a light. Stored under every key it is known by, so a changed IP or an empty ARP cache cannot lose it."""
+        body = await request.json()
+        name = str(body.get("name", "")).strip()[:40]
+        cfg = load_config()
+        names = cfg.setdefault("light_names", {})
+        for key in {body.get("mac"), body.get("device_id")} - {None, ""}:
+            if name:
+                names[key] = name
+            else:
+                names.pop(key, None)
+        save_config(cfg)
+        return web.json_response({"ok": True, "name": name})
 
     async def set_segments(self, request):
         body = await request.json()

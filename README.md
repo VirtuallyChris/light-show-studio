@@ -35,6 +35,13 @@ Two ways of talking to the lights:
    as do the songs you drop in; the show designs saved next to them
    (`shows/<song>/project.json`) are kept.
 
+**Naming lights.** Click a light's name in the Lights panel (it shows the model,
+like H608D, until named) and type. The name is used in the preview and in each
+clip's light picker. Names you gave the lights in the Govee app cannot be read:
+Govee keeps them in its cloud, and on the network the lights announce no name of
+any kind (no hostname, NetBIOS or mDNS). Names are saved in `config.json` against
+the light's MAC and its own device id, so a new IP address does not lose them.
+
 `lightshow.cmd` in this folder runs the tool with the venv, so the commands
 below can be typed as `lightshow ...` from this directory (`.\lightshow ...` in PowerShell).
 **Double-click `Light Show Studio.vbs`** to open the Studio like an app: one
