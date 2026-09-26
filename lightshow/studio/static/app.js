@@ -80,6 +80,13 @@
   /** older projects had a palette lane: bake it into the clips, then drop it */
   function migrateProject(p) {
     for (const lane of p.lanes) lane.hidden = !!lane.hidden;
+    // the strobe riser used to speed up smoothly between two rates; now it steps through note values
+    for (const lane of p.lanes) for (const c of lane.clips) if (c.effect === 'strobeRiser' && c.params && c.params.startRate !== undefined) {
+      const note = (r, opts) => opts.reduce((best, o) => Math.abs(Math.log2(o / r)) < Math.abs(Math.log2(best / r)) ? o : best, opts[0]);
+      const from = note(c.params.startRate || 1, [1, 2, 4]); const to = Math.max(from * 2, note(c.params.maxRate || 8, [2, 4, 8]));
+      c.params.from = String(from); c.params.to = String(Math.min(8, to));
+      delete c.params.startRate; delete c.params.maxRate;
+    }
     // lights are chosen once for the room, never by the song
     delete p.lights;
     for (const lane of p.lanes) for (const c of lane.clips) delete c.lights;
@@ -1244,7 +1251,7 @@
         clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
         clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
         clip(3, 'riser', b0, len, {});
-        clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.4, startRate: 1, maxRate: hard ? 8 : 4 });
+        clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.4, from: '1', to: hard ? '8' : '4' });
         break;
       case 'drop': {
         const kind = variant % 4;

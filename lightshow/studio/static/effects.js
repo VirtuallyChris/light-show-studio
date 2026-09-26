@@ -68,12 +68,12 @@ const Effects = (() => {
   function dirX(c, x) {
     switch (c.p.direction) {
       case 'rev': return 1 - x;
-      case 'out': return Math.abs(x - 0.5) * 2;      // centre = 0, ends = 1
-      case 'in': return 1 - Math.abs(x - 0.5) * 2;   // ends = 0, centre = 1
+      case 'out': return Math.abs(x - 0.5) * 2;      // center = 0, ends = 1
+      case 'in': return 1 - Math.abs(x - 0.5) * 2;   // ends = 0, center = 1
       default: return x;
     }
   }
-  const DIRS = { fwd: 'forward', rev: 'reverse', out: 'centre out', in: 'ends in' };
+  const DIRS = { fwd: 'forward', rev: 'reverse', out: 'center out', in: 'ends in' };
 
   // common param definitions
   const P = {
@@ -134,7 +134,7 @@ const Effects = (() => {
     render(c) { const tt = c.beat / c.p.speed * 3; for (let i = 0; i < c.n; i++) { const a = Math.floor(tt + hash(i)), f = frac(tt + hash(i)); const v0 = hash(a * 31 + i * 7), v1 = hash((a + 1) * 31 + i * 7); const v = lerp(v0, v1, f * f * (3 - 2 * f)); const col = palAt(c.pal, v * 0.35); const b = (0.25 + 0.75 * v) * c.p.intensity; set(c.out, i, col[0] * b, col[1] * b, col[2] * b); } } });
 
   // ===== MEDIUM =====
-  def({ id: 'pulse', name: 'Beat pulse', cat: 'medium', desc: 'A pulse of color blooms from the centre (or an end) on every beat.', swatch: ['#ffffff', '#ff2fa0'],
+  def({ id: 'pulse', name: 'Beat pulse', cat: 'medium', desc: 'A pulse of color blooms from the center (or an end) on every beat.', swatch: ['#ffffff', '#ff2fa0'],
     params: { every: P.speed(1, 'Every (beats)'), direction: P.direction('out'), size: P.size(0.7), decay: P.decay(0.4), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
     render(c) { const k = Math.floor(c.beat / c.p.every); const ph = frac(c.beat / c.p.every) * c.p.every; const env = Math.exp(-ph / (c.p.decay * 0.5 + 0.02)); const col = colorFor(c, 0.5, k); for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const g = Math.exp(-1 * ((x) / (c.p.size + 0.01)) ** 2); const v = c.p.floor + env * g; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
@@ -178,7 +178,7 @@ const Effects = (() => {
     params: { speed: P.speed(8, 'Battle length (beats)'), surge: { type: 'range', def: 0.15, min: 0, max: 0.5, step: 0.01, label: 'Beat surge' }, soft: { type: 'range', def: 0.08, min: 0, max: 0.5, step: 0.01, label: 'Front softness' } },
     render(c) { const a = c.pal[0], b = c.pal[1 % c.pal.length]; const u = c.beat / c.p.speed; const base = 0.5 + 0.35 * Math.sin(u * 2 * Math.PI); const side = Math.floor(c.beat) % 2 === 0 ? 1 : -1; const front = clamp(base + side * c.p.surge * c.kick, 0.02, 0.98); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const m = clamp((x - front) / (c.p.soft + 0.001) + 0.5); const glow = 1 + 0.6 * Math.exp(-1 * ((x - front) / 0.05) ** 2); set(c.out, i, lerp(a[0], b[0], m) * glow, lerp(a[1], b[1], m) * glow, lerp(a[2], b[2], m) * glow); } } });
 
-  def({ id: 'ripple', name: 'Ripples', cat: 'medium', desc: 'Rings expand from the centre on every beat over a transparent background.', swatch: ['#ffffff', '#00c8ff'],
+  def({ id: 'ripple', name: 'Ripples', cat: 'medium', desc: 'Rings expand from the center on every beat over a transparent background.', swatch: ['#ffffff', '#00c8ff'],
     params: { every: P.speed(1, 'Every (beats)'), travel: P.speed(1, 'Travel time (beats)'), width: P.size(0.1, 'Ring width'), color: P.color() },
     render(c) { clear(c.out); const cur = Math.floor(c.beat / c.p.every); const alive = Math.ceil(c.p.travel / c.p.every) + 1; for (let k = cur; k > cur - alive && k >= 0; k--) { const age = (c.beat - k * c.p.every) / c.p.travel; if (age < 0 || age > 1) continue; const r = age; const col = colorFor(c, age, k); const fade = 1 - 0.55 * age; for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const v = Math.exp(-1 * ((x - r) / (c.p.width)) ** 2) * fade; if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
@@ -219,7 +219,7 @@ const Effects = (() => {
   const noteHue = pc => (pc % 12) / 12;
 
   def({ id: 'hookstrike', name: 'Hook strike', cat: 'signature', desc: 'Marks every return of the song\u2019s main riff with a burst. Dark in between, so the riff is the only thing you see.', swatch: ['#ffffff', '#ff2fa0'],
-    params: { shape: { type: 'select', def: 'burst', options: { burst: 'burst from centre', sweep: 'sweep across', flash: 'whole strip' }, label: 'Shape' }, decay: P.decay(0.45), size: P.size(0.3, 'Width'), color: P.color() },
+    params: { shape: { type: 'select', def: 'burst', options: { burst: 'burst from center', sweep: 'sweep across', flash: 'whole strip' }, label: 'Shape' }, decay: P.decay(0.45), size: P.size(0.3, 'Width'), color: P.color() },
     render(c) { clear(c.out); const h = c.music.hook; if (h.index < 0) return;
       const life = 0.25 + c.p.decay * 1.5; if (h.age > life) return;
       const q = h.age / life, env = Math.pow(1 - q, 0.8);
@@ -331,22 +331,76 @@ const Effects = (() => {
     render(c) { const k = Math.floor(c.beat / c.p.every); const a = palIdx(c.pal, k), b = palIdx(c.pal, k + 1); for (let i = 0; i < c.n; i++) { const left = i < c.n / 2; const on = left === (k % 2 === 0); const col = left ? a : b; const v = on ? 1 : c.p.dim; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   // ===== ACCENTS (one-shots shaped by the clip length) =====
-  def({ id: 'dropblast', name: 'Drop blast', cat: 'accent', desc: 'White blast then a shockwave racing out from the centre. Place it right on the drop.', swatch: ['#ffffff', '#ff2fa0'],
+  def({ id: 'dropblast', name: 'Drop blast', cat: 'accent', desc: 'White blast then a shockwave racing out from the center. Place it right on the drop.', swatch: ['#ffffff', '#ff2fa0'],
     params: { flash: { type: 'range', def: 0.15, min: 0.02, max: 0.5, step: 0.01, label: 'Flash (beats)' }, ring: P.size(0.12, 'Ring width'), color: P.color() },
     render(c) { clear(c.out); const b = c.clipBeat; if (b < c.p.flash) { fillAll(c.out, c.n, 1, 1, 1, 1); return; } const age = (b - c.p.flash) / Math.max(0.5, c.clipBeats - c.p.flash); if (age > 1) return; const col = colorFor(c, age, 0); for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const v = Math.exp(-1 * ((x - age * 1.1) / c.p.ring) ** 2) * (1 - age); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
-  def({ id: 'riser', name: 'Riser (buildup)', cat: 'accent', desc: 'Fills from both ends toward the centre over the length of the clip, heating up as it goes. End it exactly on the drop. Pair it with a Strobe riser on the layer above.', swatch: ['#f59e0b', '#7a1f00'],
-    params: { color: P.color(), fill: P.bool('Fill toward centre', true), floor: { type: 'range', def: 0.08, min: 0, max: 1, step: 0.01, label: 'Unfilled level' } },
-    render(c) { const p = c.clipT; const col = c.p.color === 'cycle' ? palAt(c.pal, p * 0.5) : colorFor(c, p, 0); for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const lit = !c.p.fill || x > (1 - p) * 1.02; const v = lit ? 0.5 + 0.5 * p : c.p.floor + 0.2 * p; set(c.out, i, col[0] * v, col[1] * v, col[2] * v, 1); } } });
+  // ----- risers: everything moves in note values, counted back from the drop ------------------
+  // A buildup is heard in note values: quarter notes, then eighths, then sixteenths.
+  // Lights that speed up or grow smoothly, on their own clock, look disconnected from
+  // the music. So both risers work in stages laid out backwards from the end of the
+  // clip (where the drop is), each a whole number of bars when the clip allows, and
+  // every flash or step lands on the song's own beat grid.
+  const NOTES = { '1': '1/4 notes', '2': '1/8 notes', '4': '1/16 notes', '8': '1/32 notes' };
+  /** stage length in beats for k stages over the last `span` beats of the clip */
+  function stageLen(span, k) {
+    const raw = span / Math.max(1, k);
+    return raw >= 4 ? Math.floor(raw / 4) * 4 : Math.max(1, Math.floor(raw));
+  }
+  /** which stage a moment is in, counted from the end: 0 is the last stage, before the drop */
+  const stageFromEnd = (end, at, len) => Math.floor((end - at - 1e-6) / len);
+  /** where the drop is, in clip beats: the song beat nearest the end of the clip, so a clip
+   *  that is a little off the grid still changes gear on the beat */
+  const dropAt = c => Math.round(c.beat - c.clipBeat + c.clipBeats) - (c.beat - c.clipBeat);
+  const riserGrids = new Map();
+  /** the beats (from the clip start) on which a Riser steps forward, and so how many steps there are */
+  function riserGrid(clipBeats, offset, step, accel, end) {
+    const key = `${clipBeats}|${offset.toFixed(3)}|${step}|${accel}|${end.toFixed(3)}`;
+    let g = riserGrids.get(key); if (g) return g;
+    const k = accel ? 3 : 1, len = stageLen(clipBeats, k);
+    g = [];
+    for (let t = offset; t < Math.min(clipBeats, end) - 1e-6 && g.length < 2048;) {
+      g.push(t);
+      const idx = Math.min(k - 1, stageFromEnd(end, t, len));
+      t += step / 2 ** (k - 1 - idx);
+    }
+    if (riserGrids.size > 64) riserGrids.clear();
+    riserGrids.set(key, g); return g;
+  }
 
-  def({ id: 'strobeRiser', name: 'Strobe riser', cat: 'accent', desc: 'A blackout strobe that speeds up smoothly toward the end of the clip. Transparent between cuts, so put it on the layer above a Riser. End it on the drop.', swatch: ['#000000', '#ffffff'],
-    params: { strobeFrom: { type: 'range', def: 0.3, min: 0, max: 1, step: 0.01, label: 'Starts at' }, startRate: { type: 'range', def: 1, min: 0.25, max: 4, step: 0.25, label: 'Start flashes / beat' }, maxRate: { type: 'range', def: 8, min: 2, max: 16, step: 1, label: 'Max flashes / beat' }, duty: { type: 'range', def: 0.5, min: 0.1, max: 0.9, step: 0.05, label: 'Dark fraction' } },
-    render(c) { clear(c.out); const p = c.clipT; if (p <= c.p.strobeFrom) return;
-      // rate ramps linearly from startRate to maxRate over the strobe portion; the phase is the
-      // integral of the rate, so the flashes accelerate smoothly with no jumps
-      const L = c.clipBeats * (1 - c.p.strobeFrom); const x = c.clipBeat - c.clipBeats * c.p.strobeFrom; const r0 = c.p.startRate, r1 = c.p.maxRate;
-      const phase = r0 * x + (r1 - r0) * x * x / (2 * Math.max(0.001, L));
-      if (frac(phase) > 1 - c.p.duty) fillAll(c.out, c.n, 0, 0, 0, 1); } });
+  def({ id: 'riser', name: 'Riser (buildup)', cat: 'accent', desc: 'Fills from both ends toward the center one step at a time, on the beat, brightening as it goes and stepping faster in the last bars. End it exactly on the drop. Pair it with a Strobe riser on the layer above.', swatch: ['#f59e0b', '#7a1f00'],
+    params: { step: { type: 'select', def: '1', options: { '4': 'every bar', '2': 'every 2 beats', '1': 'every beat', '0.5': 'every 1/8 note' }, label: 'Step' },
+      accel: P.bool('Steps get faster near the end', true), color: P.color(), fill: P.bool('Fill toward center', true),
+      floor: { type: 'range', def: 0.08, min: 0, max: 1, step: 0.01, label: 'Unfilled level' } },
+    render(c) {
+      // step on the song's own beats: the first step is the first whole beat in the clip
+      const offset = (1 - frac(c.beat - c.clipBeat)) % 1;
+      const grid = riserGrid(c.clipBeats, offset, Number(c.p.step) || 1, !!c.p.accel, dropAt(c));
+      let n = 0; while (n < grid.length && grid[n] <= c.clipBeat + 1e-6) n++;
+      const p = grid.length ? n / grid.length : c.clipT;                       // how far it has filled
+      const next = n < grid.length ? grid[n] : c.clipBeats, prev = n ? grid[n - 1] : 0;
+      const pop = n ? Math.pow(1 - clamp((c.clipBeat - prev) / Math.max(0.05, next - prev)), 2) : 0;   // each step lands with a kick
+      const col = c.p.color === 'cycle' ? palAt(c.pal, p * 0.5) : colorFor(c, p, 0);
+      for (let i = 0; i < c.n; i++) {
+        const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2;
+        const lit = !c.p.fill || x > (1 - p) * 1.02;
+        const v = lit ? Math.min(1, (0.45 + 0.4 * p) * (1 + 0.45 * pop)) : c.p.floor + 0.2 * p;
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, 1);
+      } } });
+
+  def({ id: 'strobeRiser', name: 'Strobe riser', cat: 'accent', desc: 'A blackout strobe that steps up through note values into the drop: 1/4 notes, then 1/8, then 1/16. Each step lasts a whole number of bars when the clip allows, and every cut lands on the beat. Transparent between cuts, so put it on the layer above a Riser. End it on the drop.', swatch: ['#000000', '#ffffff'],
+    params: { from: { type: 'select', def: '1', options: { '1': NOTES['1'], '2': NOTES['2'], '4': NOTES['4'] }, label: 'Starts in' },
+      to: { type: 'select', def: '4', options: { '2': NOTES['2'], '4': NOTES['4'], '8': NOTES['8'] }, label: 'Ends in' },
+      strobeFrom: { type: 'range', def: 0.3, min: 0, max: 1, step: 0.01, label: 'Starts at' },
+      duty: { type: 'range', def: 0.5, min: 0.1, max: 0.9, step: 0.05, label: 'Dark fraction' } },
+    render(c) { clear(c.out);
+      const from = Number(c.p.from) || 1, to = Math.max(from, Number(c.p.to) || 4);
+      const k = Math.round(Math.log2(to / from)) + 1;                            // 1/4 -> 1/16 is three stages
+      const len = stageLen(c.clipBeats * (1 - c.p.strobeFrom), k);
+      const idx = stageFromEnd(dropAt(c), c.clipBeat, len);
+      if (idx >= k || idx < 0 || c.clipBeat >= c.clipBeats) return;              // not started yet, or past the drop
+      const rate = to / 2 ** idx;                                                  // cuts per beat
+      if (frac(c.beat * rate) >= 1 - c.p.duty) fillAll(c.out, c.n, 0, 0, 0, 1); } });
 
   def({ id: 'fadein', name: 'Fade in', cat: 'accent', desc: 'Darkness lifting over the length of the clip. Layer it above other effects.', swatch: ['#000000', '#888888'],
     params: {}, render(c) { fillAll(c.out, c.n, 0, 0, 0, 1 - c.clipT); } });
@@ -363,7 +417,7 @@ const Effects = (() => {
   def({ id: 'colorslam', name: 'Slam', cat: 'accent', desc: 'Whole strip slams to a palette color and fades back out.', swatch: ['#ff0000', '#000000'],
     params: { color: P.color() }, render(c) { const v = Math.exp(-c.clipT * 4); const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], v); } });
 
-  def({ id: 'sweepout', name: 'Sweep out', cat: 'accent', desc: 'A bright bar sweeps from the centre to both ends once, over the clip.', swatch: ['#ffffff', '#00c8ff'],
+  def({ id: 'sweepout', name: 'Sweep out', cat: 'accent', desc: 'A bright bar sweeps from the center to both ends once, over the clip.', swatch: ['#ffffff', '#00c8ff'],
     params: { size: P.size(0.15, 'Width'), color: P.color() },
     render(c) { clear(c.out); const col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const v = Math.exp(-1 * ((x - c.clipT) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 

@@ -85,8 +85,8 @@ discovered light is used.
 
 | mode       | what it does |
 |------------|--------------|
-| `concert` (default) | Reads the *structure* of the music and changes the whole show with it. Chill: slow aurora fades. Groove: mood-colored gradient with kick pulses from the centre. Buildup: the strip fills from both ends toward the centre while a strobe accelerates from 2 Hz to 20 Hz. Drop: white blast, shockwave, then six seconds of fast rainbow chaos. Heavy: beat strobes, fast color-block chases, alternating halves. Hi-hats sparkle throughout. Base color follows the mood: dark bass-heavy = deep red, mid = violet, bright = cyan. |
-| `spectrum` | Hue follows the tonal centre of the music (bass = red, treble = violet), brightness follows loudness, beats ripple out from the centre of the light. |
+| `concert` (default) | Reads the *structure* of the music and changes the whole show with it. Chill: slow aurora fades. Groove: mood-colored gradient with kick pulses from the center. Buildup: the strip fills from both ends toward the center while a strobe accelerates from 2 Hz to 20 Hz. Drop: white blast, shockwave, then six seconds of fast rainbow chaos. Heavy: beat strobes, fast color-block chases, alternating halves. Hi-hats sparkle throughout. Base color follows the mood: dark bass-heavy = deep red, mid = violet, bright = cyan. |
+| `spectrum` | Hue follows the tonal center of the music (bass = red, treble = violet), brightness follows loudness, beats ripple out from the center of the light. |
 | `eq`       | Spectrum analyser: each segment is a frequency band, bass at one end, treble at the other. |
 | `vu`       | Loudness fills the light from one end (green -> yellow -> red) with a falling peak marker. |
 | `pulse`    | Palette color jumps on every beat, brightness pumps with the beat, beats ripple along the light. |
@@ -297,7 +297,7 @@ own layer, only where the song actually has it:
 | **Bass note** | color follows the bass note, swelling on each new one |
 
 The lead is taken from the stereo side channel (left minus right), which
-cancels anything panned dead centre, so lead vocals and kick largely drop out
+cancels anything panned dead center, so lead vocals and kick largely drop out
 and the wide instruments remain. That is why it follows the synth rather than
 the singer.
 
@@ -324,7 +324,7 @@ the groove effects default to black between their bright parts, the sparse
 effects (meteors, pulsar, orbit, dual comets) draw on transparent black, and
 auto-build pairs a dim base with one sparse overlay. Auto-build keeps one base
 effect and one overlay for the whole of every drop; only the blast on its
-first beats is extra. The buildup riser is two effects: **Riser** fills the strip toward the centre
+first beats is extra. The buildup riser is two effects: **Riser** fills the strip toward the center
 and heats up, and **Strobe riser** is a separate blackout strobe on the layer
 above that accelerates smoothly to its maximum (default 8 flashes a beat)
 right at the drop. Auto-build stacks them; use one without the other if you
