@@ -44,15 +44,10 @@ close the studio window. Its messages go to `studio.log` in this folder. A
 second double-click while it is running just opens another window on the same
 studio. `studio.cmd` is the same thing from a terminal, with the output visible.
 
-If the project lives on a network share, Windows asks "are you sure?" every
-time you open a file from it. A desktop shortcut avoids that: point it at
-`wscript.exe` with the path to the `.vbs` as its argument, so the program being
-launched is a local one. On this machine that shortcut is already on the
-desktop, with `Light Show Studio.ico` as its icon. The same icon is the page's
+For a desktop icon, make a shortcut to the `.vbs` (right-click it, *Send to*,
+*Desktop*) and give it `Light Show Studio.ico`. The same icon is the page's
 favicon and web-app manifest icon, which is what the app window shows in its
-title bar and on the taskbar; `tools/make_icon.py` redraws every size. The other route is to add the
-file server to the *Local intranet* zone in Internet Options, which silences
-the prompt for everything on the share.
+title bar and on the taskbar; `tools/make_icon.py` redraws every size.
 
 The Studio opens in a **borderless app window** (Chrome, Edge or Brave, whichever
 is installed) with no tabs or address bar, using its own browser profile so it
