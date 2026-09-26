@@ -143,8 +143,10 @@ after that. Saved shows live in the `shows/` folder and reload from the
    Clips never overlap inside a layer: dropping one where another already is
    places it on the next free layer up, resizing stops at the neighbour, and a
    drag into an occupied spot slides to the nearest gap. Each clip has its own
-   parameters, opacity, blend mode and fades in the inspector, and can be
-   limited to specific lights.
+   parameters, opacity, blend mode and fades in the inspector.
+   **Which lights play is not part of a show.** Tick them in the Lights panel
+   and every song, the preview and Jam mode use that one selection; opening a
+   song never changes it. It is saved in `config.json` by each light's MAC.
    **Selecting several at once** works as in a DAW: drag across empty space
    to box-select, <kbd>Shift</kbd>+click to add or remove one,
    <kbd>Ctrl</kbd>+<kbd>A</kbd> for everything. Drag any selected clip and

@@ -33,7 +33,7 @@
       sections: a.sections.map(s => ({ start: s.start, end: s.end, type: s.type })),
       drops: a.drops.slice(), palettes: JSON.parse(JSON.stringify(Effects.PALETTES)), defaultPalette: 'Neon',
       paletteClips: [], lanes: Array.from({ length: DEFAULT_LANES }, newLane),
-      lights: { selected: null, segments: {} }, settings: { latency: 30, master: 1 },
+      settings: { latency: 30, master: 1 },
     };
   }
   const P = () => S.project;
@@ -80,6 +80,9 @@
   /** older projects had a palette lane: bake it into the clips, then drop it */
   function migrateProject(p) {
     for (const lane of p.lanes) lane.hidden = !!lane.hidden;
+    // lights are chosen once for the room, never by the song
+    delete p.lights;
+    for (const lane of p.lanes) for (const c of lane.clips) delete c.lights;
     // presets added since the project was made (Rainbow) show up without touching edited ones
     for (const [name, cols] of Object.entries(Effects.PALETTES)) if (!p.palettes[name]) p.palettes[name] = cols.slice();
     // the Rainbow effect and the "rainbow" color choice are now the Rainbow preset on an ordinary effect
@@ -111,7 +114,6 @@
   /** copy the UI-held settings into the project and hand it back, ready to send */
   function collectProject() {
     P().name = $('#projectName').value || S.name;
-    P().lights.selected = S.lights.filter(l => l.on).map(l => l.ip);
     P().settings.latency = parseFloat($('#latency').value) || 0;
     P().settings.castOffset = parseFloat($('#castOffset').value) || 0;
     P().settings.master = parseFloat($('#master').value) / 100;
@@ -157,7 +159,6 @@
     $('#castOffset').value = S.project.settings.castOffsetCustom ? (S.project.settings.castOffset || 0)
       : (measured != null ? measured : S.defaults.castOffset);
     $('#master').value = Math.round(S.project.settings.master * 100);
-    if (S.project.lights.selected) for (const l of S.lights) l.on = S.project.lights.selected.includes(l.ip);
     renderLights(); sendSelect();
     $('#emptyState').hidden = true;
     S.undo.length = 0; S.redo.length = 0; S.view.sel = null; S.view.multi = []; S.audio.pos = 0;
@@ -322,8 +323,7 @@
     try {
       const list = await (await fetch('/api/devices' + (rescan ? '?rescan=1' : ''))).json();
       const prev = Object.fromEntries(S.lights.map(l => [l.ip, l.on]));
-      S.lights = list.map(d => ({ ...d, on: prev[d.ip] !== undefined ? prev[d.ip] : d.default }));
-      if (P() && P().lights.selected) for (const l of S.lights) l.on = P().lights.selected.includes(l.ip);
+      S.lights = list.map(d => ({ ...d, on: prev[d.ip] !== undefined ? prev[d.ip] : !!d.on }));
       renderLights(); sendSelect();
     } catch (e) { toast('Could not list lights', true); }
   }
@@ -337,12 +337,17 @@
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
       nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
       if (l.online === false) row.style.opacity = '0.6';
-      row.querySelector('input[type=checkbox]').onchange = e => { l.on = e.target.checked; sendSelect(); scheduleSave(); draw(); };
+      row.querySelector('input[type=checkbox]').onchange = e => { l.on = e.target.checked; sendSelect(); saveSelection(); draw(); };
       row.querySelector('.seg').onchange = async e => { l.segments = parseInt(e.target.value) || 1; await fetch('/api/devices/segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: l.mac || l.ip, segments: l.segments }) }); };
       el.appendChild(row);
     }
   }
   const selectedLights = () => S.lights.filter(l => l.on);
+  /** the ticked lights belong to the room, not the song: saved with the studio's settings */
+  function saveSelection() {
+    fetch('/api/devices/selected', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lights: selectedLights().map(l => ({ mac: l.mac, device_id: l.device_id })) }) }).catch(() => { });
+  }
   const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   /** what to call a light: the name you gave it, or its model and address */
   const lightLabel = l => l.name || `${l.sku} ${l.ip}`;
@@ -409,7 +414,7 @@
         if (lane.hidden) return;
         let clip = null;
         for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && (!clip || c.start >= clip.start)) clip = c;
-        if (!clip || (clip.lights && !clip.lights.includes(L.ip))) return;
+        if (!clip) return;
         const e = Effects.byId[clip.effect]; if (!e) return;
         const src = buf('src' + li + L.ip, n); src.fill(0);
         for (let i = 0; i < n; i++) src[i * 4 + 3] = 1;  // full coverage unless the effect clears
@@ -606,7 +611,7 @@
     g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText('right-click a layer name to insert, remove or reorder', HEADER + 8, ay + 17);
     g.restore();
   }
-  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); if (c.lights) parts.push(`${c.lights.length} light${c.lights.length > 1 ? 's' : ''}`); return parts.join(' · '); }
+  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
   function compose() {
     if (!S.analysis || !off.width || !off.height) return;   // nothing rendered yet (or a zero-size canvas)
     const w = tl.clientWidth, h = tl.clientHeight; const g = tctx;
@@ -951,7 +956,7 @@
     len = len ?? (e.cat === 'accent' ? (effectId === 'riser' ? 16 : 2) : 16);
     const start = Math.max(0, startBeat);
     const li = freeLaneFor(start, len, laneIdx);
-    const clip = { id: uid(), effect: effectId, start, len, params: Effects.defaults(effectId), opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, lights: null, palette: effectColors(effectId) };
+    const clip = { id: uid(), effect: effectId, start, len, params: Effects.defaults(effectId), opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effectId) };
     P().lanes[li].clips.push(clip); S.view.sel = { type: 'clip', id: clip.id }; inspector(); changed();
     if (li !== laneIdx) toast(`Layer ${laneIdx + 1} was busy there, placed on layer ${li + 1}`);
     return clip;
@@ -1132,8 +1137,7 @@
         else if (d.type === 'bool') html += `<div class="row"><label>${d.label}</label><input data-p="${k}" type="checkbox" ${v ? 'checked' : ''}></div>`;
       }
       if (!Object.keys(e.params).length) html += '<div class="hint">No parameters.</div>';
-      html += `</div><div class="panel"><h3>Lights</h3><div class="light-pick"><label><input type="radio" name="cl" value="all" ${!clip.lights ? 'checked' : ''}> All selected lights</label>${S.lights.map(l => `<label><input type="checkbox" data-light="${l.ip}" ${clip.lights && clip.lights.includes(l.ip) ? 'checked' : ''}> ${esc(lightLabel(l))}</label>`).join('')}</div>
-        <div class="btns"><button id="cDup" class="small">Duplicate</button><button id="cFill" class="small">Fill section</button><button id="cDel" class="small">Delete</button></div></div>`;
+      html += `</div><div class="panel"><div class="btns"><button id="cDup" class="small">Duplicate</button><button id="cFill" class="small">Fill section</button><button id="cDel" class="small">Delete</button></div></div>`;
       el.innerHTML = html;
       const upd = () => { scheduleSave(); draw(); };
       $('#cLane').onchange = ev => { const target = p.lanes[+ev.target.value]; if (overlaps(target, clip.start, clip.len)) { toast('No room on that layer at this position', true); ev.target.value = String(p.lanes.indexOf(lane)); return; } beginChange(); lane.clips = lane.clips.filter(c => c !== clip); target.clips.push(clip); inspector(); upd(); };
@@ -1160,8 +1164,6 @@
         inp.oninput = () => { clip.params[k] = read(); if (d.type === 'range') inp.nextElementSibling.textContent = (+inp.value).toFixed(d.step >= 1 ? 0 : 2); upd(); };
         inp.onchange = () => { beginChange(); clip.params[k] = read(); upd(); };
       });
-      el.querySelector('input[name=cl]').onchange = () => { beginChange(); clip.lights = null; inspector(); upd(); };
-      el.querySelectorAll('[data-light]').forEach(cb => cb.onchange = () => { beginChange(); const ips = [...el.querySelectorAll('[data-light]')].filter(c => c.checked).map(c => c.dataset.light); clip.lights = ips.length ? ips : null; inspector(); upd(); });
       $('#cDup').onclick = duplicateSelection; $('#cDel').onclick = () => deleteSelection();
       $('#cFill').onclick = () => { const s = p.sections.find(s => beatToTime(clip.start) >= s.start - 0.01 && beatToTime(clip.start) < s.end); if (!s) return; const st = Math.round(timeToBeat(s.start)), ln = Math.round(timeToBeat(s.end)) - st; if (overlaps(lane, st, ln, clip)) return toast('Another clip on this layer is in the way', true); beginChange(); clip.start = st; clip.len = ln; inspector(); upd(); };
       return;
@@ -1214,7 +1216,7 @@
     if ((a.events && a.events.lead || []).length) bits.push(`${a.events.lead.length} lead hits`);
     toast('Built: ' + bits.join(' \u00b7 '));
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, lights: null, palette: effectColors(effect) || S.buildPal || null, ...extra }; P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effect) || S.buildPal || null, ...extra }; P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }

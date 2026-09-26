@@ -161,6 +161,7 @@ class Studio:
             web.get("/api/output", self.output_status),
             web.post("/api/devices/segments", self.set_segments),
             web.post("/api/devices/name", self.set_name),
+            web.post("/api/devices/selected", self.set_selected),
             web.post("/api/song", self.upload_song),
             web.post("/api/open", self.open_path),
             web.get("/api/audio/{project}", self.audio),
@@ -254,6 +255,9 @@ class Studio:
         # reports them, and the lights announce no hostname. So names are given here,
         # keyed like segment counts: by MAC, with the light's own device id as a fallback.
         names = cfg.get("light_names", {})
+        # Which lights the shows play on is a property of the room, not of a song: one
+        # selection, kept here, that every show, the preview and Jam mode all use.
+        chosen = cfg.get("selected_lights")
         out = []
         for d in self.known:
             if not d.mac:   # ARP may not have the entry yet; use what we remembered
@@ -261,7 +265,8 @@ class Studio:
             n = seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or 10
             name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""
             out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online,
-                        "default": d.mac.upper() == DEFAULT_LIGHT_MAC})
+                        "default": d.mac.upper() == DEFAULT_LIGHT_MAC,
+                        "on": (d.mac in chosen or d.device_id in chosen) if chosen is not None else d.mac.upper() == DEFAULT_LIGHT_MAC})
         return web.json_response(out)
 
     async def output_status(self, request):
@@ -269,6 +274,17 @@ class Studio:
         return web.json_response({"active": o.active, "devices": [d.ip for d in o.devices], "frames": o.frames,
                                   "errors": o.errors, "last_error": o.last_error,
                                   "seconds_since_last_frame": round(time.monotonic() - o.last_frame, 2) if o.last_frame else None})
+
+    async def set_selected(self, request):
+        """Remember which lights are ticked, by MAC and device id so a new IP address changes nothing."""
+        body = await request.json()
+        keys = []
+        for light in body.get("lights", []):
+            keys += [k for k in (light.get("mac"), light.get("device_id")) if k]
+        cfg = load_config()
+        cfg["selected_lights"] = sorted(set(keys))
+        save_config(cfg)
+        return web.json_response({"ok": True})
 
     async def set_name(self, request):
         """Name a light. Stored under every key it is known by, so a changed IP or an empty ARP cache cannot lose it."""
