@@ -261,34 +261,62 @@
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
     p.sections = a.sections.map(s => ({ start: s.start, end: s.end, type: s.type }));
     $('#bpm').value = p.bpm.toFixed(2);
-    // A section whose kind or start changed is rebuilt wherever it is: ahead of the room, behind it
-    // (so the timeline tells the truth), and the one playing now, from the next beat on. A section
-    // that only grew as more was heard keeps its clips, stretched: rebuilding it on every pass
-    // would restart its effects every few seconds.
-    const nowBeat = Math.ceil(St.timeToBeat(J.pos()) + 0.1);
-    const keys = sectionKeys(); const counts = {};
-    const head = k => (k || '').split('-')[0];                        // "type@start", without the end
     // the genre arrived, or the drums did (the beat pulse goes only where there are drums): rebuild
     const drumsNow = !!(a.events && a.events.kick && a.events.kick.length);
     const style = St.showStyle(), restyled = style !== J.style || drumsNow !== !!J.drums;
     if (style !== J.style) toast(`${(doc.track || {}).name || 'This track'}: ${style} style from here on`);
-    p.sections.forEach((s, i) => {
-      const n = counts[s.type] = (counts[s.type] || 0) + 1;
-      const startBeat = Math.round(St.timeToBeat(s.start)), endBeat = Math.round(St.timeToBeat(s.end));
-      if (keys[i] === J.built[i] && !restyled) return;
-      if (head(keys[i]) === head(J.built[i]) && !restyled) {
-        // the same section, grown: stretch the clips that ran to its old end
-        for (const lane of p.lanes) for (const c of lane.clips) if (c.start >= startBeat - 0.5 && c.start < endBeat && c.len > 8 && c.start + c.len < endBeat && !lane.clips.some(k => k !== c && k.start >= c.start + c.len && k.start < endBeat)) c.len = endBeat - c.start;
-        return;
-      }
-      if (startBeat < nowBeat && endBeat > nowBeat) {                  // playing now: from the next beat
-        makeRoom(nowBeat, endBeat);
-        St.buildSection({ ...s, start: St.beatToTime(nowBeat) }, i, false, n - 1);
-      } else { makeRoom(startBeat, endBeat); St.buildSection(s, i, false, n - 1); }
-    });
+    const keys = reconcile(J.built, Math.ceil(St.timeToBeat(J.pos()) + 0.1), restyled);
     J.built = keys; J.version = doc.version; J.style = style; J.drums = drumsNow;
     St.draw();
   }
+
+  /** Bring the timeline in line with the latest sections, given the keys it was built for.
+   *
+   *  A section whose kind or start changed is rebuilt wherever it is: ahead of the room, behind it
+   *  (so the timeline tells the truth), and the one playing now from the next beat on. A section
+   *  that only grew keeps its clips: a little growth (under a bar) stretches them, more gets the
+   *  new stretch built, so its effects do not restart on every pass. Last, a safety net: from the
+   *  playhead on, any stretch of a section with no base layer is built, so no change in the
+   *  sections can leave the lights dark (a drop that grew from 2 s to a minute once did).
+   *  Returns the new keys. */
+  function reconcile(built, nowBeat, restyled) {
+    const p = St.P(), keys = sectionKeys(), counts = {};
+    const head = k => (k || '').split('-')[0];                        // "type@start", without the end
+    const endOf = k => { const m = /-(\d+(?:\.\d+)?)$/.exec(k || ''); return m ? parseFloat(m[1]) : null; };
+    const build = (s, i, n, b0, b1) => {                               // [b0, b1) of section s, afresh
+      if (b1 - b0 < 1) return;
+      makeRoom(b0, b1);
+      St.buildSection({ ...s, start: St.beatToTime(b0), end: St.beatToTime(b1) }, i, false, n - 1);
+    };
+    p.sections.forEach((s, i) => {
+      const n = counts[s.type] = (counts[s.type] || 0) + 1;
+      const startBeat = Math.round(St.timeToBeat(s.start)), endBeat = Math.round(St.timeToBeat(s.end));
+      if (keys[i] === (built || [])[i] && !restyled) return;
+      if (head(keys[i]) === head((built || [])[i]) && !restyled) {
+        const oldEnd = endOf(built[i]), oldEndBeat = oldEnd === null ? endBeat : Math.round(St.timeToBeat(oldEnd));
+        if (endBeat - oldEndBeat >= 4) build(s, i, n, Math.max(oldEndBeat, nowBeat), endBeat);    // grew a lot: build the new part
+        else for (const lane of p.lanes) for (const c of lane.clips)                                  // a little: stretch what ran to the old end
+          if (c.start >= startBeat - 0.5 && c.start < endBeat && c.len > 8 && c.start + c.len < endBeat && !lane.clips.some(k => k !== c && k.start >= c.start + c.len && k.start < endBeat)) c.len = endBeat - c.start;
+        return;
+      }
+      build(s, i, n, startBeat < nowBeat && endBeat > nowBeat ? nowBeat : startBeat, endBeat);
+    });
+    // the safety net: no part of what is still to come goes without a base layer
+    const counts2 = {};
+    p.sections.forEach((s, i) => {
+      const n = counts2[s.type] = (counts2[s.type] || 0) + 1;
+      const b0 = Math.max(Math.round(St.timeToBeat(s.start)), nowBeat), b1 = Math.round(St.timeToBeat(s.end));
+      const base = (p.lanes[0] && p.lanes[0].clips) || [];
+      let run = null;
+      for (let b = b0; b <= b1; b++) {
+        const covered = b < b1 && base.some(c => b >= c.start - 0.01 && b < c.start + c.len - 0.01);
+        if (!covered && b < b1) { if (run === null) run = b; }
+        else if (run !== null) { if (b - run >= 2) build(s, i, n, run, b); run = null; }
+      }
+    });
+    return keys;
+  }
+  J.reconcile = reconcile;                                  // for checking by hand
 
   /** Clear [b0, b1) for a rebuild. A clip that began earlier is cut back to b0, not deleted: it is
    *  what the room is looking at right now, and removing it would black the lights out mid-verse. */
