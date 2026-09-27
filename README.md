@@ -454,6 +454,11 @@ point the room had reached. When the Cast goes away the sound comes back here.
   dominant bright color and a second one from the cover.
 - **Dual comets** are for drops only; the **strobe riser** for the rave style
   only.
+- **The lights dim with the music.** When the sound falls well below what is
+  usual for its section (a gap in a drop, a sudden hush), every light falls with
+  it, down to 4%, whatever the effects are doing. Quiet sections are only a
+  little dimmer overall, never below 30%. Turn it off per show with *Dim with
+  the music* in the Song panel.
 - **A first listen rebuilds what changed.** When the analysis moves a section or
   changes its kind (a buildup that turns out to be a verse), that section is
   rebuilt, the one playing included, from the next beat.

@@ -424,11 +424,46 @@
       leadLevel: (cur.lead || [])[i] || 0, bassLevel: (cur.bass || [])[i] || 0, drumLevel: (cur.drum || [])[i] || 0,
     };
   }
+  /** How bright the whole show may be at time t, from how loud the music is there.
+   *
+   *  Two parts. A dip: when the sound falls well below what is usual for the section it is in
+   *  (a gap in a drop, a sudden hush), every light falls with it, down to 4%, whatever the effects
+   *  are doing. And the song's overall level, gently: a quiet section is a little dimmer than a
+   *  loud one, never below 30%, so a calm breakdown stays calm rather than dark. Loudness is held
+   *  over a quarter second either side, so the space between two kicks never dims. */
+  const DIM = new WeakMap();
+  function loudnessGain(t) {
+    const a = S.analysis, p = P();
+    if (!a || !a.energy || !a.energy.length || !p || (p.settings && p.settings.followLoudness === false)) return 1;
+    const fps = a.feature_fps || 30, sig = p.sections.map(x => x.start.toFixed(2)).join(',');
+    let d = DIM.get(a);
+    if (!d || d.sig !== sig) {
+      const e = a.energy, n = e.length, w = Math.max(1, Math.round(0.25 * fps));
+      const held = new Float32Array(n);
+      for (let i = 0; i < n; i++) { let m = 0; for (let j = Math.max(0, i - w); j <= Math.min(n - 1, i + w); j++) m = Math.max(m, e[j]); held[i] = m; }
+      const pct = (arr, q) => { const v = arr.filter(x => x > 0).sort((x, y) => x - y); return v.length ? v[Math.floor(v.length * q)] : 0; };
+      const ref = pct(Array.from(held), 0.9) || 1;          // a first listen is zero where not yet heard
+      const g = new Float32Array(n).fill(1);
+      const spans = p.sections.length ? p.sections.map(x => [x.start, x.end]) : [[0, n / fps]];
+      for (const [s0, s1] of spans) {
+        const i0 = Math.max(0, Math.floor(s0 * fps)), i1 = Math.min(n, Math.ceil(s1 * fps));
+        const usual = pct(Array.from(held.subarray(i0, i1)), 0.5) || ref;
+        for (let i = i0; i < i1; i++) {
+          const dip = Math.pow(Math.min(1, held[i] / (0.55 * usual + 1e-6)), 1.6);
+          const overall = Math.max(0.3, Math.pow(Math.min(1, held[i] / (0.5 * ref + 1e-6)), 0.8));
+          g[i] = Math.max(0.04, dip * overall);
+        }
+      }
+      d = { g, sig }; DIM.set(a, d);
+    }
+    return d.g[clamp(Math.floor(t * fps), 0, d.g.length - 1)];
+  }
+
   function renderFrame(t) {
     const p = P(); const b = timeToBeat(t); const f = featureAt(t); const lanePal = currentPalette(b);
     const music = musicAt(t);
     const kick = Math.exp(-frac(b) * 6);
-    const master = parseFloat($('#master').value) / 100;
+    const master = parseFloat($('#master').value) / 100 * loudnessGain(t);
     const out = [];
     for (const L of selectedLights()) {
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
@@ -1123,7 +1158,8 @@
       const styleRow = `<div class="row"><label title="How hard the lights go when you auto-build. Chill never strobes; groove moves but lifts drops without flashing; dance flashes on the beat; rave goes all out.">Show style</label><select id="songStyle">
         <option value="">Auto${auto ? ': ' + STYLE_NAMES[auto] : ''}</option>${Object.entries(STYLE_NAMES).map(([k, n]) => `<option value="${k}" ${p.settings && p.settings.style === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
         ${heard ? `<div class="row"><label>Sounds like</label><span class="genre-heard">${esc(heard)}</span></div>` : ''}`;
-      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''}</span></div>${S.analysis && S.analysis.structure_source === 'loudness' ? `<div class="hint warn">Section timing was not refined: ${esc(S.analysis.structure_error || 'SongFormer did not run')}. Boundaries may be a bar or two off. Press Re-detect to try again.</div>` : ''}<div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
+      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label title="When the music goes quiet, every light dims with it, even in a drop">Dim with the music</label><input id="followLoud" type="checkbox" ${p.settings.followLoudness === false ? '' : 'checked'}></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''}</span></div>${S.analysis && S.analysis.structure_source === 'loudness' ? `<div class="hint warn">Section timing was not refined: ${esc(S.analysis.structure_error || 'SongFormer did not run')}. Boundaries may be a bar or two off. Press Re-detect to try again.</div>` : ''}<div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
+      $('#followLoud').onchange = e => { beginChange(); p.settings.followLoudness = e.target.checked; changed(); pushFrameIfIdle(); };
       $('#songStyle').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.style = e.target.value; changed(); inspector();
         toast(`Show style: ${e.target.value ? STYLE_NAMES[e.target.value] : 'Auto (' + STYLE_NAMES[showStyle()] + ')'}. Press Auto-build show to rebuild in it.`); };
       return; }
@@ -1492,5 +1528,5 @@
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {}; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain };
 })();
