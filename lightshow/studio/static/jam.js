@@ -150,12 +150,21 @@
   async function follow(st) {
     const room = st.room;
     if (!room) { if (J.anchor) J.anchor.playing = false; S.audio.playing = false; return; }
-    if (room.key !== J.key) { await load(room); if (room.key !== J.key) return; }
-    else if (room.kind === 'live' && room.version !== J.version) await refresh(room);
-    else if (room.kind === 'live' && performance.now() - (J.lastFeat || 0) > 5000) await refresh(room, true);
+    // A show that fails to build or update must not stop the clock: the lights would sit at 0:00.
+    try {
+      if (room.key !== J.key) { await load(room); if (room.key !== J.key) return; }
+      else if (room.kind === 'live' && room.version !== J.version) await refresh(room);
+      else if (room.kind === 'live' && performance.now() - (J.lastFeat || 0) > 5000) await refresh(room, true);
+    } catch (e) { buildFailed(room, e); }
     anchorTo(room);
     S.audio.playing = !!room.playing; St.updateTransport();
     if ($('#outputOn').checked) St.startOutput();
+  }
+
+  function buildFailed(room, e) {
+    console.error('Jam show build failed', e);
+    if (J.failedKey !== room.key) toast(`${room.label}: the show could not be built (${e.message}). The lights keep time with what there is.`, true);
+    J.failedKey = room.key;
   }
 
   function adopt(analysis, name, saved) {
@@ -174,13 +183,13 @@
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
       adopt(data.analysis, data.project, data.saved || null);
-      if (!data.saved) St.autoBuild(true);
-      toast(`${room.label}: playing your show`);
+      if (!data.saved) try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
+      if (J.failedKey !== room.key) toast(`${room.label}: playing your show`);
     } else {
       adopt(doc.analysis, room.label, null);
-      St.autoBuild(true);
+      try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
       J.built = sectionKeys();
-      toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
+      if (J.failedKey !== room.key) toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
     }
     J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();

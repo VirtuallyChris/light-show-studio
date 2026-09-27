@@ -953,7 +953,8 @@
   const overlaps = (lane, start, len, ignore) => lane.clips.some(c => c !== ignore && start < c.start + c.len && c.start < start + len);
   function freeLaneFor(start, len, from = 0, ignore = null) {
     const p = P();
-    for (let i = Math.max(0, from); ; i++) { if (i >= p.lanes.length) p.lanes.push(newLane()); if (!overlaps(p.lanes[i], start, len, ignore)) return i; }
+    // a clip may ask for a layer several above the top one: add every layer up to it, not just one
+    for (let i = Math.max(0, from); ; i++) { while (i >= p.lanes.length) p.lanes.push(newLane()); if (!overlaps(p.lanes[i], start, len, ignore)) return i; }
   }
   /** nearest start position in `lane` where [start, start+len) fits, or null if it cannot */
   function fitInLane(lane, start, len, ignore) {
