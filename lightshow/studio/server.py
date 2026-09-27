@@ -62,6 +62,26 @@ async def no_cache(request, handler):
     return resp
 
 
+_policy_cache: list = [0.0, None]
+
+
+def light_priority_policy() -> bool | None:
+    """Is the Windows QoS policy that lets the lights' priority mark through in place? (None: unknown)"""
+    if sys.platform != "win32":
+        return None
+    if time.monotonic() - _policy_cache[0] < 60:
+        return _policy_cache[1]
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "(Get-NetQosPolicy | Where-Object { $_.Name -like 'Light Show Studio*' } | Measure-Object).Count"],
+                             capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW).stdout.strip()
+        found = out.isdigit() and int(out) > 0
+    except (OSError, subprocess.TimeoutExpired):
+        found = None
+    _policy_cache[:] = [time.monotonic(), found]
+    return found
+
+
 class LightOutput:
     """Holds the currently selected lights and pushes frames to them."""
 
@@ -310,6 +330,7 @@ class Studio:
         o = self.output
         return web.json_response({"active": o.active, "devices": [d.ip for d in o.devices], "frames": o.frames,
                                   "sent": o.sent, "max_fps": o.max_fps,
+                                  "wifi_priority": await asyncio.get_running_loop().run_in_executor(None, light_priority_policy),
                                   "errors": o.errors, "last_error": o.last_error,
                                   "seconds_since_last_frame": round(time.monotonic() - o.last_frame, 2) if o.last_frame else None})
 

@@ -28,6 +28,10 @@ MCAST_GROUP = "239.255.255.250"
 SCAN_PORT = 4001
 LISTEN_PORT = 4002
 CONTROL_PORT = 4003
+# Light frames are marked as real-time traffic (DSCP 46, "expedited forwarding"), so a Wi-Fi access
+# point that honors the mark (WMM) sends them ahead of other traffic, such as a Cast stream. Windows
+# drops marks set by ordinary programs; a QoS policy for UDP to port 4003 puts it back (README).
+PRIORITY_TOS = 46 << 2
 
 
 @dataclass
@@ -44,6 +48,10 @@ class GoveeDevice:
         if self._sock is None:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._sock.setblocking(False)
+            try:
+                self._sock.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, PRIORITY_TOS)
+            except OSError:
+                pass
         return self._sock
 
     def send(self, cmd: str, data: dict | None = None) -> None:

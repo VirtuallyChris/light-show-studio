@@ -549,6 +549,23 @@ whether your light has 6, 12 or 20 controllable segments. Run `probe` once
 per light, count the zones that light up, and save it with `--save N`. Sending
 more colors than the light has segments is harmless; the extras are ignored.
 
+## Priority for the lights on Wi-Fi
+
+The studio marks its light packets as real-time traffic (DSCP 46), so an access
+point that honors the mark (WMM, on by default in most) sends them ahead of other
+traffic, such as a Cast stream. Windows drops marks set by ordinary programs, so
+allow it once, in PowerShell run as administrator:
+
+```powershell
+New-NetQosPolicy -Name "Light Show Studio lights" -AppPathNameMatchCondition "pythonw.exe" -IPProtocolMatchCondition UDP -IPDstPortMatchCondition 4003 -DSCPAction 46 -NetworkProfile All
+New-NetQosPolicy -Name "Light Show Studio lights (console)" -AppPathNameMatchCondition "python.exe" -IPProtocolMatchCondition UDP -IPDstPortMatchCondition 4003 -DSCPAction 46 -NetworkProfile All
+```
+
+It only applies to Python programs sending to port 4003, which is Govee's control
+port. `/api/output` reports `wifi_priority: true` once the policy is there. To
+undo it: `Remove-NetQosPolicy -Name "Light Show Studio lights*"`. This helps when
+the lights compete with other traffic; it cannot fix a weak signal.
+
 ## Capturing what is playing on the PC instead of a mic
 
 `sounddevice` on Windows does not expose WASAPI loopback devices. Options:
