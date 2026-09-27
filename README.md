@@ -388,6 +388,16 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
 4. Make Spotify on this PC play to an output nobody hears: a muted device, a
    monitor with no speakers, or a virtual cable. Choose that output under
    *Listen to*. The house hears the music through the studio instead, late.
+   In Windows this is Settings, System, Sound, Volume mixer: set Spotify's
+   output device there.
+5. Under **Play on**, choose where the delayed music is heard: the **Cast**
+   speakers (press Cast first), **This PC** (pick your headphones or speakers
+   under *PC output*), or nowhere, to watch the show build without sound. This
+   PC must be a different output from the one Spotify plays on, or the studio
+   would record its own delayed copy; it refuses to start if they match. This
+   PC is the easy way to try Jam mode on headphones. The lights assume the PC
+   output is heard 0.3 s after it is sent; for Bluetooth headphones, which add
+   their own delay, set `pc_output_offset_ms` in `config.json` (try 450).
 
 **Starting a night.** A buffer only fills while the room listens to something
 else, so there are two ways in:

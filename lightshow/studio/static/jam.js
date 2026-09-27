@@ -41,8 +41,13 @@
       <div class="jam-sec"><h4>2 · Where Spotify plays on this PC</h4>
         <div class="jam-row"><label>Listen to</label><select id="jamDevice"><option value="">Default output</option></select></div>
         <div class="hint">Point Spotify at an output nobody hears (a muted device, a monitor without speakers, a virtual cable). The house hears it through the studio, late.</div></div>
-      <div class="jam-sec"><h4>3 · Speakers and delay</h4>
-        <div class="jam-row"><label>Speakers</label><span>${st.speaker_connected ? esc(st.speaker) : '<span class="warn">none connected</span> · press Cast first, or run as a preview'}</span></div>
+      <div class="jam-sec"><h4>3 · Where the house hears it</h4>
+        <div class="jam-row"><label>Play on</label><select id="jamWhere">
+          <option value="cast" ${st.speaker_connected ? '' : 'disabled'}>Cast: ${st.speaker_connected ? esc(st.speaker) : 'press Cast first'}</option>
+          <option value="pc">This PC</option>
+          <option value="none">Nowhere (preview only)</option></select></div>
+        <div class="jam-row" id="jamPcRow"><label>PC output</label><select id="jamPcDevice"><option value="">Default output</option></select></div>
+        <div class="hint" id="jamPcHint">Pick your headphones or speakers here, and a different, silent output for Spotify above.</div>
         <div class="jam-row"><label>Stay behind by</label><span><input id="jamDelay" type="number" min="10" max="120" step="5" value="45" class="num"> s</span></div>
         <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
         <div class="hint">The lights study this much music before the room hears it. Skips take about a second; play and pause follow the phone.</div></div>
@@ -59,17 +64,18 @@
         ${st.paused ? '<div class="hint">Paused on the phone. The buffer is held.</div>' : ''}
         ${st.handover ? `<div class="hint">${st.handover === 'armed' ? 'Spotify is held until your opening song is nearly over.' : 'Filling the buffer behind the opening song…'}</div>` : ''}
         ${st.capture && st.capture.error ? `<div class="warn">Capture: ${esc(st.capture.error)}</div>` : ''}
+        ${st.output_error ? `<div class="warn">Playback: ${esc(st.output_error)}</div>` : ''}
         ${sp.error ? `<div class="warn">Spotify: ${esc(sp.error)}</div>` : ''}</div>
       <div class="jam-sec"><h4>Up next</h4>${(st.queue || []).slice(0, 8).map(q => `<div class="jam-q"><span>${esc(q.label)}</span>${badge(q.kind)}</div>`).join('') || '<div class="hint">Nothing queued.</div>'}</div>
       <div class="jam-sec"><h4>Log</h4><div class="jam-log">${(st.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div></div>
       <div class="jam-actions">
         <button id="jamStop">Stop jam</button>
-        ${st.streaming && st.speaker_connected ? '<button id="jamSync" title="Listens to the room and measures how late the speakers really are">Sync check</button>' : ''}
+        ${st.streaming && st.output_kind === 'cast' ? '<button id="jamSync" title="Listens to the room and measures how late the speakers really are">Sync check</button>' : ''}
         ${(st.mode || '').startsWith('demo') ? '<button id="jamSkip">Skip (demo)</button><button id="jamPause">' + (st.paused ? 'Resume' : 'Pause') + ' (demo)</button>' : ''}
         ${room && room.kind !== 'custom' && S.name ? '' : ''}</div>`;
     }
     // keep what is being typed
-    const keep = {}; for (const id of ['jamClient', 'jamDelay', 'jamXfade', 'jamDevice']) { const e = $('#' + id); if (e) keep[id] = e.value; }
+    const keep = {}; for (const id of ['jamClient', 'jamDelay', 'jamXfade', 'jamDevice', 'jamWhere', 'jamPcDevice']) { const e = $('#' + id); if (e) keep[id] = e.value; }
     const focus = document.activeElement && document.activeElement.id;
     if (running || !['jamClient', 'jamDelay', 'jamXfade'].includes(focus)) { el.innerHTML = html; wire(keep); }
     $('#btnJam').classList.toggle('on', running);
@@ -79,15 +85,20 @@
 
   function wire(keep) {
     const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = () => fn().catch(err => toast('Jam: ' + err.message, true)); };
-    for (const [id, v] of Object.entries(keep)) { const e = $('#' + id); if (e && v !== undefined && id !== 'jamDevice') e.value = v; }
+    for (const [id, v] of Object.entries(keep)) { const e = $('#' + id); if (e && v !== undefined && id !== 'jamDevice' && id !== 'jamPcDevice') e.value = v; }
+    const where = $('#jamWhere'), pcDev = $('#jamPcDevice');
+    if (where && !keep.jamWhere) where.value = J.state.speaker_connected ? 'cast' : 'pc';
+    if (pcDev) { pcDev.innerHTML = '<option value="">Default output</option>' + (J.outputs || []).filter(o => o.name).map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.default ? ' (default)' : ''}</option>`).join(''); if (keep.jamPcDevice) pcDev.value = keep.jamPcDevice; }
+    const showPc = () => { const pc = where && where.value === 'pc'; for (const id of ['jamPcRow', 'jamPcHint']) { const e = $('#' + id); if (e) e.hidden = !pc; } };
+    if (where) { where.onchange = showPc; showPc(); }
     const dev = $('#jamDevice');
     if (dev) { dev.innerHTML = '<option value="">Default output</option>' + (J.outputs || []).filter(o => o.name).map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.default ? ' (default)' : ''}</option>`).join(''); if (keep.jamDevice) dev.value = keep.jamDevice; }
     const cid = $('#jamClient'); if (cid) cid.onchange = () => api('spotify/client', { client_id: cid.value.trim() }).then(s => { J.state = { ...J.state, ...s }; render(); }).catch(e => toast(e.message, true));
     on('jamSignIn', async () => { if (cid && cid.value.trim() !== ((J.state.spotify || {}).client_id || '')) await api('spotify/client', { client_id: cid.value.trim() }); window.open('/api/spotify/login', 'spotify', 'width=520,height=760'); });
     on('jamSignOut', async () => { J.state = await api('spotify/signout', {}); render(); });
-    const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 45, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, speakers: J.state.speaker_connected ? 'cast' : 'none', ...extra });
-    on('jamStart', async () => { J.state = await start({}); render(); toast(J.state.speaker_connected ? 'Jam started. The speakers join once the buffer is full.' : 'Jam started as a preview: no speakers connected.'); });
-    on('jamOpener', async () => { if (!S.cast.active || !S.audio.playing) return toast('Cast one of your shows and press play first, then press this', true); J.state = await start({ opener: true }); render(); toast('Armed. Spotify will be released as this song ends.'); });
+    const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 45, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });
+    on('jamStart', async () => { J.state = await start({}); render(); toast({ cast: 'Jam started. The speakers join once the buffer is full.', pc: 'Jam started. This PC starts playing once the buffer is full.' }[J.state.output_kind] || 'Jam started as a preview: nothing plays.'); });
+    on('jamOpener', async () => { if (!S.cast.active || !S.audio.playing) return toast('Cast one of your shows and press play first, then press this', true); J.state = await start({ opener: true, speakers: 'cast' }); render(); toast('Armed. Spotify will be released as this song ends.'); });
     on('jamDemo', async () => { J.state = await start({ demo: true, speakers: 'none', target_delay: 20 }); render(); toast('Silent demo running: synthetic songs, no sound.'); });
     on('jamStop', async () => { J.state = await api('jam/stop', {}); leave(); render(); });
     on('jamSkip', () => api('jam/demo/skip', {}));

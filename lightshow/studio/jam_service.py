@@ -77,10 +77,22 @@ class JamService:
         gate = Gate()
         cfg = JamSettings(target_delay=float(body.get("target_delay", 45.0)), max_gap=float(body.get("max_gap", 6.0)),
                           crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))))
-        use_cast = body.get("speakers", "cast") == "cast" and self.studio.cast.cast is not None
+        where = body.get("speakers", "cast")
+        use_cast = where == "cast" and self.studio.cast.cast is not None
+        if where == "cast" and not use_cast:
+            where = "none"
         if use_cast:
             ip = self.local_ip() or "127.0.0.1"
             output = CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.wav?sid={sid}", self._speaker_offset)
+        elif where == "pc":
+            from .local_output import LocalOutput
+            pc_device = body.get("pc_device") or None
+            if not demo and self._same_device(body.get("device") or None, pc_device):
+                raise ValueError("Spotify and the jam can't use the same output: the studio would record its own delayed copy "
+                                 "and loop it. Point Spotify at an output nobody hears and pick your headphones or speakers here.")
+            from .local_output import DEFAULT_OFFSET_S
+            offset = float(self.load_config().get("pc_output_offset_ms", DEFAULT_OFFSET_S * 1000)) / 1000.0
+            output = LocalOutput(pc_device, offset)
         else:
             output = VirtualOutput(time.monotonic)
         if demo:
@@ -101,7 +113,7 @@ class JamService:
         segment_fn = structure_model.run_audio if structure_model.available() else None
         self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
         self.runner = JamRunner(self.engine, file_status=self._file_status)
-        self.mode = ("demo" if demo else "spotify") + (" to " + output.name if use_cast else ", preview only (no speakers)")
+        self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") and use_cast or where == "pc" else ", preview only (no speakers)")
         if body.get("opener") and use_cast and not demo:
             self.engine.arm_handover()
         self.runner.start()
@@ -121,6 +133,18 @@ class JamService:
             self.engine.relay.close()
         self.engine = self.runner = self.capture = self.demo = None
 
+    @staticmethod
+    def _same_device(capture: str | None, playback: str | None) -> bool:
+        """Would the jam play on the very output it is recording? (None means the default output.)"""
+        if capture == playback:
+            return True
+        try:
+            import soundcard as sc
+            default = sc.default_speaker().name
+        except Exception:  # noqa: BLE001
+            return False
+        return (capture or default) == (playback or default)
+
     def _state(self) -> dict:
         base = {"running": self.engine is not None, "mode": self.mode, "redirect_uri": self.redirect_uri,
                 "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error},
@@ -131,6 +155,10 @@ class JamService:
         st["spotify"] = {**base["spotify"], **{k: v for k, v in st["spotify"].items() if k in ("device", "error") and v}}
         if self.capture is not None:
             st["capture"] = {"device": self.capture.device_name or "default output", "level": round(self.capture.level, 3), "error": self.capture.error}
+        out_error = getattr(self.engine.output, "error", "")
+        if out_error:
+            st["output_error"] = out_error
+        st["output_kind"] = "cast" if isinstance(self.engine.output, CastOutput) else "pc" if hasattr(self.engine.output, "player_factory") else "none"
         return {**base, **st, "now": time.monotonic()}
 
     async def _run(self, fn, *args):
