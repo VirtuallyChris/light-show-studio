@@ -363,15 +363,19 @@ class TestEngine(unittest.TestCase):
         self.assertAlmostEqual(e.delay() - before, 6.0, delta=0.7)               # one gap's worth further behind
         self.assertIsNone(sim.library.learned(self.ta.id))                        # a skipped song is not learned
 
-    def test_a_skip_near_the_end_is_still_a_skip_unless_crossfade_explains_it(self):
-        for crossfade, expect_flush in ((0.0, True), (10.0, False)):
-            sim = Sim(self.dir, target=20.0, crossfade=crossfade)
+    def test_a_change_near_the_end_is_the_song_ending_and_keeps_the_delay(self):
+        # Spotify cuts endings short by itself; a change in a song's last stretch is taken as its end
+        for early, outro, expect_flush in ((8.0, 30.0, False), (20.0, 30.0, False), (8.0, 0.0, True)):
+            sim = Sim(self.dir, target=20.0, outro=outro)
             sim.play(self.a, self.ta)
-            sim.run(self.a["duration"] - 8.0, analyse=False)                       # eight seconds before the end
+            sim.run(self.a["duration"] - early, analyse=False)
             sim.play(self.b, self.tb)
             sim.run(5, analyse=False)
-            self.assertEqual(sim.engine.flushes, 1 if expect_flush else 0, f"crossfade {crossfade}")
+            self.assertEqual(sim.engine.flushes, 1 if expect_flush else 0, f"{early} s early, outro {outro}")
             self.assertEqual(sim.engine.tracks[-2].skipped, expect_flush)
+            if not expect_flush:
+                self.assertGreater(sim.engine.delay(), 19.0)                     # the room is still the full delay behind
+                self.assertEqual(sim.engine.state()["room"]["id"], self.ta.id)   # and still on the old song's ending
 
     def test_pausing_on_the_phone_holds_the_buffer(self):
         sim = Sim(self.dir, target=20.0)
@@ -413,6 +417,15 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(st["room"]["project"], name)
         self.assertEqual([q["kind"] for q in st["queue"]], ["live"])
         self.assertNotIn("analysis", sim.engine.analysis_json(t.key))             # the studio loads the saved show itself
+
+        # The studio asks for the state every second, on the server that also feeds the lights.
+        # It must not touch the disk: re-measuring every saved song each time stalled the lights.
+        from unittest import mock
+        with mock.patch("lightshow.studio.audiotrim.total_duration", side_effect=AssertionError("song re-measured")), \
+                mock.patch("builtins.open", side_effect=AssertionError("file opened")):
+            for _ in range(3):
+                sim.engine.state()
+            sim.engine.library.match_project(self.tb)                            # listed a moment ago: served from memory
 
 
 # =========================================================================== hand-over

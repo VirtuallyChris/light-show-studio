@@ -197,7 +197,9 @@ class JamService:
 
     # -- routes ---------------------------------------------------------------------------
     async def state(self, request):
-        return web.json_response(self._state())
+        # Off the event loop: the light frames come in on it, and the engine's lock can be held
+        # for a moment by a Spotify request. Blocking here stalled the lights.
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._state))
 
     async def outputs(self, request):
         return await self._run(loopback.list_outputs)

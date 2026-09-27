@@ -62,21 +62,45 @@ class JamLibrary:
         self.learned_dir = os.path.join(self.dir, "learned")
         self.links_path = os.path.join(self.dir, "links.json")
         self._links: dict | None = None
+        self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
+        self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
 
     # -- saved shows -------------------------------------------------------------------
+    PROJECTS_TTL = 10.0
+
     def projects(self) -> list[dict]:
+        """The saved shows, listed at most every few seconds.
+
+        Measuring a song's length reads the whole file, and this is asked for
+        every queued track. Done afresh each time it held the server up for most
+        of a second, and the lights, which are fed through the same server,
+        stood still while it did.
+        """
+        now = time.monotonic()
+        if self._projects is not None and now - self._projects[0] < self.PROJECTS_TTL:
+            return self._projects[1]
         out = []
-        if not os.path.isdir(self.shows_dir):
-            return out
-        for name in sorted(os.listdir(self.shows_dir)):
-            pdir = os.path.join(self.shows_dir, name)
-            if name.startswith("_") or not os.path.isfile(os.path.join(pdir, "project.json")):
-                continue
-            song = next((f for f in os.listdir(pdir) if f.startswith("song.")), None)
-            if song:
-                out.append({"name": name, "song": os.path.join(pdir, song), "words": set(_norm(name)),
-                            "duration": audiotrim.total_duration(os.path.join(pdir, song))})
+        if os.path.isdir(self.shows_dir):
+            for name in sorted(os.listdir(self.shows_dir)):
+                pdir = os.path.join(self.shows_dir, name)
+                if name.startswith("_") or not os.path.isfile(os.path.join(pdir, "project.json")):
+                    continue
+                song = next((f for f in os.listdir(pdir) if f.startswith("song.")), None)
+                if song:
+                    path = os.path.join(pdir, song)
+                    out.append({"name": name, "song": path, "words": set(_norm(name)), "duration": self._duration(path)})
+        self._projects = (now, out)
         return out
+
+    def _duration(self, path: str) -> float:
+        try:
+            st = os.stat(path)
+        except OSError:
+            return 0.0
+        key = (path, st.st_size, st.st_mtime)
+        if key not in self._durations:
+            self._durations[key] = audiotrim.total_duration(path)
+        return self._durations[key]
 
     def links(self) -> dict:
         if self._links is None:
@@ -124,6 +148,9 @@ class JamLibrary:
     # -- learned tracks ----------------------------------------------------------------
     def _learned_path(self, track_id: str) -> str:
         return os.path.join(self.learned_dir, re.sub(r"[^A-Za-z0-9]", "", track_id) + ".json")
+
+    def has_learned(self, track_id: str) -> bool:
+        return os.path.isfile(self._learned_path(track_id))
 
     def learned(self, track_id: str) -> dict | None:
         try:
@@ -392,6 +419,7 @@ class JamSettings:
     capture_latency: float = 0.06       # Spotify's position versus when the sound card plays it
     events_every: int = 3               # instrument detection is the slow part: every Nth pass
     crossfade: float = 0.0              # Spotify's crossfade setting, in seconds (it cannot be read from the API)
+    outro: float = 30.0                 # a change this close to a song's end counts as the song ending
 
 
 class JamEngine:
@@ -405,7 +433,7 @@ class JamEngine:
         self.cache_dir = cache_dir
         self.features = FeatureTrack(relay)
         self.tracks: list[JamTrack] = []
-        self.queue: list[Track] = []
+        self.queue: list[dict] = []       # what is queued, each with its kind, worked out when fetched
         self.now: NowPlaying | None = None
         self.lock = threading.RLock()
         self.log: list[str] = []
@@ -519,10 +547,14 @@ class JamEngine:
         if prev is not None and prev.end is None:
             expected_end = prev.start + prev.track.duration
             # A song that simply ended: the next one begins where this one was due to stop, a little
-            # later (a gap), or earlier by the crossfade. Anything sooner than that is a skip. The
-            # allowance has to be tight: a skip taken for a natural change leaves the room listening
-            # to the old song for the whole delay, which is exactly what a skip is meant to avoid.
-            natural = not restarted and -(self.cfg.crossfade + 1.5) <= est_start - expected_end <= 3.0
+            # later (a gap), or earlier by the crossfade. Spotify also cuts endings short by itself
+            # (its transitions, Automix) and the API does not say so: a live Jam moved on 20 s before
+            # the end of a song nobody skipped. Flushing then threw the whole delay away for good,
+            # so any change in a song's last stretch is taken as its end. The room hears the old
+            # song up to where Spotify left it, then the new one, and stays the full delay behind;
+            # a real skip that late costs it at most that stretch of the old song.
+            early = max(self.cfg.crossfade + 1.5, min(self.cfg.outro, 0.5 * prev.track.duration))
+            natural = not restarted and -early <= est_start - expected_end <= 3.0
             prev.end = min(est_start, expected_end) if natural else est_start
             prev.skipped = not natural
         project = self.library.match_project(track)
@@ -744,7 +776,7 @@ class JamEngine:
     # --------------------------------------------------------------------- for the UI
     def refresh_queue(self) -> None:
         try:
-            q = self.spotify.queue()[:12]
+            q = [self._kind_of(t) for t in self.spotify.queue()[:12]]
         except Exception:  # noqa: BLE001
             return
         with self.lock:
@@ -752,7 +784,7 @@ class JamEngine:
 
     def _kind_of(self, track: Track) -> dict:
         project = self.library.match_project(track)
-        return {**track.to_json(), "kind": "custom" if project else "learned" if self.library.learned(track.id) else "live", "project": project}
+        return {**track.to_json(), "kind": "custom" if project else "learned" if self.library.has_learned(track.id) else "live", "project": project}
 
     def state(self) -> dict:
         with self.lock:
@@ -767,7 +799,7 @@ class JamEngine:
                 "buffered": round(self.buffered(), 1), "paused": self.gate.paused, "speaker": self.output.name,
                 "room": room, "ahead": ahead.to_json() if ahead else None,
                 "spotify": {"signed_in": self.spotify.signed_in, "device": self.now.device if self.now else "", "error": self.error},
-                "queue": [self._kind_of(t) for t in self.queue], "flushes": self.flushes, "log": self.log[-12:],
+                "queue": list(self.queue), "flushes": self.flushes, "log": self.log[-12:],
                 "handover": self.handover,
             }
 

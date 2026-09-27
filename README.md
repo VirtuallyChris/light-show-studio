@@ -431,7 +431,7 @@ else, so there are two ways in:
 |---|---|
 | Add, remove, reorder the queue | Nothing to notice; it just works |
 | Pause, resume | The speakers pause and resume within about a second, and the buffer is kept |
-| Skip, or tap a different song | The buffer is thrown away and the room joins the new song in a second or two. That song runs on a short lookahead; a few seconds of quiet are then added between the next songs until the delay is back |
+| Skip, or tap a different song | The buffer is thrown away and the room joins the new song in a second or two. That song runs on a short lookahead; a few seconds of quiet are then added between the next songs until the delay is back. A change in a song's last 30 seconds counts as the song ending, since Spotify trims endings by itself: the room hears the rest of the old song and keeps the full delay |
 | Let a song end | Seamless |
 
 The phone shows what Spotify is playing, which is the delay ahead of the room.
