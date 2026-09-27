@@ -398,22 +398,36 @@ const Effects = (() => {
     riserGrids.set(key, g); return g;
   }
 
-  def({ id: 'riser', name: 'Riser (buildup)', cat: 'accent', desc: 'Fills from both ends toward the center one step at a time, on the beat, brightening as it goes and stepping faster in the last bars. End it exactly on the drop. Pair it with a Strobe riser on the layer above.', swatch: ['#f59e0b', '#7a1f00'],
-    params: { step: { type: 'select', def: '1', options: { '4': 'every bar', '2': 'every 2 beats', '1': 'every beat', '0.5': 'every 1/8 note' }, label: 'Step' },
-      accel: P.bool('Steps get faster near the end', true), color: P.color(), fill: P.bool('Fill toward center', true),
+  def({ id: 'riser', name: 'Riser (buildup)', cat: 'accent', desc: 'Adds a section of lights from both ends toward the center on every kick (or every beat), brightening as it goes, and is full exactly on the drop. End it on the drop. Pair it with a Strobe riser on the layer above.', swatch: ['#f59e0b', '#7a1f00'],
+    params: { follow: { type: 'select', def: 'drums', options: { drums: 'the kick drum', beat: 'the beat grid' }, label: 'Steps on' },
+      step: { type: 'select', def: '1', options: { '4': 'every bar', '2': 'every 2 beats', '1': 'every beat', '0.5': 'every 1/8 note' }, label: 'Step (beat grid)' },
+      accel: P.bool('Steps get faster near the end', false), color: P.color(), fill: P.bool('Fill toward center', true),
       floor: { type: 'range', def: 0.08, min: 0, max: 1, step: 0.01, label: 'Unfilled level' } },
     render(c) {
-      // step on the song's own beats: the first step is the first whole beat in the clip
-      const offset = (1 - frac(c.beat - c.clipBeat)) % 1;
-      const grid = riserGrid(c.clipBeats, offset, Number(c.p.step) || 1, !!c.p.accel, dropAt(c));
-      let n = 0; while (n < grid.length && grid[n] <= c.clipBeat + 1e-6) n++;
-      const p = grid.length ? n / grid.length : c.clipT;                       // how far it has filled
-      const next = n < grid.length ? grid[n] : c.clipBeats, prev = n ? grid[n - 1] : 0;
-      const pop = n ? Math.pow(1 - clamp((c.clipBeat - prev) / Math.max(0.05, next - prev)), 2) : 0;   // each step lands with a kick
+      // The steps: the kick hits inside the clip when the song's drums are known (so every step
+      // lands on a kick you hear), otherwise the beat grid, starting on the first whole beat.
+      let steps, n, pop;
+      const kicks = c.p.follow !== 'beat' && c.music && c.music.hasDrums && c.clipT1 > c.clipT0
+        ? c.music.hitsBetween('kick', c.clipT0 - 0.03, c.clipT1 - 0.08) : null;
+      if (kicks && kicks.length >= 4) {
+        steps = kicks.length; n = 0; while (n < steps && kicks[n] <= c.t + 1e-3) n++;
+        pop = n ? Math.exp(-(c.t - kicks[n - 1]) / 0.12) : 0;
+      } else {
+        const offset = (1 - frac(c.beat - c.clipBeat)) % 1;
+        const grid = riserGrid(c.clipBeats, offset, Number(c.p.step) || 1, !!c.p.accel, dropAt(c));
+        steps = grid.length; n = 0; while (n < steps && grid[n] <= c.clipBeat + 1e-6) n++;
+        const next = n < steps ? grid[n] : c.clipBeats, prev = n ? grid[n - 1] : 0;
+        pop = n ? Math.pow(1 - clamp((c.clipBeat - prev) / Math.max(0.05, next - prev)), 2) : 0;
+      }
+      const p = steps ? n / steps : c.clipT;                                    // how far it has filled
+      // Each step adds a whole section of lights from both ends, sized so the last step fills the
+      // center exactly on the drop (counted back from the end: the first steps may add nothing).
+      const half = Math.ceil(c.n / 2), per = Math.max(1, Math.ceil(half / Math.max(1, steps)));
+      const litSide = steps ? clamp(half - (steps - n) * per, 0, half) : Math.round(half * p);
       const col = c.p.color === 'cycle' ? palAt(c.pal, p * 0.5) : colorFor(c, p, 0);
       for (let i = 0; i < c.n; i++) {
-        const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2;
-        const lit = !c.p.fill || x > (1 - p) * 1.02;
+        const fromEdge = Math.min(i, c.n - 1 - i);
+        const lit = !c.p.fill || fromEdge < litSide;
         const v = lit ? Math.min(1, (0.45 + 0.4 * p) * (1 + 0.45 * pop)) : c.p.floor + 0.2 * p;
         set(c.out, i, col[0] * v, col[1] * v, col[2] * v, 1);
       } } });

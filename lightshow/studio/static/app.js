@@ -420,6 +420,11 @@
     return {
       lead: hitAt('lead', t), ghost: hitAt('ghost', t), bass: hitAt('bass', t),
       kick: hitAt('kick', t), snare: hitAt('snare', t), hasDrums: (((a.events || {}).kick) || []).length > 0,
+      hitsBetween: (stream, t0, t1) => {                          // the times of one instrument's hits in [t0, t1)
+        const arr = (a.events || {})[stream] || []; const out = [];
+        for (let i = Math.max(0, lastBefore(arr, t0)); i < arr.length && arr[i][0] < t1; i++) if (arr[i][0] >= t0) out.push(arr[i][0]);
+        return out;
+      },
       hook, fill,
       leadLevel: (cur.lead || [])[i] || 0, bassLevel: (cur.bass || [])[i] || 0, drumLevel: (cur.drum || [])[i] || 0,
     };
@@ -477,6 +482,7 @@
         for (let i = 0; i < n; i++) src[i * 4 + 3] = 1;  // full coverage unless the effect clears
         const clipBeat = b - clip.start;
         const c = { n, out: src, t, beat: b, beatSec: Math.max(0.05, beatToTime(b + 1) - beatToTime(b)), phase: frac(b), bar: (b - p.phase) / 4, barPhase: frac((b - p.phase) / 4),
+          clipT0: beatToTime(clip.start), clipT1: beatToTime(clip.start + clip.len),
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music };
         e.render(c);
@@ -1357,7 +1363,7 @@
         clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
         drums(0.85, 0.6);
         // chill songs build by filling slowly; the strobe riser is for rave only
-        clip(3, 'riser', b0, len, chill ? { step: '2', accel: false } : {});
+        clip(3, 'riser', b0, len, chill ? { follow: 'beat', step: '2', accel: false } : { follow: 'drums', accel: false });
         if (style === 'rave') clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.3, from: '1', to: '8' });
         break;
       case 'drop': {
