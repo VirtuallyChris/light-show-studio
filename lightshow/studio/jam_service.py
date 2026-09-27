@@ -104,11 +104,15 @@ class JamService:
         if not demo and hidden_name is None:
             raise ValueError(f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")
         where = body.get("speakers", "cast")
-        if self.studio.cast.cast is not None and where in ("cast", "pc"):
-            where = "cast"                                  # a connected Cast speaker is where the room is
-        use_cast = where == "cast" and self.studio.cast.cast is not None
-        if where == "cast" and not use_cast:
+        # Speakers asked for (Cast or this PC) means the room always hears it: on the Cast speaker
+        # when one is connected, otherwise on this PC. Only "none" is a silent preview. (A jam that
+        # started by itself with "cast" saved and no speaker connected used to fall silent.)
+        self.room_wanted = where in ("cast", "pc") and not demo
+        if where in ("cast", "pc") and not demo:
+            where = "cast" if self.studio.cast.cast is not None else "pc"
+        elif where == "cast" and self.studio.cast.cast is None:
             where = "none"
+        use_cast = where == "cast"
         output = self._output_for(where, hidden_name, check=not demo)
         if demo:
             from .jam_demo import DemoSpotify
@@ -178,7 +182,7 @@ class JamService:
         if e is None or self.source == "demo" or getattr(self, "_switching", False):
             return
         kind = self._output_kind(e.output)
-        if kind == "none":
+        if kind == "none" and not getattr(self, "room_wanted", False):
             return                                      # a preview stays a preview
         want = "cast" if self.studio.cast.cast is not None else "pc"
         if want != kind:

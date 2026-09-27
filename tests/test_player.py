@@ -257,6 +257,49 @@ class TestCastFollows(unittest.TestCase):
         self.assertEqual(svc._output_kind(svc.engine.output), "pc")
 
 
+class TestSpeakersAlwaysPlay(unittest.TestCase):
+    def test_a_jam_meant_for_speakers_is_never_left_silent(self):
+        import threading
+        import time as _t
+        from lightshow.studio.jam import VirtualOutput
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = None, "", ""
+
+        class PcOut:
+            device_name, name, offset, stream = "default", "This PC", 0.0, None
+            def stop(self): pass
+            def start_stream(self, stream): self.stream = stream
+            def pause(self): pass
+
+        class Engine:
+            def __init__(self):
+                import numpy as np
+                from lightshow.studio.relay import Relay
+                self.lock, self.streaming = threading.RLock(), True
+                self.output = VirtualOutput(_t.monotonic)
+                self.gate = type("G", (), {"paused": False})()
+                self.relay = Relay(sr=1000, channels=2, capacity_s=120)
+                self.relay.write(np.zeros((60_000, 2), dtype=np.int16))
+                self.cfg = type("C", (), {"target_delay": 45.0})()
+                self.log = []
+            def room_capture_time(self): return 20.0
+            def say(self, m): self.log.append(m)
+
+        for wanted, expect in ((False, "none"), (True, "pc")):
+            svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+            svc.engine, svc.source, svc.room_wanted = Engine(), "studio", wanted
+            svc._output_for = lambda where, *a, **k: PcOut() if where == "pc" else VirtualOutput(_t.monotonic)
+            svc._follow_cast()
+            for _ in range(50):
+                if not getattr(svc, "_switching", False):
+                    break
+                _t.sleep(0.02)
+            self.assertEqual(svc._output_kind(svc.engine.output), expect, f"speakers wanted: {wanted}")
+
+
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)
