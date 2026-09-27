@@ -95,9 +95,11 @@ class JamService:
             self.capture.start()
         # the demo learns its synthetic songs too, but in a folder of its own, not among the real ones
         library = JamLibrary(os.path.join(self.shows_dir, "_jam", "demo")) if demo else self.library
+        from . import structure_model
         from .genre import WORKER
         genre_fn = WORKER.classify_audio if WORKER.available() else None
-        self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn)
+        segment_fn = structure_model.run_audio if structure_model.available() else None
+        self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
         self.runner = JamRunner(self.engine, file_status=self._file_status)
         self.mode = ("demo" if demo else "spotify") + (" to " + output.name if use_cast else ", preview only (no speakers)")
         if body.get("opener") and use_cast and not demo:

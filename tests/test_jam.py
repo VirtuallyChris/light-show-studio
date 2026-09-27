@@ -72,6 +72,41 @@ class FakeSpotify:
         return list(self.upcoming)
 
 
+POP_LABELS = {"intro": "intro", "verse": "verse", "buildup": "pre-chorus", "drop": "chorus", "breakdown": "bridge", "outro": "outro"}
+
+
+class FakeSongFormer:
+    """Answers like SongFormer for the synthetic songs: their known sections, cut off where the audio ends.
+
+    Which song it is being asked about is recognised from the opening of the audio.
+    """
+
+    def __init__(self):
+        self.songs = []
+
+    def know(self, song):
+        if all(s is not song for s in self.songs):
+            self.songs.append(song)
+
+    def __call__(self, y, sr):
+        from scipy.signal import resample_poly
+        best, best_c = None, -1.0
+        for s in self.songs:
+            ref = s["audio"].mean(axis=1)
+            if s["sr"] != sr:
+                ref = resample_poly(ref, sr, s["sr"])
+            n = min(len(y), int(3 * sr))
+            if n < sr:
+                continue
+            c = np.max(np.abs(np.correlate(ref[: n + int(1.0 * sr)], y[:n], mode="valid"))) / (np.linalg.norm(y[:n]) * np.linalg.norm(ref[:n]) + 1e-9)
+            if c > best_c:
+                best, best_c = s, c
+        if best is None:
+            return None
+        end = len(y) / sr
+        return [{"start": a, "end": min(b, end), "label": POP_LABELS[name]} for name, a, b in best["sections"] if a < end]
+
+
 class Sim:
     """Steps capture, clock, engine and speaker together, half a second at a time."""
 
@@ -83,11 +118,14 @@ class Sim:
         self.out = VirtualOutput(self.clock)
         self.library = JamLibrary(shows_dir)
         cfg = JamSettings(target_delay=target, analyse_every=14.0, events_every=99, capture_latency=0.0, **settings)
-        self.engine = JamEngine(self.relay, self.spotify, self.library, self.out, self.gate, cfg, self.clock, cache_dir=False)
+        self.songformer = FakeSongFormer()
+        self.engine = JamEngine(self.relay, self.spotify, self.library, self.out, self.gate, cfg, self.clock, cache_dir=False,
+                                segment_fn=self.songformer)
         self.capture = FileCapture(self.relay, np.zeros((1, 2), dtype=np.float32), self.gate)
         self.did, self.ticks = [], 0
 
     def play(self, song, track, at=0.0):
+        self.songformer.know(song)
         self.capture.load(song["audio"][int(at * SR):])
         self.spotify.play(track, at)
 

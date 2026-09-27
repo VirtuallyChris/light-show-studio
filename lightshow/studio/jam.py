@@ -397,7 +397,7 @@ class JamSettings:
 class JamEngine:
     def __init__(self, relay: Relay, spotify: SpotifyClient, library: JamLibrary, output, gate: Gate | None = None,
                  settings: JamSettings | None = None, clock=time.monotonic, analyse_fn=None, cache_dir: str | None = None,
-                 genre_fn=None):
+                 genre_fn=None, segment_fn=None):
         self.relay, self.spotify, self.library, self.output = relay, spotify, library, output
         self.gate = gate or Gate()
         self.cfg = settings or JamSettings()
@@ -422,6 +422,8 @@ class JamEngine:
         self.analyse_fn = analyse_fn
         # genre_fn(audio, sr) -> genre scores, or None; audio goes to the model straight from memory
         self.genre_fn = genre_fn
+        # segment_fn(audio, sr) -> SongFormer's segments for the part of the track heard so far
+        self.segment_fn = segment_fn
 
     def say(self, msg: str) -> None:
         self.log.append(f"{time.strftime('%H:%M:%S')} {msg}")
@@ -703,7 +705,8 @@ class JamEngine:
         y = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=True)
         events = final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1)
         stereo = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=False) if events else None
-        a = self.analyse_fn(y, SR_ANALYSIS, stereo=stereo, use_model=False, events=events, bpm_hint=jt.bpm_lock)
+        a = self.analyse_fn(y, SR_ANALYSIS, stereo=stereo, use_model=False, events=events, bpm_hint=jt.bpm_lock,
+                            segment_fn=self.segment_fn)
         if not events and jt.analysis:                      # keep the last instrument pass until the next one
             for k in ("events", "fills", "hook", "curves"):
                 a[k] = jt.analysis.get(k, a[k])
@@ -866,7 +869,8 @@ class JamRunner:
         try:
             rng = np.random.default_rng(0)
             y = (0.1 * rng.standard_normal(SR_ANALYSIS * 8)).astype(np.float32)
-            self.engine.analyse_fn(y, SR_ANALYSIS, stereo=np.stack([y, y]), use_model=False, events=True)
+            self.engine.analyse_fn(y, SR_ANALYSIS, stereo=np.stack([y, y]), use_model=False, events=True,
+                                   segment_fn=self.engine.segment_fn)
             live_bands(y)
         except Exception:  # noqa: BLE001 - a warm-up that fails costs nothing
             pass

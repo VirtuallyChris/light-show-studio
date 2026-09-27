@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 
 from lightshow.studio import structure_model
-from lightshow.studio.analysis import fix_half_tempo
+from lightshow.studio.analysis import analyze_audio, fix_half_tempo
 
 warnings.filterwarnings("ignore")
 SR = 22050
@@ -54,7 +54,36 @@ class TestTempo(unittest.TestCase):
         self.assertEqual(len(out), (len(beats) + 1) // 2)
 
 
-class TestSongFormerPath(unittest.TestCase):
+class TestSections(unittest.TestCase):
+    beats = [i * 0.5 for i in range(400)]                              # 120 bpm, bars every 2 s
+
+    def test_songformer_labels_become_studio_sections(self):
+        segs = [{"start": 0.0, "end": 1.1, "label": "silence"}, {"start": 1.1, "end": 16.1, "label": "intro"},
+                {"start": 16.1, "end": 32.0, "label": "verse"}, {"start": 32.0, "end": 40.0, "label": "pre-chorus"},
+                {"start": 40.0, "end": 56.0, "label": "chorus"}, {"start": 56.0, "end": 72.0, "label": "chorus"},
+                {"start": 72.0, "end": 88.0, "label": "bridge"}, {"start": 88.0, "end": 104.0, "label": "inst"},
+                {"start": 104.0, "end": 120.0, "label": "chorus"}, {"start": 120.0, "end": 124.0, "label": "silence"}]
+        secs, drops = structure_model.sections_from_segments(segs, self.beats, 0, 124.0)
+        self.assertEqual([s["type"] for s in secs], ["intro", "verse", "buildup", "drop", "breakdown", "verse", "drop", "outro"])
+        self.assertEqual(drops, [40.0, 104.0])                          # two choruses in a row are one drop
+        for a, b in zip(secs, secs[1:]):
+            self.assertEqual(a["end"], b["start"])
+            self.assertAlmostEqual((b["start"] - 0) % 2.0, 0.0, places=6)   # every boundary on a bar line
+        self.assertEqual((secs[0]["start"], secs[-1]["end"]), (0.0, 124.0))
+
+    def test_boundaries_snap_to_the_nearest_bar(self):
+        segs = [{"start": 0.0, "end": 31.85, "label": "verse"}, {"start": 31.85, "end": 60.0, "label": "chorus"}]
+        secs, drops = structure_model.sections_from_segments(segs, self.beats, 0, 60.0)
+        self.assertEqual(drops, [32.0])                                 # SongFormer lands a little early; the bar line wins
+
+    def test_without_songformer_the_song_is_one_section_and_says_why(self):
+        y, _ = drums(120, 30)
+        a = analyze_audio(y, SR, events=False)                           # no file, no segment_fn
+        self.assertEqual([s["type"] for s in a["sections"]], ["verse"])
+        self.assertEqual((a["structure_source"], a["drops"]), ("none", []))
+        self.assertTrue(a["structure_error"])
+        self.assertNotIn("builtin_sections", a)
+
     def test_the_worker_is_always_given_a_full_path(self):
         d = tempfile.mkdtemp()
         seen = []
@@ -78,6 +107,20 @@ class TestSongFormerPath(unittest.TestCase):
             structure_model.WORKER.ask_file = real
             structure_model.available = real_available
             shutil.rmtree(d, ignore_errors=True)
+
+    def test_a_failure_is_reported_not_hidden(self):
+        real = structure_model.WORKER.ask_audio
+        try:
+            structure_model.WORKER.ask_audio = lambda y, sr: None
+            structure_model.WORKER.last_error = "CUDA out of memory"
+            y, _ = drums(120, 30)
+            a = analyze_audio(y, SR, events=False, segment_fn=structure_model.run_audio)
+            if structure_model.available():
+                self.assertIn("CUDA out of memory", a["structure_error"])
+            self.assertEqual(a["structure_source"], "none")
+        finally:
+            structure_model.WORKER.ask_audio = real
+
 
 @unittest.skipUnless(structure_model.available(), "the model environment is not installed")
 class TestRealSongFormer(unittest.TestCase):
