@@ -11,7 +11,7 @@ from aiohttp import web
 
 from . import loopback
 from .jam import CastOutput, JamEngine, JamLibrary, JamRunner, JamSettings, VirtualOutput
-from .loopback import Gate, LoopbackCapture
+from .loopback import Gate
 from .relay import Relay
 from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 
@@ -91,14 +91,14 @@ class JamService:
             ip = self.local_ip() or "127.0.0.1"
             output = CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.wav?sid={sid}", self._speaker_offset)
         elif where == "pc":
-            from .local_output import LocalOutput
+            from .audio_io import ProcessOutput
             pc_device = body.get("pc_device") or None
             if not demo and self._same_device(body.get("device") or None, pc_device):
                 raise ValueError("Spotify and the jam can't use the same output: the studio would record its own delayed copy "
                                  "and loop it. Point Spotify at an output nobody hears and pick your headphones or speakers here.")
             from .local_output import DEFAULT_OFFSET_S
             offset = float(self.load_config().get("pc_output_offset_ms", DEFAULT_OFFSET_S * 1000)) / 1000.0
-            output = LocalOutput(pc_device, offset)
+            output = ProcessOutput(pc_device, offset)       # plays from its own process: the analysis cannot starve it
         else:
             output = VirtualOutput(time.monotonic)
         if demo:
@@ -114,7 +114,8 @@ class JamService:
                     raise PermissionError("the studio player needs a new Spotify sign-in: press Sign in to Spotify again")
                 spotify = PlayerAwareSpotify(self.spotify, self.player)
                 self._open_player()
-            self.capture = LoopbackCapture(relay, body.get("device") or None, gate)
+            from .audio_io import ProcessCapture
+            self.capture = ProcessCapture(relay, body.get("device") or None, gate)   # records from its own process
             self.capture.start()
         # the demo learns its synthetic songs too, but in a folder of its own, not among the real ones
         library = JamLibrary(os.path.join(self.shows_dir, "_jam", "demo")) if demo else self.library
@@ -182,7 +183,10 @@ class JamService:
         out_error = getattr(self.engine.output, "error", "")
         if out_error:
             st["output_error"] = out_error
-        st["output_kind"] = "cast" if isinstance(self.engine.output, CastOutput) else "pc" if hasattr(self.engine.output, "player_factory") else "none"
+        out = self.engine.output
+        st["output_kind"] = "cast" if isinstance(out, CastOutput) else "pc" if hasattr(out, "device_name") else "none"
+        if self.capture is not None and getattr(self.capture, "lost", 0):
+            st["capture"]["lost_s"] = round(self.capture.lost, 2)
         return {**base, **st, "now": time.monotonic()}
 
     async def _run(self, fn, *args):

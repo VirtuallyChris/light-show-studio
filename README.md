@@ -368,6 +368,12 @@ Spotify is only ever asked what a remote control could ask: what is playing, how
 far in, whether it is paused, what is queued. It is never asked for audio, and
 no audio is written to disk: it exists only in a rolling memory buffer.
 
+Recording and playback each run in a small process of their own, handing audio
+to the studio through shared memory. The analysis is heavy Python work, and when
+the audio shared a process with it, playback stalled and skipped and the lights,
+which follow playback, lagged along with it. In their own processes the recorder
+and player keep exact time however busy the studio gets.
+
 Each track is one of three kinds, shown as a badge in the panel and the queue:
 
 | | |

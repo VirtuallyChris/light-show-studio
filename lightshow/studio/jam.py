@@ -415,6 +415,7 @@ class JamEngine:
         self.gaps_added = 0.0
         self.error = ""
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
+        self._last_seen = None            # (track id, progress, when, playing) from the previous poll
         self.handover: str | None = None  # None | 'armed' | 'filling': opening with a song from disk
         if analyse_fn is None:
             from .analysis import analyze_audio
@@ -476,6 +477,7 @@ class JamEngine:
             if np_.track is None:
                 return
             if not np_.playing:
+                self._last_seen = (np_.track.id, np_.progress, np_.fetched_at, False)
                 if not self.gate.paused:
                     self.gate.paused = True
                     keep = self.output.stream.cursor if (self.streaming and self.output.stream) else None
@@ -494,7 +496,17 @@ class JamEngine:
             est_start = head - np_.progress - self.cfg.capture_latency
             cur = self.current
             same = cur is not None and cur.track.id == np_.track.id and cur.end is None
-            if same and abs(est_start - cur.start) <= (1.5 if cur.aligned else 3.0):
+            # Whether the same track was restarted or sought is judged on Spotify's own timeline:
+            # did its position jump, against its own clock? Comparing with the capture timeline
+            # instead mistook every small disagreement between the two clocks for a restart,
+            # and each one threw the buffer away and started the song over.
+            jumped = False
+            if same and self._last_seen is not None and self._last_seen[0] == np_.track.id:
+                _, last_prog, last_at, was_playing = self._last_seen
+                expected = last_prog + ((np_.fetched_at - last_at) if was_playing else 0.0)
+                jumped = abs(np_.progress - expected) > 3.0
+            self._last_seen = (np_.track.id, np_.progress, np_.fetched_at, True)
+            if same and not jumped:
                 # Every reading is late by however long Spotify took to answer, never early, so the
                 # smallest is the truest. Frozen once analysis has begun: its times hang off this.
                 if not cur.aligned and cur.passes == 0 and 0 < cur.start - est_start < 0.4:

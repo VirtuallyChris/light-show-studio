@@ -109,16 +109,23 @@ class LoopbackCapture:
         when no block has arrived for a while, silence of the right length is
         written in its place.
         """
-        block_s = BLOCK / self.relay.sr
-        last = time.monotonic()
+        sr, block_s = self.relay.sr, BLOCK / self.relay.sr
+        t0 = time.monotonic()
+        written = 0                                      # frames put on the timeline, silence included
+        margin = int(0.25 * sr)                          # how late a block may be before silence stands in for it
         while not self.stop_flag.is_set():
             try:
                 frames = self.q.get(timeout=block_s * 3)
-                last = time.monotonic()
+                # Audio that arrives after silence was already written for its time would push the
+                # timeline ahead of the clock: keep only what is still in the future.
+                due = int((time.monotonic() - t0) * sr) + margin
+                extra = written + len(frames) - due
+                if extra > 0:
+                    frames = frames[min(extra, len(frames)):]
             except queue.Empty:
-                now = time.monotonic()
-                frames = np.zeros((int((now - last) * self.relay.sr), self.relay.channels), dtype=np.int16)
-                last = now
+                behind = int((time.monotonic() - t0) * sr) - margin - written
+                frames = np.zeros((max(0, behind), self.relay.channels), dtype=np.int16)
+            written += len(frames)
             if len(frames):
                 self.level = 0.9 * self.level + 0.1 * float(np.abs(frames).max()) / 32768.0
                 if self.gate.admit(frames):

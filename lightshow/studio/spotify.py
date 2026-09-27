@@ -221,17 +221,24 @@ class PlayerState:
         self.track: Track | None = None
         self.position = 0.0
         self.paused = True
-        self.at = 0.0                                    # local clock when the report arrived
+        self.at = 0.0                                    # local clock the position was taken at
+        self.heard = 0.0                                 # local clock of the last report of any kind
+        self.last_raw: dict = {}                         # the last state exactly as the page sent it (for diagnosis)
         self.window = None                               # the player window's process, if the studio opened it
 
     def update(self, report: dict) -> None:
         now = self.clock()
+        self.heard = now
         if "device_id" in report:
             self.device_id = report["device_id"] or ""
             self.ready = bool(report.get("ready", bool(self.device_id)))
         if "error" in report:
             self.error = report["error"] or ""
         state = report.get("state")
+        if isinstance(state, dict):
+            self.last_raw = {k: state.get(k) for k in ("position_ms", "raw_position_ms", "stamp", "paused")}
+        if state is not None and self._stale(state):
+            return                                       # the same snapshot again: keep counting from the last one
         if state is not None:
             item = state.get("track") if isinstance(state, dict) else None
             if item:
@@ -246,12 +253,32 @@ class PlayerState:
             self.paused = bool(state.get("paused", True)) if isinstance(state, dict) else True
             self.at = now
 
+    def _stale(self, state: dict) -> bool:
+        """A report of a playing track whose snapshot is the one already held.
+
+        The SDK repeats its last snapshot until something happens. Taking that
+        at face value would set the clock back to the moment of the snapshot on
+        every report, and the track would seem to jump back in time.
+        """
+        if not isinstance(state, dict) or state.get("paused", True) or self.track is None or self.paused:
+            return False
+        # Measured on the real player: every report carries a fresh timestamp and a current
+        # position, so each one is taken as it is. Only a report with no timestamp that
+        # repeats the last one exactly is ignored. (An earlier rule also ignored reports a
+        # little behind the running estimate; it let the estimate creep 1.4 s ahead.)
+        key = (state.get("track") or {}).get("id"), state.get("raw_position_ms", state.get("position_ms")), state.get("stamp")
+        stale = key == getattr(self, "_last_key", None) and state.get("stamp") is None
+        self._last_key = key
+        return stale
+
     @property
     def fresh(self) -> bool:
-        return self.ready and self.at > 0 and self.clock() - self.at < 5.0
+        return self.ready and self.at > 0 and self.clock() - self.heard < 5.0
 
     def to_json(self) -> dict:
+        now_pos = self.position + (0.0 if self.paused else self.clock() - self.at)
         return {"ready": self.ready, "device_id": self.device_id, "error": self.error,
+                "position": round(now_pos, 2), "last_raw": self.last_raw,
                 "track": self.track.label if self.track else None, "fresh": self.fresh,
                 "window_open": bool(self.window and self.window.poll() is None)}
 
