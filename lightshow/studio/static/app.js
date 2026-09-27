@@ -331,8 +331,20 @@
       const list = await (await fetch('/api/devices' + (rescan ? '?rescan=1' : ''))).json();
       const prev = Object.fromEntries(S.lights.map(l => [l.ip, l.on]));
       S.lights = list.map(d => ({ ...d, on: prev[d.ip] !== undefined ? prev[d.ip] : !!d.on }));
-      renderLights(); sendSelect();
+      renderLights(); sendSelect(); autoLights();
     } catch (e) { toast('Could not list lights', true); }
+  }
+  // Lights come on by themselves when the app opens, unless they were last switched off.
+  // (?lights=off in the address keeps them off without changing that, for testing.)
+  const LIGHTS_KEY = 'lightShowStudio.lightsOn';
+  const lightsForcedOff = new URLSearchParams(location.search).get('lights') === 'off';
+  function lightsWanted() { if (lightsForcedOff) return false; try { return localStorage.getItem(LIGHTS_KEY) !== '0'; } catch (e) { return true; } }
+  function rememberLights(on) { if (lightsForcedOff) return; try { localStorage.setItem(LIGHTS_KEY, on ? '1' : '0'); } catch (e) { /* not kept: fine */ } }
+  function autoLights() {
+    if (S.autoLightsDone || !S.wsOpen || !S.lights.length) return;
+    S.autoLightsDone = true;
+    if (!lightsWanted() || !selectedLights().length) return;
+    $('#outputOn').checked = true; pushFrameIfIdle();
   }
   function renderLights() {
     const el = $('#lightList'); el.innerHTML = '';
@@ -360,7 +372,7 @@
   const lightLabel = l => l.name || `${l.sku} ${l.ip}`;
   function connectWs() {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-    ws.onopen = () => { S.wsOpen = true; $('#wsState').classList.add('on'); sendSelect(); };
+    ws.onopen = () => { S.wsOpen = true; $('#wsState').classList.add('on'); sendSelect(); autoLights(); if ($('#outputOn').checked) pushFrameIfIdle(); };
     ws.onclose = () => { S.wsOpen = false; S.outputActive = false; $('#wsState').className = 'dot'; setTimeout(connectWs, 2000); };
     ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'started') { S.outputActive = true; $('#wsState').classList.add('out'); } if (m.type === 'stopped') { S.outputActive = false; $('#wsState').classList.remove('out'); } };
     S.ws = ws;
@@ -1442,7 +1454,7 @@
   $('#btnPhaseL').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 3) % 4; changed(); };
   $('#bpm').onchange = () => { if (P()) { beginChange(); P().bpm = parseFloat($('#bpm').value) || P().bpm; changed(); toast('BPM stored — press Regrid to rebuild the beat grid'); } };
   $('#beatEdit').onchange = draw; $('#snap').onchange = draw; $('#effectSearch').oninput = renderLibrary;
-  $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else stopOutput(); };
+  $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } rememberLights(true); if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
   $('#latency').onchange = scheduleSave; $('#master').oninput = () => { scheduleSave(); pushFrameIfIdle(); };
   $('#projectName').onchange = scheduleSave;
   $('#btnNewPalette').onclick = () => { if (!P()) return; const name = prompt('Palette name'); if (!name) return; beginChange(); P().palettes[name] = ['#ff0000', '#0000ff']; renderPalettes(); changed(); };

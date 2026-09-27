@@ -192,6 +192,8 @@ after that. Saved shows live in the `shows/` folder and reload from the
 5. **Play** with **Lights on** ticked to drive the real lights in sync with a
    live preview of every strip. The **Offset** box sends the lights a few
    milliseconds ahead of the audio to line them up by eye.
+   **Lights on** comes on by itself when the studio opens, unless you last
+   switched it off.
 
 **Casting to Google speakers.** Pick a Cast speaker or speaker group in the
 *Cast* dropdown (groups are marked) and press **Cast**. The studio serves the
@@ -396,18 +398,20 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
    Spotify**. You sign in on Spotify's own page. There is no client secret; the
    studio keeps a refresh token in `config.json`, which is not in git.
 4. Choose where Spotify plays, under **Spotify plays in**:
-   - **The studio's own player** (recommended). The studio runs Spotify's
-     official player (the Web Playback SDK) in a small window and appears in
-     Spotify's device list as **Light Show Studio**. Pick it from your phone,
-     or host a Jam with it as the playback device and let others join and queue
-     songs. No Spotify desktop app is needed. The player window uses a
-     different browser from the studio (Microsoft Edge when the studio runs in
-     Chrome), so it can be routed on its own: in Windows Settings, System,
-     Sound, Volume mixer, set that browser's output to a device nobody hears (a
-     muted device, a monitor with no speakers, a virtual cable), and choose the
-     same device under *Listen to*. It needs a sign-in made after this was
-     added (the Jam panel says if yours is older); the player reports its exact
-     position the moment anything changes, so timing is tighter than option two.
+   - **The studio itself** (recommended). While the studio is open it is a
+     Spotify speaker called **Light Show Studio**: it runs Spotify's official
+     player (the Web Playback SDK) inside the studio window. Pick it from your
+     phone, or host a Jam with it and let others join and queue songs. No
+     Spotify app and no extra window. Its sound comes out of the studio
+     window's output (Windows' default unless you changed it): choose that same
+     output under *Listen to*. It needs a sign-in made after this was added
+     (the Jam panel says if yours is older). Reloading the studio window drops
+     the speaker for a moment; if it was playing a jam, the studio hands the
+     music back to itself and the buffer covers the gap. With *Start the jam
+     by itself* ticked, music starting on Light Show Studio starts a jam with
+     the settings used last time, so casting to it from your phone is all it
+     takes. After **Stop jam** it waits for the music to be paused or started
+     again before it starts one by itself.
    - **The Spotify app on this PC.** Route the Spotify app to an output nobody
      hears in the same Volume mixer, and choose that output under *Listen to*.
    Either way the house hears the music through the studio instead, late.

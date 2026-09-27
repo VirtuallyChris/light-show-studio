@@ -16,6 +16,10 @@ from .relay import Relay
 from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 
 
+# the start settings remembered for next time (and for a jam that starts itself)
+LAST_KEYS = ("device", "speakers", "pc_device", "target_delay", "crossfade", "skip_jumps", "source")
+
+
 class JamService:
     def __init__(self, studio, shows_dir: str, load_config, save_config, local_ip):
         self.studio, self.shows_dir = studio, shows_dir
@@ -30,6 +34,10 @@ class JamService:
         self.capture = None
         self.demo = None
         self.mode = ""
+        self.source = ""                                # where Spotify plays for the running jam: studio / app
+        self.auto_armed = True                          # auto-start fires on playback beginning, not on it carrying on
+        self.auto_started = False                       # the running jam was started by playback, not by a button
+        self.auto_error = ""
 
     def _save_store(self) -> None:
         cfg = self.load_config()
@@ -58,6 +66,7 @@ class JamService:
             web.post("/api/spotify/signout", self.signout),
             web.get("/api/spotify/token", self.token),
             web.post("/api/jam/sdk_state", self.sdk_state),
+            web.post("/api/jam/prefs", self.prefs),
             web.post("/api/jam/player/open", self.player_open),
             web.post("/api/jam/player/transfer", self.player_transfer),
         ]
@@ -113,8 +122,7 @@ class JamService:
             if body.get("source", "app") == "studio":
                 if not self.spotify.can_stream:
                     raise PermissionError("the studio player needs a new Spotify sign-in: press Sign in to Spotify again")
-                spotify = PlayerAwareSpotify(self.spotify, self.player)
-                self._open_player()
+                spotify = PlayerAwareSpotify(self.spotify, self.player)    # the player lives in the studio window
             from .audio_io import ProcessCapture
             self.capture = ProcessCapture(relay, body.get("device") or None, gate)   # records from its own process
             self.capture.start()
@@ -133,6 +141,12 @@ class JamService:
         if demo:
             self.demo.start()
         self.engine.say(f"jam started: {self.mode}, aiming {cfg.target_delay:.0f}s behind")
+        self.source = "demo" if demo else body.get("source", "app")
+        self.auto_started = bool(body.get("auto"))
+        if not demo:
+            cfg_all = self.load_config()
+            cfg_all["jam_last"] = {k: body[k] for k in LAST_KEYS if k in body}
+            self.save_config(cfg_all)
         return self._state()
 
     def close_player(self) -> None:
@@ -174,7 +188,8 @@ class JamService:
                 "player": {**self.player.to_json(), "browser": self.player_browser},
                 "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error,
                             "can_stream": self.spotify.can_stream},
-                "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name}
+                "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
+                "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started}
         if self.engine is None:
             return base
         st = self.engine.state()
@@ -323,8 +338,70 @@ class JamService:
     async def sdk_state(self, request):
         if not self._local(request):
             raise web.HTTPForbidden()
-        self.player.update(await request.json())
+        report = await request.json()
+        p, now = self.player, time.monotonic()
+        before_dev = p.device_id
+        was_playing = p.track is not None and not p.paused and now - p.heard < 15.0
+        p.update(report)
+        job = self._after_report(report, before_dev, was_playing)
+        if job is not None:
+            asyncio.get_running_loop().run_in_executor(None, job)
         return web.json_response({"ok": True})
+
+    def _after_report(self, report: dict, before_dev: str, was_playing: bool):
+        """What a player report sets going, if anything: returns a job for a worker thread.
+
+        - Something starts playing on Light Show Studio with no jam running: start one,
+          with the settings last used. It fires on playback beginning, so after Stop the
+          music can carry on without a jam until it is paused or changed.
+        - The player came back under a new device id (the studio window was reloaded)
+          while it was playing a jam: Spotify stopped when the old one vanished, so
+          playback is handed back. The jam's buffer covers the gap.
+        """
+        p = self.player
+        playing = p.ready and p.track is not None and not p.paused
+        if "device_id" in report and p.device_id and before_dev and p.device_id != before_dev:
+            if was_playing and self.engine is not None and self.source == "studio":
+                dev = p.device_id
+                return lambda: self.spotify.transfer_playback(dev, play=True)
+            return None
+        if not playing:
+            self.auto_armed = True
+            return None
+        if self.auto_armed and self.engine is None and self._auto_on() and self.spotify.signed_in:
+            self.auto_armed = False
+            return self._auto_start
+        if self.engine is not None:
+            self.auto_armed = False
+        return None
+
+    def _auto_start(self) -> None:
+        body = {**self._last(), "source": "studio", "auto": True}
+        try:
+            self._start(body)
+            self.auto_error = ""
+        except Exception as e:  # noqa: BLE001 - shown in the Jam panel
+            self.auto_error = f"{type(e).__name__}: {e}"
+
+    def _last(self) -> dict:
+        return {"source": "studio", "speakers": "pc", "target_delay": 45.0, **self.load_config().get("jam_last", {})}
+
+    def _auto_on(self) -> bool:
+        return bool(self.load_config().get("jam_auto", True))
+
+    async def prefs(self, request):
+        """Settings the panel saves as they are changed: auto-start, and where Spotify plays."""
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        cfg = self.load_config()
+        if "auto" in body:
+            cfg["jam_auto"] = bool(body["auto"])
+            self.auto_armed = True
+        if body.get("source") in ("studio", "app"):
+            cfg["jam_last"] = {**cfg.get("jam_last", {}), "source": body["source"]}
+        self.save_config(cfg)
+        return web.json_response(self._state())
 
     async def player_open(self, request):
         return await self._run(lambda: (self._open_player(), self._state())[1])

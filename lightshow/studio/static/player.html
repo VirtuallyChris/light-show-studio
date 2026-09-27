@@ -50,7 +50,14 @@
     $('#now').textContent = `${(t.artists || []).map(a => a.name).join(', ')} – ${t.name}${st.paused ? '  (paused)' : ''}`;
   }
 
-  window.onSpotifyWebPlaybackSDKReady = () => {
+  // Inside the studio window this page runs in a hidden frame. With two studio windows open,
+  // only one may be the speaker: a lock goes to the first, and passes on when it closes.
+  let sdkReady; const sdk = new Promise(r => { sdkReady = r; });
+  window.onSpotifyWebPlaybackSDKReady = () => sdkReady();
+  const holdTheSpeaker = run => navigator.locks ? navigator.locks.request('light-show-studio-spotify-player', () => new Promise(() => run())) : run();
+  holdTheSpeaker(() => sdk.then(connect));
+
+  function connect() {
     const player = new Spotify.Player({
       name: 'Light Show Studio',
       volume: 1.0,               // full level: the studio records this and sets the house volume itself
@@ -72,7 +79,8 @@
     player.connect().then(ok => { if (!ok) problem('Could not connect to Spotify.'); });
     // keep the studio's clock exact between changes
     setInterval(() => player.getCurrentState().then(st => { if (st) report(st); }), 1000);
-  };
+    window.addEventListener('pagehide', () => player.disconnect());
+  }
 </script>
 <script src="https://sdk.scdn.co/spotify-player.js"></script>
 </body>

@@ -105,6 +105,67 @@ class TestClient(unittest.TestCase):
         self.assertEqual(json.loads(body), {"device_ids": ["dev123"], "play": True})
 
 
+class TestAutoStart(unittest.TestCase):
+    """Music starting on Light Show Studio starts a jam; a reloaded studio takes its music back."""
+
+    def service(self):
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = None, "", ""
+        self.cfg = {"jam_last": {"speakers": "pc", "pc_device": "Headphones", "target_delay": 30.0}}
+        svc = JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
+        svc.spotify.store.update(client_id="x", refresh_token="r")   # signed in
+        self.started, self.transfers = [], []
+
+        def fake_start(body):
+            self.started.append(body)
+            svc.engine = object()
+            svc.source = body.get("source")
+        svc._start = fake_start
+        svc.spotify.transfer_playback = lambda dev, play=True: self.transfers.append(dev)
+        return svc
+
+    def report(self, svc, rep):
+        p = svc.player
+        before, was = p.device_id, p.track is not None and not p.paused
+        p.update(rep)
+        job = svc._after_report(rep, before, was)
+        if job:
+            job()
+
+    def test_music_starting_starts_a_jam_with_the_last_settings_once(self):
+        svc = self.service()
+        self.report(svc, {"device_id": "dev1", "ready": True})
+        self.report(svc, {"state": {**SDK_STATE, "paused": True}})
+        self.assertEqual(self.started, [])                        # paused: nothing yet
+        self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})
+        self.assertEqual(len(self.started), 1)
+        self.assertEqual({k: self.started[0][k] for k in ("source", "speakers", "pc_device", "target_delay", "auto")},
+                         {"source": "studio", "speakers": "pc", "pc_device": "Headphones", "target_delay": 30.0, "auto": True})
+        svc.engine = None                                         # Stop pressed while the music carries on
+        self.report(svc, {"state": {**SDK_STATE, "position_ms": 70000, "stamp": 2}})
+        self.assertEqual(len(self.started), 1)                    # not started again behind the user's back
+        self.report(svc, {"state": {**SDK_STATE, "paused": True, "stamp": 3}})
+        self.report(svc, {"state": {**SDK_STATE, "stamp": 4}})
+        self.assertEqual(len(self.started), 2)                    # but it is when the music starts again
+
+    def test_auto_start_can_be_turned_off(self):
+        svc = self.service()
+        self.cfg["jam_auto"] = False
+        self.report(svc, {"device_id": "dev1", "ready": True})
+        self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})
+        self.assertEqual(self.started, [])
+
+    def test_a_reloaded_studio_takes_its_music_back(self):
+        svc = self.service()
+        self.report(svc, {"device_id": "dev1", "ready": True})
+        self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})       # the jam starts
+        self.report(svc, {"device_id": "dev2", "ready": True})        # the window was reloaded: a new player
+        self.assertEqual(self.transfers, ["dev2"])
+        self.assertEqual(len(self.started), 1)
+
+
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)
