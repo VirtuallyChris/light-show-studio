@@ -26,7 +26,10 @@ from dataclasses import dataclass, field
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 API = "https://api.spotify.com/v1"
-SCOPES = "user-read-playback-state user-read-currently-playing user-modify-playback-state"
+# `streaming` (with the two profile scopes it requires) lets the studio run its own Spotify
+# player, which appears in Spotify Connect as "Light Show Studio"
+SCOPES = ("user-read-playback-state user-read-currently-playing user-modify-playback-state "
+          "streaming user-read-email user-read-private")
 
 
 @dataclass
@@ -112,8 +115,18 @@ class SpotifyClient:
                              "client_id": self.client_id, "code_verifier": self.verifier})
         self.verifier = self.state = ""
 
+    @property
+    def can_stream(self) -> bool:
+        """Whether the sign-in allows the studio's own player (older sign-ins did not ask for it)."""
+        return self.signed_in and "streaming" in self.store.get("scope", "").split()
+
+    def token(self) -> str:
+        """A current access token, for the studio's own player page."""
+        return self._token()
+
     def sign_out(self) -> None:
         self.store.pop("refresh_token", None)
+        self.store.pop("scope", None)
         self.access_token = ""
         self.save()
 
@@ -125,6 +138,9 @@ class SpotifyClient:
             raise PermissionError(f"Spotify refused the sign-in ({status}): {data.get('error_description') or data.get('error') or body[:120]}")
         self.access_token = data["access_token"]
         self.expires_at = self.clock() + float(data.get("expires_in", 3600)) - 60
+        if data.get("scope") and data["scope"] != self.store.get("scope"):
+            self.store["scope"] = data["scope"]
+            self.save()
         if data.get("refresh_token"):
             self.store["refresh_token"] = data["refresh_token"]
             self.save()
@@ -182,8 +198,83 @@ class SpotifyClient:
             out += [g for g in self.artist_cache[aid] if g not in out]
         return out
 
+    def transfer_playback(self, device_id: str, play: bool = True) -> bool:
+        """Make a device (the studio's own player) the one Spotify plays on."""
+        return self._call("PUT", "/me/player", {"device_ids": [device_id], "play": bool(play)})[0] in (200, 202, 204)
+
     def pause(self) -> bool:
         return self._call("PUT", "/me/player/pause")[0] in (200, 202, 204)
 
     def resume(self) -> bool:
         return self._call("PUT", "/me/player/play")[0] in (200, 202, 204)
+
+
+# ============================================================================ the studio player
+class PlayerState:
+    """What the studio's own Spotify player last reported, pushed from its page."""
+
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.device_id = ""
+        self.ready = False
+        self.error = ""
+        self.track: Track | None = None
+        self.position = 0.0
+        self.paused = True
+        self.at = 0.0                                    # local clock when the report arrived
+        self.window = None                               # the player window's process, if the studio opened it
+
+    def update(self, report: dict) -> None:
+        now = self.clock()
+        if "device_id" in report:
+            self.device_id = report["device_id"] or ""
+            self.ready = bool(report.get("ready", bool(self.device_id)))
+        if "error" in report:
+            self.error = report["error"] or ""
+        state = report.get("state")
+        if state is not None:
+            item = state.get("track") if isinstance(state, dict) else None
+            if item:
+                artists = item.get("artists") or []
+                self.track = Track(id=item.get("id") or item.get("uri", "").rsplit(":", 1)[-1], name=item.get("name", ""),
+                                   artists=[a.get("name", "") for a in artists], duration=float(item.get("duration_ms", 0)) / 1000.0,
+                                   uri=item.get("uri", ""),
+                                   artist_ids=[a.get("uri", "").rsplit(":", 1)[-1] for a in artists if a.get("uri")])
+            else:
+                self.track = None
+            self.position = float(state.get("position_ms", 0)) / 1000.0 if isinstance(state, dict) else 0.0
+            self.paused = bool(state.get("paused", True)) if isinstance(state, dict) else True
+            self.at = now
+
+    @property
+    def fresh(self) -> bool:
+        return self.ready and self.at > 0 and self.clock() - self.at < 5.0
+
+    def to_json(self) -> dict:
+        return {"ready": self.ready, "device_id": self.device_id, "error": self.error,
+                "track": self.track.label if self.track else None, "fresh": self.fresh,
+                "window_open": bool(self.window and self.window.poll() is None)}
+
+
+class PlayerAwareSpotify:
+    """The Spotify client, but with the studio player's own clock for what is playing.
+
+    While the studio's player is the device playing, its reports arrive the moment
+    anything changes and its position is exact, so they are used instead of asking
+    the Web API once a second (whose answers are always a little stale). Anything
+    else, and any time the player has gone quiet, falls through to the Web API.
+    """
+
+    def __init__(self, client: SpotifyClient, player: PlayerState):
+        self.client, self.player = client, player
+
+    def __getattr__(self, name):                        # queue, pause, resume, artist_genres, signed_in...
+        return getattr(self.client, name)
+
+    def now_playing(self) -> NowPlaying:
+        p = self.player
+        if p.fresh and p.track is not None:
+            now = p.clock()
+            progress = p.position + (0.0 if p.paused else now - p.at)
+            return NowPlaying(p.track, progress, not p.paused, now, "Light Show Studio")
+        return self.client.now_playing()

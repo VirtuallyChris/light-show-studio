@@ -200,6 +200,10 @@ class Studio:
                     seen, self.last_client = True, time.monotonic()
                 elif seen and time.monotonic() - self.last_client > 8:
                     print("Studio window closed. Stopping.")
+                    try:
+                        self.jam.close_player()          # the Spotify player window goes with the studio
+                    except Exception:  # noqa: BLE001
+                        pass
                     os._exit(0)
         # keep a reference: a bare create_task can be garbage collected mid-flight
         self._watch_task = asyncio.create_task(watch())
@@ -576,6 +580,49 @@ def find_chromium() -> str | None:
         if found:
             cands.append(found)
     return next((c for c in cands if os.path.exists(c)), None)
+
+
+def chromium_candidates() -> list[str]:
+    """Every installed Chromium-family browser, in order of preference."""
+    first = find_chromium()
+    found = [first] if first else []
+    if sys.platform == "win32":
+        for env in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            base = os.environ.get(env)
+            if base:
+                for parts in (("Microsoft", "Edge", "Application", "msedge.exe"), ("Google", "Chrome", "Application", "chrome.exe"),
+                              ("BraveSoftware", "Brave-Browser", "Application", "brave.exe")):
+                    p = os.path.join(base, *parts)
+                    if os.path.exists(p) and p not in found:
+                        found.append(p)
+    return found
+
+
+def open_player_window(url: str) -> tuple[subprocess.Popen | None, str]:
+    """Open the studio's Spotify player in a small window of a *different* browser from the studio's.
+
+    Windows routes sound per program, and the player's window must go to an output
+    nobody hears. If it were the studio's own browser, routing it would also mute
+    the studio's song previews (and every other window of that browser). Microsoft
+    Edge comes with Windows, so it is the usual choice when the studio runs in Chrome.
+    Returns the process and the browser's name.
+    """
+    cands = chromium_candidates()
+    studio = cands[0] if cands else None
+    exe = next((c for c in cands if c != studio), studio)
+    if exe is None:
+        return None, ""
+    profile = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "lanlightshow", "player-browser")
+    os.makedirs(profile, exist_ok=True)
+    args = [exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
+            "--autoplay-policy=no-user-gesture-required", "--window-size=420,330", "--disable-features=Translate,TranslateUI"]
+    try:
+        name = {"msedge.exe": "Microsoft Edge", "chrome.exe": "Google Chrome", "brave.exe": "Brave"}.get(os.path.basename(exe).lower(), os.path.basename(exe))
+        if exe == studio:
+            name += " (the same browser as the studio: routing it will also silence the studio's previews)"
+        return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), name
+    except OSError:
+        return None, ""
 
 
 def open_app_window(url: str) -> subprocess.Popen | None:

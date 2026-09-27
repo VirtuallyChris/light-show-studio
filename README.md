@@ -385,11 +385,22 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
 3. Paste the app's **Client ID** into the Jam panel and press **Sign in to
    Spotify**. You sign in on Spotify's own page. There is no client secret; the
    studio keeps a refresh token in `config.json`, which is not in git.
-4. Make Spotify on this PC play to an output nobody hears: a muted device, a
-   monitor with no speakers, or a virtual cable. Choose that output under
-   *Listen to*. The house hears the music through the studio instead, late.
-   In Windows this is Settings, System, Sound, Volume mixer: set Spotify's
-   output device there.
+4. Choose where Spotify plays, under **Spotify plays in**:
+   - **The studio's own player** (recommended). The studio runs Spotify's
+     official player (the Web Playback SDK) in a small window and appears in
+     Spotify's device list as **Light Show Studio**. Pick it from your phone,
+     or host a Jam with it as the playback device and let others join and queue
+     songs. No Spotify desktop app is needed. The player window uses a
+     different browser from the studio (Microsoft Edge when the studio runs in
+     Chrome), so it can be routed on its own: in Windows Settings, System,
+     Sound, Volume mixer, set that browser's output to a device nobody hears (a
+     muted device, a monitor with no speakers, a virtual cable), and choose the
+     same device under *Listen to*. It needs a sign-in made after this was
+     added (the Jam panel says if yours is older); the player reports its exact
+     position the moment anything changes, so timing is tighter than option two.
+   - **The Spotify app on this PC.** Route the Spotify app to an output nobody
+     hears in the same Volume mixer, and choose that output under *Listen to*.
+   Either way the house hears the music through the studio instead, late.
 5. Under **Play on**, choose where the delayed music is heard: the **Cast**
    speakers (press Cast first), **This PC** (pick your headphones or speakers
    under *PC output*), or nowhere, to watch the show build without sound. This

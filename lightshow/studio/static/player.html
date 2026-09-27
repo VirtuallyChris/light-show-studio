@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Light Show Studio player</title>
+<link rel="icon" href="/static/icon.ico">
+<style>
+  :root { color-scheme: dark; --bg: #0f1014; --panel: #181a21; --line: #2a2d37; --text: #e8eaf0; --muted: #8b92a3; --ok: #4fd18b; --warn: #ffb454; --accent: #6c8cff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  main { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .now { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  .warn { color: var(--warn); font-size: 12.5px; }
+  button { background: #242733; color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1><span id="dot" class="dot"></span><span id="title">Starting the player…</span></h1>
+  <div class="card"><div class="muted">Playing</div><div id="now" class="now">nothing yet</div></div>
+  <div id="help" class="muted">On your phone, open Spotify, tap the device icon and choose <b>Light Show Studio</b>.
+    This window can stay minimized; closing it takes the studio out of Spotify's device list.</div>
+  <div id="err" class="warn" hidden></div>
+  <div><button id="here" hidden>Play here now</button></div>
+</main>
+<script>
+  const $ = s => document.querySelector(s);
+  const post = (path, body) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+  function status(text, cls) { $('#title').textContent = text; $('#dot').className = 'dot' + (cls ? ' ' + cls : ''); }
+  function problem(text) { $('#err').hidden = !text; $('#err').textContent = text || ''; post('/api/jam/sdk_state', { error: text || '' }); }
+
+  // what the studio needs from the player's state, and nothing else
+  function report(st) {
+    if (!st || !st.track_window || !st.track_window.current_track) { post('/api/jam/sdk_state', { state: {} }); $('#now').textContent = 'nothing yet'; return; }
+    const t = st.track_window.current_track;
+    post('/api/jam/sdk_state', { state: { position_ms: st.position, paused: st.paused,
+      track: { id: t.id, uri: t.uri, name: t.name, duration_ms: t.duration_ms, artists: (t.artists || []).map(a => ({ name: a.name, uri: a.uri })) } } });
+    $('#now').textContent = `${(t.artists || []).map(a => a.name).join(', ')} – ${t.name}${st.paused ? '  (paused)' : ''}`;
+  }
+
+  window.onSpotifyWebPlaybackSDKReady = () => {
+    const player = new Spotify.Player({
+      name: 'Light Show Studio',
+      volume: 1.0,               // full level: the studio records this and sets the house volume itself
+      getOAuthToken: cb => fetch('/api/spotify/token').then(r => r.json()).then(j => j.token ? cb(j.token) : problem(j.error || 'no token')),
+    });
+    player.addListener('ready', ({ device_id }) => {
+      status('Light Show Studio is ready in Spotify', 'ok'); problem('');
+      post('/api/jam/sdk_state', { device_id, ready: true });
+      $('#here').hidden = false;
+      $('#here').onclick = () => post('/api/jam/player/transfer', {});
+    });
+    player.addListener('not_ready', () => { status('Reconnecting to Spotify…', 'warn'); post('/api/jam/sdk_state', { device_id: '', ready: false }); });
+    player.addListener('player_state_changed', report);
+    player.addListener('initialization_error', ({ message }) => { status('This browser cannot play Spotify', 'warn'); problem(`${message}. The studio player needs Microsoft Edge or Google Chrome, with protected content allowed in its site settings.`); });
+    player.addListener('authentication_error', ({ message }) => { status('Spotify sign-in needed', 'warn'); problem(`${message}. Press "Sign in to Spotify" in the studio's Jam panel again.`); });
+    player.addListener('account_error', ({ message }) => { status('Spotify Premium needed', 'warn'); problem(message); });
+    player.addListener('playback_error', ({ message }) => problem(`Playback: ${message}`));
+    player.connect().then(ok => { if (!ok) problem('Could not connect to Spotify.'); });
+    // keep the studio's clock exact between changes
+    setInterval(() => player.getCurrentState().then(st => { if (st) report(st); }), 1000);
+  };
+</script>
+<script src="https://sdk.scdn.co/spotify-player.js"></script>
+</body>
+</html>

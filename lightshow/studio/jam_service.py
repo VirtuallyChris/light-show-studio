@@ -13,7 +13,7 @@ from . import loopback
 from .jam import CastOutput, JamEngine, JamLibrary, JamRunner, JamSettings, VirtualOutput
 from .loopback import Gate, LoopbackCapture
 from .relay import Relay
-from .spotify import SpotifyClient
+from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 
 
 class JamService:
@@ -23,6 +23,8 @@ class JamService:
         self.library = JamLibrary(shows_dir)
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
+        self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
+        self.player_browser = ""
         self.engine: JamEngine | None = None
         self.runner: JamRunner | None = None
         self.capture = None
@@ -54,6 +56,10 @@ class JamService:
             web.get("/api/spotify/login", self.login),
             web.get("/api/spotify/callback", self.callback),
             web.post("/api/spotify/signout", self.signout),
+            web.get("/api/spotify/token", self.token),
+            web.post("/api/jam/sdk_state", self.sdk_state),
+            web.post("/api/jam/player/open", self.player_open),
+            web.post("/api/jam/player/transfer", self.player_transfer),
         ]
 
     # -- lifecycle -----------------------------------------------------------------------
@@ -103,6 +109,11 @@ class JamService:
             if not self.spotify.signed_in:
                 raise PermissionError("sign in to Spotify first")
             spotify = self.spotify
+            if body.get("source", "app") == "studio":
+                if not self.spotify.can_stream:
+                    raise PermissionError("the studio player needs a new Spotify sign-in: press Sign in to Spotify again")
+                spotify = PlayerAwareSpotify(self.spotify, self.player)
+                self._open_player()
             self.capture = LoopbackCapture(relay, body.get("device") or None, gate)
             self.capture.start()
         # the demo learns its synthetic songs too, but in a folder of its own, not among the real ones
@@ -121,6 +132,11 @@ class JamService:
             self.demo.start()
         self.engine.say(f"jam started: {self.mode}, aiming {cfg.target_delay:.0f}s behind")
         return self._state()
+
+    def close_player(self) -> None:
+        w, self.player.window = self.player.window, None
+        if w is not None and w.poll() is None:
+            w.terminate()
 
     def _stop(self) -> None:
         if self.runner:
@@ -145,9 +161,17 @@ class JamService:
             return False
         return (capture or default) == (playback or default)
 
+    def _open_player(self) -> None:
+        if self.player.window is not None and self.player.window.poll() is None:
+            return
+        from .server import open_player_window
+        self.player.window, self.player_browser = open_player_window(f"http://127.0.0.1:{self.studio.port}/static/player.html")
+
     def _state(self) -> dict:
         base = {"running": self.engine is not None, "mode": self.mode, "redirect_uri": self.redirect_uri,
-                "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error},
+                "player": {**self.player.to_json(), "browser": self.player_browser},
+                "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error,
+                            "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name}
         if self.engine is None:
             return base
@@ -272,6 +296,38 @@ class JamService:
         except Exception as e:  # noqa: BLE001
             return page("Spotify sign-in failed", str(e))
         return page("Signed in to Spotify", "You can close this window and go back to the studio.")
+
+    # -- the studio's own Spotify player ----------------------------------------------------
+    @staticmethod
+    def _local(request) -> bool:
+        """The studio listens on the whole network (Cast speakers fetch audio from it), but these
+        routes hand out a Spotify token and steer playback: this computer only."""
+        return (request.remote or "") in ("127.0.0.1", "::1", "localhost")
+
+    async def token(self, request):
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        try:
+            tok = await asyncio.get_running_loop().run_in_executor(None, self.spotify.token)
+            return web.json_response({"token": tok})
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({"error": str(e)}, status=401)
+
+    async def sdk_state(self, request):
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        self.player.update(await request.json())
+        return web.json_response({"ok": True})
+
+    async def player_open(self, request):
+        return await self._run(lambda: (self._open_player(), self._state())[1])
+
+    async def player_transfer(self, request):
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        if not self.player.device_id:
+            return web.json_response({"error": "the studio player is not ready yet"}, status=400)
+        return await self._run(lambda: {"ok": self.spotify.transfer_playback(self.player.device_id)})
 
     async def signout(self, request):
         self.spotify.sign_out()

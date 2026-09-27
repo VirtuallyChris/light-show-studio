@@ -38,9 +38,17 @@
         <div class="hint">In your Spotify app's settings, add this Redirect URI exactly: <code>${esc(st.redirect_uri || '')}</code></div>
         <div class="jam-row"><span>${sp.signed_in ? '<b class="ok">Signed in</b>' : 'Not signed in'}</span>
           <span><button id="jamSignIn" class="small">${sp.signed_in ? 'Sign in again' : 'Sign in to Spotify'}</button>${sp.signed_in ? ' <button id="jamSignOut" class="small">Sign out</button>' : ''}</span></div></div>
-      <div class="jam-sec"><h4>2 · Where Spotify plays on this PC</h4>
+      <div class="jam-sec"><h4>2 · Where Spotify plays</h4>
+        <div class="jam-row"><label>Spotify plays in</label><select id="jamSource">
+          <option value="studio">The studio's own player</option>
+          <option value="app">The Spotify app on this PC</option></select></div>
+        <div id="jamPlayerBox">
+          <div class="jam-row"><span>${playerLine(st)}</span><span><button id="jamPlayerOpen" class="small">${st.player && st.player.window_open ? 'Show player' : 'Open player'}</button>${st.player && st.player.ready ? ' <button id="jamPlayerHere" class="small">Play here</button>' : ''}</span></div>
+          <div class="hint">The studio appears in Spotify as <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. It plays in a small ${esc((st.player && st.player.browser) || 'Microsoft Edge')} window: in Windows' Volume mixer, send that browser to an output nobody hears, and choose the same output below.</div>
+          ${sp.signed_in && !sp.can_stream ? '<div class="warn">Sign in to Spotify again: the studio player needs a permission the earlier sign-in did not ask for.</div>' : ''}
+        </div>
         <div class="jam-row"><label>Listen to</label><select id="jamDevice"><option value="">Default output</option></select></div>
-        <div class="hint">Point Spotify at an output nobody hears (a muted device, a monitor without speakers, a virtual cable). The house hears it through the studio, late.</div></div>
+        <div class="hint" id="jamAppHint">Point the Spotify app at an output nobody hears (a muted device, a monitor without speakers, a virtual cable), and choose it here. The house hears it through the studio, late.</div></div>
       <div class="jam-sec"><h4>3 · Where the house hears it</h4>
         <div class="jam-row"><label>Play on</label><select id="jamWhere">
           <option value="cast" ${st.speaker_connected ? '' : 'disabled'}>Cast: ${st.speaker_connected ? esc(st.speaker) : 'press Cast first'}</option>
@@ -75,13 +83,19 @@
         ${room && room.kind !== 'custom' && S.name ? '' : ''}</div>`;
     }
     // keep what is being typed
-    const keep = {}; for (const id of ['jamClient', 'jamDelay', 'jamXfade', 'jamDevice', 'jamWhere', 'jamPcDevice']) { const e = $('#' + id); if (e) keep[id] = e.value; }
+    const keep = {}; for (const id of ['jamClient', 'jamDelay', 'jamXfade', 'jamDevice', 'jamWhere', 'jamPcDevice', 'jamSource']) { const e = $('#' + id); if (e) keep[id] = e.value; }
     const focus = document.activeElement && document.activeElement.id;
     if (running || !['jamClient', 'jamDelay', 'jamXfade'].includes(focus)) { el.innerHTML = html; wire(keep); }
     $('#btnJam').classList.toggle('on', running);
     $('#btnJam').textContent = running ? (st.streaming ? 'Jam · live' : 'Jam · filling') : 'Jam';
   }
   const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  function playerLine(st) {
+    const p = st.player || {};
+    if (p.error) return `<span class="warn">Player: ${esc(p.error)}</span>`;
+    if (p.ready) return `<b class="ok">Light Show Studio is in Spotify</b>${p.track ? ` · ${esc(p.track)}` : ''}`;
+    return p.window_open ? 'Player starting…' : 'Player not open';
+  }
 
   function wire(keep) {
     const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = () => fn().catch(err => toast('Jam: ' + err.message, true)); };
@@ -91,12 +105,17 @@
     if (pcDev) { pcDev.innerHTML = '<option value="">Default output</option>' + (J.outputs || []).filter(o => o.name).map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.default ? ' (default)' : ''}</option>`).join(''); if (keep.jamPcDevice) pcDev.value = keep.jamPcDevice; }
     const showPc = () => { const pc = where && where.value === 'pc'; for (const id of ['jamPcRow', 'jamPcHint']) { const e = $('#' + id); if (e) e.hidden = !pc; } };
     if (where) { where.onchange = showPc; showPc(); }
+    const source = $('#jamSource');
+    const showSource = () => { const studio = !source || source.value === 'studio'; const box = $('#jamPlayerBox'), hint = $('#jamAppHint'); if (box) box.hidden = !studio; if (hint) hint.hidden = studio; };
+    if (source) { source.onchange = showSource; showSource(); }
+    on('jamPlayerOpen', async () => { J.state = await api('jam/player/open', {}); render(); });
+    on('jamPlayerHere', async () => { await api('jam/player/transfer', {}); toast('Spotify is now playing on Light Show Studio'); });
     const dev = $('#jamDevice');
     if (dev) { dev.innerHTML = '<option value="">Default output</option>' + (J.outputs || []).filter(o => o.name).map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.default ? ' (default)' : ''}</option>`).join(''); if (keep.jamDevice) dev.value = keep.jamDevice; }
     const cid = $('#jamClient'); if (cid) cid.onchange = () => api('spotify/client', { client_id: cid.value.trim() }).then(s => { J.state = { ...J.state, ...s }; render(); }).catch(e => toast(e.message, true));
     on('jamSignIn', async () => { if (cid && cid.value.trim() !== ((J.state.spotify || {}).client_id || '')) await api('spotify/client', { client_id: cid.value.trim() }); window.open('/api/spotify/login', 'spotify', 'width=520,height=760'); });
     on('jamSignOut', async () => { J.state = await api('spotify/signout', {}); render(); });
-    const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 45, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });
+    const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 45, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, source: (source && source.value) || 'studio', speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });
     on('jamStart', async () => { J.state = await start({}); render(); toast({ cast: 'Jam started. The speakers join once the buffer is full.', pc: 'Jam started. This PC starts playing once the buffer is full.' }[J.state.output_kind] || 'Jam started as a preview: nothing plays.'); });
     on('jamOpener', async () => { if (!S.cast.active || !S.audio.playing) return toast('Cast one of your shows and press play first, then press this', true); J.state = await start({ opener: true, speakers: 'cast' }); render(); toast('Armed. Spotify will be released as this song ends.'); });
     on('jamDemo', async () => { J.state = await start({ demo: true, speakers: 'none', target_delay: 20 }); render(); toast('Silent demo running: synthetic songs, no sound.'); });
