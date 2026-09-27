@@ -17,6 +17,8 @@ import threading
 
 import numpy as np
 
+from .priority import POPEN_BELOW_NORMAL
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # The model environment lives on the local disk (PyTorch is thousands of files);
 # a copy inside the project is honoured too.
@@ -51,7 +53,7 @@ class ModelWorker:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         self.proc = subprocess.Popen([VENV_PY, "-m", self.module], cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+                                     creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)
         hello = self._read(self.start_timeout)          # the first run downloads the model
         if not hello or not hello.get("ready"):
             self.failed = (hello or {}).get("error", "the model did not start")

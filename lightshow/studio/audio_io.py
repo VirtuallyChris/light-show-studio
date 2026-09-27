@@ -110,13 +110,36 @@ def _open_player(device: str | None, sr: int, ch: int, buffer_s: float):
     return speaker.player(samplerate=sr, channels=ch, blocksize=int(sr * buffer_s))
 
 
+class _Orphan:
+    """Tells a child when the studio that started it is gone.
+
+    A studio that is closed or killed does not get to stop its audio processes,
+    and they would keep the sound device open, playing and recording for nobody.
+    """
+
+    def __init__(self):
+        self.parent = mp.parent_process()
+        self.checked = 0.0
+
+    def __call__(self) -> bool:
+        now = time.monotonic()
+        if self.parent is None or now - self.checked < 0.5:
+            return False
+        self.checked = now
+        return not self.parent.is_alive()
+
+
 def _player_main(name: str, capacity: int, ch: int, sr: int, device: str | None, piece: int, buffer_s: float) -> None:
     """Play whatever the studio puts in the ring, in whole 10 ms periods, at the device's own pace."""
+    from . import priority
+    priority.process(priority.HIGH)                     # the sound card is served before any analysis
+    priority.audio_thread()
     ring = Ring(capacity, ch, name)
+    orphan = _Orphan()
     try:
         with _open_player(device, sr, ch, buffer_s) as player:
             ring.h[READY] = 1
-            while not ring.h[STOP]:
+            while not ring.h[STOP] and not orphan():
                 if ring.h[SKIP] > ring.h[R]:
                     ring.h[R] = ring.h[SKIP]            # a new stream: forget what was queued
                 if ring.h[PAUSED] or ring.h[W] - ring.h[R] < piece:
@@ -135,11 +158,15 @@ def _player_main(name: str, capacity: int, ch: int, sr: int, device: str | None,
 
 def _recorder_main(name: str, capacity: int, ch: int, sr: int, device: str | None, block: int) -> None:
     """Record an output, keeping the timeline in step with the clock whatever the device does."""
+    from . import priority
+    priority.process(priority.HIGH)
+    priority.high_thread()
     ring = Ring(capacity, ch, name)
     q: list = []
     lock = threading.Lock()
 
     def record():
+        priority.audio_thread()
         try:
             if device == FAKE_SOURCE:
                 k, t0 = 0, time.monotonic()
@@ -165,8 +192,12 @@ def _recorder_main(name: str, capacity: int, ch: int, sr: int, device: str | Non
     t.start()
     ring.h[READY] = 1
     t0, margin = time.monotonic(), int(0.25 * sr)
+    orphan = _Orphan()
     try:
         while not ring.h[STOP] and not ring.h[FAILED]:
+            if orphan():
+                ring.h[STOP] = 1                        # and the recording thread with it
+                break
             time.sleep(0.01)
             with lock:
                 got, q[:] = list(q), []
@@ -227,6 +258,8 @@ class ProcessCapture:
         self.thread.start()
 
     def _collect(self) -> None:
+        from . import priority
+        priority.high_thread()
         read = 0
         while not self.stop_flag.is_set():
             time.sleep(0.02)
@@ -317,6 +350,8 @@ class ProcessOutput:
         self.thread.start()
 
     def _feed(self, stream) -> None:
+        from . import priority
+        priority.high_thread()                          # keeps the player's ring topped up: ahead of analysis
         ring, ch = self.ring, stream.relay.channels
         lead = int(self.LEAD_S * self.sr)
         while not self.stop_flag.is_set():

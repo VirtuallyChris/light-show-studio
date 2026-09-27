@@ -342,8 +342,23 @@ class TestEngine(unittest.TestCase):
         self.assertAlmostEqual(t.start, true_start, delta=0.04)                  # the stale clock alone would be 350 ms out
         self.assertEqual(sim.engine.analysis_json(t.key)["analysis"]["bpm"], sim.library.learned(self.ta.id)["analysis"]["bpm"])
 
-    def test_a_skip_flushes_and_the_delay_grows_back_between_songs(self):
-        sim = Sim(self.dir, target=20.0, max_gap=6.0)
+    def test_a_skip_keeps_the_delay_by_default(self):
+        sim = Sim(self.dir, target=20.0)
+        e = sim.engine
+        sim.play(self.a, self.ta)
+        sim.run(40, analyse=False)
+        sim.play(self.b, self.tb)                                                # a skip, 40 s into a 75 s song
+        sim.run(6, analyse=False)
+        self.assertEqual((sim.out.starts, e.flushes), (1, 0))                    # nothing thrown away
+        self.assertTrue(e.tracks[-2].skipped)                                    # still a skip: the song is not learned
+        self.assertAlmostEqual(e.delay(), 20.0, delta=1.0)
+        self.assertEqual(e.state()["room"]["id"], self.ta.id)                    # the room is still on the old song
+        sim.run(16, analyse=False)
+        self.assertEqual(e.state()["room"]["id"], self.tb.id)                    # and reaches the skip a delay later
+        self.assertAlmostEqual(e.delay(), 20.0, delta=1.0)
+
+    def test_a_skip_can_jump_and_the_delay_grows_back_between_songs(self):
+        sim = Sim(self.dir, target=20.0, max_gap=6.0, skip_jumps=True)
         e = sim.engine
         sim.play(self.a, self.ta)
         sim.run(40, analyse=False)
@@ -366,7 +381,7 @@ class TestEngine(unittest.TestCase):
     def test_a_change_near_the_end_is_the_song_ending_and_keeps_the_delay(self):
         # Spotify cuts endings short by itself; a change in a song's last stretch is taken as its end
         for early, outro, expect_flush in ((8.0, 30.0, False), (20.0, 30.0, False), (8.0, 0.0, True)):
-            sim = Sim(self.dir, target=20.0, outro=outro)
+            sim = Sim(self.dir, target=20.0, outro=outro, skip_jumps=True)
             sim.play(self.a, self.ta)
             sim.run(self.a["duration"] - early, analyse=False)
             sim.play(self.b, self.tb)

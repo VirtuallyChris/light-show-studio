@@ -82,7 +82,8 @@ class JamService:
         relay = Relay(sr=44100, channels=2, capacity_s=600.0)
         gate = Gate()
         cfg = JamSettings(target_delay=float(body.get("target_delay", 45.0)), max_gap=float(body.get("max_gap", 6.0)),
-                          crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))))
+                          crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))),
+                          skip_jumps=bool(body.get("skip_jumps", False)))
         where = body.get("speakers", "cast")
         use_cast = where == "cast" and self.studio.cast.cast is not None
         if where == "cast" and not use_cast:

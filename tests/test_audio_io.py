@@ -99,5 +99,61 @@ class TestProcessCapture(unittest.TestCase):
             cap.stop()
 
 
+PARENT = """
+import os, sys, time
+import numpy as np
+from lightshow.studio.audio_io import FAKE_SINK, FAKE_SOURCE, ProcessCapture, ProcessOutput
+from lightshow.studio.relay import Relay
+if __name__ == "__main__":
+    relay = Relay(sr=44100, channels=2, capacity_s=30)
+    relay.write(np.zeros((44100 * 10, 2), dtype=np.int16))
+    cap = ProcessCapture(Relay(sr=44100, channels=2, capacity_s=30), FAKE_SOURCE); cap.start()
+    out = ProcessOutput(FAKE_SINK); out.start_stream(relay.open_stream(0.0))
+    print(cap.proc.pid, out.proc.pid, flush=True)
+    time.sleep(60)
+"""
+
+
+class TestOrphans(unittest.TestCase):
+    def test_audio_processes_end_when_the_studio_is_killed(self):
+        import os
+        import subprocess
+        import sys
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        parent = subprocess.Popen([sys.executable, "-c", PARENT], cwd=root, stdout=subprocess.PIPE, text=True)
+        try:
+            pids = [int(x) for x in parent.stdout.readline().split()]
+            self.assertEqual(len(pids), 2)
+            parent.kill()                                   # no chance to stop its children
+            parent.wait(5)
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline and any(_alive(p) for p in pids):
+                time.sleep(0.2)
+            self.assertEqual([p for p in pids if _alive(p)], [], "audio processes outlived the studio")
+        finally:
+            if parent.poll() is None:
+                parent.kill()
+
+
+def _alive(pid: int) -> bool:
+    import subprocess
+    out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout
+    return str(pid) in out
+
+
+class TestPriority(unittest.TestCase):
+    @unittest.skipUnless(__import__("sys").platform == "win32", "Windows scheduling")
+    def test_sound_goes_first_and_analysis_steps_back(self):
+        from lightshow.studio import priority
+        out = {}
+
+        def work():
+            out.update(audio=priority.audio_thread(), high=priority.high_thread(), low=priority.low_thread())
+        t = threading.Thread(target=work)
+        t.start()
+        t.join()
+        self.assertEqual(out, {"audio": True, "high": True, "low": True})
+
+
 if __name__ == "__main__":
     unittest.main()

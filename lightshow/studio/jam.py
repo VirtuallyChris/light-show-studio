@@ -420,6 +420,7 @@ class JamSettings:
     events_every: int = 3               # instrument detection is the slow part: every Nth pass
     crossfade: float = 0.0              # Spotify's crossfade setting, in seconds (it cannot be read from the API)
     outro: float = 30.0                 # a change this close to a song's end counts as the song ending
+    skip_jumps: bool = False            # a skip jumps the room to the new song now, giving up the delay
 
 
 class JamEngine:
@@ -579,8 +580,13 @@ class JamEngine:
         self.say(f"{'next up' if natural else 'now'}: {track.label}  [{kind}{' - ' + project if project else ''}]")
         if prev is None:
             return
-        if not natural:
+        if not natural and self.cfg.skip_jumps:
             self._flush(jt)
+        elif not natural:
+            # The room is a delayed copy of Spotify, skips included: it hears the skip when it gets
+            # there, and the lights keep their full lead on the new song.
+            if self.streaming:
+                self.say(f"skip: the room gets there in {self.delay():.0f}s, the lights keep their lead")
         elif self.streaming:
             short = self.cfg.target_delay - self.delay()
             if short > 1.0:
@@ -920,6 +926,8 @@ class JamRunner:
             pass
 
     def _analyse(self) -> None:
+        from . import priority
+        priority.low_thread()                     # analysis only has to get done; sound and lights come first
         self._warm_up()
         while not self.stop_flag.wait(0.5):
             try:

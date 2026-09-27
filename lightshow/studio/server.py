@@ -681,4 +681,6 @@ def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
             if app_window:
                 print("No Chromium-family browser found; opening a normal browser tab instead.")
             webbrowser.open(url)
+    from . import priority
+    priority.high_thread()          # this thread relays every light frame: it goes before the analysis threads
     web.run_app(studio.app, host=host, port=port, print=None)
