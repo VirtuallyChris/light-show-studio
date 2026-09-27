@@ -445,8 +445,10 @@ point the room had reached. When the Cast goes away the sound comes back here.
 - **The drums lead.** The analysis finds the kick and snare hits themselves (the
   kick below 150 Hz; the snare by its crack plus the body that a hi-hat lacks).
   Beat pulse follows them: the kick blooms from the center, the snare from the
-  ends. It is in every section, strongest in verses and drops, and stays dark
-  where there are no drums. Set *Follows* to *every beat* for the old behavior.
+  ends. It goes only where there are drums (at least 4 hits, one every 4
+  beats), strongest in verses and drops; a drumless breakdown gets none. Set
+  *Follows* to *every beat* for the old behavior. The riser steps on the kick
+  too: one section of lights per hit, full on the last one.
 - **Tempo tops out at 135 bpm.** Anything faster is counted in half time, on the
   half of the beats the kick lands on.
 - **Solid colors.** Every palette color is full saturation and brightness; greys
