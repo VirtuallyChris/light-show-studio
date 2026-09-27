@@ -84,8 +84,12 @@
     }
     // keep what is being typed
     const keep = {}; for (const id of ['jamClient', 'jamDelay', 'jamXfade', 'jamDevice', 'jamWhere', 'jamPcDevice', 'jamSource']) { const e = $('#' + id); if (e) keep[id] = e.value; }
-    const focus = document.activeElement && document.activeElement.id;
-    if (running || !['jamClient', 'jamDelay', 'jamXfade'].includes(focus)) { el.innerHTML = html; wire(keep); }
+    // Rebuild only when something shown changed, and never under a control in use: rebuilding
+    // replaced an open dropdown with a new, closed one, so it shut half a second after opening.
+    const active = document.activeElement;
+    const busy = !running && active && el.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName);
+    const shown = html + JSON.stringify(J.outputs || null);          // the device lists are filled in by wire()
+    if (shown !== J.shown && !busy) { el.innerHTML = html; J.shown = shown; wire(keep); }
     $('#btnJam').classList.toggle('on', running);
     $('#btnJam').textContent = running ? (st.streaming ? 'Jam · live' : 'Jam · filling') : 'Jam';
   }
