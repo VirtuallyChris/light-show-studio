@@ -50,8 +50,18 @@
     $('#now').textContent = `${(t.artists || []).map(a => a.name).join(', ')} – ${t.name}${st.paused ? '  (paused)' : ''}`;
   }
 
-  // Inside the studio window this page runs in a hidden frame. With two studio windows open,
-  // only one may be the speaker: a lock goes to the first, and passes on when it closes.
+  // A silent stream from the moment the page loads: it gives the studio an audio stream to send to
+  // the hidden output before Spotify plays a note, so no music reaches the room live.
+  (function silentStream() {
+    try {
+      const ac = new AudioContext(), src = ac.createBufferSource();
+      src.buffer = ac.createBuffer(2, ac.sampleRate, ac.sampleRate);          // one second of zeros
+      src.loop = true; src.connect(ac.destination); src.start();
+      if (ac.state !== 'running') document.addEventListener('click', () => ac.resume(), { once: true });
+    } catch (e) { /* the studio says the route is not ready */ }
+  })();
+
+  // Only one copy of this page may be the speaker: a lock goes to the first, and passes on when it closes.
   let sdkReady; const sdk = new Promise(r => { sdkReady = r; });
   window.onSpotifyWebPlaybackSDKReady = () => sdkReady();
   const holdTheSpeaker = run => navigator.locks ? navigator.locks.request('light-show-studio-spotify-player', () => new Promise(() => run())) : run();

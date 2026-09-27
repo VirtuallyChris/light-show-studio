@@ -399,30 +399,42 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
    studio keeps a refresh token in `config.json`, which is not in git.
 4. Choose where Spotify plays, under **Spotify plays in**:
    - **The studio itself** (recommended). While the studio is open it is a
-     Spotify speaker called **Light Show Studio**: it runs Spotify's official
-     player (the Web Playback SDK) inside the studio window. Pick it from your
-     phone, or host a Jam with it and let others join and queue songs. No
-     Spotify app and no extra window. Its sound comes out of the studio
-     window's output (Windows' default unless you changed it): choose that same
-     output under *Listen to*. It needs a sign-in made after this was added
-     (the Jam panel says if yours is older). Reloading the studio window drops
-     the speaker for a moment; if it was playing a jam, the studio hands the
-     music back to itself and the buffer covers the gap. With *Start the jam
-     by itself* ticked, music starting on Light Show Studio starts a jam with
-     the settings used last time, so casting to it from your phone is all it
-     takes. After **Stop jam** it waits for the music to be paused or started
-     again before it starts one by itself.
-   - **The Spotify app on this PC.** Route the Spotify app to an output nobody
-     hears in the same Volume mixer, and choose that output under *Listen to*.
-   Either way the house hears the music through the studio instead, late.
+     Spotify speaker called **Light Show Studio**. It runs Spotify's official
+     player (the Web Playback SDK) in Microsoft Edge with no window at all, and
+     sends Edge's sound to **Digital Audio (S/PDIF)**, an output nobody listens
+     to. The studio records that output and plays it to the room late on your
+     default output. There is nothing to route by hand and nothing in the
+     taskbar. Pick Light Show Studio from your phone, or host a Jam with it and
+     let others join and queue songs. It needs a sign-in made after this was
+     added (the Jam panel says if yours is older).
+
+     While the studio runs, every Edge window plays into S/PDIF, so Edge you
+     open yourself is silent too. When the studio closes it hands Edge back to
+     your default output. If the studio crashes, Edge stays on S/PDIF until the
+     studio next closes normally, or until you change it back in Windows' sound
+     settings (App volume and device preferences).
+
+     Windows' own settings page is what sets an app's output; no program is
+     meant to. The studio uses the same unofficial way that tools like
+     EarTrumpet do, which a Windows update could break. The Jam panel says so
+     if Windows refuses.
+
+     With *Start the jam by itself* ticked, music starting on Light Show Studio
+     starts a jam with the settings used last time, so casting to it from your
+     phone is all it takes. After **Stop jam** it waits for the music to be
+     paused or started again before it starts one by itself.
+   - **The Spotify app on this PC.** In Windows' Volume mixer, set the Spotify
+     app's output to Digital Audio (S/PDIF).
+   To use another hidden output instead of S/PDIF, set `jam_hidden_output` in
+   `config.json` to part of its name (a virtual audio cable works well).
 5. Under **Play on**, choose where the delayed music is heard: the **Cast**
-   speakers (press Cast first), **This PC** (pick your headphones or speakers
-   under *PC output*), or nowhere, to watch the show build without sound. This
-   PC must be a different output from the one Spotify plays on, or the studio
-   would record its own delayed copy; it refuses to start if they match. This
-   PC is the easy way to try Jam mode on headphones. The lights assume the PC
-   output is heard 0.3 s after it is sent; for Bluetooth headphones, which add
-   their own delay, set `pc_output_offset_ms` in `config.json` (try 450).
+   speakers (press Cast first), **This PC**, or nowhere, to watch the show
+   build without sound. This PC plays on Windows' default output (set
+   `jam_room_output` in `config.json` to pin another). The studio refuses to
+   start if the default output is the hidden one, since it would record its
+   own delayed copy. The lights assume the PC output is heard 0.3 s after it
+   is sent; for Bluetooth headphones, which add their own delay, set
+   `pc_output_offset_ms` in `config.json` (try 450).
 
 **Starting a night.** A buffer only fills while the room listens to something
 else, so there are two ways in:

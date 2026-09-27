@@ -28,7 +28,11 @@ class JamService:
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
-        self.player_browser = ""
+        self.player_browser = "Microsoft Edge, hidden"
+        self.player_enabled = True                      # False: a test copy that must not register a Spotify speaker
+        from .player_browser import HiddenPlayer
+        self.hidden = HiddenPlayer(f"http://127.0.0.1:{studio.port}/static/player.html",
+                                   load_config().get("jam_hidden_output", "S/PDIF"))
         self.engine: JamEngine | None = None
         self.runner: JamRunner | None = None
         self.capture = None
@@ -93,6 +97,9 @@ class JamService:
         cfg = JamSettings(target_delay=float(body.get("target_delay", 45.0)), max_gap=float(body.get("max_gap", 6.0)),
                           crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))),
                           skip_jumps=bool(body.get("skip_jumps", False)))
+        hidden_name = self._hidden_output_name()
+        if not demo and hidden_name is None:
+            raise ValueError(f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")
         where = body.get("speakers", "cast")
         use_cast = where == "cast" and self.studio.cast.cast is not None
         if where == "cast" and not use_cast:
@@ -102,10 +109,10 @@ class JamService:
             output = CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.wav?sid={sid}", self._speaker_offset)
         elif where == "pc":
             from .audio_io import ProcessOutput
-            pc_device = body.get("pc_device") or None
-            if not demo and self._same_device(body.get("device") or None, pc_device):
-                raise ValueError("Spotify and the jam can't use the same output: the studio would record its own delayed copy "
-                                 "and loop it. Point Spotify at an output nobody hears and pick your headphones or speakers here.")
+            pc_device = self.load_config().get("jam_room_output") or None          # the default output, unless set
+            if not demo and self._same_device(hidden_name, pc_device):
+                raise ValueError(f"Windows' default output is {hidden_name}, the output Spotify plays into unheard. "
+                                 "Set your speakers or headphones as the default output in Windows' sound settings.")
             from .local_output import DEFAULT_OFFSET_S
             offset = float(self.load_config().get("pc_output_offset_ms", DEFAULT_OFFSET_S * 1000)) / 1000.0
             output = ProcessOutput(pc_device, offset)       # plays from its own process: the analysis cannot starve it
@@ -122,9 +129,11 @@ class JamService:
             if body.get("source", "app") == "studio":
                 if not self.spotify.can_stream:
                     raise PermissionError("the studio player needs a new Spotify sign-in: press Sign in to Spotify again")
-                spotify = PlayerAwareSpotify(self.spotify, self.player)    # the player lives in the studio window
+                spotify = PlayerAwareSpotify(self.spotify, self.player)    # the hidden player
+                if self.player_enabled:
+                    self.hidden.start()
             from .audio_io import ProcessCapture
-            self.capture = ProcessCapture(relay, body.get("device") or None, gate)   # records from its own process
+            self.capture = ProcessCapture(relay, hidden_name, gate)   # records the hidden output, from its own process
             self.capture.start()
         # the demo learns its synthetic songs too, but in a folder of its own, not among the real ones
         library = JamLibrary(os.path.join(self.shows_dir, "_jam", "demo")) if demo else self.library
@@ -150,9 +159,19 @@ class JamService:
         return self._state()
 
     def close_player(self) -> None:
-        w, self.player.window = self.player.window, None
-        if w is not None and w.poll() is None:
-            w.terminate()
+        """The studio is closing: Edge's sound goes back to the default output, and the player closes."""
+        self.hidden.stop()
+
+    def _hidden_output_name(self) -> str | None:
+        try:
+            import soundcard as sc
+            return next((s.name for s in sc.all_speakers() if self.hidden.hidden_output.lower() in s.name.lower()), None)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _want_player(self) -> bool:
+        return (self.player_enabled and self.spotify.signed_in and self.spotify.can_stream
+                and self._last().get("source", "studio") == "studio")
 
     def _stop(self) -> None:
         if self.runner:
@@ -178,14 +197,13 @@ class JamService:
         return (capture or default) == (playback or default)
 
     def _open_player(self) -> None:
-        if self.player.window is not None and self.player.window.poll() is None:
-            return
-        from .server import open_player_window
-        self.player.window, self.player_browser = open_player_window(f"http://127.0.0.1:{self.studio.port}/static/player.html")
+        self.hidden.start()
 
     def _state(self) -> dict:
+        if self._want_player():
+            self.hidden.start()                             # cheap when it is already running
         base = {"running": self.engine is not None, "mode": self.mode, "redirect_uri": self.redirect_uri,
-                "player": {**self.player.to_json(), "browser": self.player_browser},
+                "player": {**self.player.to_json(), "browser": self.player_browser, **self.hidden.to_json()},
                 "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error,
                             "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,

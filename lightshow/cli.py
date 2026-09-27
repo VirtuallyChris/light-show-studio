@@ -261,7 +261,7 @@ def cmd_calibrate(args):
 def cmd_studio(args):
     from .studio.server import run
     run(host=args.host, port=args.port, open_browser=not args.no_browser,
-        app_window=not args.tab, stay=args.stay)
+        app_window=not args.tab, stay=args.stay, lights=not args.no_lights, player=not args.no_player)
     return 0
 
 
@@ -323,6 +323,8 @@ def main(argv=None):
     st.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     st.add_argument("--tab", action="store_true", help="open a normal browser tab instead of a borderless app window")
     st.add_argument("--stay", action="store_true", help="keep the server running after the app window is closed")
+    st.add_argument("--no-lights", action="store_true", help="never drive the lights (a test copy beside the real studio)")
+    st.add_argument("--no-player", action="store_true", help="do not start the hidden Spotify player")
     st.set_defaults(fn=cmd_studio)
 
     r = sub.add_parser("run", help="start the light show")

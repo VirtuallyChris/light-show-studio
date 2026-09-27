@@ -166,6 +166,31 @@ class TestAutoStart(unittest.TestCase):
         self.assertEqual(len(self.started), 1)
 
 
+class TestHiddenPlayer(unittest.TestCase):
+    def test_finds_only_the_players_own_audio_process(self):
+        from lightshow.studio.player_browser import parse_audio_pids
+        prof = r"C:\Users\x\AppData\Local\lanlightshow\player-browser"
+        listing = "\n".join([
+            f'101\t"msedge.exe" --type=utility --utility-sub-type=audio.mojom.AudioService --user-data-dir={prof}',
+            f'102\t"msedge.exe" --type=renderer --user-data-dir={prof}',
+            '103\t"msedge.exe" --type=utility --utility-sub-type=audio.mojom.AudioService',        # your own Edge
+            ''])
+        self.assertEqual(parse_audio_pids(listing, prof), [101])
+
+    def test_refuses_when_the_hidden_output_is_the_default(self):
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = None, "", ""
+        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc.spotify.store.update(client_id="x", refresh_token="r")
+        svc._hidden_output_name = lambda: "Digital Audio (S/PDIF)"
+        svc._same_device = lambda a, b: True                          # Windows' default output is S/PDIF
+        with self.assertRaises(ValueError) as e:
+            svc._start({"speakers": "pc", "source": "app"})
+        self.assertIn("default output", str(e.exception))
+
+
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)

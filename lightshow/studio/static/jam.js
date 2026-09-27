@@ -44,20 +44,18 @@
           <option value="app">The Spotify app on this PC</option></select></div>
         <div id="jamPlayerBox">
           <div class="jam-row"><span>${playerLine(st)}</span><span>${st.player && st.player.ready ? '<button id="jamPlayerHere" class="small">Play here</button>' : ''}</span></div>
-          <div class="hint">While the studio is open it is a Spotify speaker called <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. Its sound comes out of this window's output, which is Windows' default output unless you changed it; choose that output under <i>Listen to</i>.</div>
+          <div class="hint">While the studio is open it is a Spotify speaker called <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. It plays in a hidden Microsoft Edge whose sound goes to <b>${esc(((st.player || {}).hidden_output) || 'S/PDIF')}</b>, where nobody hears it; the room hears the studio's delayed copy on your default output.</div>
           <label class="jam-check"><input id="jamAuto" type="checkbox" ${st.auto ? 'checked' : ''}> Start the jam by itself when music starts playing on Light Show Studio, with these settings</label>
           ${st.auto_error ? `<div class="warn">The jam could not start by itself: ${esc(st.auto_error)}</div>` : ''}
           ${sp.signed_in && !sp.can_stream ? '<div class="warn">Sign in to Spotify again: the studio player needs a permission the earlier sign-in did not ask for.</div>' : ''}
         </div>
-        <div class="jam-row"><label>Listen to</label><select id="jamDevice"><option value="">Default output</option></select></div>
-        <div class="hint" id="jamAppHint">Point the Spotify app at an output nobody hears (a muted device, a monitor without speakers, a virtual cable), and choose it here. The house hears it through the studio, late.</div></div>
+        <div class="hint" id="jamAppHint">In Windows' Volume mixer, set the Spotify app's output to <b>${esc(((st.player || {}).hidden_output) || 'S/PDIF')}</b>. The house hears it through the studio, late.</div></div>
       <div class="jam-sec"><h4>3 · Where the house hears it</h4>
         <div class="jam-row"><label>Play on</label><select id="jamWhere">
           <option value="cast" ${st.speaker_connected ? '' : 'disabled'}>Cast: ${st.speaker_connected ? esc(st.speaker) : 'press Cast first'}</option>
           <option value="pc">This PC</option>
           <option value="none">Nowhere (preview only)</option></select></div>
-        <div class="jam-row" id="jamPcRow"><label>PC output</label><select id="jamPcDevice"><option value="">Default output</option></select></div>
-        <div class="hint" id="jamPcHint">Pick your headphones or speakers here, and a different, silent output for Spotify above.</div>
+        <div class="hint" id="jamPcHint">This PC plays on Windows' default output.</div>
         <div class="jam-row"><label>Stay behind by</label><span><input id="jamDelay" type="number" min="10" max="120" step="5" value="45" class="num"> s</span></div>
         <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
         <div class="jam-row"><label>On a skip</label><select id="jamOnSkip">
@@ -93,7 +91,7 @@
     // replaced an open dropdown with a new, closed one, so it shut half a second after opening.
     const active = document.activeElement;
     const busy = !running && active && el.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName);
-    const shown = html + JSON.stringify(J.outputs || null);          // the device lists are filled in by wire()
+    const shown = html;
     if (shown !== J.shown && !busy) { el.innerHTML = html; J.shown = shown; wire(keep); }
     $('#btnJam').classList.toggle('on', running);
     $('#btnJam').textContent = running ? (st.streaming ? 'Jam · live' : 'Jam · filling') : 'Jam';
@@ -101,8 +99,11 @@
   const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   function playerLine(st) {
     const p = st.player || {};
+    if (p.route_error) return `<span class="warn">Player: ${esc(p.route_error)}</span>`;
     if (p.error) return `<span class="warn">Player: ${esc(p.error)}</span>`;
+    if (p.ready && !p.routed) return '<span class="warn">Light Show Studio is in Spotify, but its sound is not on the hidden output yet</span>';
     if (p.ready) return `<b class="ok">Light Show Studio is in Spotify</b>${p.track ? ` · ${esc(p.track)}` : ''}`;
+    if (p.running) return 'Starting the hidden player…';
     if (!((J.state || {}).spotify || {}).can_stream) return 'Sign in to Spotify to use the studio as a speaker';
     return 'Connecting to Spotify…';
   }
@@ -122,7 +123,7 @@
     if (where) { where.onchange = showPc; showPc(); }
     const source = $('#jamSource');
     const showSource = () => { const studio = !source || source.value === 'studio'; const box = $('#jamPlayerBox'), hint = $('#jamAppHint'); if (box) box.hidden = !studio; if (hint) hint.hidden = studio; };
-    if (source) { source.onchange = () => { showSource(); api('jam/prefs', { source: source.value }).then(st => { J.state = st; ensurePlayer(st); }).catch(() => {}); }; showSource(); }
+    if (source) { source.onchange = () => { showSource(); api('jam/prefs', { source: source.value }).then(st => { J.state = st; }).catch(() => {}); }; showSource(); }
     const auto = $('#jamAuto'); if (auto) auto.onchange = () => api('jam/prefs', { auto: auto.checked }).then(st => { J.state = st; }).catch(() => {});
     on('jamPlayerHere', async () => { await api('jam/player/transfer', {}); toast('Spotify is now playing on Light Show Studio'); });
     const dev = $('#jamDevice');
@@ -141,27 +142,11 @@
   }
 
   // ------------------------------------------------------------------ following the room
-  /** The studio is a Spotify speaker while it is open: Spotify's own player runs in a hidden frame. */
-  function ensurePlayer(st) {
-    // (?player=off in the address leaves it out, for a test window beside the real studio)
-    const sp = st.spotify || {}, want = sp.signed_in && sp.can_stream && ((st.last || {}).source || 'studio') === 'studio'
-      && new URLSearchParams(location.search).get('player') !== 'off';
-    let f = document.getElementById('spotifyPlayer');
-    if (want && !f) {
-      f = document.createElement('iframe');
-      f.id = 'spotifyPlayer'; f.src = '/static/player.html?embedded=1'; f.allow = 'encrypted-media; autoplay';
-      f.title = 'Spotify player'; f.tabIndex = -1; f.setAttribute('aria-hidden', 'true');
-      f.style.cssText = 'position:fixed;width:1px;height:1px;left:-10px;top:-10px;border:0;opacity:0;pointer-events:none';
-      document.body.appendChild(f);
-    } else if (!want && f) f.remove();
-  }
-
   async function tick() {
     if (J.fetching) return; J.fetching = true;
     try {
       const st = await api('jam/state'); const was = J.state && J.state.running;
       J.state = st;
-      ensurePlayer(st);
       if (st.running && !was && st.auto_started) toast('Music started on Light Show Studio: the jam started by itself');
       if (st.running && st.streaming) await follow(st); else if (J.live && !(st.running)) leave();
       if (J.open || st.running !== was) render();

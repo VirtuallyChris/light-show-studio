@@ -65,7 +65,8 @@ async def no_cache(request, handler):
 class LightOutput:
     """Holds the currently selected lights and pushes frames to them."""
 
-    def __init__(self):
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled                          # False: a test copy that must never touch the lights
         self.devices: list[govee_lan.GoveeDevice] = []
         self.active = False
         self.last_enable = 0.0
@@ -81,6 +82,8 @@ class LightOutput:
         self.devices = [by_ip.get(ip) or govee_lan.GoveeDevice(ip=ip) for ip in ips]
 
     def start(self) -> None:
+        if not self.enabled:
+            return
         for _ in range(3):
             for d in self.devices:
                 d.turn(True)
@@ -94,6 +97,8 @@ class LightOutput:
         self.active = True
 
     def stop(self, off: bool = False) -> None:
+        if not self.enabled:
+            return
         for d in self.devices:
             d.razer(False)
             if off:
@@ -144,17 +149,18 @@ class LightOutput:
 
 
 class Studio:
-    def __init__(self, port: int = 8765, quit_when_closed: bool = False):
+    def __init__(self, port: int = 8765, quit_when_closed: bool = False, lights: bool = True, player: bool = True):
         self.port = port
         self.quit_when_closed = quit_when_closed
         self.ws_clients = 0
         self._watch_task = None
         self.last_client = 0.0
         self.known: list[govee_lan.GoveeDevice] = []
-        self.output = LightOutput()
+        self.output = LightOutput(enabled=lights)
         self.cast = CastManager(govee_lan.local_ip())
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
+        self.jam.player_enabled = player
         self.app.add_routes([
             web.get("/", self.index),
             web.get("/api/devices", self.devices),
@@ -187,6 +193,14 @@ class Studio:
         ])
         if self.quit_when_closed:
             self.app.on_startup.append(self._start_quit_watchdog)
+        self.app.on_shutdown.append(self._close_player)
+
+    async def _close_player(self, app):
+        """Any orderly exit: Edge's sound goes back to the default output, and the hidden player closes."""
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, self.jam.close_player)
+        except Exception:  # noqa: BLE001
+            pass
 
     # The studio quits when its window is closed, like a desktop app would. The page's
     # WebSocket is the signal: relying on the browser process is unreliable because a
@@ -201,7 +215,7 @@ class Studio:
                 elif seen and time.monotonic() - self.last_client > 8:
                     print("Studio window closed. Stopping.")
                     try:
-                        self.jam.close_player()          # the Spotify player window goes with the studio
+                        self.jam.close_player()          # the hidden Spotify player goes with the studio
                     except Exception:  # noqa: BLE001
                         pass
                     os._exit(0)
@@ -598,33 +612,6 @@ def chromium_candidates() -> list[str]:
     return found
 
 
-def open_player_window(url: str) -> tuple[subprocess.Popen | None, str]:
-    """Open the studio's Spotify player in a small window of a *different* browser from the studio's.
-
-    Windows routes sound per program, and the player's window must go to an output
-    nobody hears. If it were the studio's own browser, routing it would also mute
-    the studio's song previews (and every other window of that browser). Microsoft
-    Edge comes with Windows, so it is the usual choice when the studio runs in Chrome.
-    Returns the process and the browser's name.
-    """
-    cands = chromium_candidates()
-    studio = cands[0] if cands else None
-    exe = next((c for c in cands if c != studio), studio)
-    if exe is None:
-        return None, ""
-    profile = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "lanlightshow", "player-browser")
-    os.makedirs(profile, exist_ok=True)
-    args = [exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run", "--no-default-browser-check",
-            "--autoplay-policy=no-user-gesture-required", "--window-size=420,330", "--disable-features=Translate,TranslateUI"]
-    try:
-        name = {"msedge.exe": "Microsoft Edge", "chrome.exe": "Google Chrome", "brave.exe": "Brave"}.get(os.path.basename(exe).lower(), os.path.basename(exe))
-        if exe == studio:
-            name += " (the same browser as the studio: routing it will also silence the studio's previews)"
-        return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), name
-    except OSError:
-        return None, ""
-
-
 def open_app_window(url: str) -> subprocess.Popen | None:
     """Open the studio in a borderless Chromium app window (no tabs or address bar).
 
@@ -656,7 +643,7 @@ def _already_running(url: str) -> bool:
 
 
 def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
-        app_window: bool = True, stay: bool = False) -> None:
+        app_window: bool = True, stay: bool = False, lights: bool = True, player: bool = True) -> None:
     if sys.stdout is None:
         # Started without a console (pythonw, the hidden launcher): keep a log
         # next to the project instead of losing every message.
@@ -671,7 +658,9 @@ def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
         if not (app_window and open_app_window(url) is not None):
             webbrowser.open(url)
         return
-    studio = Studio(port=port, quit_when_closed=app_window and not stay)
+    studio = Studio(port=port, quit_when_closed=app_window and not stay, lights=lights, player=player)
+    if not lights:
+        print("Lights are disabled in this copy of the studio.")
     print(f"Light Show Studio running at {url}   (projects in {SHOWS_DIR}; also reachable on the LAN for Cast audio)")
     if open_browser:
         proc = open_app_window(url) if app_window else None
