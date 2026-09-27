@@ -189,9 +189,49 @@
     S.undo.length = 0; S.redo.length = 0; S.view.sel = null; S.view.multi = [];
   }
 
+  /** The album cover's dominant bright color, and a second from the cover (or a neighbor of the
+   *  first), as a palette. Colors are pushed to full brightness: the lights want solid color. */
+  async function albumPalette(track) {
+    const url = track && track.image; if (!url) return null;
+    J.art = J.art || {}; if (J.art[url] !== undefined) return J.art[url];
+    let pal = null;
+    try {
+      // decoded from the bytes (an <img> waits while the window is hidden), and never for long:
+      // a song's show does not wait on its cover
+      const blob = await Promise.race([fetch('/api/jam/art?url=' + encodeURIComponent(url)).then(r => r.ok ? r.blob() : null),
+                                       new Promise(r => setTimeout(() => r(null), 3000))]);
+      if (!blob) throw new Error('no cover');
+      const img = await createImageBitmap(blob);
+      const cv = document.createElement('canvas'); cv.width = cv.height = 48;
+      const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 48, 48);
+      const px = g.getImageData(0, 0, 48, 48).data, bins = new Array(24).fill(0), sx = new Array(24).fill(0), sy = new Array(24).fill(0);
+      for (let i = 0; i < px.length; i += 4) {
+        const r = px[i] / 255, gg = px[i + 1] / 255, b = px[i + 2] / 255, mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), d = mx - mn;
+        const s = mx ? d / mx : 0; if (s < 0.3 || mx < 0.3) continue;              // greys and shadows do not count
+        let h = d === 0 ? 0 : mx === r ? ((gg - b) / d) % 6 : mx === gg ? (b - r) / d + 2 : (r - gg) / d + 4; h = ((h * 60) + 360) % 360;
+        const w = s * s * mx, k = Math.floor(h / 15) % 24; bins[k] += w; sx[k] += w * Math.cos(h * Math.PI / 180); sy[k] += w * Math.sin(h * Math.PI / 180);
+      }
+      const order = bins.map((w, k) => [w, k]).sort((a, b) => b[0] - a[0]);
+      if (order[0][0] > 0) {
+        const hueOf = k => (Math.atan2(sy[k], sx[k]) * 180 / Math.PI + 360) % 360;
+        const h1 = hueOf(order[0][1]);
+        const other = order.find(([w, k]) => w >= 0.25 * order[0][0] && Math.min(Math.abs(k - order[0][1]), 24 - Math.abs(k - order[0][1])) >= 3);
+        const h2 = other ? hueOf(other[1]) : (h1 + 35) % 360;
+        const hex = (h, s, v) => { const f = n => { const k = (n + h / 60) % 6; return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1)))); };
+          return '#' + [f(5), f(3), f(1)].map(x => x.toString(16).padStart(2, '0')).join(''); };
+        pal = [hex(h1, 1, 1), hex(h2, 1, 1), hex((h1 + 330) % 360, 1, 1)];               // solid colors only
+      }
+    } catch (e) { pal = null; }
+    J.art[url] = pal;
+    return pal;
+  }
+
+  J.albumPalette = albumPalette;                         // for checking a cover's colors by hand
+
   async function load(room) {
     const doc = await api('jam/analysis?key=' + encodeURIComponent(room.key));
     J.live = true;
+    S.albumPalette = await albumPalette(doc.track);
     if (doc.kind === 'custom' && doc.project) {
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
@@ -220,19 +260,28 @@
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
     p.sections = a.sections.map(s => ({ start: s.start, end: s.end, type: s.type }));
     $('#bpm').value = p.bpm.toFixed(2);
-    const safeBeat = St.timeToBeat(J.pos()) + 8;          // two bars of grace: never change what is about to be seen
+    // A section whose kind or start changed is rebuilt wherever it is: ahead of the room, behind it
+    // (so the timeline tells the truth), and the one playing now, from the next beat on. A section
+    // that only grew as more was heard keeps its clips, stretched: rebuilding it on every pass
+    // would restart its effects every few seconds.
+    const nowBeat = Math.ceil(St.timeToBeat(J.pos()) + 0.1);
     const keys = sectionKeys(); const counts = {};
-    const style = St.showStyle(), restyled = style !== J.style;   // the genre arrived: rebuild what is ahead in its style
+    const head = k => (k || '').split('-')[0];                        // "type@start", without the end
+    const style = St.showStyle(), restyled = style !== J.style;   // the genre arrived: rebuild in its style
     if (restyled) toast(`${(doc.track || {}).name || 'This track'}: ${style} style from here on`);
     p.sections.forEach((s, i) => {
       const n = counts[s.type] = (counts[s.type] || 0) + 1;
-      const startBeat = Math.round(St.timeToBeat(s.start));
-      if (startBeat >= safeBeat && (keys[i] !== J.built[i] || restyled)) { makeRoom(startBeat, Math.round(St.timeToBeat(s.end))); St.buildSection(s, i, false, n - 1); }
-      else if (startBeat < safeBeat && keys[i] !== J.built[i]) {
-        // the section being played grew: stretch the clips that ran to its old end
-        const endBeat = Math.round(St.timeToBeat(s.end));
+      const startBeat = Math.round(St.timeToBeat(s.start)), endBeat = Math.round(St.timeToBeat(s.end));
+      if (keys[i] === J.built[i] && !restyled) return;
+      if (head(keys[i]) === head(J.built[i]) && !restyled) {
+        // the same section, grown: stretch the clips that ran to its old end
         for (const lane of p.lanes) for (const c of lane.clips) if (c.start >= startBeat - 0.5 && c.start < endBeat && c.len > 8 && c.start + c.len < endBeat && !lane.clips.some(k => k !== c && k.start >= c.start + c.len && k.start < endBeat)) c.len = endBeat - c.start;
+        return;
       }
+      if (startBeat < nowBeat && endBeat > nowBeat) {                  // playing now: from the next beat
+        makeRoom(nowBeat, endBeat);
+        St.buildSection({ ...s, start: St.beatToTime(nowBeat) }, i, false, n - 1);
+      } else { makeRoom(startBeat, endBeat); St.buildSection(s, i, false, n - 1); }
     });
     J.built = keys; J.version = doc.version; J.style = style;
     St.draw();
@@ -248,6 +297,7 @@
   }
 
   function leave() {
+    S.albumPalette = null;
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;
     St.updateTransport(); St.stopOutput(); St.draw();

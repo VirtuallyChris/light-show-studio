@@ -436,6 +436,28 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
    is sent; for Bluetooth headphones, which add their own delay, set
    `pc_output_offset_ms` in `config.json` (try 450).
 
+**Casting.** When a Cast speaker is connected, the jam plays on it, whether it
+started by itself or was already running on this PC: the sound moves at the
+point the room had reached. When the Cast goes away the sound comes back here.
+
+**How the auto-built shows look.**
+
+- **The drums lead.** The analysis finds the kick and snare hits themselves (the
+  kick below 150 Hz; the snare by its crack plus the body that a hi-hat lacks).
+  Beat pulse follows them: the kick blooms from the center, the snare from the
+  ends. It is in every section, strongest in verses and drops, and stays dark
+  where there are no drums. Set *Follows* to *every beat* for the old behavior.
+- **Tempo tops out at 135 bpm.** Anything faster is counted in half time, on the
+  half of the beats the kick lands on.
+- **Solid colors.** Every palette color is full saturation and brightness; greys
+  become white or black. A jam track takes its palette from the album cover: its
+  dominant bright color and a second one from the cover.
+- **Dual comets** are for drops only; the **strobe riser** for the rave style
+  only.
+- **A first listen rebuilds what changed.** When the analysis moves a section or
+  changes its kind (a buildup that turns out to be a verse), that section is
+  rebuilt, the one playing included, from the next beat.
+
 **Starting a night.** A buffer only fills while the room listens to something
 else, so there are two ways in:
 

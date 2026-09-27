@@ -191,6 +191,72 @@ class TestHiddenPlayer(unittest.TestCase):
         self.assertIn("default output", str(e.exception))
 
 
+class TestCastFollows(unittest.TestCase):
+    """Casting mid-jam moves the room's sound to the Cast speaker, at the point it had reached."""
+
+    def test_the_jam_moves_to_the_cast_and_back(self):
+        import threading
+        import time as _t
+        import numpy as np
+        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.relay import Relay
+
+        played = []
+
+        class FakeCast:
+            def play_stream(self, url, ctype, title):
+                played.append(url)
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = None, "Office Home 2", ""
+                play_stream = FakeCast().play_stream
+
+        class PcOut:                                   # stands in for this PC's output (never makes a sound)
+            device_name, name, offset, stream = "default", "This PC", 0.0, None
+            def __init__(self): self.stopped = False
+            def stop(self): self.stopped = True
+            def start_stream(self, stream): self.stream = stream
+            def pause(self): pass
+
+        class Engine:
+            def __init__(self):
+                self.lock = threading.RLock()
+                self.output, self.streaming = PcOut(), True
+                self.gate = type("G", (), {"paused": False})()
+                self.relay = Relay(sr=1000, channels=2, capacity_s=120)
+                self.relay.write(np.zeros((60_000, 2), dtype=np.int16))
+                self.cfg = type("C", (), {"target_delay": 45.0})()
+                self.log = []
+            def room_capture_time(self): return 12.5
+            def say(self, m): self.log.append(m)
+
+        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc.engine, svc.source = Engine(), "studio"
+        pc = svc.engine.output
+        svc._output_for_real = svc._output_for
+        svc._output_for = lambda where, *a, **k: PcOut() if where == "pc" else svc._output_for_real(where, *a, **k)
+
+        Studio.cast.cast = object()                    # Cast pressed
+        svc._follow_cast()
+        for _ in range(50):
+            if isinstance(svc.engine.output, CastOutput): break
+            _t.sleep(0.02)
+        out = svc.engine.output
+        self.assertIsInstance(out, CastOutput)
+        self.assertTrue(pc.stopped)
+        self.assertEqual(len(played), 1)
+        self.assertAlmostEqual(out.stream.cursor / 1000.0, 12.5, delta=0.01)   # the same point in the music
+
+        Studio.cast.cast = None                        # the Cast went away: back to this PC
+        svc._follow_cast()
+        for _ in range(50):
+            if svc._output_kind(svc.engine.output) == "pc" and not getattr(svc, "_switching", False): break
+            _t.sleep(0.02)
+        self.assertEqual(svc._output_kind(svc.engine.output), "pc")
+
+
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)

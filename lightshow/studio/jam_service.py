@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import html
 import os
+import threading
 import time
 
 from aiohttp import web
@@ -71,6 +72,7 @@ class JamService:
             web.get("/api/spotify/token", self.token),
             web.post("/api/jam/sdk_state", self.sdk_state),
             web.post("/api/jam/prefs", self.prefs),
+            web.get("/api/jam/art", self.art),
             web.post("/api/jam/player/open", self.player_open),
             web.post("/api/jam/player/transfer", self.player_transfer),
         ]
@@ -101,23 +103,12 @@ class JamService:
         if not demo and hidden_name is None:
             raise ValueError(f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")
         where = body.get("speakers", "cast")
+        if self.studio.cast.cast is not None and where in ("cast", "pc"):
+            where = "cast"                                  # a connected Cast speaker is where the room is
         use_cast = where == "cast" and self.studio.cast.cast is not None
         if where == "cast" and not use_cast:
             where = "none"
-        if use_cast:
-            ip = self.local_ip() or "127.0.0.1"
-            output = CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.wav?sid={sid}", self._speaker_offset)
-        elif where == "pc":
-            from .audio_io import ProcessOutput
-            pc_device = self.load_config().get("jam_room_output") or None          # the default output, unless set
-            if not demo and self._same_device(hidden_name, pc_device):
-                raise ValueError(f"Windows' default output is {hidden_name}, the output Spotify plays into unheard. "
-                                 "Set your speakers or headphones as the default output in Windows' sound settings.")
-            from .local_output import DEFAULT_OFFSET_S
-            offset = float(self.load_config().get("pc_output_offset_ms", DEFAULT_OFFSET_S * 1000)) / 1000.0
-            output = ProcessOutput(pc_device, offset)       # plays from its own process: the analysis cannot starve it
-        else:
-            output = VirtualOutput(time.monotonic)
+        output = self._output_for(where, hidden_name, check=not demo)
         if demo:
             from .jam_demo import DemoSpotify
             self.demo = DemoSpotify(relay, gate)
@@ -157,6 +148,64 @@ class JamService:
             cfg_all["jam_last"] = {k: body[k] for k in LAST_KEYS if k in body}
             self.save_config(cfg_all)
         return self._state()
+
+    def _output_for(self, where: str, hidden_name: str | None = None, check: bool = True):
+        """The room's output: the Cast speaker, this PC's default output, or nothing (preview)."""
+        if where == "cast" and self.studio.cast.cast is not None:
+            ip = self.local_ip() or "127.0.0.1"
+            return CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.wav?sid={sid}", self._speaker_offset)
+        if where == "pc":
+            from .audio_io import ProcessOutput
+            from .local_output import DEFAULT_OFFSET_S
+            pc_device = self.load_config().get("jam_room_output") or None          # the default output, unless set
+            if check and self._same_device(hidden_name if hidden_name is not None else self._hidden_output_name(), pc_device):
+                raise ValueError(f"Windows' default output is {hidden_name or self.hidden.hidden_output}, the output Spotify plays "
+                                 "into unheard. Set your speakers or headphones as the default output in Windows' sound settings.")
+            offset = float(self.load_config().get("pc_output_offset_ms", DEFAULT_OFFSET_S * 1000)) / 1000.0
+            return ProcessOutput(pc_device, offset)         # plays from its own process: the analysis cannot starve it
+        return VirtualOutput(time.monotonic)
+
+    def _output_kind(self, out) -> str:
+        return "cast" if isinstance(out, CastOutput) else "pc" if hasattr(out, "device_name") else "none"
+
+    def _follow_cast(self) -> None:
+        """Casting moves the jam: a Cast speaker connected mid-jam takes the room's sound, and when
+        it goes away the sound comes back to this PC. Checked every time the page asks for the state."""
+        e = self.engine
+        if e is None or self.source == "demo" or getattr(self, "_switching", False):
+            return
+        kind = self._output_kind(e.output)
+        if kind == "none":
+            return                                      # a preview stays a preview
+        want = "cast" if self.studio.cast.cast is not None else "pc"
+        if want != kind:
+            self._switching = True
+            threading.Thread(target=self._switch_output, args=(want,), daemon=True).start()
+
+    def _switch_output(self, want: str) -> None:
+        """Hand the room's sound to another output at the very point it had reached."""
+        try:
+            e = self.engine
+            if e is None:
+                return
+            new = self._output_for(want)
+            with e.lock:
+                rc = e.room_capture_time()
+                old = e.output
+                old.stop()
+                e.output = new
+                if e.streaming:
+                    start = rc if rc is not None else max(e.relay.oldest_time, e.relay.capture_time - e.cfg.target_delay)
+                    new.start_stream(e.relay.open_stream(start, pace=not isinstance(new, VirtualOutput)))
+                    if e.gate.paused:
+                        new.pause()
+                self.mode = "spotify to " + new.name
+                e.say(f"the room is now on {new.name}")
+        except Exception as ex:  # noqa: BLE001 - shown in the log; the jam carries on where it was
+            if self.engine is not None:
+                self.engine.say(f"could not move the sound to {want}: {ex}")
+        finally:
+            self._switching = False
 
     def close_player(self) -> None:
         """The studio is closing: Edge's sound goes back to the default output, and the player closes."""
@@ -202,6 +251,7 @@ class JamService:
     def _state(self) -> dict:
         if self._want_player():
             self.hidden.start()                             # cheap when it is already running
+        self._follow_cast()
         base = {"running": self.engine is not None, "mode": self.mode, "redirect_uri": self.redirect_uri,
                 "player": {**self.player.to_json(), "browser": self.player_browser, **self.hidden.to_json()},
                 "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error,
@@ -218,7 +268,7 @@ class JamService:
         if out_error:
             st["output_error"] = out_error
         out = self.engine.output
-        st["output_kind"] = "cast" if isinstance(out, CastOutput) else "pc" if hasattr(out, "device_name") else "none"
+        st["output_kind"] = self._output_kind(out)
         if self.capture is not None and getattr(self.capture, "lost", 0):
             st["capture"]["lost_s"] = round(self.capture.lost, 2)
         return {**base, **st, "now": time.monotonic()}
@@ -395,6 +445,8 @@ class JamService:
 
     def _auto_start(self) -> None:
         body = {**self._last(), "source": "studio", "auto": True}
+        if self.studio.cast.cast is not None:
+            body["speakers"] = "cast"                       # casting: the room is the Cast speaker
         try:
             self._start(body)
             self.auto_error = ""
@@ -406,6 +458,27 @@ class JamService:
 
     def _auto_on(self) -> bool:
         return bool(self.load_config().get("jam_auto", True))
+
+    async def art(self, request):
+        """Album art, relayed so the studio page may read its colors. Spotify's image server only."""
+        url = request.query.get("url", "")
+        if not url.startswith("https://i.scdn.co/image/"):
+            raise web.HTTPForbidden()
+        cache = self.__dict__.setdefault("_art", {})
+        if url not in cache:
+            import urllib.request
+
+            def fetch():
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    return r.read(2_000_000), r.headers.get("Content-Type", "image/jpeg")
+            try:
+                cache[url] = await asyncio.get_running_loop().run_in_executor(None, fetch)
+            except Exception:  # noqa: BLE001
+                raise web.HTTPNotFound()
+            while len(cache) > 40:
+                cache.pop(next(iter(cache)))
+        body, ctype = cache[url]
+        return web.Response(body=body, content_type=ctype.split(";")[0])
 
     async def prefs(self, request):
         """Settings the panel saves as they are changed: auto-start, and where Spotify plays."""

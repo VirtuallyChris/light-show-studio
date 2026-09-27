@@ -62,6 +62,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     beats = np.arange(first, duration, period)
     if bpm_hint is None:
         bpm, beats = fix_half_tempo(y, sr, bpm, beats)
+    bpm, beats = cap_tempo(y, sr, bpm, beats)
     first = float(beats[0]) if len(beats) else first
 
     # --- frame features ---------------------------------------------------------------
@@ -223,6 +224,27 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
     phase = float(-np.angle(c1[i]) / (2 * np.pi * fine[i] / 60.0))  # time of a beat
     period = 60.0 / bpm
     return round(bpm, 3), phase % period
+
+
+MAX_BPM = 135.0
+
+
+def cap_tempo(y, sr, bpm, beats):
+    """Count anything faster than 135 bpm in half time.
+
+    The house rule for these shows: a beat is the pulse you would nod to, and past
+    135 that is every other beat. The half of the grid kept is the one the kick
+    lands on (the one with more low end).
+    """
+    import librosa
+
+    beats = np.asarray(beats, dtype=float)
+    while bpm > MAX_BPM and len(beats) >= 2:
+        low = librosa.feature.melspectrogram(y=y, sr=sr, hop_length=HOP, n_mels=8, fmin=30, fmax=200).mean(axis=0)
+        at_beat = low[np.clip(librosa.time_to_frames(beats, sr=sr, hop_length=HOP), 0, len(low) - 1)]
+        keep = 0 if float(at_beat[0::2].mean()) >= float(at_beat[1::2].mean()) else 1
+        bpm, beats = bpm / 2, beats[keep::2]
+    return bpm, beats
 
 
 def fix_half_tempo(y, sr, bpm, beats):
@@ -499,7 +521,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     """Analyse once per (path, size, mtime); cache the JSON next to the project."""
     os.makedirs(cache_dir, exist_ok=True)
     st = os.stat(path)
-    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v17.json"
+    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v18.json"
     cache = os.path.join(cache_dir, key)
     data = None
     if os.path.exists(cache):

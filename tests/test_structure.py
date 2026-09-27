@@ -54,6 +54,19 @@ class TestTempo(unittest.TestCase):
         self.assertEqual(len(out), (len(beats) + 1) // 2)
 
 
+    def test_nothing_is_counted_faster_than_135(self):
+        from lightshow.studio.analysis import cap_tempo
+        y, beats = drums(150.0, 40, kick_every=2, snare=True)          # 150: counted as 75, on the kicks
+        bpm, out = cap_tempo(y, SR, 150.0, beats)
+        self.assertEqual(bpm, 75.0)
+        self.assertTrue(np.allclose(out, beats[0::2]))                  # the half the kicks land on
+        y, beats = drums(280.0, 40, kick_every=4, snare=False)          # halved twice
+        self.assertEqual(cap_tempo(y, SR, 280.0, beats)[0], 70.0)
+        y, beats = drums(128.0, 40, kick_every=1, snare=False)          # 128 is left alone
+        bpm, out = cap_tempo(y, SR, 128.0, beats)
+        self.assertEqual((bpm, len(out)), (128.0, len(beats)))
+
+
 class TestSongFormerPath(unittest.TestCase):
     def test_the_worker_is_always_given_a_full_path(self):
         d = tempfile.mkdtemp()

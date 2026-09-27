@@ -40,13 +40,24 @@ class Track:
     duration: float                       # seconds
     uri: str = ""
     artist_ids: list[str] = field(default_factory=list)
+    image: str = ""                       # album art (a small size), for the show's colors
 
     @property
     def label(self) -> str:
         return f"{', '.join(self.artists)} - {self.name}" if self.artists else self.name
 
     def to_json(self) -> dict:
-        return {"id": self.id, "name": self.name, "artists": self.artists, "duration": self.duration, "label": self.label}
+        return {"id": self.id, "name": self.name, "artists": self.artists, "duration": self.duration, "label": self.label,
+                "image": self.image}
+
+
+def pick_image(images: list | None) -> str:
+    """The smallest album image that is still big enough to read colors from."""
+    ims = [i for i in (images or []) if isinstance(i, dict) and i.get("url")]
+    if not ims:
+        return ""
+    big_enough = [i for i in ims if (i.get("width") or 0) >= 64]
+    return min(big_enough or ims, key=lambda i: i.get("width") or 10 ** 6)["url"]
 
 
 @dataclass
@@ -67,7 +78,8 @@ def parse_track(item: dict | None) -> Track | None:
         return None
     return Track(id=item["id"], name=item.get("name", ""), artists=[a.get("name", "") for a in item.get("artists", [])],
                  duration=float(item.get("duration_ms", 0)) / 1000.0, uri=item.get("uri", ""),
-                 artist_ids=[a.get("id", "") for a in item.get("artists", []) if a.get("id")])
+                 artist_ids=[a.get("id", "") for a in item.get("artists", []) if a.get("id")],
+                 image=pick_image((item.get("album") or {}).get("images")))
 
 
 def http_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple[int, bytes]:
@@ -246,7 +258,8 @@ class PlayerState:
                 self.track = Track(id=item.get("id") or item.get("uri", "").rsplit(":", 1)[-1], name=item.get("name", ""),
                                    artists=[a.get("name", "") for a in artists], duration=float(item.get("duration_ms", 0)) / 1000.0,
                                    uri=item.get("uri", ""),
-                                   artist_ids=[a.get("uri", "").rsplit(":", 1)[-1] for a in artists if a.get("uri")])
+                                   artist_ids=[a.get("uri", "").rsplit(":", 1)[-1] for a in artists if a.get("uri")],
+                                   image=pick_image((item.get("album") or {}).get("images")))
             else:
                 self.track = None
             self.position = float(state.get("position_ms", 0)) / 1000.0 if isinstance(state, dict) else 0.0

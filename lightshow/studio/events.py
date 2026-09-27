@@ -167,6 +167,64 @@ def find_fills(drum_times, duration, beats):
     return [r for r in out if r[1] - r[0] >= win * 0.9]
 
 
+def find_drums(S_p, freqs, sr, hop, duration):
+    """The kick and snare hits themselves, from the percussive part of the mix.
+
+    The kick is a thump below 150 Hz. The snare cracks between 1.5 and 5 kHz, but
+    so does a hi-hat; what tells them apart is body: a snare also carries energy
+    around 150-400 Hz, a hat has almost none. So a crack counts as a snare only
+    when that body is there too, and not when it is just the click of a kick.
+    Returns two lists of (time, strength 0..1).
+    """
+    import librosa
+
+    def band(lo, hi):
+        m = (freqs >= lo) & (freqs <= hi)
+        return S_p[m].mean(axis=0) if m.any() else np.zeros(S_p.shape[1])
+
+    def hits(env, idx):
+        times = librosa.frames_to_time(idx, sr=sr, hop_length=hop)
+        keep = (times > 0.02) & (times < duration)
+        idx, times = idx[keep], times[keep]
+        if not len(idx):
+            return idx, times, np.array([])
+        st = env[idx]
+        return idx, times, np.clip(st / (np.percentile(st, 95) + 1e-9), 0, 1)
+
+    # The kick, measured on a linear scale: in decibels the faint low end of a snare or a
+    # hat looks as big as a kick. A kick is a jump in low-band energy that reaches a real
+    # share of the song's typical kick.
+    low_all = band(30, 150)
+    rise = np.maximum(0.0, np.diff(low_all, prepend=low_all[:1]))
+    idx_k = np.array([], dtype=int)
+    if rise.size > 4 and rise.max() > 0:
+        from scipy.signal import find_peaks
+        cand, _ = find_peaks(rise, distance=max(1, int(0.09 * sr / hop)), height=0.15 * float(np.percentile(rise, 99.5)))
+        if len(cand):
+            level = np.array([low_all[i:i + 3].max() for i in cand])
+            idx_k = cand[level >= 0.3 * float(np.percentile(level, 90))]
+    idx_k, t_k, s_k = hits(rise, idx_k)
+    env_c, idx_c, _ = _band_onsets(S_p, freqs, 1500, 5000, sr, hop, 0.10, 1.6)
+    idx_c, t_c, s_c = hits(env_c, idx_c)
+    body, low, crack = band(150, 400), band(30, 150), band(1500, 5000)
+    snare = []
+    if len(idx_c):
+        ref = float(np.percentile(body[idx_c], 90)) + 1e-9
+        for i, t, st in zip(idx_c, t_c, s_c):
+            if st < 0.35:
+                continue                                         # too faint to light: ghost notes, ringing
+            j = slice(max(0, i - 1), i + 3)                      # the hit's first few frames
+            b = float(body[j].max())
+            if b < 0.35 * ref:
+                continue                                         # no body: a hat or a shaker
+            dk = t - t_k if len(t_k) else np.array([1.0])
+            near_kick = bool(np.any((dk > -0.03) & (dk < 0.09)))  # a kick just before (or with) this crack
+            if near_kick and (st < 0.5 or float(low[j].max()) > 1.5 * b):
+                continue                                         # the kick's own click, not a snare with it
+            snare.append((t, st))
+    return list(zip(t_k, s_k)), snare
+
+
 def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None) -> dict:
     """`audio` is (array, sr) already in memory, mono or (2, n); otherwise `path` is loaded."""
     import librosa
@@ -199,6 +257,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     env_lead, idx_lead, _ = _band_onsets(S_side, freqs, 300, 5000, sr, hop, 0.35, 3.2)
     env_bass, idx_bass, _ = _band_onsets(S_h, freqs, 35, 250, sr, hop, 0.30, 2.8)
     env_drum, idx_drum, _ = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
+    kick, snare = find_drums(S_p, freqs, sr, hop, duration)
 
     streams = {}
     for name, env, idx, S, lo, hi in (("lead", env_lead, idx_lead, S_side, 300, 5000),
@@ -230,8 +289,11 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         t, s, p = streams[name]
         return [[round(float(a), 3), round(float(b), 2), int(c)] for a, b, c in zip(t, s, p)]
 
+    def pack_hits(hits):
+        return [[round(float(a), 3), round(float(b), 2), 0] for a, b in hits]
+
     return {
-        "events": {k: pack(k) for k in ("lead", "bass", "ghost")},
+        "events": {**{k: pack(k) for k in ("lead", "bass", "ghost")}, "kick": pack_hits(kick), "snare": pack_hits(snare)},
         "fills": fills,
         "hook": hook,
         "curves": {

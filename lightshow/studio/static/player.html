@@ -46,7 +46,8 @@
     const age = typeof st.timestamp === 'number' ? Date.now() - st.timestamp : null;
     const pos = st.paused || age === null || age < 0 || age > 3600e3 ? st.position : st.position + age;
     post('/api/jam/sdk_state', { device_id: deviceId, ready: !!deviceId, state: { position_ms: pos, raw_position_ms: st.position, stamp: st.timestamp || null, paused: st.paused,
-      track: { id: t.id, uri: t.uri, name: t.name, duration_ms: t.duration_ms, artists: (t.artists || []).map(a => ({ name: a.name, uri: a.uri })) } } });
+      track: { id: t.id, uri: t.uri, name: t.name, duration_ms: t.duration_ms, artists: (t.artists || []).map(a => ({ name: a.name, uri: a.uri })),
+        album: { images: ((t.album && t.album.images) || []).map(i => ({ url: i.url, width: i.width })) } } } });
     $('#now').textContent = `${(t.artists || []).map(a => a.name).join(', ')} – ${t.name}${st.paused ? '  (paused)' : ''}`;
   }
 

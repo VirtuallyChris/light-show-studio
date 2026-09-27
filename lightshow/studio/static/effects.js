@@ -36,6 +36,21 @@ const Effects = (() => {
   };
   const BEAT_OPTS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64];
 
+  /** Lights look best in solid color: every palette color is pushed to full saturation and
+   *  brightness, keeping its hue. Greys become white (light ones) or black (dark ones). */
+  function solid(hexColor) {
+    const v = parseInt(hexColor.slice(1), 16);
+    const r = ((v >> 16) & 255) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, s = mx ? d / mx : 0;
+    if (s < 0.2) return mx > 0.55 ? '#ffffff' : '#000000';
+    let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = ((h * 60) + 360) % 360;
+    const f = n => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - Math.max(0, Math.min(k, 4 - k, 1)))); };
+    return '#' + [f(5), f(3), f(1)].map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+  const solidPalette = cols => cols.map(solid).filter((c, i, all) => all.indexOf(c) === i);
+  for (const k of Object.keys(PALETTES)) PALETTES[k] = solidPalette(PALETTES[k]);
+
   // ---------- helpers ----------------------------------------------------------
   const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -134,9 +149,24 @@ const Effects = (() => {
     render(c) { const tt = c.beat / c.p.speed * 3; for (let i = 0; i < c.n; i++) { const a = Math.floor(tt + hash(i)), f = frac(tt + hash(i)); const v0 = hash(a * 31 + i * 7), v1 = hash((a + 1) * 31 + i * 7); const v = lerp(v0, v1, f * f * (3 - 2 * f)); const col = palAt(c.pal, v * 0.35); const b = (0.25 + 0.75 * v) * c.p.intensity; set(c.out, i, col[0] * b, col[1] * b, col[2] * b); } } });
 
   // ===== MEDIUM =====
-  def({ id: 'pulse', name: 'Beat pulse', cat: 'medium', desc: 'A pulse of color blooms from the center (or an end) on every beat.', swatch: ['#ffffff', '#ff2fa0'],
-    params: { every: P.speed(1, 'Every (beats)'), direction: P.direction('out'), size: P.size(0.7), decay: P.decay(0.4), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
-    render(c) { const k = Math.floor(c.beat / c.p.every); const ph = frac(c.beat / c.p.every) * c.p.every; const env = Math.exp(-ph / (c.p.decay * 0.5 + 0.02)); const col = colorFor(c, 0.5, k); for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const g = Math.exp(-1 * ((x) / (c.p.size + 0.01)) ** 2); const v = c.p.floor + env * g; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
+  def({ id: 'pulse', name: 'Beat pulse', cat: 'medium', desc: 'Blooms on the real drums: the kick from the center, the snare from the ends. On a song whose drums are not known yet it pulses on the beat.', swatch: ['#ffffff', '#ff2fa0'],
+    params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only', beat: 'every beat' }, label: 'Follows' },
+      every: P.speed(1, 'Every (beats)'), direction: P.direction('out'), size: P.size(0.7), decay: P.decay(0.4), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    render(c) {
+      const m = c.music || {};
+      if (c.p.follow !== 'beat' && m.hasDrums) {
+        // each hit is lit where it was played; decay is in seconds here, so fast songs stay crisp
+        const tau = c.p.decay * 0.25 + 0.03;
+        const hit = h => (h && h.index >= 0 ? Math.exp(-h.age / tau) * (0.55 + 0.45 * h.strength) : 0);
+        const ek = hit(m.kick), es = c.p.follow === 'drums' ? hit(m.snare) : 0;
+        const ck = colorFor(c, 0.3, Math.max(0, m.kick ? m.kick.index : 0)), cs = colorFor(c, 0.8, Math.max(0, m.snare ? m.snare.index : 0) + 1);
+        for (let i = 0; i < c.n; i++) {
+          const x = dirX(c, i / Math.max(1, c.n - 1));
+          const gk = ek * Math.exp(-1 * (x / (c.p.size + 0.01)) ** 2), gs = es * Math.exp(-1 * ((1 - x) / (c.p.size * 0.6 + 0.01)) ** 2);
+          set(c.out, i, ck[0] * (c.p.floor + gk) + cs[0] * gs, ck[1] * (c.p.floor + gk) + cs[1] * gs, ck[2] * (c.p.floor + gk) + cs[2] * gs);
+        }
+        return;
+      } const k = Math.floor(c.beat / c.p.every); const ph = frac(c.beat / c.p.every) * c.p.every; const env = Math.exp(-ph / (c.p.decay * 0.5 + 0.02)); const col = colorFor(c, 0.5, k); for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const g = Math.exp(-1 * ((x) / (c.p.size + 0.01)) ** 2); const v = c.p.floor + env * g; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'chase', name: 'Chase', cat: 'medium', desc: 'Blocks of palette color run along the strip, one block per beat.', swatch: ['#ff2fa0', '#00ffd0'],
     params: { speed: P.speed(1, 'Beats per block'), size: P.size(0.12, 'Block size'), direction: P.direction(), gap: { type: 'range', def: 0.6, min: 0, max: 0.9, step: 0.01, label: 'Gap' } },
@@ -449,5 +479,5 @@ const Effects = (() => {
     }
   }
 
-  return { list: E, byId, CATS, PALETTES, BEAT_OPTS, BLENDS, defaults, composite, hex2rgb, hsv, palAt, hash };
+  return { list: E, byId, CATS, PALETTES, BEAT_OPTS, BLENDS, defaults, composite, hex2rgb, hsv, palAt, hash, solid, solidPalette };
 })();

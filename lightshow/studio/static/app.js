@@ -92,6 +92,8 @@
     for (const lane of p.lanes) for (const c of lane.clips) delete c.lights;
     // presets added since the project was made (Rainbow) show up without touching edited ones
     for (const [name, cols] of Object.entries(Effects.PALETTES)) if (!p.palettes[name]) p.palettes[name] = cols.slice();
+    // solid colors only: palettes saved before that rule get their pastels and dull shades made solid
+    for (const name of Object.keys(p.palettes)) p.palettes[name] = Effects.solidPalette(p.palettes[name]);
     // the Rainbow effect and the "rainbow" color choice are now the Rainbow preset on an ordinary effect
     for (const lane of p.lanes) for (const c of lane.clips) {
       // both painted a rainbow whatever colors the clip carried, so they keep looking that way
@@ -417,6 +419,7 @@
     for (const [f0, f1] of a.fills || []) if (t >= f0 && t < f1) { fill = { active: true, progress: (t - f0) / Math.max(0.1, f1 - f0) }; break; }
     return {
       lead: hitAt('lead', t), ghost: hitAt('ghost', t), bass: hitAt('bass', t),
+      kick: hitAt('kick', t), snare: hitAt('snare', t), hasDrums: (((a.events || {}).kick) || []).length > 0,
       hook, fill,
       leadLevel: (cur.lead || [])[i] || 0, bassLevel: (cur.bass || [])[i] || 0, drumLevel: (cur.drum || [])[i] || 0,
     };
@@ -1244,6 +1247,7 @@
     // coherent across the track, but two drops never open on the same color.
     const mood = S.analysis.mood || {};
     S.songPals = (mood.palettes || [mood.palette]).filter(n => p.palettes[n]);
+    if (S.albumPalette && S.albumPalette.length) { p.palettes.Album = Effects.solidPalette(S.albumPalette); S.songPals = ['Album']; }   // the cover's own colors
     if (!S.songPals.length) S.songPals = [p.defaultPalette];
     S.songPal = S.songPals[0];
     p.defaultPalette = S.songPal;
@@ -1278,29 +1282,35 @@
     //     and rave goes all the way.
     const style = showStyle();
     const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
+    const rainbow = S.albumPalette ? {} : { palette: 'Rainbow' };      // with the album's colors, drops stay in them
+    // The beat pulse follows the real drums (kick from the center, snare from the ends), so it
+    // goes everywhere: where there are no drums it simply stays dark.
+    const drums = (opacity, size = 0.75) => clip(2, 'pulse', b0, len, { follow: 'drums', decay: 0.45, size }, { opacity, blend: 'add' });
     switch (s.type) {
       case 'intro':
         clip(0, 'aurora', b0, len, { speed: 16, intensity: 0.45, depth: 0.8 });
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.35, travel: 4 });
+        drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
         clip(0, v ? 'wave' : 'gradient', b0, len, v ? { speed: chill ? 16 : 8, waves: 1.5, floor: 0 } : { speed: 16, intensity: 0.35 });
-        clip(1, v ? 'comet' : 'dualcomet', b0, len, v ? { every: chill ? 4 : 2, travel: chill ? 4 : 2, tail: 0.3 } : { speed: chill ? 4 : 2, tail: 0.3 });
-        if (!chill) clip(2, 'pulse', b0, len, { every: 1, decay: 0.35, size: 0.45 }, { opacity: style === 'groove' ? 0.4 : 0.55, blend: 'add' });
+        // dual comets are drop material; a verse gets calmer movement
+        clip(1, v ? 'comet' : 'orbit', b0, len, v ? { every: chill ? 4 : 2, travel: chill ? 4 : 2, tail: 0.3 } : { speed: chill ? 8 : 4, count: 2 }, { opacity: 0.85 });
+        drums(chill ? 0.7 : 0.95);
         break;
       case 'buildup':
         clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
         clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
-        // chill songs build by filling slowly and never strobe; groove strobes to 1/8 notes,
-        // dance to 1/16, rave to 1/32
+        drums(0.85, 0.6);
+        // chill songs build by filling slowly; the strobe riser is for rave only
         clip(3, 'riser', b0, len, chill ? { step: '2', accel: false } : {});
-        if (!chill) clip(4, 'strobeRiser', b0, len, { strobeFrom: style === 'rave' ? 0.3 : 0.4, from: '1', to: { groove: '2', dance: '4', rave: '8' }[style] });
+        if (style === 'rave') clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.3, from: '1', to: '8' });
         break;
       case 'drop': {
         const kind = variant % 4;
         if (hard) {
           if (kind === 0) { clip(0, 'chase', b0, len, { speed: 1, size: 0.12, gap: 0.6 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.6, blend: 'add' }); }
-          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.7 }, { palette: 'Rainbow' }); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
+          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.7 }, rainbow); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
           else if (kind === 2) { clip(0, 'battle', b0, len, { speed: 8, surge: 0.2 }); clip(1, 'sparkle', b0, len, { density: 0.2 }, { opacity: 0.9 }); }
           else { clip(0, 'halves', b0, len, { every: 1, dim: 0 }); clip(1, 'comet', b0, len, { every: 1, travel: 1, tail: 0.25 }, { opacity: 0.9 }); }
         } else if (chill) {
@@ -1309,21 +1319,24 @@
           else { clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.75 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
         } else {
           // motion rather than flashing: it still lifts, without turning into a strobe
-          if (kind === 0) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.75 }, { palette: 'Rainbow' }); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
+          if (kind === 0) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.75 }, rainbow); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
           else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 1, intensity: 0.8 }); clip(1, 'comet', b0, len, { every: 1, travel: 1.5, tail: 0.3 }, { opacity: 0.95 }); }
           else if (kind === 2) { clip(0, 'wave', b0, len, { speed: 2, waves: 2, floor: 0.05 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
           else { clip(0, 'battle', b0, len, { speed: 8, surge: 0.25 }); clip(1, 'dualcomet', b0, len, { speed: 1.5, tail: 0.3 }, { opacity: 0.9 }); }
         }
+        drums(chill ? 0.8 : 1, 0.85);
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
         break;
       }
       case 'breakdown':
         clip(0, 'aurora', b0, len, { speed: 16, depth: 0.85, intensity: 0.35 });
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 }, { opacity: 0.85 });
+        drums(0.5, 0.5);
         break;
       case 'outro':
         clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.4 });
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
+        drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }
     addSignature(s, b0, len, variant, style);
