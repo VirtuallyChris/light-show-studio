@@ -1302,12 +1302,30 @@
     if ((a.events && a.events.lead || []).length) bits.push(`${a.events.lead.length} lead hits`);
     toast('Built: ' + bits.join(' \u00b7 '));
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effect) || S.buildPal || null, ...extra }; P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
+  // Effects that are mostly dark with a few bright things moving (comets, sparks, sweeps): laid
+  // over a base, they take the opposite colors, so a comet over red is cyan-blue and stands out.
+  const OVERLAY = new Set(['comet', 'dualcomet', 'meteors', 'orbit', 'sparkle', 'ghostspark', 'leadtrace', 'hookstrike',
+                           'sweepout', 'ripple', 'colorslam', 'fillrush']);
+  /** The opposite hue of each color (white and black stay as they are), as solid colors. */
+  function contrastPalette(cols) {
+    return Effects.solidPalette((cols || []).map(hexColor => {
+      const [r, g, b] = Effects.hex2rgb(hexColor), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      if (!mx || d / mx < 0.2) return hexColor;
+      let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h = ((h / 6) + 1.5) % 1;                                      // half way round the color wheel
+      return '#' + Effects.hsv(h, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+    }));
+  }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effect) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
     const fam = S.songPals && S.songPals.length ? S.songPals : [p.defaultPalette];
     S.buildPal = paletteVariant(fam[idx % fam.length], idx);
+    // Buildups and breakdowns run on the opposite colors, so the drop lands back on the song's
+    // own palette and the change of color hits with it.
+    if (s.type === 'buildup' || s.type === 'breakdown') S.buildPal = contrastPalette(S.buildPal);
+    S.contrastPal = contrastPalette(S.buildPal);
     const v = variant % 2;
     // Two rules shape everything here.
     //  1. Dark space: dim bases with a few bright things moving over them.
@@ -1528,5 +1546,5 @@
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {}; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette };
 })();

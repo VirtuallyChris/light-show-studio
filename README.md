@@ -454,6 +454,10 @@ point the room had reached. When the Cast goes away the sound comes back here.
   dominant bright color and a second one from the cover.
 - **Dual comets** are for drops only; the **strobe riser** for the rave style
   only.
+- **Contrast.** Effects that are mostly dark with bright things moving (comets,
+  meteors, orbits, sparks, sweeps) take the opposite colors of the base under
+  them: a comet over red is cyan-blue. Buildups and breakdowns run on the
+  flipped palette, so the drop lands back on the song's own colors.
 - **The lights dim with the music.** When the sound falls well below what is
   usual for its section (a gap in a drop, a sudden hush), every light falls with
   it, down to 4%, whatever the effects are doing. Quiet sections are only a
