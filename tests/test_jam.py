@@ -131,6 +131,13 @@ class TestRelay(unittest.TestCase):
         self.assertEqual(got[0, 0], 2000)
         self.assertAlmostEqual(s.capture_time_at(0.5), 2.5, places=3)
 
+    def test_time_before_the_recording_can_be_asked_for_as_silence(self):
+        self.relay.write(self.ramp(3000, start=1))
+        self.assertEqual(len(self.relay.frames(-1.0, 1.0)), 1000)               # clipped, as before
+        x = self.relay.frames(-1.0, 1.0, pad=True)
+        self.assertEqual(len(x), 2000)
+        self.assertEqual((int(x[:1000].max()), int(x[1000, 0])), (0, 1))        # silence, then the first frame
+
     def test_never_reads_past_the_capture_head(self):
         self.relay.write(self.ramp(1000))
         s = self.relay.open_stream(0.0, pace=False)
@@ -342,6 +349,38 @@ class TestEngine(unittest.TestCase):
         self.assertAlmostEqual(t.start, true_start, delta=0.04)                  # the stale clock alone would be 350 ms out
         self.assertEqual(sim.engine.analysis_json(t.key)["analysis"]["bpm"], sim.library.learned(self.ta.id)["analysis"]["bpm"])
 
+    def test_a_song_already_playing_is_measured_from_its_real_start(self):
+        # The jam begins 15 s into a song. Everything learned must still be in the song's own time.
+        sim = Sim(self.dir, target=20.0)
+        e = sim.engine
+        sim.play(self.a, self.ta, at=15.0)
+        sim.run(self.a["duration"] - 15.0 + 2.0)
+        jt = e.tracks[0]
+        self.assertAlmostEqual(jt.start, -15.0, delta=0.6)
+        drops = e.current.analysis["drops"] if e.current is jt else jt.analysis["drops"]
+        true = [d for d in self.a["drops"] if d > 20.0]
+        self.assertTrue(true)
+        for d in true:                                                           # each real drop found where it is
+            self.assertLess(min(abs(d - x) for x in drops), 1.0, f"drop at {d:.1f}s, found {drops}")
+        self.assertIsNone(sim.library.learned(self.ta.id))                        # half a song is not kept
+        doc = e.analysis_json(jt.key) if jt.analysis is not None else None
+        if doc and doc.get("analysis") and doc["analysis"].get("energy"):
+            self.assertEqual(max(doc["analysis"]["energy"][: int(10 * 30)]), 0.0)  # the unheard opening is silence
+
+    def test_a_learned_song_already_playing_is_lined_up_by_ear(self):
+        from lightshow.studio.analysis import analyze_audio
+
+        JamLibrary(self.dir).save_learned(self.ta, analyze_audio(self.a["audio"].mean(axis=1), SR, events=False))
+        sim = Sim(self.dir, target=20.0, lag=0.35)
+        true_start = sim.relay.capture_time - 20.0                               # it has been playing for 20 s
+        sim.play(self.a, self.ta, at=20.0)
+        sim.run(30)
+        t = sim.engine.tracks[-1]
+        self.assertEqual(t.kind, "learned")
+        self.assertTrue(t.aligned)
+        self.assertGreater(t.align_peak, 0.9)
+        self.assertAlmostEqual(t.start, true_start, delta=0.04)
+
     def test_a_skip_keeps_the_delay_by_default(self):
         sim = Sim(self.dir, target=20.0)
         e = sim.engine
@@ -379,7 +418,7 @@ class TestEngine(unittest.TestCase):
         self.assertIsNone(sim.library.learned(self.ta.id))                        # a skipped song is not learned
 
     def test_a_change_near_the_end_is_the_song_ending_and_keeps_the_delay(self):
-        # Spotify cuts endings short by itself; a change in a song's last stretch is taken as its end
+        # a change in a song's last stretch is taken as its end
         for early, outro, expect_flush in ((8.0, 30.0, False), (20.0, 30.0, False), (8.0, 0.0, True)):
             sim = Sim(self.dir, target=20.0, outro=outro, skip_jumps=True)
             sim.play(self.a, self.ta)

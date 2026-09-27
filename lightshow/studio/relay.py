@@ -100,22 +100,28 @@ class Relay:
             return self.buf[i0:i0 + n]
         return np.concatenate([self.buf[i0:], self.buf[:n - (self.capacity - i0)]])
 
-    def frames(self, t0: float, t1: float) -> np.ndarray:
-        """int16 frames between two capture times, clipped to what is still held."""
-        with self.cond:
-            f0 = max(int(t0 * self.sr), self.written - self.capacity, 0)
-            f1 = min(int(t1 * self.sr), self.written)
-            if f1 <= f0:
-                return np.zeros((0, self.channels), dtype=np.int16)
-            return self._slice(f0, f1).copy()
+    def frames(self, t0: float, t1: float, pad: bool = False) -> np.ndarray:
+        """int16 frames between two capture times, clipped to what is still held.
 
-    def audio(self, t0: float, t1: float, sr_out: int = 22050, mono: bool = True) -> np.ndarray:
+        With `pad`, time before the oldest frame held (before the recording began,
+        say) comes back as silence, so the result still starts at t0.
+        """
+        with self.cond:
+            want0 = int(np.floor(t0 * self.sr))
+            f0 = max(want0, self.written - self.capacity, 0)
+            f1 = min(int(t1 * self.sr), self.written)
+            x = self._slice(f0, f1).copy() if f1 > f0 else np.zeros((0, self.channels), dtype=np.int16)
+        if pad and f0 > want0 and f1 > want0:
+            x = np.concatenate([np.zeros((min(f0, f1) - want0, self.channels), dtype=np.int16), x])
+        return x
+
+    def audio(self, t0: float, t1: float, sr_out: int = 22050, mono: bool = True, pad: bool = False) -> np.ndarray:
         """Float audio for analysis: mono (n,) or stereo (2, n), resampled to sr_out."""
         from math import gcd
 
         from scipy.signal import resample_poly
 
-        x = self.frames(t0, t1).astype(np.float32) / 32768.0
+        x = self.frames(t0, t1, pad=pad).astype(np.float32) / 32768.0
         if len(x) == 0:
             return np.zeros(0, dtype=np.float32) if mono else np.zeros((2, 0), dtype=np.float32)
         x = x.mean(axis=1) if mono else x[:, :2].T

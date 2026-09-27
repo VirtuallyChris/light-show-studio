@@ -232,8 +232,9 @@ class FeatureTrack:
 
     def slice(self, t0: float, t1: float) -> dict:
         """Features for a stretch of capture time, normalised over that stretch the way the offline analysis does."""
-        a, b = max(0, int((t0 - self.base) * FEATURE_FPS)), min(int((t1 - self.base) * FEATURE_FPS), len(self.rms))
-        pa, pb = max(0, int((t0 - self.base) * WAVE_PPS)), min(int((t1 - self.base) * WAVE_PPS), len(self.peaks))
+        a0, p0 = int(np.floor((t0 - self.base) * FEATURE_FPS)), int(np.floor((t0 - self.base) * WAVE_PPS))
+        a, b = max(0, a0), min(int((t1 - self.base) * FEATURE_FPS), len(self.rms))
+        pa, pb = max(0, p0), min(int((t1 - self.base) * WAVE_PPS), len(self.peaks))
         if b <= a:
             return {"energy": [], "bands": [], "peaks": []}
         rms = self.rms[a:b]
@@ -243,6 +244,12 @@ class FeatureTrack:
         bands = np.clip((bands - lo) / (hi - lo + 1e-9), 0, 1)
         peaks = self.peaks[pa:pb]
         peaks = peaks / (peaks.max() + 1e-9) if len(peaks) else peaks
+        # time before anything was recorded (a song already playing when the jam began) is silence,
+        # so index 0 is still the song's first moment
+        if a0 < 0:
+            energy, bands = np.concatenate([np.zeros(-a0), energy]), np.concatenate([np.zeros((-a0, bands.shape[1])), bands])
+        if p0 < 0:
+            peaks = np.concatenate([np.zeros(-p0), peaks])
         return {"energy": np.round(energy, 4).tolist(), "bands": np.round(bands, 3).tolist(), "peaks": np.round(peaks, 3).tolist()}
 
 
@@ -548,12 +555,11 @@ class JamEngine:
         if prev is not None and prev.end is None:
             expected_end = prev.start + prev.track.duration
             # A song that simply ended: the next one begins where this one was due to stop, a little
-            # later (a gap), or earlier by the crossfade. Spotify also cuts endings short by itself
-            # (its transitions, Automix) and the API does not say so: a live Jam moved on 20 s before
-            # the end of a song nobody skipped. Flushing then threw the whole delay away for good,
-            # so any change in a song's last stretch is taken as its end. The room hears the old
-            # song up to where Spotify left it, then the new one, and stays the full delay behind;
-            # a real skip that late costs it at most that stretch of the old song.
+            # later (a gap), or earlier by the crossfade. A change in a song's last stretch is taken
+            # as its end too: the room hears the old song up to where Spotify left it, then the new
+            # one, and the song is kept as heard. (This was added when songs seemed to end 20 s
+            # early; that turned out to be songs already playing when the jam began, measured from
+            # the wrong start, since fixed. The rule stays: a skip that late loses little.)
             early = max(self.cfg.crossfade + 1.5, min(self.cfg.outro, 0.5 * prev.track.duration))
             natural = not restarted and -early <= est_start - expected_end <= 3.0
             prev.end = min(est_start, expected_end) if natural else est_start
@@ -562,7 +568,11 @@ class JamEngine:
         learned = None if project else self.library.learned(track.id)
         kind = "custom" if project else "learned" if learned else "live"
         self.serial += 1
-        jt = JamTrack(track, max(est_start, 0.0), kind, project, serial=self.serial)
+        # A song already playing when the jam began started before the recording did: its start
+        # is earlier than anything held. Clamping it to the recording's first moment measured the
+        # whole song from the wrong place, and a first listen was saved shifted by however far in
+        # the song already was (Ego: 15.7 s, lights that far ahead every time it came back).
+        jt = JamTrack(track, est_start, kind, project, serial=self.serial)
         try:
             jt.spotify_genres = list(getattr(self.spotify, "artist_genres", lambda t: [])(track))
         except Exception:  # noqa: BLE001 - genres are a hint; the jam goes on without them
@@ -695,7 +705,7 @@ class JamEngine:
         return None
 
     def _align(self, jt: JamTrack, head: float) -> bool:
-        have = (jt.end or head) - jt.start
+        have = (jt.end or head) - max(jt.start, self.relay.oldest_time)     # what was actually recorded of it
         if have < 14.0:
             return False
         if jt.ref is None:
@@ -704,10 +714,14 @@ class JamEngine:
                 jt.aligned = True                           # nothing to align against: trust Spotify's clock
                 return False
         env, fps = jt.ref
+        env = np.atleast_2d(env)
         reach = 2.0
         w0 = max(self.relay.oldest_time, jt.start - reach)
-        y = self.relay.audio(w0, min(jt.start + 24.0, jt.end or head), SR_ANALYSIS, mono=True)
-        start, peak, edge = align_start(live_bands(y), env, w0, fps, reach=reach)
+        # A song already playing when the jam began has no opening in the recording: match the
+        # part of the saved song that the recording's first moment could be, not its first seconds.
+        q0 = max(0.0, w0 - (jt.start - reach))            # song time at w0 for the earliest start searched
+        y = self.relay.audio(w0, min(w0 + 24.0 + reach, jt.end or head), SR_ANALYSIS, mono=True)
+        start, peak, edge = align_start(live_bands(y), env[:, int(q0 * fps):], w0 - q0, fps, reach=reach)
         jt.align_peak, jt.align_edge = peak, edge
         if peak >= ALIGN_PEAK and edge >= ALIGN_EDGE and abs(start - jt.start) <= reach + 0.5:
             moved = start - jt.start
@@ -740,7 +754,7 @@ class JamEngine:
         labels = None
         if self.genre_fn is not None:
             try:
-                labels = self.genre_fn(self.relay.audio(jt.start, jt.start + have, 16000, mono=True), 16000)
+                labels = self.genre_fn(self.relay.audio(max(jt.start, self.relay.oldest_time), jt.start + have, 16000, mono=True), 16000)
             except Exception as e:  # noqa: BLE001
                 self.say(f"genre model unavailable: {e}")
         drive = float(((jt.analysis or {}).get("mood") or {}).get("drive", 0.6))
@@ -752,9 +766,9 @@ class JamEngine:
         return f"{jt.track.name}: {g['style']} ({', '.join(g['genres'] or g['spotify'] or ['no genre found'])})"
 
     def _pass(self, jt: JamTrack, have: float, final: bool) -> str:
-        y = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=True)
+        y = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=True, pad=True)   # song time 0 is sample 0
         events = final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1)
-        stereo = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=False) if events else None
+        stereo = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=False, pad=True) if events else None
         a = self.analyse_fn(y, SR_ANALYSIS, stereo=stereo, use_model=False, events=events, bpm_hint=jt.bpm_lock,
                             segment_fn=self.segment_fn)
         if not events and jt.analysis:                      # keep the last instrument pass until the next one

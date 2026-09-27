@@ -439,7 +439,7 @@ else, so there are two ways in:
 |---|---|
 | Add, remove, reorder the queue | Nothing to notice; it just works |
 | Pause, resume | The speakers pause and resume within about a second, and the buffer is kept |
-| Skip, or tap a different song | By default the room hears the skip when it gets there, the full delay later, like everything else, so the lights see the new song coming. Set *On a skip* to *Jump right away* for the room to join the new song in a second or two instead: that song then runs on a short lookahead, and a few seconds of quiet are added between the next songs until the delay is back. A change in a song's last 30 seconds always counts as the song ending, since Spotify trims endings by itself |
+| Skip, or tap a different song | By default the room hears the skip when it gets there, the full delay later, like everything else, so the lights see the new song coming. Set *On a skip* to *Jump right away* for the room to join the new song in a second or two instead: that song then runs on a short lookahead, and a few seconds of quiet are added between the next songs until the delay is back. A change in a song's last 30 seconds always counts as the song ending |
 | Let a song end | Seamless |
 
 The phone shows what Spotify is playing, which is the delay ahead of the room.
