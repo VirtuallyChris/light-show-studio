@@ -243,20 +243,18 @@ down, drag a beat to move it, <kbd>Delete</kbd> to remove one. Or set the
 **BPM** (or **Tap** it) and press **Regrid** for a fresh even grid, and nudge
 the whole grid with the 10 ms buttons. **Bar+1** moves the downbeat.
 
-**How sections are found: SongFormer.** The studio runs the SongFormer model
-(ASLP Lab, 2025) on every song. It labels the parts the way a songwriter
-would, and those map straight onto the studio's sections, snapped to bar
-lines: pre-chorus becomes buildup, chorus becomes drop, bridge becomes
-breakdown, intro, verse and outro stay as they are. A drop marker goes where
-each drop starts. Nothing else second-guesses it: an older loudness-based
-detector used to refine or replace these, and was removed because it placed
-drops early on songs with loud pre-choruses. It takes a few seconds per song on
-an RTX-class GPU, and SongFormer also finds sections live in Jam mode, from
-audio in memory.
-
-SongFormer needs its own Python environment (about 5 GB, once). Without it,
-or if it fails, a song gets a single plain section and the Song panel says
-why; press **Re-detect** after fixing the problem. To set it up:
+**Neural section analysis (optional, recommended).** With the SongFormer
+environment installed, the studio runs the SongFormer model (ASLP Lab, 2025)
+on every song and uses its sections, merged with the built-in detector's
+bass-drop instants: the model says *what* each part is (its pop labels are
+mapped: chorus becomes drop, pre-chorus becomes buildup, a quiet bridge
+becomes breakdown), and the energy detector says exactly which bar the bass
+slams in, splitting a chorus into its lead-in and its drop. Analysis takes a
+few seconds on an RTX-class GPU. On two hand-labelled tracks it agreed with
+the human labels 85-94% of the time. The Song panel shows "SongFormer" when
+the model produced the sections, and says why when it could not run. A song
+analysed while SongFormer could not run is tried again the next time it is
+opened, and **Re-detect** asks again too. To set it up (about 5 GB, once):
 
 ```bash
 winget install --id Python.Python.3.12 --scope user
@@ -267,10 +265,20 @@ winget install --id Python.Python.3.12 --scope user
 
 The weights download automatically on first use. The environment lives on
 the local disk on purpose: a network share is far too slow for PyTorch.
+Without it, the built-in detector below is used.
 
-Press **Re-detect** to refresh sections, drops and the beat grid from a fresh
-analysis without touching your clips, then fix anything it got wrong by
-dragging section edges.
+**How sections are found.** The analyser works per bar over the whole file,
+with cues checked against hand-labelled tracks. A *drop* is loud **and**
+full-spectrum: a verse can be just as loud on a modern master, but its mids
+are sparse, while a drop's mids and highs light up together. A *breakdown*
+loses the sub bass and the level. A *buildup* is the 4-16 bars running into a
+drop, bounded by the nearest texture change and extended back while the
+brightness and level keep climbing. Everything else with a groove is a
+*verse*; quiet first and last stretches are intro and outro. On a
+hand-labelled Porter Robinson track it agrees with the human labels 95% of
+the time and lands every drop within a second. Press **Re-detect** to refresh
+sections, drops and the beat grid from analysis without touching your clips,
+then fix anything it got wrong by dragging section edges.
 
 **Sections and drops**: drag a section's left edge to move the boundary,
 double-click a section to change its type, right-click to split or merge. Drop
