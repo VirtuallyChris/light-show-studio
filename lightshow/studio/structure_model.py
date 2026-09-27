@@ -12,18 +12,12 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
+import sys  # noqa: F401
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# The model environment lives on the local disk (a network share is far too slow for
-# PyTorch's thousands of files); a copy inside the project is honoured too.
-_CANDIDATES = [
-    os.path.join(os.environ.get("LOCALAPPDATA", ""), "lanlightshow", "venv-songformer", "Scripts", "python.exe"),
-    os.path.join(ROOT, ".venv-songformer", "Scripts", "python.exe"),
-]
-VENV_PY = next((c for c in _CANDIDATES if os.path.exists(c)), _CANDIDATES[0])
+from .model_worker import ROOT, VENV_PY, ModelWorker  # noqa: F401 - VENV_PY/ROOT are imported from here elsewhere
+
 CACHE_SUFFIX = ".songformer.json"
+WORKER = ModelWorker("lightshow.studio.songformer_infer", "segments")
 
 LABEL_MAP = {
     "intro": "intro", "verse": "verse", "pre-chorus": "buildup", "chorus": "drop",
@@ -32,13 +26,12 @@ LABEL_MAP = {
 
 
 def available() -> bool:
-    return os.path.exists(VENV_PY)
+    return WORKER.available()
 
 
-def run_model(audio_path: str, cache_dir: str | None = None, timeout: float = 900.0) -> list[dict] | None:
-    """Raw SongFormer segments for a file (cached next to the analysis cache)."""
-    if not available():
-        return None
+def run_model(audio_path: str, cache_dir: str | None = None) -> tuple[list[dict] | None, str]:
+    """SongFormer's segments for a file, and why not if there are none. Cached next to the analysis."""
+    audio_path = os.path.abspath(audio_path)
     cache = None
     if cache_dir:
         os.makedirs(cache_dir, exist_ok=True)
@@ -46,22 +39,23 @@ def run_model(audio_path: str, cache_dir: str | None = None, timeout: float = 90
         cache = os.path.join(cache_dir, f"{os.path.basename(audio_path)}.{st.st_size}.{int(st.st_mtime)}{CACHE_SUFFIX}")
         if os.path.exists(cache):
             with open(cache, encoding="utf-8") as fh:
-                return json.load(fh).get("segments")
-    try:
-        proc = subprocess.run([VENV_PY, "-m", "lightshow.studio.songformer_infer", audio_path], cwd=ROOT,
-                              capture_output=True, text=True, timeout=timeout,
-                              creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-        data = json.loads(proc.stdout.strip().splitlines()[-1]) if proc.stdout.strip() else {"error": proc.stderr[-800:]}
-    except (subprocess.SubprocessError, ValueError, OSError) as e:
-        print(f"[songformer] failed: {e}", file=sys.stderr)
-        return None
-    if "error" in data:
-        print(f"[songformer] {data['error']}", file=sys.stderr)
-        return None
+                segs = json.load(fh).get("segments")
+            if segs:
+                return segs, ""
+    if not available():
+        return None, "SongFormer is not installed (the model environment is missing)"
+    segs = WORKER.ask_file(audio_path)
+    if not segs:
+        return None, f"SongFormer failed: {WORKER.last_error or 'no answer'}"
     if cache:
         with open(cache, "w", encoding="utf-8") as fh:
-            json.dump(data, fh)
-    return data.get("segments")
+            json.dump({"segments": segs}, fh)
+    return segs, ""
+
+
+def run_audio(y, sr: int) -> list[dict] | None:
+    """SongFormer on audio held in memory (Jam mode). Nothing is written to disk."""
+    return WORKER.ask_audio(y, sr) if available() else None
 
 
 def sections_from_model(segments: list[dict], analysis: dict, builtin_drops: list[float] | None = None,

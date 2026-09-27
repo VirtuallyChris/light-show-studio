@@ -19,15 +19,10 @@ loud rock song is still a rock song.
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
-import sys
-import threading
 
 import numpy as np
 
-from .structure_model import ROOT, VENV_PY
+from .model_worker import ModelWorker
 
 STYLES = ("chill", "groove", "dance", "rave")
 
@@ -98,87 +93,18 @@ def style_from(labels: dict | None, drive: float = 0.6, spotify_genres: list[str
 
 
 # ------------------------------------------------------------------------ the worker
-class GenreWorker:
-    """One long-lived model process, started on first use and shared by everything."""
-
-    def __init__(self):
-        self.proc: subprocess.Popen | None = None
-        self.lock = threading.Lock()
-        self.failed = ""
-
-    @staticmethod
-    def available() -> bool:
-        return os.path.exists(VENV_PY)
-
-    def _start(self) -> bool:
-        if self.proc and self.proc.poll() is None:
-            return True
-        if not self.available():
-            self.failed = "the model environment is not installed"
-            return False
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-        self.proc = subprocess.Popen([VENV_PY, "-m", "lightshow.studio.genre_infer"], cwd=ROOT, env=env,
-                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                     creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-        hello = self._read(timeout=600)                  # the first run downloads the model
-        if not hello or not hello.get("ready"):
-            self.failed = (hello or {}).get("error", "the genre model did not start")
-            self.stop()
-            return False
-        self.failed = ""
-        return True
-
-    def _read(self, timeout: float) -> dict | None:
-        box = {}
-        t = threading.Thread(target=lambda: box.setdefault("line", self.proc.stdout.readline()), daemon=True)
-        t.start()
-        t.join(timeout)
-        line = box.get("line")
-        if not line:
-            return None
-        try:
-            return json.loads(line)
-        except ValueError:
-            return None
-
-    def _ask(self, header: dict, payload: bytes = b"") -> dict | None:
-        with self.lock:
-            for attempt in (1, 2):                       # a worker that died is restarted once
-                if not self._start():
-                    return None
-                try:
-                    self.proc.stdin.write((json.dumps(header) + "\n").encode() + payload)
-                    self.proc.stdin.flush()
-                    r = self._read(timeout=120)
-                except OSError:
-                    r = None
-                if r is not None:
-                    if "error" in r:
-                        print(f"[genre] {r['error']}", file=sys.stderr)
-                        return None
-                    return r.get("labels")
-                self.stop()
-            return None
+class GenreWorker(ModelWorker):
+    """The genre model as a long-lived process; see model_worker.py."""
 
     def classify_file(self, path: str) -> dict | None:
-        return self._ask({"path": os.path.abspath(path)})
+        return self.ask_file(path)
 
     def classify_audio(self, y: np.ndarray, sr: int) -> dict | None:
         """Audio from memory, piped straight to the model: nothing is written to disk."""
-        y = np.ascontiguousarray(y, dtype=np.float32)
-        return self._ask({"samples": int(len(y)), "sr": int(sr)}, y.tobytes())
-
-    def stop(self) -> None:
-        p, self.proc = self.proc, None
-        if p and p.poll() is None:
-            try:
-                p.stdin.close()
-                p.wait(timeout=5)
-            except Exception:  # noqa: BLE001
-                p.kill()
+        return self.ask_audio(y, sr)
 
 
-WORKER = GenreWorker()
+WORKER = GenreWorker("lightshow.studio.genre_infer", "labels", start_timeout=600, request_timeout=120)
 
 
 def add_genre(analysis: dict, path: str) -> bool:

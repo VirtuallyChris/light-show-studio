@@ -227,8 +227,10 @@ new second, and if the speaker drops a long-paused session, the next play
 reloads it where you left off. The old chirp-based `lightshow calibrate
 <speaker>` command still exists, but the studio no longer needs it.
 
-**Tempo and bar lines**: if the grid counts eighth notes (the kick lands on
-only every other beat), press **÷2** to halve the tempo; **×2** doubles it.
+**Tempo and bar lines**: the analysis halves the tempo by itself when the grid
+counts double: the in-between beats have neither a kick nor a snare. A kick on
+1 and 3 with a snare on 2 and 4 is an ordinary backbeat and is left alone. If it
+still gets it wrong, press **÷2** to halve the tempo; **×2** doubles it.
 Clips keep their place in the song, so nothing moves, but a "1 beat" effect
 now means the new, longer beat. If the bar lines sit in the wrong place, press
 **Bar−1** or **Bar+1** to shift the downbeat a beat at a time, or right-click
@@ -250,7 +252,9 @@ becomes breakdown), and the energy detector says exactly which bar the bass
 slams in, splitting a chorus into its lead-in and its drop. Analysis takes a
 few seconds on an RTX-class GPU. On two hand-labelled tracks it agreed with
 the human labels 85-94% of the time. The Song panel shows "SongFormer" when
-the model produced the sections. To set it up (about 5 GB, once):
+the model produced the sections, and says why when it could not run. A song
+analysed while SongFormer could not run is tried again the next time it is
+opened, and **Re-detect** asks again too. To set it up (about 5 GB, once):
 
 ```bash
 winget install --id Python.Python.3.12 --scope user
@@ -279,7 +283,8 @@ then fix anything it got wrong by dragging section edges.
 **Sections and drops**: drag a section's left edge to move the boundary,
 double-click a section to change its type, right-click to split or merge. Drop
 markers (red) can be dragged, added and deleted; auto-build puts a blast on
-each one.
+each one. A marker sitting on a section edge moves with it when you drag the
+edge, so a drop and its blast stay together.
 
 **Getting around**: the strip across the top is an overview of the whole song
 (section colors, a summary waveform and the drop markers). The bright box on

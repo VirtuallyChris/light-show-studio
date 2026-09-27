@@ -804,7 +804,14 @@
     if (h.type === 'beat') { S.view.sel = { type: 'beat', index: h.index }; inspector(); if ($('#beatEdit').checked) { beginChange(); S.view.drag = { type: 'beat', index: h.index }; } draw(); return; }
     if (h.type === 'drop') { S.view.sel = { type: 'drop', index: h.index }; inspector(); beginChange(); S.view.drag = { type: 'drop', index: h.index }; draw(); return; }
     if (h.type === 'section') { S.view.sel = { type: 'section', index: h.index }; inspector(); draw(); return; }
-    if (h.type === 'section-edge') { beginChange(); S.view.drag = { type: 'section-edge', index: h.index }; return; }
+    if (h.type === 'section-edge') {
+      beginChange();
+      // a drop marker on this edge belongs to it: dragging the edge takes the marker along,
+      // so a drop section and its blast can never drift apart
+      const edge = p.sections[h.index].start;
+      const mk = p.drops.findIndex(t => Math.abs(t - edge) < 0.35);
+      S.view.drag = { type: 'section-edge', index: h.index, marker: mk >= 0 ? mk : null }; return;
+    }
     if (h.type === 'clip') {
       const { clip } = findClip(h.id);
       if (e.shiftKey) {   // shift-click adds to or removes from the group
@@ -845,7 +852,7 @@
     }
     if (d.type === 'beat') { p.beats[d.index] = t; p.beats.sort((a, b) => a - b); d.index = p.beats.indexOf(t); S.view.sel = { type: 'beat', index: d.index }; draw(); return; }
     if (d.type === 'drop') { p.drops[d.index] = beatToTime(snapBeat(b)); draw(); return; }
-    if (d.type === 'section-edge') { const s = p.sections[d.index], prev = p.sections[d.index - 1]; const nt = beatToTime(snapBeat(b)); if (nt > prev.start + 0.5 && nt < s.end - 0.5) { s.start = nt; prev.end = nt; draw(); } return; }
+    if (d.type === 'section-edge') { const s = p.sections[d.index], prev = p.sections[d.index - 1]; const nt = beatToTime(snapBeat(b)); if (nt > prev.start + 0.5 && nt < s.end - 0.5) { s.start = nt; prev.end = nt; if (d.marker !== null && d.marker !== undefined) p.drops[d.marker] = nt; draw(); } return; }
     if (d.type === 'clip' || d.type === 'palclip') {
       const c = d.clip; d.moved = true;
       const laneOf = d.type === 'clip' ? p.lanes[d.lane] : null;
@@ -874,7 +881,7 @@
     if (d.type === 'group') {
       if (!d.moved) { S.undo.pop(); if (!d.tried) setSelection([d.id]); return; }   // a plain click on a member picks just that clip
       inspector(); changed(); return;
-    } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'clip' || d.type === 'palclip') inspector(); changed(); });
+    } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'section-edge' && d.marker !== null) P().drops.sort((a, b) => a - b); if (d.type === 'clip' || d.type === 'palclip') inspector(); changed(); });
   tl.addEventListener('dblclick', e => { const r = tl.getBoundingClientRect(); const h = hitTest(e.clientX - r.left, e.clientY - r.top); if (!h) return; if (h.type === 'section') { beginChange(); const s = P().sections[h.index]; s.type = SECTION_TYPES[(SECTION_TYPES.indexOf(s.type) + 1) % SECTION_TYPES.length]; inspector(); changed(); } });
   tl.addEventListener('wheel', e => {
     e.preventDefault(); const r = tl.getBoundingClientRect(); const x = e.clientX - r.left;
@@ -1100,7 +1107,7 @@
       const styleRow = `<div class="row"><label title="How hard the lights go when you auto-build. Chill never strobes; groove moves but lifts drops without flashing; dance flashes on the beat; rave goes all out.">Show style</label><select id="songStyle">
         <option value="">Auto${auto ? ': ' + STYLE_NAMES[auto] : ''}</option>${Object.entries(STYLE_NAMES).map(([k, n]) => `<option value="${k}" ${p.settings && p.settings.style === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
         ${heard ? `<div class="row"><label>Sounds like</label><span class="genre-heard">${esc(heard)}</span></div>` : ''}`;
-      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'songformer' ? ' · SongFormer' : ''}</span></div><div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
+      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'songformer' ? ' · SongFormer' : ''}</span></div>${S.analysis && S.analysis.structure_source !== 'songformer' ? `<div class="hint warn">SongFormer did not run (${esc(S.analysis.structure_error || 'unknown reason')}), so the simple detector made these sections. Press Re-detect to try again.</div>` : ''}<div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
       $('#songStyle').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.style = e.target.value; changed(); inspector();
         toast(`Show style: ${e.target.value ? STYLE_NAMES[e.target.value] : 'Auto (' + STYLE_NAMES[showStyle()] + ')'}. Press Auto-build show to rebuild in it.`); };
       return; }
@@ -1406,8 +1413,17 @@
   $('#castLocal').onchange = syncLocalToCast; $('#btnStart').onclick = () => { seek(0); scrollTo(0); };
   $('#btnZoomIn').onclick = () => zoomAt(1.4, xOf(pos())); $('#btnZoomOut').onclick = () => zoomAt(0.7, xOf(pos())); $('#btnZoomFit').onclick = zoomFit;
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo; $('#btnSave').onclick = () => { save(); toast('Saved'); };
-  $('#btnRedetect').onclick = () => {
-    if (!S.analysis) return; const a = S.analysis; const p = P();
+  $('#btnRedetect').onclick = async () => {
+    if (!S.analysis) return;
+    // ask the server again rather than reusing what was loaded: if SongFormer could not run
+    // before, this is where it gets another go
+    if (S.name) {
+      busy('Analysing…');
+      try { const d = await (await fetch(`/api/projects/${encodeURIComponent(S.name)}`)).json(); if (d.analysis) S.analysis = d.analysis; }
+      catch (e) { /* keep what was loaded */ } finally { busy(null); }
+    }
+    if (S.analysis.structure_source !== 'songformer') toast(`No sections found: ${S.analysis.structure_error || 'SongFormer did not run'}`, true);
+    const a = S.analysis; const p = P();
     const all = confirm('Re-detect.' + String.fromCharCode(10, 10) + 'OK = replace the beat grid AND your sections and drop markers with the fresh analysis.' + String.fromCharCode(10) + 'Cancel = replace only the beat grid (BPM, beats, downbeat) and keep your sections and drops.');
     beginChange();
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); $('#bpm').value = p.bpm.toFixed(2);

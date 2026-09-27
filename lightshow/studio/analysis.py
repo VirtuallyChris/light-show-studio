@@ -87,6 +87,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     phase, sections, drops = find_structure(y, sr, beats, rms, duration)
     downbeats = beats[phase::4]
     structure_source = "builtin"
+    structure_error = "no section model was asked"
     builtin_sections, builtin_drops = sections, drops
     if use_model and path:
         # SongFormer, when its environment is installed: better labels, mapped onto our grid
@@ -95,7 +96,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
             base = {"beats": [float(b) for b in beats], "downbeat_phase": phase, "duration": duration,
                     "energy": list(np.interp(np.arange(0, duration, 1.0 / FEATURE_FPS), frame_times, rms) / (np.percentile(rms, 99.5) + 1e-9)),
                     "feature_fps": FEATURE_FPS}
-            segs = structure_model.run_model(path, cache_dir)
+            segs, structure_error = structure_model.run_model(path, cache_dir)
             mapped = structure_model.sections_from_model(segs, base, builtin_drops, builtin_sections) if segs else None
             if mapped:
                 sections, drops = mapped
@@ -136,6 +137,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "sections": sections,
         "drops": drops,
         "structure_source": structure_source,
+        "structure_error": "" if structure_source == "songformer" else structure_error,
         "builtin_sections": builtin_sections,
         "builtin_drops": builtin_drops,
     }
@@ -238,6 +240,20 @@ def fix_half_tempo(y, sr, bpm, beats):
     even, odd = float(at_beat[0::2].mean()), float(at_beat[1::2].mean())
     strong, weak = max(even, odd), min(even, odd)
     if weak >= 0.3 * strong:
+        return bpm, beats
+    # A missing kick alone is not enough: kick on 1 and 3 with the snare on 2 and 4 is the
+    # ordinary pop and rock backbeat, and halving that turns a 125 bpm song into 62.8.
+    # A grid that really counts double has almost nothing on the in-between beats; a
+    # backbeat has a snare there at least as strong as on the kick beats.
+    snare = librosa.onset.onset_strength_multi(y=y, sr=sr, hop_length=HOP, n_mels=64, channels=[12, 44])[0]
+    fr = np.clip(librosa.time_to_frames(beats, sr=sr, hop_length=HOP), 0, len(snare) - 1)
+    # an onset peaks a frame or two after the hit, so look at a short window from each beat
+    near = lambda frames: np.array([snare[max(0, f - 1):f + 4].max() for f in frames])
+    weak_hits = near(fr[1::2] if even > odd else fr[0::2]).mean()
+    strong_hits = near(fr[0::2] if even > odd else fr[1::2]).mean()
+    # a backbeat is a real snare on the in-between beats: as strong as on the kick beats,
+    # and clearly above the song's general level (so that silence cannot pass for one)
+    if weak_hits >= 0.75 * strong_hits and weak_hits >= 1.2 * snare.mean():
         return bpm, beats
     return bpm / 2, beats[(0 if even > odd else 1)::2]
 
@@ -481,12 +497,17 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     """Analyse once per (path, size, mtime); cache the JSON next to the project."""
     os.makedirs(cache_dir, exist_ok=True)
     st = os.stat(path)
-    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v15.json"
+    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v16.json"
     cache = os.path.join(cache_dir, key)
+    data = None
     if os.path.exists(cache):
         with open(cache, encoding="utf-8") as fh:
             data = json.load(fh)
-    else:
+        # an analysis saved while SongFormer could not run is not kept for ever: try again
+        from . import structure_model
+        if data.get("structure_source") != "songformer" and structure_model.available() and not structure_model.WORKER.failed:
+            data = None
+    if data is None:
         data = analyze(path, cache_dir)
     # The genre is added to an existing analysis rather than bumping the cache version:
     # it needs only the model, and re-running everything else for it would be a waste.
