@@ -245,6 +245,7 @@
       if (J.failedKey !== room.key) toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
     }
     J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
+    J.drums = !!(S.analysis && S.analysis.events && S.analysis.events.kick && S.analysis.events.kick.length);
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
   }
 
@@ -267,8 +268,10 @@
     const nowBeat = Math.ceil(St.timeToBeat(J.pos()) + 0.1);
     const keys = sectionKeys(); const counts = {};
     const head = k => (k || '').split('-')[0];                        // "type@start", without the end
-    const style = St.showStyle(), restyled = style !== J.style;   // the genre arrived: rebuild in its style
-    if (restyled) toast(`${(doc.track || {}).name || 'This track'}: ${style} style from here on`);
+    // the genre arrived, or the drums did (the beat pulse goes only where there are drums): rebuild
+    const drumsNow = !!(a.events && a.events.kick && a.events.kick.length);
+    const style = St.showStyle(), restyled = style !== J.style || drumsNow !== !!J.drums;
+    if (style !== J.style) toast(`${(doc.track || {}).name || 'This track'}: ${style} style from here on`);
     p.sections.forEach((s, i) => {
       const n = counts[s.type] = (counts[s.type] || 0) + 1;
       const startBeat = Math.round(St.timeToBeat(s.start)), endBeat = Math.round(St.timeToBeat(s.end));
@@ -283,7 +286,7 @@
         St.buildSection({ ...s, start: St.beatToTime(nowBeat) }, i, false, n - 1);
       } else { makeRoom(startBeat, endBeat); St.buildSection(s, i, false, n - 1); }
     });
-    J.built = keys; J.version = doc.version; J.style = style;
+    J.built = keys; J.version = doc.version; J.style = style; J.drums = drumsNow;
     St.draw();
   }
 

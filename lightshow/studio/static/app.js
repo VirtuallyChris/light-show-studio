@@ -1343,9 +1343,14 @@
     const style = showStyle();
     const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
     const rainbow = S.albumPalette ? {} : { palette: 'Rainbow' };      // with the album's colors, drops stay in them
-    // The beat pulse follows the real drums (kick from the center, snare from the ends), so it
-    // goes everywhere: where there are no drums it simply stays dark.
-    const drums = (opacity, size = 0.75) => clip(2, 'pulse', b0, len, { follow: 'drums', decay: 0.45, size }, { opacity, blend: 'add' });
+    // The beat pulse follows the real drums (kick from the center, snare from the ends), and it is
+    // only placed where there are drums to follow: a section with at least 4 kick or snare hits and
+    // one every 4 beats. When the song's drums are not known yet, the quiet kinds of section get none.
+    const ev = (S.analysis && S.analysis.events) || {};
+    const drumsKnown = (ev.kick || []).length > 0;
+    const hitsHere = drumsKnown ? [...(ev.kick || []), ...(ev.snare || [])].filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
+    const drumsHere = drumsKnown ? hitsHere >= Math.max(4, len / 4) : !['intro', 'breakdown', 'outro'].includes(s.type);
+    const drums = (opacity, size = 0.75) => drumsHere && clip(2, 'pulse', b0, len, { follow: 'drums', decay: 0.45, size }, { opacity, blend: 'add' });
     switch (s.type) {
       case 'intro':
         clip(0, 'aurora', b0, len, { speed: 16, intensity: 0.45, depth: 0.8 });
