@@ -1094,7 +1094,16 @@
       <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd> copy / cut / paste / duplicate<br><kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
       Double-click a section to cycle its type<br>Right-click anything for more<br>
       <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays</div></div>`;
-    if (!sel) { el.innerHTML = `<div class="panel"><h3>Song</h3><div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'songformer' ? ' · SongFormer' : ''}</span></div><div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); }; return; }
+    if (!sel) {
+      const g = S.analysis && S.analysis.genre; const auto = g && STYLE_NAMES[g.style] ? g.style : null;
+      const heard = g ? [...(g.genres || []), ...((g.spotify || []).length ? ['Spotify: ' + g.spotify.slice(0, 2).join(', ')] : [])].join(', ') : '';
+      const styleRow = `<div class="row"><label title="How hard the lights go when you auto-build. Chill never strobes; groove moves but lifts drops without flashing; dance flashes on the beat; rave goes all out.">Show style</label><select id="songStyle">
+        <option value="">Auto${auto ? ': ' + STYLE_NAMES[auto] : ''}</option>${Object.entries(STYLE_NAMES).map(([k, n]) => `<option value="${k}" ${p.settings && p.settings.style === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+        ${heard ? `<div class="row"><label>Sounds like</label><span class="genre-heard">${esc(heard)}</span></div>` : ''}`;
+      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'songformer' ? ' · SongFormer' : ''}</span></div><div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
+      $('#songStyle').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.style = e.target.value; changed(); inspector();
+        toast(`Show style: ${e.target.value ? STYLE_NAMES[e.target.value] : 'Auto (' + STYLE_NAMES[showStyle()] + ')'}. Press Auto-build show to rebuild in it.`); };
+      return; }
     if (sel.type === 'clip' && groupSize() > 1) {
       const items = selectedClips(); const n = items.length;
       const lanes = new Set(items.map(i => i.li)); const b0 = Math.min(...items.map(i => i.clip.start)), b1 = Math.max(...items.map(i => i.clip.start + i.clip.len));
@@ -1198,6 +1207,14 @@
     const k = ((n % cols.length) + cols.length) % cols.length;
     return cols.slice(k).concat(cols.slice(0, k));
   }
+  /** chill | groove | dance | rave: chosen for the song from its genre, unless set by hand in the Song panel */
+  const STYLE_NAMES = { chill: 'Chill', groove: 'Groove', dance: 'Dance', rave: 'Rave' };
+  function showStyle() {
+    const p = P(), g = S.analysis && S.analysis.genre;
+    if (p && p.settings && STYLE_NAMES[p.settings.style]) return p.settings.style;
+    if (g && STYLE_NAMES[g.style]) return g.style;
+    return ((S.analysis && S.analysis.mood && S.analysis.mood.drive) || 0.6) > 0.72 ? 'dance' : 'groove';
+  }
   function autoBuild(quiet = false) {
     if (!P()) return; if (!quiet) beginChange(); const p = P();
     for (const lane of p.lanes) lane.clips = []; p.paletteClips = [];
@@ -1212,12 +1229,14 @@
     p.defaultPalette = S.songPal;
     const counts = {};
     p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
-    // drop markers that are not section starts still get a blast
-    for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
+    // drop markers that are not section starts still get a blast (a chill song never flashes, so it gets none)
+    if (showStyle() !== 'chill') for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
     S.view.sel = null; inspector(); changed();
     if (quiet) return;
     const a = S.analysis, hooks = (a.hook && a.hook.times || []).length, fills = (a.fills || []).length;
-    const bits = [`${p.sections.length} sections`, `palettes ${(S.songPals || []).join(' / ')}`];
+    const g = S.analysis.genre;
+    const bits = [`${STYLE_NAMES[showStyle()]} style${g && g.genres && g.genres.length && !(p.settings && p.settings.style) ? ` (${g.genres.slice(0, 2).join(', ')})` : ''}`,
+      `${p.sections.length} sections`, `palettes ${(S.songPals || []).join(' / ')}`];
     if (hooks) bits.push(`riff x${hooks}`);
     if (fills) bits.push(`${fills} fills`);
     if ((a.events && a.events.lead || []).length) bits.push(`${a.events.lead.length} lead hits`);
@@ -1232,26 +1251,30 @@
     const v = variant % 2;
     // Two rules shape everything here.
     //  1. Dark space: dim bases with a few bright things moving over them.
-    //  2. The lights follow the song's energy. Intros, breakdowns and outros get
-    //     slow fades and drifting comets and never flash; buildups are allowed to
-    //     strobe because that is the point of a buildup; only a drop in a genuinely
-    //     hard track flashes on the beat, judged by the song's own drive.
-    const hard = ((S.analysis.mood && S.analysis.mood.drive) || 0.6) > 0.72;
+    //  2. The lights follow the song. Intros, breakdowns and outros get slow fades
+    //     and drifting comets and never flash. How hard the rest goes depends on the
+    //     kind of music (see genre.py): a chill song never strobes, a groove song
+    //     moves on the beat but lifts its drops without flashing, dance drops flash,
+    //     and rave goes all the way.
+    const style = showStyle();
+    const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
     switch (s.type) {
       case 'intro':
         clip(0, 'aurora', b0, len, { speed: 16, intensity: 0.45, depth: 0.8 });
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.35, travel: 4 });
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
-        clip(0, v ? 'wave' : 'gradient', b0, len, v ? { speed: 8, waves: 1.5, floor: 0 } : { speed: 16, intensity: 0.35 });
-        clip(1, v ? 'comet' : 'dualcomet', b0, len, v ? { every: 2, travel: 2, tail: 0.3 } : { speed: 2, tail: 0.3 });
-        clip(2, 'pulse', b0, len, { every: 1, decay: 0.35, size: 0.45 }, { opacity: 0.55, blend: 'add' });
+        clip(0, v ? 'wave' : 'gradient', b0, len, v ? { speed: chill ? 16 : 8, waves: 1.5, floor: 0 } : { speed: 16, intensity: 0.35 });
+        clip(1, v ? 'comet' : 'dualcomet', b0, len, v ? { every: chill ? 4 : 2, travel: chill ? 4 : 2, tail: 0.3 } : { speed: chill ? 4 : 2, tail: 0.3 });
+        if (!chill) clip(2, 'pulse', b0, len, { every: 1, decay: 0.35, size: 0.45 }, { opacity: style === 'groove' ? 0.4 : 0.55, blend: 'add' });
         break;
       case 'buildup':
         clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
         clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
-        clip(3, 'riser', b0, len, {});
-        clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.4, from: '1', to: hard ? '8' : '4' });
+        // chill songs build by filling slowly and never strobe; groove strobes to 1/8 notes,
+        // dance to 1/16, rave to 1/32
+        clip(3, 'riser', b0, len, chill ? { step: '2', accel: false } : {});
+        if (!chill) clip(4, 'strobeRiser', b0, len, { strobeFrom: style === 'rave' ? 0.3 : 0.4, from: '1', to: { groove: '2', dance: '4', rave: '8' }[style] });
         break;
       case 'drop': {
         const kind = variant % 4;
@@ -1260,6 +1283,10 @@
           else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.7 }, { palette: 'Rainbow' }); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
           else if (kind === 2) { clip(0, 'battle', b0, len, { speed: 8, surge: 0.2 }); clip(1, 'sparkle', b0, len, { density: 0.2 }, { opacity: 0.9 }); }
           else { clip(0, 'halves', b0, len, { every: 1, dim: 0 }); clip(1, 'comet', b0, len, { every: 1, travel: 1, tail: 0.25 }, { opacity: 0.9 }); }
+        } else if (chill) {
+          // the biggest moment of a chill song: a slow, full wash, nothing on the beat
+          if (kind % 2 === 0) { clip(0, 'gradient', b0, len, { speed: 16, stretch: 1, intensity: 0.8 }); clip(1, 'dualcomet', b0, len, { speed: 4, tail: 0.4 }, { opacity: 0.85 }); }
+          else { clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.75 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
         } else {
           // motion rather than flashing: it still lifts, without turning into a strobe
           if (kind === 0) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.75 }, { palette: 'Rainbow' }); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
@@ -1267,7 +1294,7 @@
           else if (kind === 2) { clip(0, 'wave', b0, len, { speed: 2, waves: 2, floor: 0.05 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
           else { clip(0, 'battle', b0, len, { speed: 8, surge: 0.25 }); clip(1, 'dualcomet', b0, len, { speed: 1.5, tail: 0.3 }, { opacity: 0.9 }); }
         }
-        clip(3, 'dropblast', b0, 2);
+        if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
         break;
       }
       case 'breakdown':
@@ -1279,7 +1306,7 @@
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }
-    addSignature(s, b0, len, variant, hard);
+    addSignature(s, b0, len, variant, style);
   }
 
   /** The flair that belongs to *this* song: its riff, its lead line, its fills.
@@ -1289,7 +1316,8 @@
    *  full-length layer just adds noise. And it belongs where the music is big:
    *  drops and hyped verses get the accents, quiet sections stay quiet.
    */
-  function addSignature(s, b0, len, variant, hard) {
+  function addSignature(s, b0, len, variant, style) {
+    const hard = style === 'dance' || style === 'rave';
     const a = S.analysis; if (!a || !a.events) return;
     const p = P();
     const quiet = s.type === 'intro' || s.type === 'breakdown' || s.type === 'outro';
@@ -1311,7 +1339,7 @@
            { shape: quiet ? 'sweep' : 'burst', decay: quiet ? 0.8 : 0.4 }, { opacity: quiet ? 0.55 : 1 });
     }
     // A fill rush is a lot of movement, so it is kept for the hardest drops only
-    if (hard && s.type === 'drop') for (const [f0, f1] of fills) {
+    if (style === 'rave' && s.type === 'drop') for (const [f0, f1] of fills) {
       const st = t2b(Math.max(f0, s.start)), en = clamp(Math.round(timeToBeat(Math.min(f1, s.end))), b0, b0 + len);
       if (en - st >= 2) clip(5, 'fillrush', st, en - st, { size: 0.1 }, { opacity: 0.9 });
     }
@@ -1324,7 +1352,7 @@
         if (bt > b0 + 3 && bt < b0 + len - 3 && picks.every(q => Math.abs(q - bt) >= 8)) picks.push(bt);
         if (picks.length >= (s.type === 'drop' ? 5 : 3)) break;
       }
-      const shots = hard ? ['sweepout', 'colorslam', 'whiteflash'] : ['sweepout', 'colorslam', 'ripple'];
+      const shots = hard ? ['sweepout', 'colorslam', 'whiteflash'] : style === 'chill' ? ['ripple', 'sweepout'] : ['sweepout', 'colorslam', 'ripple'];
       picks.sort((x, y) => x - y).forEach((bt, k) => {
         const fx = shots[(k + variant) % shots.length];
         clip(6, fx, bt, fx === 'ripple' ? 4 : 2, fx === 'ripple' ? { every: 2, travel: 2, width: 0.12 } : {},
@@ -1421,6 +1449,6 @@
   // ------------------------------------------------------------------ boot
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {}; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
-  window.Studio = { S, P, $, addClip, autoBuild, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
+  window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
     draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent };
 })();

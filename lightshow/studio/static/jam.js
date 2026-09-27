@@ -25,6 +25,7 @@
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const KIND = { custom: ['your show', 'k-custom'], learned: ['learned', 'k-learned'], live: ['first listen', 'k-live'] };
   const badge = k => `<span class="jam-kind ${(KIND[k] || KIND.live)[1]}">${(KIND[k] || KIND.live)[0]}</span>`;
+  const styleTag = t => t && t.style ? ` <span class="jam-style">${esc(t.style)}</span>` : '';
 
   // ------------------------------------------------------------------ the panel
   function render() {
@@ -52,8 +53,8 @@
     } else {
       const room = st.room, ahead = st.ahead; const pct = Math.max(0, Math.min(100, 100 * (st.delay || 0) / (st.target_delay || 45)));
       html += `<div class="jam-sec"><h4>${esc(st.mode || 'jam')}</h4>
-        <div class="jam-now"><div class="lbl">In the room</div><div class="ttl">${room ? esc(room.label) : (st.streaming ? 'between songs' : `filling the buffer… ${Math.round(st.buffered || 0)} s of ${Math.round(st.target_delay)} s`)}</div>${room ? badge(room.kind) + (room.project ? ` <span class="hint">${esc(room.project)}</span>` : '') : ''}</div>
-        <div class="jam-now"><div class="lbl">On Spotify now, ${Math.round(st.delay || 0)} s ahead of the room</div><div class="ttl">${ahead ? esc(ahead.label) : '—'}</div>${ahead ? badge(ahead.kind) + (ahead.kind === 'live' ? ` <span class="hint">analysed to ${fmt(ahead.horizon)}</span>` : '') : ''}</div>
+        <div class="jam-now"><div class="lbl">In the room</div><div class="ttl">${room ? esc(room.label) : (st.streaming ? 'between songs' : `filling the buffer… ${Math.round(st.buffered || 0)} s of ${Math.round(st.target_delay)} s`)}</div>${room ? badge(room.kind) + styleTag(room) + (room.project ? ` <span class="hint">${esc(room.project)}</span>` : '') : ''}</div>
+        <div class="jam-now"><div class="lbl">On Spotify now, ${Math.round(st.delay || 0)} s ahead of the room</div><div class="ttl">${ahead ? esc(ahead.label) : '—'}</div>${ahead ? badge(ahead.kind) + styleTag(ahead) + (ahead.kind === 'live' ? ` <span class="hint">analysed to ${fmt(ahead.horizon)}</span>` : '') : ''}</div>
         <div class="jam-meter" title="How far the room is behind Spotify"><div style="width:${pct}%"></div><span>${(st.delay || 0).toFixed(1)} s behind · aiming for ${Math.round(st.target_delay)} s</span></div>
         ${st.paused ? '<div class="hint">Paused on the phone. The buffer is held.</div>' : ''}
         ${st.handover ? `<div class="hint">${st.handover === 'armed' ? 'Spotify is held until your opening song is nearly over.' : 'Filling the buffer behind the opening song…'}</div>` : ''}
@@ -147,7 +148,7 @@
       J.built = sectionKeys();
       toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
     }
-    J.key = room.key; J.version = doc.version; J.lastFeat = performance.now();
+    J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
   }
 
@@ -165,17 +166,19 @@
     $('#bpm').value = p.bpm.toFixed(2);
     const safeBeat = St.timeToBeat(J.pos()) + 8;          // two bars of grace: never change what is about to be seen
     const keys = sectionKeys(); const counts = {};
+    const style = St.showStyle(), restyled = style !== J.style;   // the genre arrived: rebuild what is ahead in its style
+    if (restyled) toast(`${(doc.track || {}).name || 'This track'}: ${style} style from here on`);
     p.sections.forEach((s, i) => {
       const n = counts[s.type] = (counts[s.type] || 0) + 1;
       const startBeat = Math.round(St.timeToBeat(s.start));
-      if (startBeat >= safeBeat && keys[i] !== J.built[i]) { makeRoom(startBeat, Math.round(St.timeToBeat(s.end))); St.buildSection(s, i, false, n - 1); }
+      if (startBeat >= safeBeat && (keys[i] !== J.built[i] || restyled)) { makeRoom(startBeat, Math.round(St.timeToBeat(s.end))); St.buildSection(s, i, false, n - 1); }
       else if (startBeat < safeBeat && keys[i] !== J.built[i]) {
         // the section being played grew: stretch the clips that ran to its old end
         const endBeat = Math.round(St.timeToBeat(s.end));
         for (const lane of p.lanes) for (const c of lane.clips) if (c.start >= startBeat - 0.5 && c.start < endBeat && c.len > 8 && c.start + c.len < endBeat && !lane.clips.some(k => k !== c && k.start >= c.start + c.len && k.start < endBeat)) c.len = endBeat - c.start;
       }
     });
-    J.built = keys; J.version = doc.version;
+    J.built = keys; J.version = doc.version; J.style = style;
     St.draw();
   }
 

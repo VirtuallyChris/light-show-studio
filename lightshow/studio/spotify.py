@@ -36,6 +36,7 @@ class Track:
     artists: list[str]
     duration: float                       # seconds
     uri: str = ""
+    artist_ids: list[str] = field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -62,7 +63,8 @@ def parse_track(item: dict | None) -> Track | None:
     if not item or item.get("type") not in (None, "track") or not item.get("id"):
         return None
     return Track(id=item["id"], name=item.get("name", ""), artists=[a.get("name", "") for a in item.get("artists", [])],
-                 duration=float(item.get("duration_ms", 0)) / 1000.0, uri=item.get("uri", ""))
+                 duration=float(item.get("duration_ms", 0)) / 1000.0, uri=item.get("uri", ""),
+                 artist_ids=[a.get("id", "") for a in item.get("artists", []) if a.get("id")])
 
 
 def http_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple[int, bytes]:
@@ -84,6 +86,7 @@ class SpotifyClient:
         self.verifier = ""
         self.state = ""
         self.last_error = ""
+        self.artist_cache: dict[str, list[str]] = {}
 
     # -- sign-in -----------------------------------------------------------------------
     @property
@@ -168,6 +171,16 @@ class SpotifyClient:
         if status != 200:
             return []
         return [t for t in (parse_track(i) for i in data.get("queue", [])) if t]
+
+    def artist_genres(self, track: Track) -> list[str]:
+        """Genres Spotify lists for the track's artists (per artist, not per song; often empty)."""
+        out = []
+        for aid in track.artist_ids[:3]:
+            if aid not in self.artist_cache:
+                status, data = self._call("GET", f"/artists/{aid}")
+                self.artist_cache[aid] = list(data.get("genres") or []) if status == 200 else []
+            out += [g for g in self.artist_cache[aid] if g not in out]
+        return out
 
     def pause(self) -> bool:
         return self._call("PUT", "/me/player/pause")[0] in (200, 202, 204)

@@ -134,6 +134,23 @@ after that. Saved shows live in the `shows/` folder and reload from the
    as a starting point: aurora in intros, gradients and beat pulses in verses,
    an accelerating riser through buildups, a white blast and rainbow on drops,
    and fades on the outro, with the palette changing per section.
+   **How hard it goes depends on the kind of music.** Each song gets a show
+   style:
+
+   | Style | Typical music | What the lights do |
+   |---|---|---|
+   | Chill | ambient, jazz, folk, soul, classical | Slow fades and drifting light. No strobes, no flashes |
+   | Groove | rock, pop, hip hop, indie, R&B | Moves on the beat. Drops lift without flashing; buildups strobe to 1/8 notes |
+   | Dance | house, trance, EDM, metal | Drops flash on the beat; buildups strobe to 1/16 notes |
+   | Rave | dubstep, drum and bass, techno | Everything: 1/32 strobes, blasts, rushes on drum fills |
+
+   The genre comes from a model that listens to the song: MIT's Audio
+   Spectrogram Transformer, trained on Google's AudioSet (open source, about
+   350 MB, downloaded once, runs in the model environment described below). In
+   Jam mode the genres Spotify lists for the artist count too. The song's own
+   energy can move it a little, but a loud rock song is still rock. The Song
+   panel (nothing selected) shows what the model heard and lets you choose the
+   style yourself; press **Auto-build show** again to rebuild in it.
 3. **Tweak**: drag effects from the library onto any layer, drag clip edges
    to resize, drag the body to move, Alt-drag to copy. Layers are numbered
    from the bottom; higher layers sit on top, so a comet on layer 2 rides over
@@ -349,7 +366,7 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
 |---|---|
 | **your show** | The track matches a show you built (by title and artist, or by length; or pin it yourself). Your show plays, lined up to the music by ear. |
 | **learned** | The track has played through in a jam before. The studio kept its analysis: beat grid, sections, drops, the riff and the fills. It gets a full auto-built show from the first beat. Numbers only are kept, in `shows/_jam/learned/`. |
-| **first listen** | Analysed as it arrives. The show for the part the room has not reached is rebuilt every few seconds as more is learned; what is already playing is never changed under you. When it finishes it becomes *learned*. |
+| **first listen** | Analysed as it arrives. The show for the part the room has not reached is rebuilt every few seconds as more is learned; what is already playing is never changed under you. About half a minute in, the genre model has heard enough to pick the show style, and what is ahead is rebuilt in it. When it finishes it becomes *learned*. |
 
 **Setting up (once).**
 

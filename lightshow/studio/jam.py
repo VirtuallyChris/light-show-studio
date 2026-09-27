@@ -370,6 +370,8 @@ class JamTrack:
     skipped: bool = False
     saved: bool = False
     serial: int = 0
+    genre: dict | None = None           # show style and the genres behind it
+    spotify_genres: list = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -377,7 +379,7 @@ class JamTrack:
 
     def to_json(self) -> dict:
         return {**self.track.to_json(), "key": self.key, "kind": self.kind, "project": self.project, "aligned": self.aligned,
-                "version": self.version, "horizon": round(self.horizon, 2)}
+                "version": self.version, "horizon": round(self.horizon, 2), "style": (self.genre or {}).get("style")}
 
 
 @dataclass
@@ -394,7 +396,8 @@ class JamSettings:
 
 class JamEngine:
     def __init__(self, relay: Relay, spotify: SpotifyClient, library: JamLibrary, output, gate: Gate | None = None,
-                 settings: JamSettings | None = None, clock=time.monotonic, analyse_fn=None, cache_dir: str | None = None):
+                 settings: JamSettings | None = None, clock=time.monotonic, analyse_fn=None, cache_dir: str | None = None,
+                 genre_fn=None):
         self.relay, self.spotify, self.library, self.output = relay, spotify, library, output
         self.gate = gate or Gate()
         self.cfg = settings or JamSettings()
@@ -417,6 +420,8 @@ class JamEngine:
             from .analysis import analyze_audio
             analyse_fn = analyze_audio
         self.analyse_fn = analyse_fn
+        # genre_fn(audio, sr) -> genre scores, or None; audio goes to the model straight from memory
+        self.genre_fn = genre_fn
 
     def say(self, msg: str) -> None:
         self.log.append(f"{time.strftime('%H:%M:%S')} {msg}")
@@ -511,8 +516,13 @@ class JamEngine:
         kind = "custom" if project else "learned" if learned else "live"
         self.serial += 1
         jt = JamTrack(track, max(est_start, 0.0), kind, project, serial=self.serial)
+        try:
+            jt.spotify_genres = list(getattr(self.spotify, "artist_genres", lambda t: [])(track))
+        except Exception:  # noqa: BLE001 - genres are a hint; the jam goes on without them
+            jt.spotify_genres = []
         if learned:
             jt.analysis = learned["analysis"]
+            jt.genre = learned["analysis"].get("genre")
             jt.version = 1
             jt.horizon = track.duration
             a = learned["analysis"]
@@ -624,6 +634,8 @@ class JamEngine:
             if jt.kind == "live" and jt.end is not None and not jt.saved and not jt.skipped:
                 return self._finish(jt)
         cur = tracks[-1] if tracks else None
+        if cur and cur.kind == "live" and cur.end is None and cur.genre is None and head - cur.start >= 30.0:
+            return self._genre(cur, min(head - cur.start, cur.track.duration))
         if cur and cur.kind == "live" and cur.end is None:
             have = min(head - cur.start, cur.track.duration)
             if have >= self.cfg.min_audio and have - cur.horizon >= self.cfg.analyse_every:
@@ -669,6 +681,24 @@ class JamEngine:
                     self.say(f"could not read the analysis of {jt.project}: {e}")
         return None
 
+    def _genre(self, jt: JamTrack, have: float) -> str:
+        """Decide how hard this track's lights should go, from half a minute of it and its artist's genres."""
+        from .genre import style_from
+
+        labels = None
+        if self.genre_fn is not None:
+            try:
+                labels = self.genre_fn(self.relay.audio(jt.start, jt.start + have, 16000, mono=True), 16000)
+            except Exception as e:  # noqa: BLE001
+                self.say(f"genre model unavailable: {e}")
+        drive = float(((jt.analysis or {}).get("mood") or {}).get("drive", 0.6))
+        g = style_from(labels, drive, jt.spotify_genres)
+        with self.lock:
+            jt.genre, jt.version = g, jt.version + 1
+            if jt.analysis is not None:
+                jt.analysis["genre"] = g
+        return f"{jt.track.name}: {g['style']} ({', '.join(g['genres'] or g['spotify'] or ['no genre found'])})"
+
     def _pass(self, jt: JamTrack, have: float, final: bool) -> str:
         y = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=True)
         events = final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1)
@@ -677,6 +707,8 @@ class JamEngine:
         if not events and jt.analysis:                      # keep the last instrument pass until the next one
             for k in ("events", "fills", "hook", "curves"):
                 a[k] = jt.analysis.get(k, a[k])
+        if jt.genre:
+            a["genre"] = jt.genre                          # what was decided about the genre carries across passes
         with self.lock:
             jt.passes += 1
             if jt.passes >= 2 and jt.bpm_lock is None:
@@ -779,6 +811,7 @@ class JamEngine:
                 last["end"], last["provisional"] = dur, True
                 if last["type"] == "outro":
                     last["type"] = "verse"
+            out["genre"] = jt.genre
             out.update({"bpm": a["bpm"], "downbeat_phase": a["downbeat_phase"], "beats": beats, "sections": sections,
                         "drops": drops, "mood": a.get("mood", {}), "events": a.get("events", {}), "fills": a.get("fills", []),
                         "hook": a.get("hook"), "curves": a.get("curves", {}), "provisional": jt.horizon < dur - 1.0})

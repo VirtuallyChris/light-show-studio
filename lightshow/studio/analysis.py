@@ -485,8 +485,18 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     cache = os.path.join(cache_dir, key)
     if os.path.exists(cache):
         with open(cache, encoding="utf-8") as fh:
-            return json.load(fh)
-    data = analyze(path, cache_dir)
-    with open(cache, "w", encoding="utf-8") as fh:
-        json.dump(data, fh)
+            data = json.load(fh)
+    else:
+        data = analyze(path, cache_dir)
+    # The genre is added to an existing analysis rather than bumping the cache version:
+    # it needs only the model, and re-running everything else for it would be a waste.
+    from .genre import add_genre
+    try:
+        changed = add_genre(data, path)
+    except Exception as e:  # noqa: BLE001 - a song without a genre still gets a show
+        print(f"[genre] skipped: {type(e).__name__}: {e}")
+        changed = False
+    if changed or not os.path.exists(cache):
+        with open(cache, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
     return data
