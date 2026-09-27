@@ -72,6 +72,11 @@ class LightOutput:
         self.last_enable = 0.0
         self.last_frame = 0.0
         self.frames = 0
+        self.sent = 0                                   # frames actually sent to the lights (after the cap)
+        self.last_sent = 0.0
+        # Most frames a second sent to the lights. The page draws about 60; Govee lights listen over
+        # 2.4 GHz Wi-Fi, where fewer packets can mean less waiting in the air. 0 means no cap.
+        self.max_fps = float(load_config().get("light_max_fps", 0) or 0)
         self.errors = 0
         self.last_error = ""
         self.dark_since = None      # when the stream went all-black (None while lit)
@@ -137,6 +142,11 @@ class LightOutput:
                 self._rearm(now, wake=True)
             self.dark_since = None
         self.last_frame = now
+        self.frames += 1
+        if self.max_fps > 0 and now - self.last_sent < 0.9 / self.max_fps:
+            return                                      # over the cap: this one is skipped, the next goes
+        self.last_sent = now
+        self.sent += 1
         for d, flat in zip(self.devices, frames):
             try:
                 cols = [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat) - 2, 3)]
@@ -145,7 +155,6 @@ class LightOutput:
             except Exception as e:  # noqa: BLE001 - keep the show running, remember the fault
                 self.errors += 1
                 self.last_error = f"{type(e).__name__}: {e}"
-        self.frames += 1
 
 
 class Studio:
@@ -165,6 +174,7 @@ class Studio:
             web.get("/", self.index),
             web.get("/api/devices", self.devices),
             web.get("/api/output", self.output_status),
+            web.post("/api/output/fps", self.set_output_fps),
             web.post("/api/devices/segments", self.set_segments),
             web.post("/api/devices/name", self.set_name),
             web.post("/api/devices/selected", self.set_selected),
@@ -287,9 +297,19 @@ class Studio:
                         "on": (d.mac in chosen or d.device_id in chosen) if chosen is not None else d.mac.upper() == DEFAULT_LIGHT_MAC})
         return web.json_response(out)
 
+    async def set_output_fps(self, request):
+        """Cap the frames a second sent to the lights (0: no cap). Takes effect at once, and is remembered."""
+        fps = max(0.0, min(120.0, float((await request.json()).get("fps", 0) or 0)))
+        self.output.max_fps = fps
+        cfg = load_config()
+        cfg["light_max_fps"] = fps
+        save_config(cfg)
+        return web.json_response({"max_fps": fps})
+
     async def output_status(self, request):
         o = self.output
         return web.json_response({"active": o.active, "devices": [d.ip for d in o.devices], "frames": o.frames,
+                                  "sent": o.sent, "max_fps": o.max_fps,
                                   "errors": o.errors, "last_error": o.last_error,
                                   "seconds_since_last_frame": round(time.monotonic() - o.last_frame, 2) if o.last_frame else None})
 
