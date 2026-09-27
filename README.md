@@ -558,7 +558,7 @@ allow it once, in PowerShell run as administrator:
 
 ```powershell
 New-NetQosPolicy -Name "Light Show Studio lights" -AppPathNameMatchCondition "pythonw.exe" -IPProtocolMatchCondition UDP -IPDstPortMatchCondition 4003 -DSCPAction 46 -NetworkProfile All
-New-NetQosPolicy -Name "Light Show Studio lights (console)" -AppPathNameMatchCondition "python.exe" -IPProtocolMatchCondition UDP -IPDstPortMatchCondition 4003 -DSCPAction 46 -NetworkProfile All
+New-NetQosPolicy -Name "Light Show Studio lights console" -AppPathNameMatchCondition "python.exe" -IPProtocolMatchCondition UDP -IPDstPortMatchCondition 4003 -DSCPAction 46 -NetworkProfile All
 ```
 
 It only applies to Python programs sending to port 4003, which is Govee's control
