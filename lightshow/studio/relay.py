@@ -147,7 +147,9 @@ class RelayStream:
     delay simply grows back by however long that lasted.
     """
 
-    BURST_S = 4.0     # how far ahead of real time a speaker may pull, so its own buffer cannot drain ours
+    # How far ahead of real time a speaker may pull. Its buffer is what carries it through a Wi-Fi
+    # dropout: at 4 s a longer hiccup emptied it and the music stopped until the speaker came back.
+    BURST_S = 20.0
 
     def __init__(self, relay: Relay, start_time: float, pace: bool = True):
         self.relay, self.pace = relay, pace
@@ -208,7 +210,9 @@ class RelayStream:
             if avail <= 0:
                 r.cond.wait(timeout)
                 avail = r.written - self.cursor
-                if avail <= 0:                                  # nothing new: keep the speaker fed
+                if avail <= 0 and self.pace and self.sent > (r.clock() - self.started_at) * r.sr:
+                    return None                                 # ahead of real time: the speaker has plenty, wait
+                if avail <= 0:                                  # nothing new and the speaker is due: keep it fed
                     n = min(max_frames, int(0.1 * r.sr))
                     self._note(-1, n)
                     return self._silence(n)

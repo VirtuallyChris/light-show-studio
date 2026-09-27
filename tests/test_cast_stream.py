@@ -1,0 +1,131 @@
+"""The Cast speaker's stream: run with  .venv\\Scripts\\python -m unittest tests.test_cast_stream -v
+
+Nothing is played: the speaker is stood in for, and the stream is read in memory.
+"""
+
+import io
+import unittest
+
+import numpy as np
+
+from lightshow.studio.relay import Relay
+
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+class TestReserve(unittest.TestCase):
+    def test_a_speaker_may_run_well_ahead_and_is_never_padded_with_silence(self):
+        clock = Clock()
+        relay = Relay(sr=1000, channels=2, capacity_s=600, clock=clock)
+        relay.write(np.ones((30_000, 2), dtype=np.int16))           # 30 s of audio waiting
+        s = relay.open_stream(0.0)
+        got = 0
+        while True:                                                 # a speaker pulling as fast as it can
+            b = s.read(4096, timeout=0)
+            if not b:
+                break
+            got += len(b) // 4
+        self.assertAlmostEqual(got / 1000, s.BURST_S, delta=0.1)    # 20 s ahead, not 4
+        # a stream that has caught the capture head while ahead of real time waits, rather than
+        # sending silence (which would push the room's timeline out of step)
+        clock.t = 5.0
+        relay2 = Relay(sr=1000, channels=2, capacity_s=600, clock=clock)
+        relay2.write(np.ones((2_000, 2), dtype=np.int16))
+        s2 = relay2.open_stream(0.0)
+        self.assertEqual(len(s2.read(4096, timeout=0)) // 4, 2000)
+        self.assertIsNone(s2.read(4096, timeout=0))
+        self.assertEqual(s2.segments, [[0, 0, 2000]])              # no silence was noted
+        clock.t = 8.0                                               # now it is due and there is nothing: fed silence
+        self.assertTrue(s2.read(4096, timeout=0))
+        self.assertEqual(s2.segments[-1][1], -1)
+
+
+class TestMp3(unittest.TestCase):
+    def test_the_stream_encodes_as_it_goes_and_decodes_whole(self):
+        import soundfile as sf
+        from lightshow.studio.mp3stream import Mp3Encoder
+        sr = 44100
+        t = np.arange(sr * 6) / sr
+        x = (0.3 * np.sin(2 * np.pi * 330 * t) * 32767).astype(np.int16)
+        pcm = np.stack([x, x], 1)
+        enc, out, pieces = Mp3Encoder(sr, 2), bytearray(), 0
+        for i in range(0, len(pcm), 4410):
+            b = enc.encode(pcm[i:i + 4410])
+            out += b
+            pieces += bool(b)
+        out += enc.close()
+        self.assertGreater(pieces, 55)                              # bytes come out as the audio goes in
+        kbps = len(out) * 8 / 6 / 1000
+        self.assertLess(kbps, 340)                                  # under a quarter of raw audio (1411)
+        y, ysr = sf.read(io.BytesIO(bytes(out)), dtype="float32")
+        self.assertEqual(ysr, sr)
+        self.assertAlmostEqual(len(y) / sr, 6.0, delta=0.1)
+
+
+class TestReconnect(unittest.IsolatedAsyncioTestCase):
+    async def test_a_speaker_that_comes_back_gets_a_clean_restart(self):
+        import threading
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient, TestServer
+        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.jam_service import JamService
+
+        loads, playing = [], {"position": 0.0}
+
+        class Cast:
+            name = "Office Home 2"
+            def play_stream(self, url, ctype, title): loads.append((url, ctype))
+            def status(self): return dict(playing)
+            def stop(self): pass
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = None, "", ""
+
+        relay = Relay(sr=1000, channels=2, capacity_s=600)
+        relay.write(np.ones((60_000, 2), dtype=np.int16))
+
+        class Engine:
+            def __init__(self):
+                self.lock, self.relay, self.log = threading.RLock(), relay, []
+                self.gate = type("G", (), {"paused": False})()
+                self.cfg = type("C", (), {"target_delay": 45.0})()
+                self.output = CastOutput(Cast(), lambda sid: f"http://x/api/jam/stream.wav?sid={sid}", fmt="wav")
+                self.output.start_stream(relay.open_stream(10.0))
+            def room_capture_time(self): return 12.0
+            def say(self, m): self.log.append(m)
+
+        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc.engine = eng = Engine()
+        app = web.Application()
+        app.add_routes(svc.routes())
+        async with TestClient(TestServer(app)) as client:
+            r = await client.get("/api/jam/stream.wav?sid=1")        # the speaker's first request: a short probe
+            await r.content.read(4 * 1000)
+            r.close()
+            r = await client.get("/api/jam/stream.wav?sid=1")        # it asks again before playing: no restart
+            self.assertEqual(r.status, 200)
+            await r.content.read(4 * 5000)
+            r.close()
+            playing["position"] = 42.0                               # it played for a while...
+            r = await client.get("/api/jam/stream.wav?sid=1")        # ...then the connection broke and it came back
+            self.assertEqual(r.status, 410)
+            for _ in range(50):
+                if eng.output.sid == 2:
+                    break
+                import asyncio
+                await asyncio.sleep(0.02)
+        self.assertEqual(eng.output.sid, 2)                           # restarted, as a new stream
+        self.assertEqual(eng.output.stream.cursor, 12_000)            # at the point the room had reached
+        self.assertTrue(any("came back" in m for m in eng.log))
+
+
+if __name__ == "__main__":
+    unittest.main()
