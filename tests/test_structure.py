@@ -87,7 +87,8 @@ class TestRealSongFormer(unittest.TestCase):
         segs = structure_model.run_audio(s["audio"].mean(axis=1), 24000)
         self.assertTrue(segs, structure_model.WORKER.last_error)
         self.assertAlmostEqual(segs[-1]["end"], s["duration"], delta=2.0)
-        self.assertTrue(all(sg["label"] in structure_model.LABEL_MAP for sg in segs))
+        labels = {"intro", "verse", "pre-chorus", "chorus", "bridge", "inst", "outro", "silence"}   # SongFormer's vocabulary
+        self.assertTrue(all(sg["label"] in labels for sg in segs), {sg["label"] for sg in segs})
 
     @classmethod
     def tearDownClass(cls):
@@ -96,3 +97,43 @@ class TestRealSongFormer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTiming(unittest.TestCase):
+    """The loudness detector's sections, with buildup and drop starts retimed by SongFormer."""
+
+    beats = [i * 0.5 for i in range(400)]                   # 120 bpm: bar lines every 2 s
+
+    def sections(self):
+        return [{"start": 0.0, "end": 20.0, "type": "intro"}, {"start": 20.0, "end": 60.0, "type": "breakdown"},
+                {"start": 60.0, "end": 90.0, "type": "verse"}, {"start": 90.0, "end": 100.0, "type": "buildup"},
+                {"start": 100.0, "end": 140.0, "type": "drop"}]
+
+    def test_lifts_move_to_songformer_and_onto_the_bar(self):
+        segs = [{"start": 0.0, "label": "intro"}, {"start": 16.9, "label": "intro"}, {"start": 93.85, "label": "pre-chorus"},
+                {"start": 103.9, "label": "chorus"}]
+        secs, drops, moved = structure_model.time_with_songformer(self.sections(), [100.0], segs, self.beats, 0, 140.0)
+        self.assertEqual([s["start"] for s in secs], [0.0, 20.0, 60.0, 94.0, 104.0])   # 93.85 and 103.9 land on bar lines
+        self.assertEqual(drops, [104.0])                                               # the marker moved with its drop
+        self.assertEqual(moved, 2)
+        self.assertEqual([s["type"] for s in secs], [s["type"] for s in self.sections()])  # labels never change
+        for a, b in zip(secs, secs[1:]):
+            self.assertEqual(a["end"], b["start"])
+
+    def test_quiet_transitions_keep_the_loudness_timing(self):
+        segs = [{"start": 0.0, "label": "intro"}, {"start": 16.9, "label": "intro"}]        # SongFormer thinks 17 s
+        secs, _, moved = structure_model.time_with_songformer(self.sections(), [], segs, self.beats, 0, 140.0)
+        self.assertEqual(secs[1]["start"], 20.0)                                       # the breakdown stays at 20 s
+        self.assertEqual(moved, 0)
+
+    def test_nothing_moves_further_than_the_reach_or_across_a_neighbour(self):
+        far = [{"start": 0.0, "label": "intro"}, {"start": 110.0, "label": "chorus"}]        # 10 s from the drop
+        secs, _, moved = structure_model.time_with_songformer(self.sections(), [], far, self.beats, 0, 140.0)
+        self.assertEqual(moved, 0)
+        crossing = [{"start": 0.0, "label": "intro"}, {"start": 86.5, "label": "pre-chorus"}]  # would swallow the verse's end? no: 4 s back is fine
+        secs, _, _ = structure_model.time_with_songformer(self.sections(), [], crossing, self.beats, 0, 140.0)
+        self.assertLess(secs[2]["start"], secs[3]["start"])
+
+    def test_without_songformer_nothing_changes(self):
+        secs, drops, moved = structure_model.time_with_songformer(self.sections(), [100.0], None, self.beats, 0, 140.0)
+        self.assertEqual((secs, drops, moved), (self.sections(), [100.0], 0))

@@ -36,7 +36,7 @@ def analyze(path: str, cache_dir: str | None = None, use_model: bool = True) -> 
 
 
 def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_dir: str | None = None,
-                  use_model: bool = False, events: bool = True, bpm_hint: float | None = None) -> dict:
+                  use_model: bool = False, events: bool = True, bpm_hint: float | None = None, segment_fn=None) -> dict:
     """The whole analysis, from audio already in memory.
 
     `analyze` is this plus loading a file. Jam mode calls it directly on audio it
@@ -86,21 +86,23 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     # --- structure and downbeats -------------------------------------------------------
     phase, sections, drops = find_structure(y, sr, beats, rms, duration)
     downbeats = beats[phase::4]
-    structure_source = "builtin"
-    structure_error = "no section model was asked"
+    # the loudness detector says what each part is; SongFormer, when it can run, says
+    # exactly when each part starts (see structure_model.py for the measurements)
+    from . import structure_model
+
     builtin_sections, builtin_drops = sections, drops
+    structure_source, structure_error, segs = "loudness", "SongFormer was not asked", None
     if use_model and path:
-        # SongFormer, when its environment is installed: better labels, mapped onto our grid
-        from . import structure_model
-        if structure_model.available():
-            base = {"beats": [float(b) for b in beats], "downbeat_phase": phase, "duration": duration,
-                    "energy": list(np.interp(np.arange(0, duration, 1.0 / FEATURE_FPS), frame_times, rms) / (np.percentile(rms, 99.5) + 1e-9)),
-                    "feature_fps": FEATURE_FPS}
-            segs, structure_error = structure_model.run_model(path, cache_dir)
-            mapped = structure_model.sections_from_model(segs, base, builtin_drops, builtin_sections) if segs else None
-            if mapped:
-                sections, drops = mapped
-                structure_source = "songformer"
+        segs, structure_error = structure_model.run_model(path, cache_dir)
+    elif segment_fn is not None:
+        try:
+            segs = segment_fn(y, sr)
+            structure_error = "" if segs else f"SongFormer failed: {structure_model.WORKER.last_error or 'no answer'}"
+        except Exception as e:  # noqa: BLE001
+            structure_error = f"SongFormer failed: {type(e).__name__}: {e}"
+    if segs:
+        sections, drops, _ = structure_model.time_with_songformer(sections, drops, segs, [float(b) for b in beats], phase, duration)
+        structure_source, structure_error = "loudness+songformer", ""
 
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=HOP)[0]
     mood = song_mood(y, sr, energy, centroid)
@@ -137,7 +139,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "sections": sections,
         "drops": drops,
         "structure_source": structure_source,
-        "structure_error": "" if structure_source == "songformer" else structure_error,
+        "structure_error": structure_error,
         "builtin_sections": builtin_sections,
         "builtin_drops": builtin_drops,
     }
@@ -497,7 +499,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     """Analyse once per (path, size, mtime); cache the JSON next to the project."""
     os.makedirs(cache_dir, exist_ok=True)
     st = os.stat(path)
-    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v16.json"
+    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v17.json"
     cache = os.path.join(cache_dir, key)
     data = None
     if os.path.exists(cache):
@@ -505,7 +507,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
             data = json.load(fh)
         # an analysis saved while SongFormer could not run is not kept for ever: try again
         from . import structure_model
-        if data.get("structure_source") != "songformer" and structure_model.available() and not structure_model.WORKER.failed:
+        if data.get("structure_source") != "loudness+songformer" and structure_model.available() and not structure_model.WORKER.failed:
             data = None
     if data is None:
         data = analyze(path, cache_dir)

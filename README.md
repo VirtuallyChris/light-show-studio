@@ -243,16 +243,19 @@ down, drag a beat to move it, <kbd>Delete</kbd> to remove one. Or set the
 **BPM** (or **Tap** it) and press **Regrid** for a fresh even grid, and nudge
 the whole grid with the 10 ms buttons. **Bar+1** moves the downbeat.
 
-**Neural section analysis (optional, recommended).** With the SongFormer
-environment installed, the studio runs the SongFormer model (ASLP Lab, 2025)
-on every song and uses its sections, merged with the built-in detector's
-bass-drop instants: the model says *what* each part is (its pop labels are
-mapped: chorus becomes drop, pre-chorus becomes buildup, a quiet bridge
-becomes breakdown), and the energy detector says exactly which bar the bass
-slams in, splitting a chorus into its lead-in and its drop. Analysis takes a
-few seconds on an RTX-class GPU. On two hand-labelled tracks it agreed with
-the human labels 85-94% of the time. The Song panel shows "SongFormer" when
-the model produced the sections, and says why when it could not run. A song
+**Section timing by SongFormer (optional, recommended).** Two detectors
+work together. The loudness detector (below) decides *what* each part is:
+drop, buildup, breakdown. The SongFormer model (ASLP Lab, 2025) decides
+exactly *when* each buildup and drop starts: each of those boundaries moves to
+SongFormer's nearest one if it is within a few seconds, then onto the bar line.
+Quiet transitions keep the loudness detector's timing, which is exact there.
+SongFormer alone thinks in pop terms (verse, chorus) and labels dance music
+poorly; the loudness detector alone tends to call a drop a bar or two early
+when the pre-chorus is already loud. Together, on two songs corrected by hand,
+they matched 89-99% of the labels and put 14 of 15 buildup, drop and breakdown
+starts within half a second of the hand-placed ones. It takes a few seconds per
+song on an RTX-class GPU, and Jam mode uses it too, on audio in memory. The Song
+panel says "timed by SongFormer" when it ran, and says why when it could not. A song
 analysed while SongFormer could not run is tried again the next time it is
 opened, and **Re-detect** asks again too. To set it up (about 5 GB, once):
 

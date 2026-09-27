@@ -172,7 +172,7 @@
     busy('Decoding audio…');
     await loadAudio(data.audio_url);
     zoomFit(); inspector(); renderPalettes(); draw(); refreshRecent();
-    toast(`${S.name}: ${S.project.bpm.toFixed(1)} bpm, ${S.project.sections.length} sections, ${S.project.drops.length} drops` + (S.analysis.structure_source === 'songformer' ? ' · sections by SongFormer' : ''));
+    toast(`${S.name}: ${S.project.bpm.toFixed(1)} bpm, ${S.project.sections.length} sections, ${S.project.drops.length} drops` + (S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''));
   }
   async function refreshRecent() {
     const sel = $('#recent'); const cur = sel.value;
@@ -1107,7 +1107,7 @@
       const styleRow = `<div class="row"><label title="How hard the lights go when you auto-build. Chill never strobes; groove moves but lifts drops without flashing; dance flashes on the beat; rave goes all out.">Show style</label><select id="songStyle">
         <option value="">Auto${auto ? ': ' + STYLE_NAMES[auto] : ''}</option>${Object.entries(STYLE_NAMES).map(([k, n]) => `<option value="${k}" ${p.settings && p.settings.style === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
         ${heard ? `<div class="row"><label>Sounds like</label><span class="genre-heard">${esc(heard)}</span></div>` : ''}`;
-      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'songformer' ? ' · SongFormer' : ''}</span></div>${S.analysis && S.analysis.structure_source !== 'songformer' ? `<div class="hint warn">SongFormer did not run (${esc(S.analysis.structure_error || 'unknown reason')}), so the simple detector made these sections. Press Re-detect to try again.</div>` : ''}<div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
+      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''}</span></div>${S.analysis && S.analysis.structure_source === 'loudness' ? `<div class="hint warn">Section timing was not refined: ${esc(S.analysis.structure_error || 'SongFormer did not run')}. Boundaries may be a bar or two off. Press Re-detect to try again.</div>` : ''}<div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
       $('#songStyle').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.style = e.target.value; changed(); inspector();
         toast(`Show style: ${e.target.value ? STYLE_NAMES[e.target.value] : 'Auto (' + STYLE_NAMES[showStyle()] + ')'}. Press Auto-build show to rebuild in it.`); };
       return; }
@@ -1422,7 +1422,7 @@
       try { const d = await (await fetch(`/api/projects/${encodeURIComponent(S.name)}`)).json(); if (d.analysis) S.analysis = d.analysis; }
       catch (e) { /* keep what was loaded */ } finally { busy(null); }
     }
-    if (S.analysis.structure_source !== 'songformer') toast(`No sections found: ${S.analysis.structure_error || 'SongFormer did not run'}`, true);
+    if (S.analysis.structure_source === 'loudness') toast(`Section timing not refined: ${S.analysis.structure_error || 'SongFormer did not run'}`, true);
     const a = S.analysis; const p = P();
     const all = confirm('Re-detect.' + String.fromCharCode(10, 10) + 'OK = replace the beat grid AND your sections and drop markers with the fresh analysis.' + String.fromCharCode(10) + 'Cancel = replace only the beat grid (BPM, beats, downbeat) and keep your sections and drops.');
     beginChange();
