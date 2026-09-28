@@ -27,8 +27,9 @@ import threading
 import time
 
 from . import audio_route
+from .winpaths import local_appdata
 
-HOME = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "lanlightshow")
+HOME = os.path.join(local_appdata(), "lanlightshow")
 PROFILE = os.path.join(HOME, "player-browser")
 HIDDEN_OUTPUT = "S/PDIF"                               # part of the output's name; config can change it
 

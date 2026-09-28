@@ -18,12 +18,13 @@ import threading
 import numpy as np
 
 from .priority import POPEN_BELOW_NORMAL
+from .winpaths import local_appdata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # The model environment lives on the local disk (PyTorch is thousands of files);
 # a copy inside the project is honoured too.
 _CANDIDATES = [
-    os.path.join(os.environ.get("LOCALAPPDATA", ""), "lanlightshow", "venv-songformer", "Scripts", "python.exe"),
+    os.path.join(local_appdata(), "lanlightshow", "venv-songformer", "Scripts", "python.exe"),
     os.path.join(ROOT, ".venv-songformer", "Scripts", "python.exe"),
 ]
 VENV_PY = next((c for c in _CANDIDATES if os.path.exists(c)), _CANDIDATES[0])
@@ -51,6 +52,7 @@ class ModelWorker:
             self.failed = "the model environment is not installed"
             return False
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
         self.proc = subprocess.Popen([VENV_PY, "-m", self.module], cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)

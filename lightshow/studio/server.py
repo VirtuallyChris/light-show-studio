@@ -22,6 +22,7 @@ from aiohttp import web
 
 from .. import govee_lan
 from .analysis import analyze_cached
+from .winpaths import local_appdata
 from . import audiotrim
 from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
 from .jam_service import JamService
@@ -849,7 +850,7 @@ def chromium_candidates() -> list[str]:
     return found
 
 
-APP_PROFILE = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "lanlightshow", "browser")
+APP_PROFILE = os.path.join(local_appdata(), "lanlightshow", "browser")
 
 
 def give_window_identity(wait: bool = False) -> None:
