@@ -286,3 +286,8 @@ main { grid-template-columns: clamp(15.5rem, 16vw, 20rem) minmax(0, 1fr) clamp(1
 .fps { color: var(--muted); font-size: .78rem; }
 /* the library is lights and effects: effects take all the height that is left */
 .library > .panel:nth-child(2) { flex: 1 1 0; min-height: 16rem; }
+/* inspector rows: all the same height, and a slider gives way before its label does */
+.inspector .row { min-height: 2.05rem; }
+.inspector .row label { white-space: normal; overflow-wrap: anywhere; }
+.inspector .row input[type=range] { flex: 1 1 7rem; width: auto; min-width: 4.5rem; max-width: 9.231rem; }
+.inspector .row > span.val { min-width: 2.6rem; text-align: right; }
