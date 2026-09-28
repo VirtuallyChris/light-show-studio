@@ -191,6 +191,8 @@ class JamService:
             # would sit silent with its clock frozen. Move to this PC until Cast is pressed again.
             self._cast_failed = cast.cast
             e.say(f"{cast.name or 'the Cast speaker'} is not playing (not reachable?): the room is on this PC now. Press Cast to try it again.")
+        if kind == "cast":
+            self._maybe_auto_sync(e)
         usable = cast.cast is not None and cast.cast is not getattr(self, "_cast_failed", None)
         want = "cast" if usable else "pc"
         if want != kind:
@@ -338,19 +340,61 @@ class JamService:
     async def sync_check(self, request):
         if self.engine is None or not self.engine.streaming:
             return web.json_response({"error": "the speakers are not playing the jam yet"}, status=400)
+        if getattr(self, "_syncing", False):
+            return web.json_response({"error": "a sync check is already listening; its result will be in the Jam log"}, status=409)
+        self._syncing = True
 
         def run():
-            from .calibrate import relay_sync_check
-            r = relay_sync_check(self.engine)
-            name = self.studio.cast.name
-            if name and r["confidence"] >= 0.5:        # the correction is relative: add it to what was assumed
-                cfg = self.load_config()
-                new = int(round(self._speaker_offset() * 1000 + r["offset_ms"]))
-                cfg.setdefault("cast_offsets", {})[name] = new
-                self.save_config(cfg)
-                r["saved_for"], r["speaker_offset_ms"] = name, new
-            return r
+            try:
+                return self._run_sync()
+            finally:
+                self._syncing = False
         return await self._run(run)
+
+    def _run_sync(self) -> dict:
+        """Listen to the room, measure how late the Cast speaker really is, and keep a confident answer."""
+        from .calibrate import relay_sync_check
+        r = relay_sync_check(self.engine, log=lambda *a: None)
+        name = self.studio.cast.name
+        if name and r["confidence"] >= 0.5 and abs(r["offset_ms"]) <= 1500:   # the correction is relative: add it
+            cfg = self.load_config()
+            new = int(round(self._speaker_offset() * 1000 + r["offset_ms"]))
+            cfg.setdefault("cast_offsets", {})[name] = new
+            self.save_config(cfg)
+            r["saved_for"], r["speaker_offset_ms"] = name, new
+        return r
+
+    AUTO_SYNC_AFTER_S = 8.0
+
+    def _maybe_auto_sync(self, e) -> None:
+        """Once a Cast speaker has been playing the jam for a few seconds (a new cast, a reconnect, a
+        restart), listen to the room and correct its delay. A speaker's delay can change when it or
+        its group reconnects, and nothing else would notice. It only listens; nothing is played."""
+        out = e.output
+        if not isinstance(out, CastOutput) or getattr(self, "_auto_sync_off", False) or getattr(self, "_syncing", False):
+            return
+        started = getattr(out, "started_at", 0.0)
+        if not started or started == getattr(self, "_synced_start", None) or e.gate.paused:
+            return
+        status = getattr(self.studio.cast, "status", None)
+        if time.monotonic() - started < self.AUTO_SYNC_AFTER_S or not callable(status) or status().get("state") != "PLAYING":
+            return
+        self._synced_start, self._syncing = started, True
+
+        def run():
+            name = self.studio.cast.name or "the speaker"
+            try:
+                r = self._run_sync()
+                if r.get("saved_for"):
+                    e.say(f"sync check: {name} is {r['speaker_offset_ms']} ms behind (corrected by {r['offset_ms']:+d} ms)")
+                else:
+                    e.say(f"sync check: could not hear {name} clearly enough; keeping its delay")
+            except Exception as ex:  # noqa: BLE001 - no microphone, or it is busy: say so once and stop trying
+                self._auto_sync_off = True
+                e.say(f"automatic sync check is off: the microphone could not be used ({type(ex).__name__})")
+            finally:
+                self._syncing = False
+        threading.Thread(target=run, daemon=True).start()
 
     async def demo_action(self, request):
         if self.demo is None:

@@ -363,6 +363,56 @@ class TestCastThatDoesNotPlay(unittest.TestCase):
         self.assertEqual(svc._output_kind(svc.engine.output), "cast")
 
 
+class TestAutoSync(unittest.TestCase):
+    def test_a_speaker_that_starts_playing_gets_one_sync_check(self):
+        import threading
+        import time as _t
+        from lightshow.studio.jam import CastOutput
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = object(), "Everywhere", ""
+                @staticmethod
+                def status(): return {"state": "PLAYING"}
+
+        class Cast:
+            def play_stream(self, *a): pass
+            def status(self): return {"position": 12.0}
+
+        class Engine:
+            def __init__(self):
+                self.lock, self.streaming, self.log = threading.RLock(), True, []
+                self.gate = type("G", (), {"paused": False})()
+                self.output = CastOutput(Cast(), lambda sid: f"http://x/{sid}")
+                self.output.started_at = _t.monotonic()
+            def say(self, m): self.log.append(m)
+
+        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        e = svc.engine = Engine()
+        runs = []
+        svc._run_sync = lambda: runs.append(1) or {"saved_for": "Everywhere", "speaker_offset_ms": 250, "offset_ms": 13}
+        svc._maybe_auto_sync(e)
+        self.assertEqual(runs, [])                                    # not yet: it has only just started
+        e.output.started_at -= 10
+        svc._maybe_auto_sync(e)
+        for _ in range(50):
+            if runs and not svc._syncing:
+                break
+            _t.sleep(0.02)
+        svc._maybe_auto_sync(e)
+        _t.sleep(0.1)
+        self.assertEqual(runs, [1])                                   # once for this start, not on every poll
+        self.assertTrue(any("250 ms" in m for m in e.log))
+        e.output.started_at = _t.monotonic() - 10                     # restarted (a reconnect): checked again
+        svc._maybe_auto_sync(e)
+        for _ in range(50):
+            if len(runs) == 2:
+                break
+            _t.sleep(0.02)
+        self.assertEqual(len(runs), 2)
+
+
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)

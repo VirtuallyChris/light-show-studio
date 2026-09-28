@@ -207,6 +207,7 @@ class Studio:
             web.delete("/api/projects/{name}", self.delete_project),
             web.get("/ws", self.websocket),
             web.get("/api/settings", self.settings),
+            web.post("/api/settings/light_offset", self.set_light_offset),
             web.get("/api/cast/devices", self.cast_devices),
             web.post("/api/cast/connect", self.cast_connect),
             web.post("/api/cast/disconnect", self.cast_disconnect),
@@ -501,7 +502,16 @@ class Studio:
 
     async def settings(self, request):
         cfg = load_config()
-        return web.json_response({"cast_offset_ms": cfg.get("cast_offset_ms", 0), "cast_offsets": cfg.get("cast_offsets", {})})
+        return web.json_response({"cast_offset_ms": cfg.get("cast_offset_ms", 0), "cast_offsets": cfg.get("cast_offsets", {}),
+                                  "light_offset_ms": cfg.get("light_offset_ms", 30)})
+
+    async def set_light_offset(self, request):
+        """The lights' offset belongs to the lights, not to a song: one value for every show and jam."""
+        ms = float((await request.json()).get("ms", 30))
+        cfg = load_config()
+        cfg["light_offset_ms"] = max(-2000.0, min(2000.0, ms))
+        save_config(cfg)
+        return web.json_response({"light_offset_ms": cfg["light_offset_ms"]})
 
     # -- Google Cast ---------------------------------------------------------------
     async def _cast_call(self, fn, *args):

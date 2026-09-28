@@ -177,7 +177,7 @@
     migrateProject(S.project);
     $('#projectName').value = S.project.name || S.name;
     $('#bpm').value = S.project.bpm.toFixed(2);
-    $('#latency').value = S.project.settings.latency;
+    $('#latency').value = S.defaults.lightOffset ?? 30;           // the lights' own delay: the same for every song
     // an offset typed for this project wins; otherwise the connected speaker's own measured delay
     const measured = S.cast.active ? S.defaults.castOffsets[S.cast.device] : null;
     $('#castOffset').value = S.project.settings.castOffsetCustom ? (S.project.settings.castOffset || 0)
@@ -301,6 +301,21 @@
    *  session and for every song, so one listen is enough.
    */
   async function runSyncCheck(auto = false) {
+    // during a jam there is no song file to compare against: the jam checks against what it sent
+    const js = S.jam && S.jam.state;
+    if (S.jam && S.jam.live && js && js.output_kind === 'cast') {
+      if (auto) return;                                   // the jam runs its own check when a speaker starts
+      const btn = $('#btnSync'); btn.disabled = true; btn.textContent = 'Listening…';
+      toast('Listening to the room to measure the speaker\u2019s delay\u2026');
+      try {
+        const r = await (await fetch('/api/jam/synccheck', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+        if (r.error) toast(r.error, true);
+        else if (r.saved_for) toast(`${r.saved_for} is ${r.speaker_offset_ms} ms behind (corrected by ${r.offset_ms > 0 ? '+' : ''}${r.offset_ms} ms).`);
+        else toast(r.reason || 'Could not hear the speakers clearly enough. Turn them up or move closer to the mic and try again.', true);
+      } catch (e) { toast('Sync check failed: ' + e.message, true); }
+      finally { btn.disabled = false; btn.textContent = 'Sync check'; }
+      return;
+    }
     if (!S.cast.active || S.cast.state !== 'PLAYING') {
       if (!auto) toast('Start the song on the speakers first', true);
       return;
@@ -1579,7 +1594,11 @@
   $('#bpm').onchange = () => { if (P()) { beginChange(); P().bpm = parseFloat($('#bpm').value) || P().bpm; changed(); toast('BPM stored — press Regrid to rebuild the beat grid'); } };
   $('#beatEdit').onchange = draw; $('#snap').onchange = draw; $('#effectSearch').oninput = renderLibrary;
   $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } rememberLights(true); if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
-  $('#latency').onchange = scheduleSave; $('#master').oninput = () => { scheduleSave(); pushFrameIfIdle(); };
+  $('#latency').onchange = () => {
+    S.defaults.lightOffset = parseFloat($('#latency').value) || 0;
+    fetch('/api/settings/light_offset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ms: S.defaults.lightOffset }) }).catch(() => {});
+    scheduleSave();
+  }; $('#master').oninput = () => { scheduleSave(); pushFrameIfIdle(); };
   $('#projectName').onchange = scheduleSave;
   $('#btnNewPalette').onclick = () => { if (!P()) return; const name = prompt('Palette name'); if (!name) return; beginChange(); P().palettes[name] = ['#ff0000', '#0000ff']; renderPalettes(); changed(); };
   window.addEventListener('resize', () => draw());
@@ -1600,7 +1619,8 @@
   function busy(msg) { $('#busy').hidden = !msg; if (msg) $('#busyText').textContent = msg; }
 
   // ------------------------------------------------------------------ boot
-  fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {}; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
+  fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {};
+    S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
     draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections };
