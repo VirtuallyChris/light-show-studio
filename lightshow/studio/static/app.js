@@ -1148,13 +1148,19 @@
   function cutSelection() { const n = selectedClips().length; if (!n) return; copySelection(); deleteSelection(); toast(n === 1 ? 'Cut' : `Cut ${n} clips`); }
   /** lay the clipboard block down starting at startBeat, its lowest layer on laneIdx */
   function pasteAt(laneIdx, startBeat) {
-    if (!clipboard) return; beginChange(); const p = P(); const ids = [];
+    if (!clipboard) return; beginChange(); const p = P(); const ids = []; let end = startBeat;
     for (const k of clipboard.clips) {
       const c = { ...k.data, id: uid(), start: Math.max(0, startBeat + k.rel), params: { ...k.data.params } };
       const li = freeLaneFor(c.start, c.len, Math.max(0, laneIdx + k.lane));
-      p.lanes[li].clips.push(c); ids.push(c.id);
+      p.lanes[li].clips.push(c); ids.push(c.id); end = Math.max(end, c.start + c.len);
     }
     setSelection(ids); changed();
+    // the playhead moves to the end of what was pasted, so the next paste lands right after it
+    // (not while playing: that would jump the music)
+    if (!S.audio.playing && !(S.jam && S.jam.live)) {
+      const t = clamp(beatToTime(end), 0, duration());
+      if (S.cast.active) { S.cast.pos = t; S.cast.at = performance.now(); draw(); } else seek(t);
+    }
   }
   /** the selection again, straight after itself: one clip after its own end, a block after the block */
   function duplicateSelection() {
