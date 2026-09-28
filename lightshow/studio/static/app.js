@@ -150,10 +150,19 @@
     return P();
   }
   async function save() {
-    if (!P() || !S.name || (S.jam && S.jam.live)) return;                  // a jam never writes over a saved show
+    if (!P() || !S.name || (S.jam && S.jam.live)) return false;            // a jam never writes over a saved show
     collectProject();
-    try { await fetch(`/api/projects/${encodeURIComponent(S.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(P()) }); }
-    catch (e) { toast('Save failed: ' + e, true); }
+    try {
+      const r = await fetch(`/api/projects/${encodeURIComponent(S.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(P()) });
+      if (!r.ok) throw new Error(`the studio answered ${r.status}`);
+      return true;
+    } catch (e) { toast('Save failed: ' + e.message, true); return null; }
+  }
+  /** Save, and say what happened (the button and Ctrl+S). */
+  async function saveNow() {
+    if (S.jam && S.jam.live) return toast('Jam songs are not saved: a jam never writes over a saved show.', true);
+    if (!P() || !S.name) return toast('Open a song first.', true);
+    if (await save()) toast(`Saved ${S.name}`);
   }
 
   // ------------------------------------------------------------------ loading songs
@@ -1607,6 +1616,8 @@
 
   // ------------------------------------------------------------------ keyboard & controls
   document.addEventListener('keydown', e => {
+    // Ctrl+S saves the project wherever the focus is (otherwise the browser offers to save the page)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(); return; }
     // e.target can be the document itself (or any non-element node), which has no matches()
     if (e.target && typeof e.target.matches === 'function' && e.target.matches('input, select, textarea')) {
       if (e.key === 'Escape') e.target.blur();
@@ -1620,7 +1631,6 @@
     else if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelection(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); toast('Saved'); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') { copySelection(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') { cutSelection(); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') { pasteAt(clipboard ? clipboard.minLane : 0, snapBeat(timeToBeat(pos()))); }
@@ -1640,7 +1650,7 @@
   $('#btnSync').onclick = () => runSyncCheck(false);
   $('#castLocal').onchange = syncLocalToCast; $('#btnStart').onclick = () => { seek(0); scrollTo(0); };
   $('#btnZoomIn').onclick = () => zoomAt(1.4, xOf(pos())); $('#btnZoomOut').onclick = () => zoomAt(0.7, xOf(pos())); $('#btnZoomFit').onclick = zoomFit;
-  $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo; $('#btnSave').onclick = () => { save(); toast('Saved'); };
+  $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo; $('#btnSave').onclick = () => saveNow();
   $('#btnRedetect').onclick = async () => {
     if (!S.analysis) return;
     // ask the server again rather than reusing what was loaded: if SongFormer could not run
