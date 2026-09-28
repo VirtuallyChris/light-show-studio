@@ -308,6 +308,7 @@ class Studio:
         self._watch_task = None
         self.last_client = 0.0
         self.known: list[govee_lan.GoveeDevice] = []
+        self.scan_lock = asyncio.Lock()                  # one scan at a time: they all listen on the same UDP port
         self.output = LightOutput(enabled=lights)
         self.cast = CastManager(govee_lan.local_ip())
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
@@ -424,11 +425,16 @@ class Studio:
         answered in the past stays in the list (marked offline) so a show never
         loses its target because of one dropped scan.
         """
+        async with self.scan_lock:
+            return await self._devices(request.query.get("rescan") == "1")
+
+    async def _devices(self, rescan: bool):
         loop = asyncio.get_running_loop()
-        if request.query.get("rescan") == "1" or not self.known:
+        if rescan or not self.known:
             self.known = await loop.run_in_executor(None, govee_lan.discover, 2.0)
         cfg = load_config()
         remembered = cfg.get("known_devices", {})
+        before = json.dumps(remembered, sort_keys=True)
         arp = govee_lan.arp_table() if any(not d.mac for d in self.known) else {}
         for d in self.known:
             # The MAC comes from the ARP cache, which is empty now and then. A blank
@@ -437,7 +443,7 @@ class Studio:
             d.mac = d.mac or arp.get(d.ip, "") or remembered.get(d.ip, {}).get("mac", "")
             remembered[d.ip] = {"mac": d.mac, "sku": d.sku or remembered.get(d.ip, {}).get("sku", ""),
                                 "device_id": d.device_id or remembered.get(d.ip, {}).get("device_id", "")}
-        if self.known:
+        if self.known and json.dumps(remembered, sort_keys=True) != before:   # the page scans every half minute: write only news
             cfg["known_devices"] = remembered
             try:
                 save_config(cfg)
@@ -782,12 +788,15 @@ class Studio:
                     dropped, added = self.output.select(data.get("ips", []), self.known)
                     await ws.send_json({"type": "selected", "ips": [d.ip for d in self.output.devices]})
                     if dropped or added:
-                        await loop.run_in_executor(None, self.output.reselect, dropped, added)
+                        async with self.scan_lock:          # asking lights how they are shares the scan's port
+                            await loop.run_in_executor(None, self.output.reselect, dropped, added)
                 elif kind == "start":
-                    await loop.run_in_executor(None, self.output.start)
+                    async with self.scan_lock:
+                        await loop.run_in_executor(None, self.output.start)
                     await ws.send_json({"type": "started"})
                 elif kind == "stop":
-                    await loop.run_in_executor(None, self.output.stop, bool(data.get("off")))
+                    async with self.scan_lock:
+                        await loop.run_in_executor(None, self.output.stop, bool(data.get("off")))
                     await ws.send_json({"type": "stopped"})
                 elif kind == "frame":
                     self.output.frame(data.get("frames", []))

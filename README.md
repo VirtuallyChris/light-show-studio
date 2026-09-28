@@ -128,7 +128,9 @@ after that. Saved shows live in the `shows/` folder and reload from the
 
 **Workflow**
 
-1. **Pick lights** on the left. The strip you started with is ticked by
+1. **Pick lights** on the left. The studio finds them by itself: when it
+   opens, every half minute while nothing is playing, and when its window
+   comes back to the front. The strip you started with is ticked by
    default; tick others to include them. Set each light's segment count here.
    If a light is mounted the other way round (a left-to-right comet runs right
    to left on it), press its **⇄** button: everything sent to that light is

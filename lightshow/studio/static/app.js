@@ -395,14 +395,31 @@
   async function castSeek(t) { S.cast.pos = t; S.cast.at = performance.now(); try { applyCastStatus(await castApi('seek', { t })); } catch (e) { } pushFrameIfIdle(); }
 
   // ------------------------------------------------------------------ lights / websocket
-  async function loadLights(rescan = false) {
+  async function loadLights(rescan = false, quiet = false) {
     try {
       const list = await (await fetch('/api/devices' + (rescan ? '?rescan=1' : ''))).json();
-      const prev = Object.fromEntries(S.lights.map(l => [l.ip, l.on]));
-      S.lights = list.map(d => ({ ...d, on: prev[d.ip] !== undefined ? prev[d.ip] : !!d.on }));
+      const prev = Object.fromEntries(S.lights.map(l => [l.ip, l]));
+      const next = list.map(d => ({ ...d, on: prev[d.ip] !== undefined ? prev[d.ip].on : !!d.on }));
+      // a background scan changes nothing on screen unless a light came, went or changed, and never
+      // while you are typing a name or a segment count there
+      const sig = ls => JSON.stringify(ls.map(l => [l.ip, l.online, l.name, l.segments, l.flip, l.on]));
+      if (quiet && (sig(next) === sig(S.lights) || $('#lightList').contains(document.activeElement))) return;
+      S.lights = next;
       renderLights(); sendSelect(); autoLights();
-    } catch (e) { toast('Could not list lights', true); }
+    } catch (e) { if (!quiet) toast('Could not list lights', true); }
   }
+  // Lights are looked for by themselves: every half minute while nothing plays (a scan is a burst
+  // of multicast on the lights' own Wi-Fi), and when the window comes back to the front.
+  const SCAN_EVERY_MS = 30000;
+  S.lastScan = performance.now();
+  function autoScan() {
+    if (document.hidden || S.audio.playing || (S.jam && S.jam.live) || S.scanning) return;
+    if (performance.now() - S.lastScan < SCAN_EVERY_MS - 500) return;
+    S.scanning = true; S.lastScan = performance.now();
+    loadLights(true, true).finally(() => { S.scanning = false; });
+  }
+  setInterval(autoScan, 5000);
+  window.addEventListener('focus', () => { if (performance.now() - S.lastScan > 10000) { S.lastScan = 0; autoScan(); } });
   // Lights come on by themselves when the app opens, unless they were last switched off.
   // (?lights=off in the address keeps them off without changing that, for testing.)
   const LIGHTS_KEY = 'lightShowStudio.lightsOn';
@@ -1710,7 +1727,6 @@
   $('#btnOpen').onclick = () => $('#fileInput').click(); $('#fileInput').onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ''; };
   $('#btnPath').onclick = () => { const v = $('#pathInput').value.trim(); if (v) openPath(v); }; $('#pathInput').onkeydown = e => { if (e.key === 'Enter') $('#btnPath').click(); };
   $('#recent').onchange = e => { if (e.target.value) openProject(e.target.value); };
-  $('#btnRescan').onclick = () => loadLights(true);
   $('#btnHalf').onclick = () => scaleTempo(0.5); $('#btnDouble').onclick = () => scaleTempo(2); $('#btnRegrid').onclick = () => { if (P()) regrid(); }; $('#btnNudgeL').onclick = () => P() && nudge(-10); $('#btnNudgeR').onclick = () => P() && nudge(10);
   $('#btnPhase').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 1) % 4; changed(); };
   $('#btnPhaseL').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 3) % 4; changed(); };
