@@ -193,7 +193,7 @@ main { display: grid; grid-template-columns: 19.38rem 1fr 20.92rem; grid-templat
    Scaling, layout for any window, and the toolbar's groups, menus and popovers
    ====================================================================================== */
 /* one root size drives everything: 13 px on a laptop, up to 17 px on a big monitor */
-html { font-size: clamp(13px, calc(0.42vw + 6.8px), 17px); }
+html { font-size: clamp(13px, min(calc(0.42vw + 6.8px), calc(1.1vh + 6px)), 17px); }   /* a wide but short window stays compact */
 body { font-size: 1rem; }
 
 /* the toolbar: labelled groups that wrap cleanly instead of one long strip */
@@ -230,7 +230,7 @@ button.icon { width: 2.1rem; padding: 0; display: inline-flex; align-items: cent
 
 /* the three columns size themselves to the window */
 main { grid-template-columns: clamp(17.5rem, 17vw, 21rem) minmax(0, 1fr) clamp(15rem, 18vw, 22rem); }
-.preview-wrap { height: clamp(5.5rem, 12vh, 9rem); }
+.preview-wrap { height: clamp(4rem, 12vh, 9rem); }
 #overview { height: 2.9rem; }
 .effect-list { max-height: none; }
 .library { gap: .75rem; }

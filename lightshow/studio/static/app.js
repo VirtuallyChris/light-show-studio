@@ -676,9 +676,15 @@
     if (!S.analysis) return;
     const w = TW(), h = TH();
     if (!w || !h) { S.dirty = true; return; }   // hidden or collapsed: try again next frame
-    // layers share the height there is (between comfortable limits), rather than sitting in a strip
-    const nl = Math.max(4, P().lanes.length);
-    ROW.lane = Math.round(Math.max(44, Math.min(78, (h - (ROW.ruler + ROW.sections + ROW.wave + ROW.pal) - 26) / nl)));
+    // Layers share the height there is, rather than sitting in a strip. On a short window everything
+    // still fits: the waveform gives up height first, then the layers go down to a compact one-line
+    // size, so "+ add layer" is never pushed off the bottom.
+    const nl = Math.max(4, P().lanes.length), fixed = ROW.ruler + ROW.sections + ROW.pal + ADD_ROW + 2;
+    ROW.wave = 84;
+    let lane = (h - fixed - ROW.wave) / nl;
+    if (lane < 44) { ROW.wave = Math.round(Math.max(44, h - fixed - 44 * nl)); lane = (h - fixed - ROW.wave) / nl; }
+    ROW.lane = Math.round(Math.max(28, Math.min(78, lane)));
+    if ((S.view.vscroll || 0) > lanesOverflow()) S.view.vscroll = lanesOverflow();
     if (S.view.fitPending) { S.view.fitPending = false; S.view.pps = Math.max(1, viewWidth() / duration()); S.view.scroll = 0; }
     const W = Math.floor(tl.clientWidth * devicePixelRatio), H = Math.floor(tl.clientHeight * devicePixelRatio);
     if (tl.width !== W || tl.height !== H) { tl.width = W; tl.height = H; }
@@ -751,11 +757,13 @@
         g.strokeStyle = isSel ? '#fff' : 'rgba(255,255,255,0.25)'; g.lineWidth = isSel ? 2 : 1;
         g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.stroke(); g.lineWidth = 1;
         g.save(); g.beginPath(); g.rect(vx, y, Math.max(0, vw - 4), ROW.lane); g.clip();
-        g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText(e ? e.name : c.effect, Math.max(HEADER, x0) + 6, y + 19);
-        g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '10px system-ui'; g.fillText(clipSummary(c), Math.max(HEADER, x0) + 6, y + 31); g.restore();
+        const compact = ROW.lane < 42;
+        g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText(e ? e.name : c.effect, Math.max(HEADER, x0) + 6, y + (compact ? 16 : 19));
+        if (!compact) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '10px system-ui'; g.fillText(clipSummary(c), Math.max(HEADER, x0) + 6, y + 31); }
+        g.restore();
         // the clip's own colors, as a bar along its bottom edge
         const cols = clipPaletteHex(c); const bx0 = Math.max(HEADER, x0) + 5, bx1 = Math.min(w, x1) - 7;
-        if (bx1 > bx0 + 4) { const pg = g.createLinearGradient(bx0, 0, bx1, 0); cols.forEach((col, i) => pg.addColorStop(i / Math.max(1, cols.length - 1), col)); g.fillStyle = pg; g.beginPath(); g.roundRect(bx0, y + ROW.lane - 12, bx1 - bx0, 6, 3); g.fill(); }
+        if (bx1 > bx0 + 4) { const pg = g.createLinearGradient(bx0, 0, bx1, 0); cols.forEach((col, i) => pg.addColorStop(i / Math.max(1, cols.length - 1), col)); g.fillStyle = pg; g.beginPath(); if (compact) g.roundRect(bx0, y + ROW.lane - 10, bx1 - bx0, 4, 2); else g.roundRect(bx0, y + ROW.lane - 12, bx1 - bx0, 6, 3); g.fill(); }
       }
       g.globalAlpha = 1; g.filter = 'none';
     });
@@ -769,16 +777,18 @@
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
       const ly = laneTop(li);
-      g.fillStyle = lane.hidden ? '#6b7280' : '#e6e8ee'; g.font = 'bold 12px system-ui'; g.fillText(`Layer ${li + 1}`, 8, ly + 22);
-      g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText(lane.hidden ? 'hidden' : li === p.lanes.length - 1 ? 'top' : li === 0 ? 'bottom' : '', 8, ly + 36);
+      const small = ROW.lane < 42, mid = small ? ly + ROW.lane / 2 : ly + 22;
+      g.fillStyle = lane.hidden ? '#6b7280' : '#e6e8ee'; g.font = 'bold 12px system-ui'; g.fillText(`Layer ${li + 1}`, 8, mid + 4);
+      if (!small) { g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText(lane.hidden ? 'hidden' : li === p.lanes.length - 1 ? 'top' : li === 0 ? 'bottom' : '', 8, ly + 36); }
       // eye toggle
-      const ex = HEADER - 16, ey = ly + 22; g.strokeStyle = lane.hidden ? '#6b7280' : '#e6e8ee'; g.fillStyle = g.strokeStyle; g.lineWidth = 1.5;
+      const ex = HEADER - 16, ey = mid; g.strokeStyle = lane.hidden ? '#6b7280' : '#e6e8ee'; g.fillStyle = g.strokeStyle; g.lineWidth = 1.5;
       g.beginPath(); g.ellipse(ex, ey, 8, 5, 0, 0, Math.PI * 2); g.stroke();
       if (!lane.hidden) { g.beginPath(); g.arc(ex, ey, 2.4, 0, Math.PI * 2); g.fill(); }
       else { g.beginPath(); g.moveTo(ex - 9, ey + 7); g.lineTo(ex + 9, ey - 7); g.stroke(); }
       g.lineWidth = 1;
     });
     const ay = laneTop(p.lanes.length); g.fillStyle = '#1f2229'; g.fillRect(0, ay, w, ADD_ROW); g.fillStyle = '#6c8cff'; g.font = 'bold 11px system-ui'; g.fillText('+ add layer', 8, ay + 17);
+    g.fillStyle = getComputedStyle(document.body).backgroundColor || '#0b0c10'; g.fillRect(0, ay + ADD_ROW, w, Math.max(0, h - ay - ADD_ROW));
     g.restore();
   }
   function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
@@ -789,7 +799,8 @@
     g.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
     if (S.view.hoverDrop) { const d = S.view.hoverDrop; g.fillStyle = d.replace ? 'rgba(255,94,168,0.35)' : 'rgba(108,140,255,0.35)'; g.fillRect(d.x, d.y, d.w, d.h); if (d.replace) { g.strokeStyle = '#ff5ea8'; g.lineWidth = 2; g.strokeRect(d.x, d.y, d.w, d.h); g.lineWidth = 1; g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText('replace', d.x + 6, d.y + d.h - 6); } }
     const x = xOf(pos());
-    if (x >= HEADER && x <= w) { g.fillStyle = '#fff'; g.fillRect(x - 0.5, 0, 1.5, h); g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 8); g.fill(); }
+    const bottom = Math.min(h, laneTop(P().lanes.length) + ADD_ROW);
+    if (x >= HEADER && x <= w) { g.fillStyle = '#fff'; g.fillRect(x - 0.5, 0, 1.5, bottom); g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 8); g.fill(); }
     const m = S.view.drag && S.view.drag.type === 'marquee' ? S.view.drag : null;
     if (m) { const rx = Math.min(m.x0, m.x), ry = Math.min(m.y0, m.y), rw = Math.abs(m.x - m.x0), rh = Math.abs(m.y - m.y0);
       g.fillStyle = 'rgba(108,140,255,0.18)'; g.fillRect(rx, ry, rw, rh); g.strokeStyle = 'rgba(108,140,255,0.9)'; g.lineWidth = 1; g.strokeRect(rx + 0.5, ry + 0.5, rw, rh); }
