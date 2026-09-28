@@ -435,7 +435,7 @@
   }
   function renderLights() {
     const el = $('#lightList'); el.innerHTML = '';
-    if (!S.lights.length) { el.innerHTML = '<div class="hint">No lights found. Enable LAN Control in the Govee app and rescan.</div>'; return; }
+    if (!S.lights.length) { el.innerHTML = '<div class="hint">No lights found yet. Turn on LAN Control in the Govee app; the studio keeps looking.</div>'; return; }
     for (const l of S.lights) {
       const row = document.createElement('label');
       row.innerHTML = `<input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
@@ -766,7 +766,6 @@
       if (xe >= HEADER) { g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(xe, 0, 1, h); g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText('end', xe + 5, ROW.ruler - 7); } }
     // lane headers
     g.fillStyle = '#1a1c22'; g.fillRect(0, 0, HEADER, h); g.strokeStyle = '#2f333d'; g.beginPath(); g.moveTo(HEADER - 0.5, 0); g.lineTo(HEADER - 0.5, h); g.stroke();
-    g.fillStyle = '#8b92a3'; g.font = '11px system-ui'; g.fillText('sections', 8, sy + 14); g.fillText('waveform', 8, wy + 16);
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
       const ly = laneTop(li);
@@ -780,7 +779,6 @@
       g.lineWidth = 1;
     });
     const ay = laneTop(p.lanes.length); g.fillStyle = '#1f2229'; g.fillRect(0, ay, w, ADD_ROW); g.fillStyle = '#6c8cff'; g.font = 'bold 11px system-ui'; g.fillText('+ add layer', 8, ay + 17);
-    g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText('right-click a layer name to insert, remove or reorder', HEADER + 8, ay + 17);
     g.restore();
   }
   function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
@@ -1291,7 +1289,7 @@
   // ------------------------------------------------------------------ toolbar menus
   const SHORTCUTS = `<h3>Shortcuts</h3><div class="help">
       <kbd>Space</kbd> play / pause &nbsp; <kbd>Home</kbd> start<br>Wheel zooms · <kbd>Shift</kbd>+wheel pans · <kbd>Ctrl</kbd>+wheel scrolls layers<br>Drag the strip on top to scroll, its edges to zoom<br>
-      Click waveform to seek, drag the ruler to scrub (snaps like clips; hold <kbd>Alt</kbd> to go anywhere)<br>Drag effects onto layers; drag edges to resize<br>Drag across empty space to box-select clips · <kbd>Shift</kbd>+click adds · <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all<br>Drag any selected clip to move the whole block<br>Drop an effect on a clip to swap the effect, same timing<br>Click a clip to pick its colors in the inspector<br>Click a layer's eye to hide it<br><kbd>Alt</kbd>+drag copies a clip<br>
+      Click waveform to seek, drag the ruler to scrub (snaps like clips; hold <kbd>Alt</kbd> to go anywhere)<br>Drag effects onto layers; drag edges to resize<br>Drag across empty space to box-select clips · <kbd>Shift</kbd>+click adds · <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all<br>Drag any selected clip to move the whole block<br>Drop an effect on a clip to swap the effect, same timing<br>Click a clip to pick its colors in the inspector<br>Click a layer's eye to hide it · right-click its name to insert, remove or reorder<br><kbd>Alt</kbd>+drag copies a clip<br>
       <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd> copy / cut / paste / duplicate<br><kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
       Double-click a section to cycle its type<br>Right-click anything for more<br>
       <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays</div>`;
@@ -1315,7 +1313,7 @@
   // ------------------------------------------------------------------ inspector
   function inspector() {
     const el = $('#inspector'); const sel = S.view.sel; const p = P();
-    if (!p) { el.innerHTML = '<div class="panel"><h3>Inspector</h3><div class="hint">Open a song to begin.</div></div>'; return; }
+    if (!p) { el.innerHTML = ''; return; }
     const help = '';                                  // the shortcuts live in the ? popover now
     if (!sel) {
       const g = S.analysis && S.analysis.genre; const auto = g && STYLE_NAMES[g.style] ? g.style : null;
@@ -1323,7 +1321,7 @@
       const styleRow = `<div class="row"><label title="How hard the lights go when you auto-build. Chill never strobes; groove moves but lifts drops without flashing; dance flashes on the beat; rave goes all out.">Show style</label><select id="songStyle">
         <option value="">Auto${auto ? ': ' + STYLE_NAMES[auto] : ''}</option>${Object.entries(STYLE_NAMES).map(([k, n]) => `<option value="${k}" ${p.settings && p.settings.style === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
         ${heard ? `<div class="row"><label>Sounds like</label><span class="genre-heard">${esc(heard)}</span></div>` : ''}`;
-      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label title="Auto-build builds the show around this color, the way a jam song is built around its album cover">Main color</label><span class="main-color"><input id="mainColor" type="color" value="${p.settings.mainColor || '#ff0000'}">${p.settings.mainColor ? '' : '<span class="hint">auto</span>'}<button id="mainColorRebuild" class="small" title="Auto-build the show with this color now">Rebuild</button>${p.settings.mainColor ? '<button id="mainColorAuto" class="small" title="Back to the automatic palettes">Auto</button>' : ''}</span></div><div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label title="When the music goes quiet, every light dims with it, even in a drop">Dim with the music</label><input id="followLoud" type="checkbox" ${p.settings.followLoudness === false ? '' : 'checked'}></div><div class="row"><label>Beats</label><span>${p.beats.length}</span></div><div class="row"><label>Sections</label><span>${p.sections.length}${S.analysis && S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''}</span></div>${S.analysis && S.analysis.structure_source === 'loudness' ? `<div class="hint warn">Section timing was not refined: ${esc(S.analysis.structure_error || 'SongFormer did not run')}. Boundaries may be a bar or two off. Press Re-detect to try again.</div>` : ''}<div class="row"><label>Drops</label><span>${p.drops.length}</span></div><div class="row"><label>Lights selected</label><span>${selectedLights().length}</span></div></div>` + help; $('#mainColor').onchange = e => { beginChange(); p.settings.mainColor = Effects.solid(e.target.value); changed(); inspector(); toast('Main color set. Press Rebuild (or Auto-build show) to build the show around it.'); };
+      el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label title="Auto-build builds the show around this color, the way a jam song is built around its album cover">Main color</label><span class="main-color"><input id="mainColor" type="color" value="${p.settings.mainColor || '#ff0000'}"><button id="mainColorRebuild" class="small" title="Auto-build the show with this color now">Rebuild</button>${p.settings.mainColor ? '<button id="mainColorAuto" class="small" title="Back to the automatic palettes">Auto</button>' : ''}</span></div><div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label title="When the music goes quiet, every light dims with it, even in a drop">Dim with the music</label><input id="followLoud" type="checkbox" ${p.settings.followLoudness === false ? '' : 'checked'}></div>${S.analysis && S.analysis.structure_source === 'loudness' ? `<div class="hint warn">Section timing was not refined: ${esc(S.analysis.structure_error || 'SongFormer did not run')}. Boundaries may be a bar or two off. Press Re-detect to try again.</div>` : ''}</div>` + help; $('#mainColor').onchange = e => { beginChange(); p.settings.mainColor = Effects.solid(e.target.value); changed(); inspector(); toast('Main color set. Press Rebuild (or Auto-build show) to build the show around it.'); };
       $('#mainColorRebuild').onclick = () => { if (!p.settings.mainColor) p.settings.mainColor = Effects.solid($('#mainColor').value); autoBuild(); inspector(); };
       if ($('#mainColorAuto')) $('#mainColorAuto').onclick = () => { beginChange(); delete p.settings.mainColor; changed(); inspector(); toast('Back to the automatic palettes. Press Auto-build show to rebuild.'); };
       $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
@@ -1336,10 +1334,10 @@
       const lanes = new Set(items.map(i => i.li)); const b0 = Math.min(...items.map(i => i.clip.start)), b1 = Math.max(...items.map(i => i.clip.start + i.clip.len));
       const op = items.every(i => (i.clip.opacity ?? 1) === (items[0].clip.opacity ?? 1)) ? (items[0].clip.opacity ?? 1) : null;
       const single = items.every(i => Array.isArray(i.clip.palette) && i.clip.palette.length === 1) ? items[0].clip.palette[0] : null;
-      el.innerHTML = `<div class="panel"><div class="title">${n} clips selected</div><div class="desc">Across ${lanes.size} layer${lanes.size === 1 ? '' : 's'}, bar ${barLabel(b0)} to bar ${barLabel(b1)}. Drag any of them to move the whole block; changes here apply to all of them.</div>
+      el.innerHTML = `<div class="panel"><div class="title">${n} clips selected</div><div class="desc">Across ${lanes.size} layer${lanes.size === 1 ? '' : 's'}, bar ${barLabel(b0)} to bar ${barLabel(b1)}.</div>
         <div class="row"><label>Opacity</label><input id="gOp" type="range" min="0" max="1" step="0.01" value="${op ?? 1}"><span class="val">${op === null ? 'mixed' : Math.round(op * 100) + '%'}</span></div>
         <div class="btns"><button id="gCopy" class="small">Copy</button><button id="gCut" class="small">Cut</button><button id="gDup" class="small">Duplicate</button><button id="gDel" class="small">Delete</button></div></div>
-        <div class="panel"><h3>Colors <span class="hint">all selected</span></h3><div class="pal-grid" id="gPalGrid">
+        <div class="panel"><h3>Colors</h3><div class="pal-grid" id="gPalGrid">
           <div class="pal-opt" data-pal=""><div class="bar" style="background:linear-gradient(90deg,${(p.palettes[p.defaultPalette] || ['#888']).join(',')})"></div><div class="nm">Default (${p.defaultPalette})</div></div>
           ${Object.entries(p.palettes).map(([nm, cols]) => `<div class="pal-opt" data-pal="${nm}"><div class="bar" style="background:linear-gradient(90deg,${cols.join(',')})"></div><div class="nm">${nm}</div></div>`).join('')}
           <div class="pal-opt ${single ? 'sel' : ''}" data-pal="__single"><div class="bar" style="background:${single || clipPaletteHex(items[0].clip)[0]}"></div><div class="nm">Single color…</div></div>
@@ -1362,7 +1360,7 @@
         <div class="row"><label>Blend</label><select id="cBlend">${Object.entries(Effects.BLENDS).map(([k, v]) => `<option value="${k}" ${(clip.blend || 'normal') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
         <div class="row"><label>Fade in (beats)</label><input id="cFi" type="number" step="0.5" min="0" value="${clip.fadeIn || 0}"></div>
         <div class="row"><label>Fade out (beats)</label><input id="cFo" type="number" step="0.5" min="0" value="${clip.fadeOut || 0}"></div></div>
-        <div class="panel"><h3>Colors <span class="hint">this clip</span></h3>
+        <div class="panel"><h3>Colors</h3>
         <div class="big-bar" style="background:linear-gradient(90deg,${clipPaletteHex(clip).join(',')})"></div>
         <div class="pal-grid" id="cPalGrid">
           <div class="pal-opt ${!clip.palette ? 'sel' : ''}" data-pal=""><div class="bar" style="background:linear-gradient(90deg,${(p.palettes[p.defaultPalette] || ['#888']).join(',')})"></div><div class="nm">Default (${p.defaultPalette})</div></div>
@@ -1418,16 +1416,15 @@
       const s = p.sections[sel.index]; if (!s) { S.view.sel = null; return inspector(); }
       el.innerHTML = `<div class="panel"><div class="title">Section ${sel.index + 1}</div><div class="row"><label>Type</label><select id="secType">${SECTION_TYPES.map(t => `<option ${t === s.type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
         <div class="row"><label>Start</label><span>${fmtTime(s.start)} · bar ${barLabel(timeToBeat(s.start))}</span></div><div class="row"><label>End</label><span>${fmtTime(s.end)}</span></div><div class="row"><label>Length</label><span>${(timeToBeat(s.end) - timeToBeat(s.start)).toFixed(1)} beats</span></div>
-        <div class="btns"><button id="secSplit" class="small">Split at playhead</button><button id="secBuild" class="small">Auto-build this section</button><button id="secDel" class="small">Merge away</button></div>
-        <div class="hint" style="margin-top:8px">Drag a section's left edge in the section band to move the boundary.</div></div>`;
+        <div class="btns"><button id="secSplit" class="small">Split at playhead</button><button id="secBuild" class="small">Auto-build this section</button><button id="secDel" class="small">Merge away</button></div></div>`;
       $('#secType').onchange = ev => { beginChange(); s.type = ev.target.value; changed(); };
       $('#secSplit').onclick = () => { const t = pos(); if (t <= s.start + 0.5 || t >= s.end - 0.5) return toast('Move the playhead inside the section first'); beginChange(); const nt = beatToTime(snapBeat(timeToBeat(t))); p.sections.splice(sel.index + 1, 0, { start: nt, end: s.end, type: s.type }); s.end = nt; inspector(); changed(); };
       $('#secBuild').onclick = () => { beginChange(); buildSection(s, sel.index, true); changed(); };
       $('#secDel').onclick = () => deleteSelection();
       return;
     }
-    if (sel.type === 'beat') { el.innerHTML = `<div class="panel"><div class="title">Beat ${sel.index + 1}</div><div class="row"><label>Time</label><span>${fmtTime(p.beats[sel.index])}</span></div><div class="hint">Drag it on the waveform (beat edit mode), or press Delete to remove it. Use <b>Regrid</b> to rebuild an even grid from the BPM.</div><div class="btns"><button id="bDel" class="small">Delete beat</button></div></div>`; $('#bDel').onclick = () => deleteSelection(); return; }
-    if (sel.type === 'drop') { el.innerHTML = `<div class="panel"><div class="title">Drop marker</div><div class="row"><label>Time</label><span>${fmtTime(p.drops[sel.index])}</span></div><div class="hint">Drag it on the ruler. Auto-build puts a blast here.</div><div class="btns"><button id="dDel" class="small">Delete marker</button></div></div>`; $('#dDel').onclick = () => deleteSelection(); return; }
+    if (sel.type === 'beat') { el.innerHTML = `<div class="panel"><div class="title">Beat ${sel.index + 1}</div><div class="row"><label>Time</label><span>${fmtTime(p.beats[sel.index])}</span></div><div class="btns"><button id="bDel" class="small">Delete beat</button></div></div>`; $('#bDel').onclick = () => deleteSelection(); return; }
+    if (sel.type === 'drop') { el.innerHTML = `<div class="panel"><div class="title">Drop marker</div><div class="row"><label>Time</label><span>${fmtTime(p.drops[sel.index])}</span></div><div class="btns"><button id="dDel" class="small">Delete marker</button></div></div>`; $('#dDel').onclick = () => deleteSelection(); return; }
   }
 
   // ------------------------------------------------------------------ auto-build
