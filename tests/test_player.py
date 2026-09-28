@@ -463,3 +463,22 @@ class TestRoutes(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestClosing(unittest.IsolatedAsyncioTestCase):
+    async def test_closing_the_window_quits_at_once_but_a_reload_does_not(self):
+        import asyncio
+        from aiohttp.test_utils import TestClient, TestServer
+        from lightshow.studio.server import Studio
+        quits = []
+        for page_back, expect in ((False, 1), (True, 0)):
+            s = Studio(port=0, quit_when_closed=True, lights=False, player=False)
+            async def fake_quit(why, _q=quits): _q.append(why)
+            s._quit = fake_quit
+            quits.clear()
+            async with TestClient(TestServer(s.app)) as client:
+                await client.post("/api/closing")
+                if page_back:
+                    s.ws_clients = 1                       # the reloaded page connected again
+                await asyncio.sleep(2.8)
+            self.assertEqual(len(quits), expect, f"page back: {page_back}")

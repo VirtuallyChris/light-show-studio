@@ -1610,6 +1610,9 @@
   $('#bpm').onchange = () => { if (P()) { beginChange(); P().bpm = parseFloat($('#bpm').value) || P().bpm; changed(); toast('BPM stored — press Regrid to rebuild the beat grid'); } };
   $('#beatEdit').onchange = draw; $('#snap').onchange = draw; $('#effectSearch').oninput = renderLibrary;
   $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } rememberLights(true); if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
+  // Closing the window stops the studio at once, speakers included (a reload comes straight back,
+  // and the studio waits a moment to tell the two apart).
+  window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/closing'); } catch (e) { /* the watchdog still notices */ } });
   $('#latency').onchange = () => {
     S.defaults.lightOffset = parseFloat($('#latency').value) || 0;
     fetch('/api/settings/light_offset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ms: S.defaults.lightOffset }) }).catch(() => {});

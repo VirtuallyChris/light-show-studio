@@ -206,6 +206,7 @@ class Studio:
             web.post("/api/projects/{name}", self.save_project),
             web.delete("/api/projects/{name}", self.delete_project),
             web.get("/ws", self.websocket),
+            web.post("/api/closing", self.closing),
             web.get("/api/settings", self.settings),
             web.post("/api/settings/light_offset", self.set_light_offset),
             web.get("/api/cast/devices", self.cast_devices),
@@ -244,14 +245,44 @@ class Studio:
                 if self.ws_clients > 0:
                     seen, self.last_client = True, time.monotonic()
                 elif seen and time.monotonic() - self.last_client > 8:
-                    print("Studio window closed. Stopping.")
-                    try:
-                        self.jam.close_player()          # the hidden Spotify player goes with the studio
-                    except Exception:  # noqa: BLE001
-                        pass
-                    os._exit(0)
+                    await self._quit("Studio window closed. Stopping.")
         # keep a reference: a bare create_task can be garbage collected mid-flight
         self._watch_task = asyncio.create_task(watch())
+
+    async def _quit(self, why: str) -> None:
+        """Close down like an app: the speakers stop at once (a Cast speaker would otherwise play out
+        the 20 s it had buffered), the hidden Spotify player goes, then the studio exits."""
+        print(why)
+        loop = asyncio.get_running_loop()
+
+        def shut():
+            try:
+                if self.cast.cast is not None:
+                    self.cast.disconnect()                # stops the speaker's playback, then lets go of it
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self.jam.close_player()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            await asyncio.wait_for(loop.run_in_executor(None, shut), timeout=6)
+        except Exception:  # noqa: BLE001
+            pass
+        os._exit(0)
+
+    async def closing(self, request):
+        """The page is going away (its window closed, or it is reloading). If no page is back within
+        a couple of seconds it was a close: quit now rather than after the watchdog's 8 s."""
+        if request.remote not in ("127.0.0.1", "::1") or not self.quit_when_closed:
+            return web.json_response({"ok": True})
+
+        async def later():
+            await asyncio.sleep(2.5)
+            if self.ws_clients == 0:
+                await self._quit("Studio window closed. Stopping.")
+        self._closing_task = asyncio.create_task(later())
+        return web.json_response({"ok": True})
 
     # -- pages ------------------------------------------------------------------
     async def index(self, request):
