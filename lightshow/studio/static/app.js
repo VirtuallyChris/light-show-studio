@@ -502,6 +502,13 @@
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music };
         e.render(c);
         let alpha = clip.opacity ?? 1;
+        // Ducking, like sidechain compression: the layer dips on every kick and snare and swells back,
+        // so the hits on top land on a dark strip and the whole show breathes with the drums.
+        if (clip.duck > 0 && music.hasDrums) {
+          let env = 0;
+          for (const h of [music.kick, music.snare]) if (h && h.index >= 0) env = Math.max(env, Math.exp(-h.age / 0.16) * (0.6 + 0.4 * h.strength));
+          alpha *= 1 - clamp(clip.duck, 0, 1) * env;
+        }
         if (clip.fadeIn > 0) alpha *= clamp(clipBeat / clip.fadeIn, 0, 1);
         if (clip.fadeOut > 0) alpha *= clamp((clip.len - clipBeat) / clip.fadeOut, 0, 1);
         Effects.composite(dst, src, n, alpha, clip.blend || 'normal');
@@ -1211,6 +1218,7 @@
         <div class="row"><label>Start</label><span>bar ${barLabel(clip.start)} · ${fmtTime(beatToTime(clip.start))}</span></div>
         <div class="row"><label>Length (beats)</label><input id="cLen" type="number" step="0.25" min="0.25" value="${clip.len}"></div>
         <div class="row"><label>Opacity</label><input id="cOp" type="range" min="0" max="1" step="0.01" value="${clip.opacity ?? 1}"><span class="val">${Math.round((clip.opacity ?? 1) * 100)}%</span></div>
+        <div class="row"><label title="Dips this layer on every kick and snare, so what is on top of it punches through">Duck under drums</label><input id="cDuck" type="range" min="0" max="1" step="0.05" value="${clip.duck || 0}"><span class="val">${Math.round((clip.duck || 0) * 100)}%</span></div>
         <div class="row"><label>Blend</label><select id="cBlend">${Object.entries(Effects.BLENDS).map(([k, v]) => `<option value="${k}" ${(clip.blend || 'normal') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
         <div class="row"><label>Fade in (beats)</label><input id="cFi" type="number" step="0.5" min="0" value="${clip.fadeIn || 0}"></div>
         <div class="row"><label>Fade out (beats)</label><input id="cFo" type="number" step="0.5" min="0" value="${clip.fadeOut || 0}"></div></div>
@@ -1241,6 +1249,8 @@
       $('#cOp').oninput = ev => { clip.opacity = parseFloat(ev.target.value); ev.target.nextElementSibling.textContent = Math.round(clip.opacity * 100) + '%'; upd(); };
       $('#cOp').onchange = () => beginChange();
       $('#cBlend').onchange = ev => { beginChange(); clip.blend = ev.target.value; upd(); };
+      $('#cDuck').oninput = ev => { clip.duck = parseFloat(ev.target.value); ev.target.nextElementSibling.textContent = Math.round(clip.duck * 100) + '%'; upd(); };
+      $('#cDuck').onchange = () => beginChange();
       $('#cFi').onchange = ev => { beginChange(); clip.fadeIn = parseFloat(ev.target.value) || 0; upd(); };
       $('#cFo').onchange = ev => { beginChange(); clip.fadeOut = parseFloat(ev.target.value) || 0; upd(); };
       el.querySelectorAll('#cPalGrid .pal-opt').forEach(opt => opt.onclick = () => {
@@ -1326,7 +1336,23 @@
   // Effects that are mostly dark with a few bright things moving (comets, sparks, sweeps): laid
   // over a base, they take the opposite colors, so a comet over red is cyan-blue and stands out.
   const OVERLAY = new Set(['comet', 'dualcomet', 'meteors', 'orbit', 'sparkle', 'ghostspark', 'leadtrace', 'hookstrike',
-                           'sweepout', 'ripple', 'colorslam', 'fillrush']);
+                           'sweepout', 'ripple', 'colorslam', 'fillrush', 'pulse']);
+  // Concert lighting in three tiers. The bed sets the color and the mood and stays low; motion keeps
+  // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
+  const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
+  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush']);
+  const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout']);
+  function tier(c) {
+    if (BED.has(c.effect)) {
+      // the bed's brightness is set here, whatever intensity the effect itself runs at
+      const own = typeof c.params.intensity === 'number' && c.params.intensity > 0 ? c.params.intensity : 1;
+      c.opacity = Math.min(1, (S.bedLevel || 0.35) / own);
+      c.duck = S.bedDuck || 0;
+    } else if (!HIT.has(c.effect) && !FREE.has(c.effect)) {
+      c.opacity = Math.min(c.opacity ?? 1, 0.85);
+      c.duck = 0.6 * (S.bedDuck || 0);                // motion gives way to the drums too, a little less
+    }
+  }
   /** The opposite hue of each color (white and black stay as they are), as solid colors. */
   function contrastPalette(cols) {
     return Effects.solidPalette((cols || []).map(hexColor => {
@@ -1337,7 +1363,7 @@
       return '#' + Effects.hsv(h, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
     }));
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effect) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effect) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
@@ -1347,6 +1373,9 @@
     // own palette and the change of color hits with it.
     if (s.type === 'buildup' || s.type === 'breakdown') S.buildPal = contrastPalette(S.buildPal);
     S.contrastPal = contrastPalette(S.buildPal);
+    const chillStyle = showStyle() === 'chill';
+    S.bedLevel = ({ drop: 0.4, buildup: 0.35 }[s.type] || 0.3) + (chillStyle ? 0.1 : 0);
+    S.bedDuck = chillStyle ? 0.35 : ({ drop: 0.7, verse: 0.55, buildup: 0.5 }[s.type] || 0.4);
     const v = variant % 2;
     // Two rules shape everything here.
     //  1. Dark space: dim bases with a few bright things moving over them.
@@ -1385,6 +1414,8 @@
         // chill songs build by filling slowly; the strobe riser is for rave only
         clip(3, 'riser', b0, len, chill ? { follow: 'beat', step: '2', accel: false } : { follow: 'drums', accel: false });
         if (style === 'rave') clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.3, from: '1', to: '8' });
+        // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
+        if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         break;
       case 'drop': {
         const kind = variant % 4;

@@ -464,6 +464,16 @@ reached, so the lights stay in step (the Jam log says when this happens). Set
   dominant bright color and a second one from the cover.
 - **Dual comets** are for drops only; the **strobe riser** for the rave style
   only.
+- **Concert-style layers.** The bed (gradients, aurora, breathe) sets color and
+  mood at about 30% (40% in drops); motion runs up to 85%; hits (beat pulse,
+  strikes, flashes) own full brightness. The bed and motion *duck under the
+  drums* (a per-clip setting): they dip on every kick and snare and swell back,
+  so hits land on a dark strip. A buildup that runs into a drop ends in one beat
+  of black, and the drop lands out of the dark.
+- **Buildups only where the music climbs.** The run-in to a drop is a buildup
+  only if its sound opens up (brightens) toward the drop; a song that just
+  arrives at its chorus gets none. Songs learned by an older analysis are heard
+  afresh the next time they play.
 - **Contrast.** Effects that are mostly dark with bright things moving (comets,
   meteors, orbits, sparks, sweeps) take the opposite colors of the base under
   them: a comet over red is cyan-blue. Buildups and breakdowns run on the

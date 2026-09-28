@@ -227,6 +227,11 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
+ANALYSIS_VERSION = 19         # bumped when saved analyses (the cache, learned jam songs) go stale
+
+
+CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
+BUILDUP_CHECKS: list = []   # every drop's run-in, as measured (for tuning and tests)
 
 
 def cap_tempo(y, sr, bpm, beats):
@@ -462,6 +467,22 @@ def find_structure(y, sr, beats, rms, duration):
                and act[j] < tail - 0.1 and act[j] < act[j + 1] - 0.02):   # genuinely climbing, bar over bar
             j -= 1
         L = int(np.clip(round((d - 1 - j) / 4.0) * 4, L, min(16, d - run0)))
+        # Only a real climb is a buildup. Not every drop has one: some songs just arrive at the
+        # chorus. What marks a buildup is the sound opening up toward the drop (filters opening,
+        # risers, cymbals): its brightness climbs over the last 8 bars. Measured on hand-labelled
+        # songs, real buildups brightened by +0.23 to +0.44 and forced ones by +0.14 at most (usually
+        # they darkened). Without that climb the run-in keeps its own label.
+        win = act[d - L:d]
+        k = max(1, L // 4)
+        rise = float(win[-k:].mean() - win[:k].mean())
+        slope = float(np.polyfit(np.arange(L), win, 1)[0] * L) if L >= 2 else 0.0
+        w8 = min(8, d - run0); q = max(1, w8 // 4)
+        feats = {nm: round(float(B[nm][d - q:d].mean() - B[nm][d - w8:d - w8 + q].mean()), 3) for nm in B}
+        feats["hits_slope"] = round(float(np.polyfit(np.arange(w8), B["hits"][d - w8:d], 1)[0] * w8), 3) if w8 >= 2 else 0.0
+        feats["sub_last"] = round(float(B["sub"][d - q:d].mean()), 3)
+        BUILDUP_CHECKS.append({"drop_bar": int(d), "bars": int(L), "rise": round(rise, 3), "slope": round(slope, 3), **feats})
+        if feats["cent"] < CLIMB_MIN:
+            continue
         for j in range(d - L, d):
             if labels[j] == "drop":
                 continue
@@ -521,7 +542,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     """Analyse once per (path, size, mtime); cache the JSON next to the project."""
     os.makedirs(cache_dir, exist_ok=True)
     st = os.stat(path)
-    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v18.json"
+    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v19.json"
     cache = os.path.join(cache_dir, key)
     data = None
     if os.path.exists(cache):

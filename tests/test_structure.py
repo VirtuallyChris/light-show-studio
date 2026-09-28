@@ -150,3 +150,16 @@ class TestTiming(unittest.TestCase):
     def test_without_songformer_nothing_changes(self):
         secs, drops, moved = structure_model.time_with_songformer(self.sections(), [100.0], None, self.beats, 0, 140.0)
         self.assertEqual((secs, drops, moved), (self.sections(), [100.0], 0))
+
+
+class TestBuildupsOnlyWhereTheyClimb(unittest.TestCase):
+    def test_a_drop_gets_a_buildup_only_when_the_music_climbs_into_it(self):
+        from lightshow.studio import analysis as A
+        from lightshow.studio.jam_synth import make_song
+        s = make_song(bpm=128.0, sr=A.SR, seed=1)       # intro, verse, buildup, drop, breakdown, drop, outro
+        a = A.analyze_audio(s["audio"].mean(axis=1), A.SR, events=False)
+        types = [x["type"] for x in a["sections"]]
+        drops = [i for i, t in enumerate(types) if t == "drop"]
+        self.assertGreaterEqual(len(drops), 2, types)
+        self.assertEqual(types[drops[0] - 1], "buildup", types)       # the synth's riser climbs into the first drop
+        self.assertNotEqual(types[drops[1] - 1], "buildup", types)    # the second comes straight out of a breakdown

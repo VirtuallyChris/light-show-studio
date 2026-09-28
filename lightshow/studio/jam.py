@@ -53,6 +53,11 @@ def _norm(text: str) -> list[str]:
     return [w for w in re.split(r"[^a-z0-9]+", text) if w and not (w.isdigit() and len(w) == 4)]
 
 
+def _analysis_version() -> int:
+    from .analysis import ANALYSIS_VERSION
+    return ANALYSIS_VERSION
+
+
 class JamLibrary:
     """Shows saved on disk, and what has been learned about tracks heard before."""
 
@@ -149,20 +154,28 @@ class JamLibrary:
     def _learned_path(self, track_id: str) -> str:
         return os.path.join(self.learned_dir, re.sub(r"[^A-Za-z0-9]", "", track_id) + ".json")
 
+    # A learned song is only as good as the analysis that learned it: one saved before the
+    # analysis last changed (drums, the tempo cap, buildups only where they climb) is heard afresh.
     def has_learned(self, track_id: str) -> bool:
-        return os.path.isfile(self._learned_path(track_id))
+        try:
+            with open(self._learned_path(track_id), encoding="utf-8") as fh:
+                head = fh.read(64)                      # the version is written first, so this is cheap
+        except OSError:
+            return False
+        return head.startswith(f'{{"version": {_analysis_version()},')
 
     def learned(self, track_id: str) -> dict | None:
         try:
             with open(self._learned_path(track_id), encoding="utf-8") as fh:
-                return json.load(fh)
+                doc = json.load(fh)
         except (OSError, ValueError):
             return None
+        return doc if doc.get("version") == _analysis_version() else None
 
     def save_learned(self, track: Track, analysis: dict) -> None:
         os.makedirs(self.learned_dir, exist_ok=True)
         prev = self.learned(track.id) or {}
-        doc = {"track": track.to_json(), "plays": int(prev.get("plays", 0)) + 1, "learned_at": time.strftime("%Y-%m-%d %H:%M"),
+        doc = {"version": _analysis_version(), "track": track.to_json(), "plays": int(prev.get("plays", 0)) + 1, "learned_at": time.strftime("%Y-%m-%d %H:%M"),
                "analysis": analysis}
         tmp = self._learned_path(track.id) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
