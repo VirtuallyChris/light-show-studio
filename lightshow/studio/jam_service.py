@@ -191,6 +191,8 @@ class JamService:
             # would sit silent with its clock frozen. Move to this PC until Cast is pressed again.
             self._cast_failed = cast.cast
             e.say(f"{cast.name or 'the Cast speaker'} is not playing (not reachable?): the room is on this PC now. Press Cast to try it again.")
+            # let go of it, so the studio stops showing it as casting and a new Cast starts clean
+            threading.Thread(target=cast.disconnect, daemon=True).start()
         if kind == "cast":
             self._maybe_auto_sync(e)
         usable = cast.cast is not None and cast.cast is not getattr(self, "_cast_failed", None)

@@ -321,6 +321,8 @@ class TestCastThatDoesNotPlay(unittest.TestCase):
                 @staticmethod
                 def status(): return {"state": Studio.cast.state_now}
                 state_now = "UNKNOWN"
+                @staticmethod
+                def disconnect(): Studio.cast.cast = None       # let go of a speaker that failed
                 play_stream = Cast().play_stream
                 stop = Cast().stop
 
@@ -357,7 +359,9 @@ class TestCastThatDoesNotPlay(unittest.TestCase):
         self.assertTrue(any("not playing" in m for m in svc.engine.log))
         svc._follow_cast(); wait()
         self.assertEqual(svc._output_kind(svc.engine.output), "pc")       # and it stays here
-        svc._cast_failed = None                                           # Cast pressed again
+        _t.sleep(0.1)
+        self.assertIsNone(Studio.cast.cast)                               # it was let go of: the studio shows it
+        svc._cast_failed, Studio.cast.cast = None, object()               # Cast pressed again: a new connection
         Studio.cast.state_now = "PLAYING"
         svc._follow_cast(); wait()
         self.assertEqual(svc._output_kind(svc.engine.output), "cast")

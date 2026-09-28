@@ -236,13 +236,28 @@
     const r = await fetch('/api/cast/' + path, isGet ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json(); if (j.error) { toast('Cast: ' + j.error, true); throw new Error(j.error); } return j;
   }
+  function castGone() {                                   // the speaker went away without Stop cast being pressed
+    clearInterval(S.cast.poll); S.cast.poll = null; clearTimeout(S.cast.syncT);
+    S.cast.active = false; S.cast.state = 'IDLE'; stopSource(); S.audio.localCast = false;
+    $('#btnCast').textContent = 'Cast'; $('#btnCast').classList.remove('on'); $('#castOffsetWrap').hidden = true; $('#castVolume').hidden = true; $('#castLocalWrap').hidden = true; $('#btnSync').hidden = true;
+  }
   function applyCastStatus(st) {
-    const c = S.cast; c.state = st.state; c.at = performance.now();
+    const c = S.cast, jam = S.jam && S.jam.live;
+    if (c.active && st.connected === false) {
+      castGone();
+      if (jam) toast('The Cast speaker stopped playing, so the jam is on this PC now. Press Cast to try it again.', true);
+      else { S.audio.playing = false; updateTransport(); toast('The Cast speaker disconnected.', true); }
+      return;
+    }
+    c.state = st.state; c.at = performance.now();
     if (['PLAYING', 'PAUSED', 'BUFFERING'].includes(st.state)) c.pos = st.position;   // only a loaded session has a real position; otherwise keep the playhead
+    if (st.volume != null) $('#castVolume').value = Math.round(st.volume * 100);
+    // In a jam the jam owns the clock and play/pause: a speaker's own state must not fight it
+    // (a stopped Cast flipping "playing" off twice a second held the lights at a paused trickle).
+    if (jam) return;
     const playing = st.state === 'PLAYING' || st.state === 'BUFFERING';
     syncLocalToCast();
     if (S.audio.playing !== playing) { S.audio.playing = playing; updateTransport(); }
-    if (st.volume != null) $('#castVolume').value = Math.round(st.volume * 100);
     if (st.state === 'IDLE' && c.wasPlaying && st.position >= duration() - 2) { c.wasPlaying = false; }
     c.wasPlaying = playing;
   }
@@ -267,7 +282,8 @@
     clearInterval(S.cast.poll); S.cast.poll = null; clearTimeout(S.cast.syncT); const wasPos = pos();
     try { await castApi('disconnect'); } catch (e) { }
     stopSource(); S.audio.localCast = false;
-    S.cast.active = false; S.cast.state = 'IDLE'; S.audio.playing = false; S.audio.pos = wasPos; updateTransport();
+    S.cast.active = false; S.cast.state = 'IDLE';
+    if (!(S.jam && S.jam.live)) { S.audio.playing = false; S.audio.pos = wasPos; updateTransport(); }   // a jam carries on, on this PC
     $('#btnCast').textContent = 'Cast'; $('#btnCast').classList.remove('on'); $('#castOffsetWrap').hidden = true; $('#castVolume').hidden = true; $('#castLocalWrap').hidden = true; $('#btnSync').hidden = true;
   }
   async function castPlay(from) {
@@ -1623,5 +1639,5 @@
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus };
 })();
