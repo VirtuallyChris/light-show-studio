@@ -521,3 +521,39 @@ class TestLightsHandedBack(unittest.TestCase):
         self.assertIn(("turn", False), c.log)                              # it was off: off again
         self.assertEqual(o.saved, {})
         self.assertFalse(o.active)
+
+    def test_unticking_a_light_gives_just_that_one_back(self):
+        from unittest import mock
+        from lightshow.studio.server import LightOutput
+
+        class Light:
+            def __init__(self, ip): self.ip, self.log = ip, []
+            def turn(self, on): self.log.append(("turn", on))
+            def brightness(self, v): self.log.append(("brightness", v))
+            def razer(self, on): self.log.append(("razer", on))
+            def color(self, r, g, b): self.log.append(("color", (r, g, b)))
+            def white(self, k): self.log.append(("white", k))
+            def razer_leds(self, cols): pass
+
+        a, b, c = Light("1.1.1.1"), Light("1.1.1.2"), Light("1.1.1.3")
+        before = {"1.1.1.1": {"onOff": 1, "brightness": 40, "color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0},
+                  "1.1.1.2": {"onOff": 1, "brightness": 70, "color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0}}
+        o = LightOutput(enabled=True)
+        with mock.patch("lightshow.govee_lan.statuses", side_effect=[before, {}, {"1.1.1.3": {"onOff": 0}}]), mock.patch("time.sleep"):
+            o.select(["1.1.1.1", "1.1.1.2"], [a, b, c])
+            o.start()
+            for L in (a, b, c):
+                L.log.clear()
+            dropped, added = o.select(["1.1.1.1"], [a, b, c])          # untick b mid-show
+            self.assertEqual([d.ip for d in dropped], ["1.1.1.2"])
+            o.reselect(dropped, added)
+            self.assertEqual(b.log[0], ("razer", False))               # handed back like closing the studio
+            self.assertIn(("color", (0, 0, 255)), b.log)
+            self.assertIn(("brightness", 70), b.log)
+            self.assertEqual(a.log, [])                                # the other light keeps playing
+            self.assertEqual(set(o.saved), {"1.1.1.1"})
+            dropped, added = o.select(["1.1.1.1", "1.1.1.3"], [a, b, c])   # tick c mid-show: taken over
+            o.reselect(dropped, added)
+            self.assertIn(("razer", True), c.log)
+            self.assertIn(("brightness", 100), c.log)
+            self.assertIn("1.1.1.3", o.saved)

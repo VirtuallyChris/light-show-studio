@@ -196,8 +196,10 @@ after that. Saved shows live in the `shows/` folder and reload from the
    off), but the lights keep showing whatever they were until something plays:
    then the studio remembers each light's power, brightness and color and takes
    it over at full brightness. Closing the studio (or unticking Lights on) gives
-   every light back as it was. A scene from the Govee app comes back by itself;
-   the network control can only restore power, brightness and a single color.
+   every light back as it was, and so does unticking one light in the Lights
+   list, just that light; ticking one mid-show takes it over the same way. A
+   scene from the Govee app comes back by itself; the network control can only
+   restore power, brightness and a single color.
 
 **Casting to Google speakers.** Pick a Cast speaker or speaker group in the
 *Cast* dropdown (groups are marked) and press **Cast**. The studio serves the

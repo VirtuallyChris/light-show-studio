@@ -103,30 +103,48 @@ class LightOutput:
         self.dark_since = None      # when the stream went all-black (None while lit)
         self.last_rearm = 0.0
 
-    def select(self, ips: list[str], known: list[govee_lan.GoveeDevice]) -> None:
+    def select(self, ips: list[str], known: list[govee_lan.GoveeDevice]) -> tuple[list, list]:
+        """Change which lights the show drives. Returns (dropped, added) so the caller can hand the
+        dropped ones back and, mid-show, take the added ones over (both wait on the network)."""
         by_ip = {d.ip: d for d in known}
+        old = {d.ip: d for d in self.devices}
         self.devices = [by_ip.get(ip) or govee_lan.GoveeDevice(ip=ip) for ip in ips]
+        new = {d.ip for d in self.devices}
+        return [d for ip, d in old.items() if ip not in new], [d for d in self.devices if d.ip not in old]
+
+    def reselect(self, dropped: list, added: list) -> None:
+        """After select(): an unticked light goes back to how it was, exactly as when the studio closes;
+        a light ticked while a show is running is taken over like the rest."""
+        if not self.enabled:
+            return
+        if dropped:
+            self.restore([d for d in dropped if d.ip in self.saved])
+        if added and self.active:
+            self._take_over(added)
 
     def start(self) -> None:
         """Take the lights over for a show: remember how each one was, then full brightness, real-time mode."""
         if not self.enabled:
             return
-        fresh = [d for d in self.devices if d.ip not in self.saved]
+        self._take_over(self.devices)
+        self.last_enable = time.monotonic()
+        self.active = True
+
+    def _take_over(self, devices: list) -> None:
+        fresh = [d for d in devices if d.ip not in self.saved]
         if fresh:
             self.saved.update(govee_lan.statuses(fresh, timeout=1.0))
         for _ in range(3):
-            for d in self.devices:
+            for d in devices:
                 d.turn(True)
                 d.brightness(100)
             time.sleep(0.12)
         for _ in range(3):
-            for d in self.devices:
+            for d in devices:
                 d.razer(True)
             time.sleep(0.08)
-        self.last_enable = time.monotonic()
-        self.active = True
 
-    def restore(self) -> None:
+    def restore(self, only: list | None = None) -> None:
         """Hand each light back as it was before the show took it over.
 
         Leaving real-time mode returns a Govee light to what it was doing before (a scene
@@ -135,7 +153,12 @@ class LightOutput:
         """
         if not self.enabled or not self.saved:
             return
-        devs = [d for d in self.devices if d.ip in self.saved] or [govee_lan.GoveeDevice(ip=ip) for ip in self.saved]
+        if only is not None:                                 # just these lights (unticked in the studio)
+            devs = only
+        else:
+            devs = [d for d in self.devices if d.ip in self.saved] or [govee_lan.GoveeDevice(ip=ip) for ip in self.saved]
+        if not devs:
+            return
         for _ in range(3):
             for d in devs:
                 d.razer(False)
@@ -160,7 +183,11 @@ class LightOutput:
                 else:
                     d.turn(False)
             time.sleep(0.15)
-        self.saved.clear()
+        if only is not None:
+            for d in devs:
+                self.saved.pop(d.ip, None)
+        else:
+            self.saved.clear()
 
     def stop(self, off: bool = False) -> None:
         if not self.enabled:
@@ -685,8 +712,10 @@ class Studio:
                     continue
                 kind = data.get("type")
                 if kind == "select":
-                    self.output.select(data.get("ips", []), self.known)
+                    dropped, added = self.output.select(data.get("ips", []), self.known)
                     await ws.send_json({"type": "selected", "ips": [d.ip for d in self.output.devices]})
+                    if dropped or added:
+                        await loop.run_in_executor(None, self.output.reselect, dropped, added)
                 elif kind == "start":
                     await loop.run_in_executor(None, self.output.start)
                     await ws.send_json({"type": "started"})
