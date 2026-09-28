@@ -721,8 +721,9 @@
     // lanes (scrollable region under the fixed rows)
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
-      const y = laneTop(li); g.fillStyle = li % 2 ? '#14161b' : '#121317'; g.fillRect(HEADER, y, w, ROW.lane); g.strokeStyle = '#2f333d'; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
-      g.globalAlpha = lane.hidden ? 0.3 : 1;
+      const y = laneTop(li); g.fillStyle = lane.hidden ? '#0c0d10' : li % 2 ? '#14161b' : '#121317'; g.fillRect(HEADER, y, w, ROW.lane); g.strokeStyle = '#2f333d'; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
+      // a hidden layer is greyed out as a whole: its clips in grey, faded
+      const ga = lane.hidden ? 0.35 : 1; g.globalAlpha = ga; g.filter = lane.hidden ? 'grayscale(1)' : 'none';
       for (const c of lane.clips) {
         const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x1 < HEADER || x0 > w) continue;
         // a clip that starts off to the left is drawn from the timeline's edge: its width must be
@@ -730,7 +731,7 @@
         const vx = Math.max(HEADER, x0), vw = Math.max(0, x1 - vx - 2);
         const e = Effects.byId[c.effect]; const sw = e ? e.swatch : ['#666', '#333'];
         const grad = g.createLinearGradient(x0, y, x0, y + ROW.lane); grad.addColorStop(0, sw[0]); grad.addColorStop(1, sw[1]);
-        g.fillStyle = grad; g.globalAlpha = 0.55; g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.fill(); g.globalAlpha = 1;
+        g.fillStyle = grad; g.globalAlpha = 0.55 * ga; g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.fill(); g.globalAlpha = ga;
         const isSel = isSelected(c.id);
         g.strokeStyle = isSel ? '#fff' : 'rgba(255,255,255,0.25)'; g.lineWidth = isSel ? 2 : 1;
         g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.stroke(); g.lineWidth = 1;
@@ -741,7 +742,7 @@
         const cols = clipPaletteHex(c); const bx0 = Math.max(HEADER, x0) + 5, bx1 = Math.min(w, x1) - 7;
         if (bx1 > bx0 + 4) { const pg = g.createLinearGradient(bx0, 0, bx1, 0); cols.forEach((col, i) => pg.addColorStop(i / Math.max(1, cols.length - 1), col)); g.fillStyle = pg; g.beginPath(); g.roundRect(bx0, y + ROW.lane - 12, bx1 - bx0, 6, 3); g.fill(); }
       }
-      g.globalAlpha = 1;
+      g.globalAlpha = 1; g.filter = 'none';
     });
     g.restore();
     // lane headers
