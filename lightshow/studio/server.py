@@ -664,6 +664,19 @@ def chromium_candidates() -> list[str]:
     return found
 
 
+APP_PROFILE = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "lanlightshow", "browser")
+
+
+def give_window_identity(wait: bool = False) -> None:
+    """Once the app window is open, make it Light Show Studio on the taskbar rather than Chrome
+    (its own button, name and icon, and a pin that starts the studio). See window_identity.py."""
+    from .window_identity import adopt_studio_windows
+    if wait:
+        adopt_studio_windows(APP_PROFILE)
+    else:
+        threading.Thread(target=adopt_studio_windows, args=(APP_PROFILE,), daemon=True).start()
+
+
 def open_app_window(url: str) -> subprocess.Popen | None:
     """Open the studio in a borderless Chromium app window (no tabs or address bar).
 
@@ -673,7 +686,7 @@ def open_app_window(url: str) -> subprocess.Popen | None:
     exe = find_chromium()
     if exe is None:
         return None
-    profile = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "lanlightshow", "browser")
+    profile = APP_PROFILE
     os.makedirs(profile, exist_ok=True)
     args = [exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
             "--no-default-browser-check", "--disable-features=Translate,TranslateUI",
@@ -709,6 +722,8 @@ def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
         print("Studio already running; opening another window on it.")
         if not (app_window and open_app_window(url) is not None):
             webbrowser.open(url)
+        elif app_window:
+            give_window_identity(wait=True)             # this process ends right after, so do it now
         return
     studio = Studio(port=port, quit_when_closed=app_window and not stay, lights=lights, player=player)
     if not lights:
@@ -717,6 +732,7 @@ def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
     if open_browser:
         proc = open_app_window(url) if app_window else None
         if proc is not None:
+            give_window_identity()
             print("Opened in an app window." + ("" if stay else " Close it to quit the studio."))
         else:
             if app_window:

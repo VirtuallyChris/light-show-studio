@@ -417,6 +417,18 @@ class TestAutoSync(unittest.TestCase):
         self.assertEqual(len(runs), 2)
 
 
+class TestTaskbarIdentity(unittest.TestCase):
+    def test_a_pinned_studio_starts_the_studio_with_its_own_icon(self):
+        import os
+        import re
+        from lightshow.studio import window_identity as wi
+        files = re.findall(r'"([^"]+)"', wi.relaunch_command())
+        self.assertTrue(files[0].lower().endswith("wscript.exe"))
+        self.assertTrue(os.path.isfile(files[1]) and files[1].endswith("Light Show Studio.vbs"), files)
+        self.assertTrue(os.path.isfile(wi.icon_resource().rsplit(",", 1)[0]))
+        self.assertNotIn("chrome", wi.APP_ID.lower())
+
+
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)

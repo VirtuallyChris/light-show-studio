@@ -560,6 +560,15 @@ whether your light has 6, 12 or 20 controllable segments. Run `probe` once
 per light, count the zones that light up, and save it with `--save N`. Sending
 more colors than the light has segments is harmless; the extras are ignored.
 
+## Pinning to the taskbar
+
+The studio's window is its own app on the taskbar, "Light Show Studio" with its
+icon, not Chrome: right-click its taskbar button and choose *Pin to taskbar*. The
+pinned button starts the whole studio (the same as the desktop shortcut). Windows
+files windows by their app ID, and the studio sets its own on its window as it
+opens (`lightshow/studio/window_identity.py`). If you pinned Chrome by accident
+before, unpin that one.
+
 ## Priority for the lights on Wi-Fi
 
 The studio marks its light packets as real-time traffic (DSCP 46), so an access
