@@ -313,7 +313,9 @@ pointer, <kbd>Shift</kbd>+wheel pans, and <kbd>Ctrl</kbd>+wheel scrolls the
 layer stack. <kbd>Space</kbd> plays and pauses, clicking the waveform seeks,
 dragging the ruler scrubs (the playhead snaps to the **Snap** setting, like
 clips; hold <kbd>Alt</kbd> to place it freely), and <kbd>+</kbd>/<kbd>-</kbd>/<kbd>Fit</kbd> zoom
-from the keyboard.
+from the keyboard. Zooming out can go past the end of the song (up to four
+songs' width); the time after the end is shaded, and **Fit** brings the whole
+song back to the full width.
 <kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo/redo, <kbd>Ctrl</kbd>+<kbd>S</kbd>
 to save. Everything auto-saves a couple of seconds after you stop editing.
 

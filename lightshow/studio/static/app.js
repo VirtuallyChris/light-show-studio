@@ -645,7 +645,7 @@
   function zoomFit() { if (!S.analysis) return; if (viewWidth() <= 0) { S.view.fitPending = true; return; } S.view.pps = Math.max(1, viewWidth() / duration()); S.view.scroll = 0; draw(); }
   const wheelZoom = e => clamp(Math.pow(1.002, -(e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY)), 0.4, 2.5);
   function zoomAt(factor, xPix) {
-    const t = tOf(xPix); const minPps = viewWidth() / Math.max(1, duration());
+    const t = tOf(xPix); const minPps = viewWidth() / Math.max(1, duration() * 4);   // out to four songs' width: room past the end
     S.view.pps = clamp(S.view.pps * factor, minPps, 600);
     S.view.scroll = clamp(t - (xPix - HEADER) / S.view.pps, 0, Math.max(0, duration() - viewWidth() / S.view.pps)); draw();
   }
@@ -745,6 +745,10 @@
       g.globalAlpha = 1; g.filter = 'none';
     });
     g.restore();
+    // past the end of the song (zoomed out far enough to see it): shaded, with a line at the end
+    const xe = xOf(duration());
+    if (xe < w) { const x0 = Math.max(HEADER, xe); g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(x0, 0, w - x0, h);
+      if (xe >= HEADER) { g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(xe, 0, 1, h); g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText('end', xe + 5, ROW.ruler - 7); } }
     // lane headers
     g.fillStyle = '#1a1c22'; g.fillRect(0, 0, HEADER, h); g.strokeStyle = '#2f333d'; g.beginPath(); g.moveTo(HEADER - 0.5, 0); g.lineTo(HEADER - 0.5, h); g.stroke();
     g.fillStyle = '#8b92a3'; g.font = '11px system-ui'; g.fillText('sections', 8, sy + 14); g.fillText('waveform', 8, wy + 16);
