@@ -88,6 +88,9 @@ class LightOutput:
     def __init__(self, enabled: bool = True):
         self.enabled = enabled                          # False: a test copy that must never touch the lights
         self.saved: dict = {}                            # ip -> how the light was before the show took it over
+        # ip -> (how it was, when it was handed back). Ticked again soon after, a light is not asked
+        # how it is: it may still be at the show's 100 %, or the restore may still be on its way.
+        self.handed_back: dict = {}
         self.devices: list[govee_lan.GoveeDevice] = []
         self.active = False
         self.last_enable = 0.0
@@ -130,10 +133,28 @@ class LightOutput:
         self.last_enable = time.monotonic()
         self.active = True
 
+    REUSE_S = 60.0          # a light handed back this recently keeps the state it was first saved with
+
     def _take_over(self, devices: list) -> None:
         fresh = [d for d in devices if d.ip not in self.saved]
-        if fresh:
-            self.saved.update(govee_lan.statuses(fresh, timeout=1.0))
+        now = time.monotonic()
+        ask = []
+        for d in fresh:
+            back = self.handed_back.get(d.ip)
+            if back and now - back[1] < self.REUSE_S:
+                self.saved[d.ip] = back[0]
+            else:
+                ask.append(d)
+        if ask:
+            got = govee_lan.statuses(ask, timeout=1.0)
+            missing = [d for d in ask if d.ip not in got]
+            if missing:                                      # UDP: one more try for the quiet ones
+                got.update(govee_lan.statuses(missing, timeout=1.0))
+            for d in ask:
+                if d.ip in got:
+                    self.saved[d.ip] = got[d.ip]
+                elif d.ip in self.handed_back:               # never answered: the last known state beats none
+                    self.saved[d.ip] = self.handed_back[d.ip][0]
         for _ in range(3):
             for d in devices:
                 d.turn(True)
@@ -183,11 +204,41 @@ class LightOutput:
                 else:
                     d.turn(False)
             time.sleep(0.15)
+        self._verify(devs)
+        t = time.monotonic()
+        for d in devs:
+            if self.saved.get(d.ip):
+                self.handed_back[d.ip] = (self.saved[d.ip], t)
         if only is not None:
             for d in devs:
                 self.saved.pop(d.ip, None)
         else:
             self.saved.clear()
+
+    def _verify(self, devs: list) -> None:
+        """Ask each light how it is now, and send power and brightness again to any that did not take
+        it (a lost packet, or a light still busy leaving real-time mode). A light that does not
+        answer is left alone: there is no telling."""
+        for _ in range(2):
+            time.sleep(0.3)
+            now = govee_lan.statuses(devs, timeout=0.8)
+            wrong = []
+            for d in devs:
+                was, cur = self.saved.get(d.ip) or {}, now.get(d.ip)
+                if not was or not cur:
+                    continue
+                on = bool(was.get("onOff", 1))
+                if bool(cur.get("onOff", 1)) != on or (on and was.get("brightness") is not None
+                                                        and abs(int(cur.get("brightness", -99)) - int(was["brightness"])) > 2):
+                    wrong.append((d, was, on))
+            if not wrong:
+                return
+            for _ in range(2):
+                for d, was, on in wrong:
+                    d.turn(on)
+                    if on and was.get("brightness") is not None:
+                        d.brightness(int(was["brightness"]))
+                time.sleep(0.15)
 
     def stop(self, off: bool = False) -> None:
         if not self.enabled:

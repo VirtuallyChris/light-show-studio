@@ -484,62 +484,94 @@ class TestClosing(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(quits), expect, f"page back: {page_back}")
 
 
+class FakeLight:
+    """A Govee light over LAN, as far as the studio can tell: commands change its state (unless
+    packets are being lost), real-time mode off brings back the color it had before (or not),
+    and it answers status requests unless it is silent."""
+
+    def __init__(self, ip, on=1, brightness=50, color=(255, 0, 0), kelvin=0, keeps_color=True):
+        self.ip, self.log = ip, []
+        self.st = {"onOff": on, "brightness": brightness, "color": dict(zip("rgb", color)), "colorTemInKelvin": kelvin}
+        self.keeps_color, self.pre, self.lose, self.silent = keeps_color, None, 0, False
+
+    def _ok(self):
+        if self.lose > 0:
+            self.lose -= 1
+            return False
+        return True
+
+    def turn(self, on):
+        self.log.append(("turn", on))
+        if self._ok():
+            self.st["onOff"] = int(on)
+
+    def brightness(self, v):
+        self.log.append(("brightness", v))
+        if self._ok():
+            self.st["brightness"] = v
+
+    def razer(self, on):
+        self.log.append(("razer", on))
+        if on and self.pre is None:
+            self.pre = dict(self.st["color"])
+        if not on and self.pre is not None:
+            self.st["color"] = self.pre if self.keeps_color else {"r": 10, "g": 200, "b": 30}
+            self.pre = None
+
+    def color(self, r, g, b):
+        self.log.append(("color", (r, g, b)))
+        if self._ok():
+            self.st["color"] = {"r": r, "g": g, "b": b}
+
+    def white(self, k):
+        self.log.append(("white", k))
+
+    def razer_leds(self, cols):
+        pass
+
+
+def fake_statuses(devices, timeout=1.0):
+    return {d.ip: {**d.st, "color": dict(d.st["color"])} for d in devices if not d.silent}
+
+
 class TestLightsHandedBack(unittest.TestCase):
-    def test_the_show_saves_each_light_and_gives_it_back(self):
-        from unittest import mock
+    def output(self):
         from lightshow.studio.server import LightOutput
+        return LightOutput(enabled=True)
 
-        class Light:
-            def __init__(self, ip): self.ip, self.log = ip, []
-            def turn(self, on): self.log.append(("turn", on))
-            def brightness(self, v): self.log.append(("brightness", v))
-            def razer(self, on): self.log.append(("razer", on))
-            def color(self, r, g, b): self.log.append(("color", (r, g, b)))
-            def white(self, k): self.log.append(("white", k))
-            def razer_leds(self, cols): pass
+    def patches(self):
+        from unittest import mock
+        return mock.patch("lightshow.govee_lan.statuses", side_effect=fake_statuses), mock.patch("time.sleep")
 
-        a, b, c = Light("1.1.1.1"), Light("1.1.1.2"), Light("1.1.1.3")
-        before = {"1.1.1.1": {"onOff": 1, "brightness": 40, "color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0},
-                  "1.1.1.2": {"onOff": 1, "brightness": 70, "color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0},
-                  "1.1.1.3": {"onOff": 0, "brightness": 90, "color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": 3000}}
-        after = {"1.1.1.1": {"color": {"r": 255, "g": 0, "b": 0}},       # came back to its red by itself
-                 "1.1.1.2": {"color": {"r": 10, "g": 200, "b": 30}}}     # did not: its blue is put back
-        o = LightOutput(enabled=True)
+    def test_the_show_saves_each_light_and_gives_it_back(self):
+        a = FakeLight("1.1.1.1", brightness=40, color=(255, 0, 0))                      # its red comes back by itself
+        b = FakeLight("1.1.1.2", brightness=70, color=(0, 0, 255), keeps_color=False)   # its blue does not
+        c = FakeLight("1.1.1.3", on=0, brightness=90, color=(0, 0, 0), kelvin=3000)
+        o = self.output()
         o.devices = [a, b, c]
-        with mock.patch("lightshow.govee_lan.statuses", side_effect=[before, after]), mock.patch("time.sleep"):
+        p1, p2 = self.patches()
+        with p1, p2:
             o.start()
             self.assertEqual(set(o.saved), {"1.1.1.1", "1.1.1.2", "1.1.1.3"})
-            self.assertIn(("brightness", 100), a.log)
+            self.assertEqual(a.st["brightness"], 100)
             for L in (a, b, c):
                 L.log.clear()
             o.stop()
         self.assertEqual(a.log[0], ("razer", False))                       # real-time mode off first
-        self.assertIn(("brightness", 40), a.log)
+        self.assertEqual(a.st["brightness"], 40)
         self.assertNotIn("color", [x[0] for x in a.log])                   # its color came back by itself
         self.assertIn(("color", (0, 0, 255)), b.log)
-        self.assertIn(("brightness", 70), b.log)
-        self.assertIn(("turn", False), c.log)                              # it was off: off again
+        self.assertEqual(b.st["brightness"], 70)
+        self.assertEqual(c.st["onOff"], 0)                                 # it was off: off again
         self.assertEqual(o.saved, {})
         self.assertFalse(o.active)
 
     def test_unticking_a_light_gives_just_that_one_back(self):
-        from unittest import mock
-        from lightshow.studio.server import LightOutput
-
-        class Light:
-            def __init__(self, ip): self.ip, self.log = ip, []
-            def turn(self, on): self.log.append(("turn", on))
-            def brightness(self, v): self.log.append(("brightness", v))
-            def razer(self, on): self.log.append(("razer", on))
-            def color(self, r, g, b): self.log.append(("color", (r, g, b)))
-            def white(self, k): self.log.append(("white", k))
-            def razer_leds(self, cols): pass
-
-        a, b, c = Light("1.1.1.1"), Light("1.1.1.2"), Light("1.1.1.3")
-        before = {"1.1.1.1": {"onOff": 1, "brightness": 40, "color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0},
-                  "1.1.1.2": {"onOff": 1, "brightness": 70, "color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0}}
-        o = LightOutput(enabled=True)
-        with mock.patch("lightshow.govee_lan.statuses", side_effect=[before, {}, {"1.1.1.3": {"onOff": 0}}]), mock.patch("time.sleep"):
+        a, b = FakeLight("1.1.1.1", brightness=40), FakeLight("1.1.1.2", brightness=70, color=(0, 0, 255), keeps_color=False)
+        c = FakeLight("1.1.1.3", on=0)
+        o = self.output()
+        p1, p2 = self.patches()
+        with p1, p2:
             o.select(["1.1.1.1", "1.1.1.2"], [a, b, c])
             o.start()
             for L in (a, b, c):
@@ -548,12 +580,52 @@ class TestLightsHandedBack(unittest.TestCase):
             self.assertEqual([d.ip for d in dropped], ["1.1.1.2"])
             o.reselect(dropped, added)
             self.assertEqual(b.log[0], ("razer", False))               # handed back like closing the studio
-            self.assertIn(("color", (0, 0, 255)), b.log)
-            self.assertIn(("brightness", 70), b.log)
+            self.assertEqual((b.st["brightness"], b.st["color"]), (70, {"r": 0, "g": 0, "b": 255}))
             self.assertEqual(a.log, [])                                # the other light keeps playing
             self.assertEqual(set(o.saved), {"1.1.1.1"})
             dropped, added = o.select(["1.1.1.1", "1.1.1.3"], [a, b, c])   # tick c mid-show: taken over
             o.reselect(dropped, added)
             self.assertIn(("razer", True), c.log)
-            self.assertIn(("brightness", 100), c.log)
+            self.assertEqual(c.st["brightness"], 100)
             self.assertIn("1.1.1.3", o.saved)
+
+    def test_rapid_ticking_still_ends_at_the_original_brightness(self):
+        a, b = FakeLight("1.1.1.1", brightness=40), FakeLight("1.1.1.2", brightness=25)
+        o = self.output()
+        p1, p2 = self.patches()
+        with p1, p2:
+            o.select(["1.1.1.1", "1.1.1.2"], [a, b])
+            o.start()
+            for _ in range(4):                                         # click b off and on, fast
+                o.reselect(*o.select(["1.1.1.1"], [a, b]))
+                b.st["brightness"] = 100                               # the restore has not landed yet
+                o.reselect(*o.select(["1.1.1.1", "1.1.1.2"], [a, b]))
+                self.assertEqual(o.saved["1.1.1.2"]["brightness"], 25)  # still the original, not the show's 100
+            o.reselect(*o.select(["1.1.1.1"], [a, b]))
+        self.assertEqual(b.st["brightness"], 25)
+
+    def test_a_lost_restore_is_sent_again(self):
+        b = FakeLight("1.1.1.2", brightness=25)
+        o = self.output()
+        o.devices = [b]
+        p1, p2 = self.patches()
+        with p1, p2:
+            o.start()
+            b.lose = 4                                                 # the restore's power and brightness go missing
+            o.stop()
+        self.assertEqual((b.st["onOff"], b.st["brightness"]), (1, 25))
+
+    def test_a_light_that_did_not_answer_at_first_is_asked_again(self):
+        b = FakeLight("1.1.1.2", brightness=25)
+        o = self.output()
+        o.devices = [b]
+        calls = []
+        from unittest import mock
+        def statuses(devices, timeout=1.0):
+            calls.append(1)
+            return {} if len(calls) == 1 else fake_statuses(devices)  # no reply the first time
+        with mock.patch("lightshow.govee_lan.statuses", side_effect=statuses), mock.patch("time.sleep"):
+            o.start()
+            self.assertEqual(o.saved["1.1.1.2"]["brightness"], 25)
+            o.stop()
+        self.assertEqual(b.st["brightness"], 25)
