@@ -9,15 +9,9 @@ __pycache__/
 config.json
 studio.log
 
-# Songs are yours to supply (and mostly somebody else's copyright).
-# The show designs next to them (project.json) are kept.
-shows/**/song.*
-shows/**/cache/
-shows/_calibration/
-# what Jam mode has learned about tracks it has heard, and which tracks are pinned to which show
-shows/_jam/
-# scratch project used for automated UI tests
-shows/testsong_128bpm/
+# Songs and the shows built on them are yours: kept on this computer, not in git.
+# (That covers Jam mode's learned tracks in shows/_jam/ and the scratch test project too.)
+shows/
 
 # Editors and OS
 .vscode/
