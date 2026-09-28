@@ -27,10 +27,25 @@
   const pv = $('#preview'), pctx = pv.getContext('2d');
 
   // ------------------------------------------------------------------ project model
+  /** Sections as the lights should see them: two of the same kind side by side are one (a second
+   *  breakdown right after a breakdown only restarted every effect), and a sliver under 2 seconds
+   *  goes to the section before it. */
+  function tidySections(list) {
+    const join = (arr, keep) => {
+      const out = [];
+      for (const s of arr) { const prev = out[out.length - 1]; if (prev && keep(prev, s)) prev.end = Math.max(prev.end, s.end); else out.push(s); }
+      return out;
+    };
+    let out = join((list || []).map(s => ({ start: s.start, end: s.end, type: s.type })), (a, b) => a.type === b.type);
+    out = join(out, (a, b) => b.end - b.start < 2);                                  // slivers go to the section before
+    if (out.length > 1 && out[0].end - out[0].start < 2) { out[1].start = out[0].start; out.shift(); }
+    return join(out, (a, b) => a.type === b.type);                                  // a sliver may have joined two alike
+  }
+
   function newProject(a, name) {
     return {
       version: 1, name, bpm: a.bpm, phase: a.downbeat_phase, beats: a.beats.slice(),
-      sections: a.sections.map(s => ({ start: s.start, end: s.end, type: s.type })),
+      sections: tidySections(a.sections),
       drops: a.drops.slice(), palettes: JSON.parse(JSON.stringify(Effects.PALETTES)), defaultPalette: 'Neon',
       paletteClips: [], lanes: Array.from({ length: DEFAULT_LANES }, newLane),
       settings: { latency: 30, master: 1 },
@@ -1557,5 +1572,5 @@
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {}; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections };
 })();

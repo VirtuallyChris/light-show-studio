@@ -259,7 +259,7 @@
     S.analysis = a; J.lastFeat = performance.now();
     if (featuresOnly && doc.version === J.version) { St.draw(); return; }
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
-    p.sections = a.sections.map(s => ({ start: s.start, end: s.end, type: s.type }));
+    p.sections = St.tidySections(a.sections);
     $('#bpm').value = p.bpm.toFixed(2);
     // the genre arrived, or the drums did (the beat pulse goes only where there are drums): rebuild
     const drumsNow = !!(a.events && a.events.kick && a.events.kick.length);
@@ -301,6 +301,7 @@
       }
       build(s, i, n, startBeat < nowBeat && endBeat > nowBeat ? nowBeat : startBeat, endBeat);
     });
+    joinClips(nowBeat);
     // the safety net: no part of what is still to come goes without a base layer
     const counts2 = {};
     p.sections.forEach((s, i) => {
@@ -314,9 +315,29 @@
         else if (run !== null) { if (b - run >= 2) build(s, i, n, run, b); run = null; }
       }
     });
+    joinClips(nowBeat);
     return keys;
   }
-  J.reconcile = reconcile;                                  // for checking by hand
+  J.reconcile = reconcile;
+
+  /** Rebuilds cut clips at the playhead and start them again; on the same layer, the same effect with
+   *  the same settings and colors, end to end, is one clip, so it runs on without restarting. Clips
+   *  that are already over are left as they are. */
+  function joinClips(nowBeat) {
+    const same = (x, y) => x.effect === y.effect && (x.opacity ?? 1) === (y.opacity ?? 1) && x.blend === y.blend
+      && JSON.stringify(x.params) === JSON.stringify(y.params) && JSON.stringify(x.palette) === JSON.stringify(y.palette);
+    for (const lane of St.P().lanes) {
+      lane.clips.sort((x, y) => x.start - y.start);
+      const kept = [];
+      for (const c of lane.clips) {
+        const prev = kept[kept.length - 1];
+        if (prev && prev.start + prev.len > nowBeat - 1 && Math.abs(prev.start + prev.len - c.start) < 0.01 && same(prev, c)) {
+          prev.len = c.start + c.len - prev.start; prev.fadeOut = c.fadeOut;
+        } else kept.push(c);
+      }
+      lane.clips = kept;
+    }
+  }                                  // for checking by hand
 
   /** Clear [b0, b1) for a rebuild. A clip that began earlier is cut back to b0, not deleted: it is
    *  what the room is looking at right now, and removing it would black the lights out mid-verse. */
