@@ -87,6 +87,7 @@ class LightOutput:
 
     def __init__(self, enabled: bool = True):
         self.enabled = enabled                          # False: a test copy that must never touch the lights
+        self.saved: dict = {}                            # ip -> how the light was before the show took it over
         self.devices: list[govee_lan.GoveeDevice] = []
         self.active = False
         self.last_enable = 0.0
@@ -107,8 +108,12 @@ class LightOutput:
         self.devices = [by_ip.get(ip) or govee_lan.GoveeDevice(ip=ip) for ip in ips]
 
     def start(self) -> None:
+        """Take the lights over for a show: remember how each one was, then full brightness, real-time mode."""
         if not self.enabled:
             return
+        fresh = [d for d in self.devices if d.ip not in self.saved]
+        if fresh:
+            self.saved.update(govee_lan.statuses(fresh, timeout=1.0))
         for _ in range(3):
             for d in self.devices:
                 d.turn(True)
@@ -121,8 +126,48 @@ class LightOutput:
         self.last_enable = time.monotonic()
         self.active = True
 
+    def restore(self) -> None:
+        """Hand each light back as it was before the show took it over.
+
+        Leaving real-time mode returns a Govee light to what it was doing before (a scene
+        included), so that comes first; then its power and brightness; and its color only if it
+        did not come back to the one it had, so a scene is not painted over for nothing.
+        """
+        if not self.enabled or not self.saved:
+            return
+        devs = [d for d in self.devices if d.ip in self.saved] or [govee_lan.GoveeDevice(ip=ip) for ip in self.saved]
+        for _ in range(3):
+            for d in devs:
+                d.razer(False)
+            time.sleep(0.08)
+        time.sleep(0.4)
+        now = govee_lan.statuses(devs, timeout=0.8)
+        for _ in range(2):                                   # UDP: say it twice
+            for d in devs:
+                was = self.saved.get(d.ip) or {}
+                if not was:
+                    continue
+                col, k = was.get("color") or {}, int(was.get("colorTemInKelvin") or 0)
+                cur = (now.get(d.ip) or {}).get("color") or {}
+                if was.get("onOff", 1):
+                    d.turn(True)
+                    if k:
+                        d.white(k)
+                    elif col and any(abs(int(col.get(c, 0)) - int(cur.get(c, -99))) > 10 for c in "rgb"):
+                        d.color(int(col.get("r", 0)), int(col.get("g", 0)), int(col.get("b", 0)))
+                    if was.get("brightness") is not None:
+                        d.brightness(int(was["brightness"]))
+                else:
+                    d.turn(False)
+            time.sleep(0.15)
+        self.saved.clear()
+
     def stop(self, off: bool = False) -> None:
         if not self.enabled:
+            return
+        if self.saved and not off:
+            self.restore()
+            self.active = False
             return
         for d in self.devices:
             d.razer(False)
@@ -256,6 +301,10 @@ class Studio:
         loop = asyncio.get_running_loop()
 
         def shut():
+            try:
+                self.output.stop()                        # the lights go back to how they were
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 if self.cast.cast is not None:
                     self.cast.disconnect()                # stops the speaker's playback, then lets go of it

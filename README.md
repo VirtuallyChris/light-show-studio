@@ -192,8 +192,12 @@ after that. Saved shows live in the `shows/` folder and reload from the
 5. **Play** with **Lights on** ticked to drive the real lights in sync with a
    live preview of every strip. The **Offset** box sends the lights a few
    milliseconds ahead of the audio to line them up by eye.
-   **Lights on** comes on by itself when the studio opens, unless you last
-   switched it off.
+   **Lights on** is ticked when the studio opens (unless you last switched it
+   off), but the lights keep showing whatever they were until something plays:
+   then the studio remembers each light's power, brightness and color and takes
+   it over at full brightness. Closing the studio (or unticking Lights on) gives
+   every light back as it was. A scene from the Govee app comes back by itself;
+   the network control can only restore power, brightness and a single color.
 
 **Casting to Google speakers.** Pick a Cast speaker or speaker group in the
 *Cast* dropdown (groups are marked) and press **Cast**. The studio serves the

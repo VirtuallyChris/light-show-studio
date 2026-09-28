@@ -89,6 +89,9 @@ class GoveeDevice:
                     return msg.get("data")
         return None
 
+    def white(self, kelvin: int) -> None:
+        self.send("colorwc", {"color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": int(kelvin)})
+
     # -- real-time per-segment protocol ("Razer Chroma" mode) ---------------
     # Packet: BB 00 <len> <cmd> <data...> <xor checksum>. cmd 0xB1 = enable
     # (data: 01/00), cmd 0xB0 = LED data (data: gradient flag, count, RGB*count).
@@ -165,6 +168,25 @@ def _drain(sock: socket.socket, timeout: float):
             yield addr[0], json.loads(raw.decode())["msg"]
         except (ValueError, KeyError):
             continue
+
+
+def statuses(devices: list, timeout: float = 1.0) -> dict:
+    """{ip: status} for several lights at once: ask them all, then gather the replies."""
+    out: dict = {}
+    want = {d.ip for d in devices}
+    try:
+        with _listener(timeout) as ls:
+            for _ in range(2):                              # UDP: ask twice
+                for d in devices:
+                    d.send("devStatus")
+            for ip, msg in _drain(ls, timeout):
+                if msg.get("cmd") == "devStatus" and ip in want and ip not in out:
+                    out[ip] = msg.get("data")
+                    if len(out) == len(want):
+                        break
+    except OSError:
+        pass
+    return out
 
 
 def local_ip() -> str | None:

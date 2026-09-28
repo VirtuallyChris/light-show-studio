@@ -482,3 +482,42 @@ class TestClosing(unittest.IsolatedAsyncioTestCase):
                     s.ws_clients = 1                       # the reloaded page connected again
                 await asyncio.sleep(2.8)
             self.assertEqual(len(quits), expect, f"page back: {page_back}")
+
+
+class TestLightsHandedBack(unittest.TestCase):
+    def test_the_show_saves_each_light_and_gives_it_back(self):
+        from unittest import mock
+        from lightshow.studio.server import LightOutput
+
+        class Light:
+            def __init__(self, ip): self.ip, self.log = ip, []
+            def turn(self, on): self.log.append(("turn", on))
+            def brightness(self, v): self.log.append(("brightness", v))
+            def razer(self, on): self.log.append(("razer", on))
+            def color(self, r, g, b): self.log.append(("color", (r, g, b)))
+            def white(self, k): self.log.append(("white", k))
+            def razer_leds(self, cols): pass
+
+        a, b, c = Light("1.1.1.1"), Light("1.1.1.2"), Light("1.1.1.3")
+        before = {"1.1.1.1": {"onOff": 1, "brightness": 40, "color": {"r": 255, "g": 0, "b": 0}, "colorTemInKelvin": 0},
+                  "1.1.1.2": {"onOff": 1, "brightness": 70, "color": {"r": 0, "g": 0, "b": 255}, "colorTemInKelvin": 0},
+                  "1.1.1.3": {"onOff": 0, "brightness": 90, "color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": 3000}}
+        after = {"1.1.1.1": {"color": {"r": 255, "g": 0, "b": 0}},       # came back to its red by itself
+                 "1.1.1.2": {"color": {"r": 10, "g": 200, "b": 30}}}     # did not: its blue is put back
+        o = LightOutput(enabled=True)
+        o.devices = [a, b, c]
+        with mock.patch("lightshow.govee_lan.statuses", side_effect=[before, after]), mock.patch("time.sleep"):
+            o.start()
+            self.assertEqual(set(o.saved), {"1.1.1.1", "1.1.1.2", "1.1.1.3"})
+            self.assertIn(("brightness", 100), a.log)
+            for L in (a, b, c):
+                L.log.clear()
+            o.stop()
+        self.assertEqual(a.log[0], ("razer", False))                       # real-time mode off first
+        self.assertIn(("brightness", 40), a.log)
+        self.assertNotIn("color", [x[0] for x in a.log])                   # its color came back by itself
+        self.assertIn(("color", (0, 0, 255)), b.log)
+        self.assertIn(("brightness", 70), b.log)
+        self.assertIn(("turn", False), c.log)                              # it was off: off again
+        self.assertEqual(o.saved, {})
+        self.assertFalse(o.active)

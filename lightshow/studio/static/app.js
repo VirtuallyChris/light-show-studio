@@ -392,7 +392,8 @@
     if (S.autoLightsDone || !S.wsOpen || !S.lights.length) return;
     S.autoLightsDone = true;
     if (!lightsWanted() || !selectedLights().length) return;
-    $('#outputOn').checked = true; pushFrameIfIdle();
+    // armed, not started: the lights keep what they are showing until a song plays
+    $('#outputOn').checked = true; S.lightsArmed = true;
   }
   function renderLights() {
     const el = $('#lightList'); el.innerHTML = '';
@@ -427,9 +428,11 @@
   }
   const wsSend = o => { if (S.wsOpen) S.ws.send(JSON.stringify(o)); };
   function sendSelect() { wsSend({ type: 'select', ips: selectedLights().map(l => l.ip) }); }
-  function startOutput() { if (!S.outputActive && selectedLights().length) wsSend({ type: 'start' }); }
+  function startOutput() { S.lightsArmed = false; if (!S.outputActive && selectedLights().length) wsSend({ type: 'start' }); }
   function stopOutput() { if (S.outputActive) wsSend({ type: 'stop' }); }
-  function pushFrameIfIdle() { if ($('#outputOn').checked) { if (!S.outputActive) startOutput(); S.forceSend = true; } }
+  // Paused or idle: only a show that has already taken the lights over refreshes them. When the app
+  // opens armed, nothing touches the lights until something plays (startOutput does that).
+  function pushFrameIfIdle() { if ($('#outputOn').checked && !S.lightsArmed) { if (!S.outputActive) startOutput(); S.forceSend = true; } }
 
   // ------------------------------------------------------------------ engine
   const bufs = new Map();
@@ -1609,7 +1612,7 @@
   $('#btnPhaseL').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 3) % 4; changed(); };
   $('#bpm').onchange = () => { if (P()) { beginChange(); P().bpm = parseFloat($('#bpm').value) || P().bpm; changed(); toast('BPM stored — press Regrid to rebuild the beat grid'); } };
   $('#beatEdit').onchange = draw; $('#snap').onchange = draw; $('#effectSearch').oninput = renderLibrary;
-  $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } rememberLights(true); if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
+  $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } rememberLights(true); S.lightsArmed = false; if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
   // Closing the window stops the studio at once, speakers included (a reload comes straight back,
   // and the studio waits a moment to tell the two apart).
   window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/closing'); } catch (e) { /* the watchdog still notices */ } });
