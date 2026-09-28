@@ -664,8 +664,10 @@
     const sy = ROW.ruler;
     p.sections.forEach((s, i) => {
       const x0 = xOf(s.start), x1 = xOf(s.end); if (x1 < HEADER || x0 > w) return;
-      g.fillStyle = SECTION_COLORS[s.type] || '#555'; g.globalAlpha = 0.85; g.fillRect(Math.max(HEADER, x0), sy + 2, x1 - x0 - 1, ROW.sections - 4); g.globalAlpha = 1;
-      g.fillStyle = '#fff'; g.font = 'bold 10px system-ui'; g.fillText(s.type.toUpperCase(), Math.max(HEADER, x0) + 4, sy + 14);
+      const vx = Math.max(HEADER, x0), vw = Math.max(0, x1 - vx - 1);        // measured from where it is drawn
+      g.fillStyle = SECTION_COLORS[s.type] || '#555'; g.globalAlpha = 0.85; g.fillRect(vx, sy + 2, vw, ROW.sections - 4); g.globalAlpha = 1;
+      g.save(); g.beginPath(); g.rect(vx, sy, Math.max(0, vw - 2), ROW.sections); g.clip();
+      g.fillStyle = '#fff'; g.font = 'bold 10px system-ui'; g.fillText(s.type.toUpperCase(), vx + 4, sy + 14); g.restore();
       if (S.view.sel && S.view.sel.type === 'section' && S.view.sel.index === i) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x0, sy + 1, x1 - x0, ROW.sections - 2); g.lineWidth = 1; }
     });
 
@@ -695,13 +697,16 @@
       g.globalAlpha = lane.hidden ? 0.3 : 1;
       for (const c of lane.clips) {
         const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x1 < HEADER || x0 > w) continue;
+        // a clip that starts off to the left is drawn from the timeline's edge: its width must be
+        // measured from there too, or it (and its label) spills over the next clip
+        const vx = Math.max(HEADER, x0), vw = Math.max(0, x1 - vx - 2);
         const e = Effects.byId[c.effect]; const sw = e ? e.swatch : ['#666', '#333'];
         const grad = g.createLinearGradient(x0, y, x0, y + ROW.lane); grad.addColorStop(0, sw[0]); grad.addColorStop(1, sw[1]);
-        g.fillStyle = grad; g.globalAlpha = 0.55; g.beginPath(); g.roundRect(Math.max(HEADER, x0), y + 4, x1 - x0 - 2, ROW.lane - 8, 5); g.fill(); g.globalAlpha = 1;
+        g.fillStyle = grad; g.globalAlpha = 0.55; g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.fill(); g.globalAlpha = 1;
         const isSel = isSelected(c.id);
         g.strokeStyle = isSel ? '#fff' : 'rgba(255,255,255,0.25)'; g.lineWidth = isSel ? 2 : 1;
-        g.beginPath(); g.roundRect(Math.max(HEADER, x0), y + 4, x1 - x0 - 2, ROW.lane - 8, 5); g.stroke(); g.lineWidth = 1;
-        g.save(); g.beginPath(); g.rect(Math.max(HEADER, x0), y, x1 - x0 - 2, ROW.lane); g.clip();
+        g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.stroke(); g.lineWidth = 1;
+        g.save(); g.beginPath(); g.rect(vx, y, Math.max(0, vw - 4), ROW.lane); g.clip();
         g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText(e ? e.name : c.effect, Math.max(HEADER, x0) + 6, y + 19);
         g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '10px system-ui'; g.fillText(clipSummary(c), Math.max(HEADER, x0) + 6, y + 31); g.restore();
         // the clip's own colors, as a bar along its bottom edge
