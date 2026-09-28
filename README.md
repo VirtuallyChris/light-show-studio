@@ -190,8 +190,9 @@ after that. Saved shows live in the `shows/` folder and reload from the
    and opacity. Click the eye on a layer name to hide that layer while you
    work on the others.
 5. **Play** with **Lights on** ticked to drive the real lights in sync with a
-   live preview of every strip. The **Offset** box sends the lights a few
-   milliseconds ahead of the audio to line them up by eye.
+   live preview of every strip. The **Offset** (under the ⚙ button, top right)
+   sends the lights a few milliseconds ahead of the audio to line them up by
+   eye; it is saved once for every song.
    **Lights on** is ticked when the studio opens (unless you last switched it
    off), but the lights keep showing whatever they were until something plays:
    then the studio remembers each light's power, brightness and color and takes
@@ -236,7 +237,8 @@ reloads it where you left off. The old chirp-based `lightshow calibrate
 **Tempo and bar lines**: the analysis halves the tempo by itself when the grid
 counts double: the in-between beats have neither a kick nor a snare. A kick on
 1 and 3 with a snare on 2 and 4 is an ordinary backbeat and is left alone. If it
-still gets it wrong, press **÷2** to halve the tempo; **×2** doubles it.
+still gets it wrong, open the **Beat grid ▾** menu above the timeline and press
+**Halve ÷2**; **Double ×2** doubles it.
 Clips keep their place in the song, so nothing moves, but a "1 beat" effect
 now means the new, longer beat. If the bar lines sit in the wrong place, press
 **Bar−1** or **Bar+1** to shift the downbeat a beat at a time, or right-click
@@ -246,8 +248,9 @@ snap to bar lines, so getting this right first saves nudging every boundary.
 **Beats**: turn on **Beat edit** to fix the grid. Click the waveform to add a
 beat, tap <kbd>Space</kbd> along with the music while it plays to lay beats
 down, drag a beat to move it, <kbd>Delete</kbd> to remove one. Or set the
-**BPM** (or **Tap** it) and press **Regrid** for a fresh even grid, and nudge
-the whole grid with the 10 ms buttons. **Bar+1** moves the downbeat.
+**BPM** (or **Tap tempo** in the Beat grid menu) and press **Regrid from BPM**
+for a fresh even grid, and nudge the whole grid with the 10 ms buttons there.
+**Bar +1** moves the downbeat.
 
 **Section timing by SongFormer (optional, recommended).** Two detectors
 work together. The loudness detector (below) decides *what* each part is:
@@ -294,6 +297,14 @@ double-click a section to change its type, right-click to split or merge. Drop
 markers (red) can be dragged, added and deleted; auto-build puts a blast on
 each one. A marker sitting on a section edge moves with it when you drag the
 edge, so a drop and its blast stay together.
+
+**Any window size**: the whole studio scales with the window, from a laptop to
+a 1440p monitor, text, buttons and timeline alike. The top bar holds the file,
+building, transport, Cast and lights controls; the timeline's own controls
+(BPM, the Beat grid menu, snap, zoom, undo, Beat edit) sit in a strip right
+above it. Below about 1150 px wide the library of lights, effects and palettes
+becomes a drawer behind the ☰ button, and on a very narrow window the
+inspector moves to the bottom. The **?** button lists the keyboard shortcuts.
 
 **Getting around**: the strip across the top is an overview of the whole song
 (section colors, a summary waveform and the drop markers). The bright box on

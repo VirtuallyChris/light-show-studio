@@ -17,6 +17,12 @@
     undo: [], redo: [], saveTimer: null, tap: [], lastFrame: null,
   };
   const HEADER = 96, ROW = { ruler: 22, sections: 20, wave: 84, pal: 0, lane: 48 };
+  // The canvases draw in "logical" pixels scaled by UI, which follows the page's text size (the
+  // stylesheet sizes that to the window). Sizes and mouse positions on the timeline go through it.
+  let UI = 1;
+  function updateUI() { const fs = parseFloat(getComputedStyle(document.documentElement).fontSize) || 13; UI = Math.max(0.85, Math.min(1.7, fs / 13)); }
+  updateUI(); window.addEventListener('resize', updateUI);
+  const TW = () => tl.clientWidth / UI, TH = () => tl.clientHeight / UI;
   const SECTION_TYPES = ['intro', 'verse', 'buildup', 'drop', 'breakdown', 'outro'];
   const SECTION_COLORS = { intro: '#4b5563', verse: '#3b82f6', buildup: '#f59e0b', drop: '#ef4444', breakdown: '#8b5cf6', outro: '#6b7280' };
   const DEFAULT_LANES = 4;
@@ -569,8 +575,10 @@
     return out;
   }
   function drawPreview(frame) {
-    const w = pv.clientWidth, h = pv.clientHeight; if (pv.width !== w * devicePixelRatio) { pv.width = w * devicePixelRatio; pv.height = h * devicePixelRatio; }
-    pctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    const W = Math.floor(pv.clientWidth * devicePixelRatio), H = Math.floor(pv.clientHeight * devicePixelRatio);
+    if (pv.width !== W || pv.height !== H) { pv.width = W; pv.height = H; }
+    const w = pv.clientWidth / UI, h = pv.clientHeight / UI;
+    pctx.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
     pctx.fillStyle = '#0b0c0f'; pctx.fillRect(0, 0, w, h);
     if (!frame || !frame.length) { pctx.fillStyle = '#555'; pctx.font = '12px system-ui'; pctx.fillText('No lights selected — tick a light on the left to preview.', 12, 20); return; }
     const rowH = Math.min(36, (h - 8) / frame.length);
@@ -627,11 +635,11 @@
   const lanesTop = () => ROW.ruler + ROW.sections + ROW.wave + ROW.pal;
   const laneTop = i => lanesTop() + i * ROW.lane - (S.view.vscroll || 0);
   const ADD_ROW = 26;  // the "+ layer" strip under the last layer
-  function lanesOverflow() { const h = tl.clientHeight; return Math.max(0, lanesTop() + P().lanes.length * ROW.lane + ADD_ROW - h); }
+  function lanesOverflow() { const h = TH(); return Math.max(0, lanesTop() + P().lanes.length * ROW.lane + ADD_ROW - h); }
   function vscrollTo(v) { S.view.vscroll = clamp(v, 0, lanesOverflow()); draw(); }
   const palTop = () => ROW.ruler + ROW.sections + ROW.wave;
   const waveTop = () => ROW.ruler + ROW.sections;
-  function viewWidth() { return tl.clientWidth - HEADER; }
+  function viewWidth() { return TW() - HEADER; }
   function zoomFit() { if (!S.analysis) return; if (viewWidth() <= 0) { S.view.fitPending = true; return; } S.view.pps = Math.max(1, viewWidth() / duration()); S.view.scroll = 0; draw(); }
   const wheelZoom = e => clamp(Math.pow(1.002, -(e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY)), 0.4, 2.5);
   function zoomAt(factor, xPix) {
@@ -640,7 +648,7 @@
     S.view.scroll = clamp(t - (xPix - HEADER) / S.view.pps, 0, Math.max(0, duration() - viewWidth() / S.view.pps)); draw();
   }
   function scrollTo(s) { S.view.scroll = clamp(s, 0, Math.max(0, duration() - viewWidth() / S.view.pps)); draw(); }
-  function followPlayhead(t) { const x = xOf(t); const w = tl.clientWidth; if (x > w - 40 || x < HEADER) scrollTo(t - 0.1 * viewWidth() / S.view.pps); }
+  function followPlayhead(t) { const x = xOf(t); const w = TW(); if (x > w - 40 || x < HEADER) scrollTo(t - 0.1 * viewWidth() / S.view.pps); }
 
   // ------------------------------------------------------------------ drawing
   // The static timeline (grid, waveform, clips) renders into an offscreen canvas only
@@ -649,13 +657,16 @@
   function draw() { S.dirty = true; S.ovDirty = true; }
   function _draw() {
     if (!S.analysis) return;
-    const w = tl.clientWidth, h = tl.clientHeight;
+    const w = TW(), h = TH();
     if (!w || !h) { S.dirty = true; return; }   // hidden or collapsed: try again next frame
+    // layers share the height there is (between comfortable limits), rather than sitting in a strip
+    const nl = Math.max(4, P().lanes.length);
+    ROW.lane = Math.round(Math.max(44, Math.min(78, (h - (ROW.ruler + ROW.sections + ROW.wave + ROW.pal) - 26) / nl)));
     if (S.view.fitPending) { S.view.fitPending = false; S.view.pps = Math.max(1, viewWidth() / duration()); S.view.scroll = 0; }
-    const W = Math.floor(w * devicePixelRatio), H = Math.floor(h * devicePixelRatio);
+    const W = Math.floor(tl.clientWidth * devicePixelRatio), H = Math.floor(tl.clientHeight * devicePixelRatio);
     if (tl.width !== W || tl.height !== H) { tl.width = W; tl.height = H; }
     if (off.width !== W || off.height !== H) { off.width = W; off.height = H; }
-    const g = octx; g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    const g = octx; g.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
     g.fillStyle = '#121317'; g.fillRect(0, 0, w, h);
     const p = P(), a = S.analysis; const t0 = tOf(HEADER), t1 = tOf(w);
     const beatPx = S.view.pps * 60 / p.bpm;
@@ -753,9 +764,9 @@
   function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
   function compose() {
     if (!S.analysis || !off.width || !off.height) return;   // nothing rendered yet (or a zero-size canvas)
-    const w = tl.clientWidth, h = tl.clientHeight; const g = tctx;
+    const w = TW(), h = TH(); const g = tctx;
     g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(off, 0, 0);
-    g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    g.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
     if (S.view.hoverDrop) { const d = S.view.hoverDrop; g.fillStyle = d.replace ? 'rgba(255,94,168,0.35)' : 'rgba(108,140,255,0.35)'; g.fillRect(d.x, d.y, d.w, d.h); if (d.replace) { g.strokeStyle = '#ff5ea8'; g.lineWidth = 2; g.strokeRect(d.x, d.y, d.w, d.h); g.lineWidth = 1; g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText('replace', d.x + 6, d.y + d.h - 6); } }
     const x = xOf(pos());
     if (x >= HEADER && x <= w) { g.fillStyle = '#fff'; g.fillRect(x - 0.5, 0, 1.5, h); g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 8); g.fill(); }
@@ -927,7 +938,7 @@
   // ------------------------------------------------------------------ mouse
   tl.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
-    const r = tl.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; const h = hitTest(x, y); if (!h) return;
+    const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const h = hitTest(x, y); if (!h) return;
     const p = P(); S.view.mouse = { x, y };
     if (h.type === 'ruler' || h.type === 'wave') {
       if (h.type === 'wave' && $('#beatEdit').checked) { beginChange(); const t = h.t; const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); S.view.sel = { type: 'beat', index: i < 0 ? p.beats.length - 1 : i }; inspector(); changed(); return; }
@@ -971,12 +982,12 @@
     if (h.type === 'addLane') { beginChange(); p.lanes.push(newLane()); changed(); vscrollTo(lanesOverflow()); }
   });
   window.addEventListener('mousemove', e => {
-    const r = tl.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; const d = S.view.drag;
+    const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const d = S.view.drag;
     if (!d) { const h = hitTest(x, y); tl.style.cursor = h && h.type === 'clip' && h.edge ? 'ew-resize' : h && (h.type === 'section-edge' || (h.type === 'beat' && $('#beatEdit').checked)) ? 'col-resize' : h && (h.type === 'clip' || h.type === 'drop') ? 'grab' : h && (h.type === 'laneEye' || h.type === 'addLane') ? 'pointer' : 'default'; return; }
     const p = P(); const t = clamp(tOf(x), 0, duration()); const b = timeToBeat(t);
     if (d.type === 'scrub') { seek(t); return; }
     if (d.type === 'marquee') {
-      d.x = clamp(x, HEADER, tl.clientWidth); d.y = clamp(y, lanesTop(), tl.clientHeight);
+      d.x = clamp(x, HEADER, TW()); d.y = clamp(y, lanesTop(), TH());
       // clips inside the box show as selected while it is still being drawn
       const hits = Math.abs(d.x - d.x0) < 4 && Math.abs(d.y - d.y0) < 4 ? [] : clipsInRect(Math.min(d.x0, d.x), Math.min(d.y0, d.y), Math.max(d.x0, d.x), Math.max(d.y0, d.y));
       if (hits.length !== d.hits.length || hits.some((id, i) => id !== d.hits[i])) { d.hits = hits; draw(); }
@@ -1040,15 +1051,15 @@
       if (!d.moved) { S.undo.pop(); if (!d.tried) setSelection([d.id]); return; }   // a plain click on a member picks just that clip
       inspector(); changed(); return;
     } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'section-edge' && d.marker !== null) P().drops.sort((a, b) => a - b); if (d.type === 'clip' || d.type === 'palclip') inspector(); changed(); });
-  tl.addEventListener('dblclick', e => { const r = tl.getBoundingClientRect(); const h = hitTest(e.clientX - r.left, e.clientY - r.top); if (!h) return; if (h.type === 'section') { beginChange(); const s = P().sections[h.index]; s.type = SECTION_TYPES[(SECTION_TYPES.indexOf(s.type) + 1) % SECTION_TYPES.length]; inspector(); changed(); } });
+  tl.addEventListener('dblclick', e => { const r = tl.getBoundingClientRect(); const h = hitTest((e.clientX - r.left) / UI, (e.clientY - r.top) / UI); if (!h) return; if (h.type === 'section') { beginChange(); const s = P().sections[h.index]; s.type = SECTION_TYPES[(SECTION_TYPES.indexOf(s.type) + 1) % SECTION_TYPES.length]; inspector(); changed(); } });
   tl.addEventListener('wheel', e => {
-    e.preventDefault(); const r = tl.getBoundingClientRect(); const x = e.clientX - r.left;
+    e.preventDefault(); const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI;
     // plain wheel zooms around the pointer; shift pans; ctrl/alt scrolls the layer stack
     if (e.ctrlKey || e.metaKey || e.altKey) return vscrollTo((S.view.vscroll || 0) + (e.deltaY || e.deltaX));
     if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return scrollTo(S.view.scroll + (e.shiftKey ? e.deltaY : e.deltaX) / S.view.pps * 0.8);
     zoomAt(wheelZoom(e), x);
   }, { passive: false });
-  tl.addEventListener('contextmenu', e => { e.preventDefault(); const r = tl.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; const h = hitTest(x, y); if (!h) return;
+  tl.addEventListener('contextmenu', e => { e.preventDefault(); const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const h = hitTest(x, y); if (!h) return;
     if (h.type === 'clip' && !isSelected(h.id)) setSelection([h.id]);
     contextMenu(e.clientX, e.clientY, h); });
 
@@ -1221,12 +1232,12 @@
 
   // ------------------------------------------------------------------ drag & drop from the library
   function libraryDrag(el, kind, id) { el.draggable = true; el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', kind + ':' + id); e.dataTransfer.effectAllowed = 'copy'; }); }
-  tl.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; const r = tl.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; const h = hitTest(x, y); if (!h) { S.view.hoverDrop = null; return; } const b = snapBeat(h.b ?? timeToBeat(h.t ?? tOf(x))); if (h.type === 'clip') { const { clip } = findClip(h.id); const x0 = xOf(beatToTime(clip.start)), x1 = xOf(beatToTime(clip.start + clip.len)); S.view.hoverDrop = { x: x0, y: laneTop(h.lane) + 4, w: x1 - x0 - 2, h: ROW.lane - 8, replace: true }; }
+  tl.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const h = hitTest(x, y); if (!h) { S.view.hoverDrop = null; return; } const b = snapBeat(h.b ?? timeToBeat(h.t ?? tOf(x))); if (h.type === 'clip') { const { clip } = findClip(h.id); const x0 = xOf(beatToTime(clip.start)), x1 = xOf(beatToTime(clip.start + clip.len)); S.view.hoverDrop = { x: x0, y: laneTop(h.lane) + 4, w: x1 - x0 - 2, h: ROW.lane - 8, replace: true }; }
     else if (h.type === 'lane') S.view.hoverDrop = { x: xOf(beatToTime(b)), y: laneTop(h.lane) + 4, w: 16 * 60 / P().bpm * S.view.pps, h: ROW.lane - 8 }; else S.view.hoverDrop = null; });
   tl.addEventListener('dragleave', () => { S.view.hoverDrop = null; });
   tl.addEventListener('drop', e => {
     e.preventDefault(); S.view.hoverDrop = null; const data = e.dataTransfer.getData('text/plain'); if (!data || !P()) { draw(); return; }
-    const [kind, id] = data.split(':'); const r = tl.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; const h = hitTest(x, y); if (!h) return;
+    const [kind, id] = data.split(':'); const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const h = hitTest(x, y); if (!h) return;
     const b = snapBeat(h.b ?? timeToBeat(h.t ?? tOf(x)));
     if (kind === 'effect' && h.type === 'clip') { const { clip } = findClip(h.id); if (Effects.byId[id]) { beginChange(); const wasDefault = JSON.stringify(clip.palette || null) === JSON.stringify(effectColors(clip.effect)); clip.effect = id; clip.params = Effects.defaults(id); if (wasDefault) clip.palette = effectColors(id); S.view.sel = { type: 'clip', id: clip.id }; inspector(); changed(); toast(`Replaced with ${Effects.byId[id].name}, same timing`); } }
     else if (kind === 'effect' && h.type === 'lane') addClip(h.lane, id, b);
@@ -1256,16 +1267,35 @@
     for (const [name, cols] of Object.entries(pals)) { const card = document.createElement('div'); card.className = 'palette-card'; card.innerHTML = `<span class="nm">${name}</span><div class="bar" style="background:linear-gradient(90deg,${cols.join(',')})"></div>`; libraryDrag(card, 'palette', name); card.title = 'Drag onto a clip to give it these colors. Double-click to make it the default for clips without their own.'; card.ondblclick = () => { if (P()) { beginChange(); P().defaultPalette = name; changed(); toast(`Default palette: ${name}`); } }; list.appendChild(card); }
   }
 
-  // ------------------------------------------------------------------ inspector
-  function inspector() {
-    const el = $('#inspector'); const sel = S.view.sel; const p = P();
-    if (!p) { el.innerHTML = '<div class="panel"><h3>Inspector</h3><div class="hint">Open a song to begin.</div></div>'; return; }
-    const help = `<div class="panel"><h3>Shortcuts</h3><div class="help">
+  // ------------------------------------------------------------------ toolbar menus
+  const SHORTCUTS = `<h3>Shortcuts</h3><div class="help">
       <kbd>Space</kbd> play / pause &nbsp; <kbd>Home</kbd> start<br>Wheel zooms · <kbd>Shift</kbd>+wheel pans · <kbd>Ctrl</kbd>+wheel scrolls layers<br>Drag the strip on top to scroll, its edges to zoom<br>
       Click waveform to seek, drag the ruler to scrub<br>Drag effects onto layers; drag edges to resize<br>Drag across empty space to box-select clips · <kbd>Shift</kbd>+click adds · <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all<br>Drag any selected clip to move the whole block<br>Drop an effect on a clip to swap the effect, same timing<br>Drag a palette onto a clip to recolor it<br>Click a layer's eye to hide it<br><kbd>Alt</kbd>+drag copies a clip<br>
       <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd> copy / cut / paste / duplicate<br><kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
       Double-click a section to cycle its type<br>Right-click anything for more<br>
-      <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays</div></div>`;
+      <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays</div>`;
+  function toggleMenu(btn, menu, fill) {
+    const open = menu.hidden; closeMenus(); if (!open) return;
+    if (fill) menu.innerHTML = fill;
+    menu.hidden = false; btn.classList.add('on');
+    if (menu.classList.contains('popover')) { const r = btn.getBoundingClientRect(); menu.style.top = (r.bottom + 6) + 'px'; menu.style.right = Math.max(8, innerWidth - r.right) + 'px'; }
+  }
+  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnSettings', '#settingsMenu'], ['#btnHelp', '#helpPop']]) { $(m).hidden = true; $(b).classList.remove('on'); } }
+  $('#btnGridMenu').onclick = e => { e.stopPropagation(); toggleMenu($('#btnGridMenu'), $('#gridMenu')); };
+  $('#btnSettings').onclick = e => { e.stopPropagation(); toggleMenu($('#btnSettings'), $('#settingsMenu')); };
+  $('#btnHelp').onclick = e => { e.stopPropagation(); toggleMenu($('#btnHelp'), $('#helpPop'), SHORTCUTS); };
+  for (const id of ['#gridMenu', '#settingsMenu', '#helpPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
+  document.addEventListener('mousedown', closeMenus);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
+  // narrow windows: the library is a drawer
+  $('#btnLib').onclick = e => { e.stopPropagation(); document.body.classList.toggle('lib-open'); };
+  document.addEventListener('mousedown', e => { if (document.body.classList.contains('lib-open') && !e.target.closest('.library') && !e.target.closest('#btnLib')) document.body.classList.remove('lib-open'); });
+
+  // ------------------------------------------------------------------ inspector
+  function inspector() {
+    const el = $('#inspector'); const sel = S.view.sel; const p = P();
+    if (!p) { el.innerHTML = '<div class="panel"><h3>Inspector</h3><div class="hint">Open a song to begin.</div></div>'; return; }
+    const help = '';                                  // the shortcuts live in the ? popover now
     if (!sel) {
       const g = S.analysis && S.analysis.genre; const auto = g && STYLE_NAMES[g.style] ? g.style : null;
       const heard = g ? [...(g.genres || []), ...((g.spotify || []).length ? ['Spotify: ' + g.spotify.slice(0, 2).join(', ')] : [])].join(', ') : '';
