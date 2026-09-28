@@ -130,6 +130,9 @@ after that. Saved shows live in the `shows/` folder and reload from the
 
 1. **Pick lights** on the left. The strip you started with is ticked by
    default; tick others to include them. Set each light's segment count here.
+   If a light is mounted the other way round (a left-to-right comet runs right
+   to left on it), press its **⇄** button: everything sent to that light is
+   mirrored, the preview stays as designed, and the setting is remembered.
 2. **Auto-build show** generates a complete show from the detected structure
    as a starting point: aurora in intros, gradients and beat pulses in verses,
    an accelerating riser through buildups, a white blast and rainbow on drops,
@@ -318,8 +321,9 @@ clips; hold <kbd>Alt</kbd> to place it freely), and <kbd>+</kbd>/<kbd>-</kbd>/<k
 from the keyboard. Zooming out can go past the end of the song (up to four
 songs' width); the time after the end is shaded, and **Fit** brings the whole
 song back to the full width.
-<kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo/redo, <kbd>Ctrl</kbd>+<kbd>S</kbd>
-to save. Everything auto-saves a couple of seconds after you stop editing.
+<kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo/redo. There is no Save button: everything
+saves by itself a moment after each change, and anything still waiting is saved
+when the window closes. <kbd>Ctrl</kbd>+<kbd>S</kbd> saves at once and says so.
 
 There are around 40 effects grouped as slow (aurora, gradient, breathe, wave,
 twinkle, embers), groove (pulse, chase, comets, dual comets, meteors, pulsar,

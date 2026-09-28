@@ -268,6 +268,7 @@ class Studio:
             web.get("/api/output", self.output_status),
             web.post("/api/output/fps", self.set_output_fps),
             web.post("/api/devices/segments", self.set_segments),
+            web.post("/api/devices/flip", self.set_flip),
             web.post("/api/devices/name", self.set_name),
             web.post("/api/devices/selected", self.set_selected),
             web.post("/api/song", self.upload_song),
@@ -411,6 +412,7 @@ class Studio:
         # reports them, and the lights announce no hostname. So names are given here,
         # keyed like segment counts: by MAC, with the light's own device id as a fallback.
         names = cfg.get("light_names", {})
+        flipped = cfg.get("flipped_lights", {})             # lights mounted the other way round, by MAC
         # Which lights the shows play on is a property of the room, not of a song: one
         # selection, kept here, that every show, the preview and Jam mode all use.
         chosen = cfg.get("selected_lights")
@@ -420,7 +422,8 @@ class Studio:
                 d.mac = remembered.get(d.ip, {}).get("mac", "")
             n = seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or 10
             name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""
-            out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online,
+            flip = bool(flipped.get(d.mac) or flipped.get(d.device_id) or flipped.get(d.ip))
+            out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online, "flip": flip,
                         "default": d.mac.upper() == DEFAULT_LIGHT_MAC,
                         "on": (d.mac in chosen or d.device_id in chosen) if chosen is not None else d.mac.upper() == DEFAULT_LIGHT_MAC})
         return web.json_response(out)
@@ -466,6 +469,19 @@ class Studio:
                 names.pop(key, None)
         save_config(cfg)
         return web.json_response({"ok": True, "name": name})
+
+    async def set_flip(self, request):
+        """Remember that a light runs the other way (its first segment is on the right), by every key it is known by."""
+        body = await request.json()
+        cfg = load_config()
+        flipped = cfg.setdefault("flipped_lights", {})
+        for key in {body.get("mac"), body.get("device_id"), body.get("ip")} - {None, ""}:
+            if body.get("flip"):
+                flipped[key] = True
+            else:
+                flipped.pop(key, None)
+        save_config(cfg)
+        return web.json_response({"ok": True})
 
     async def set_segments(self, request):
         body = await request.json()

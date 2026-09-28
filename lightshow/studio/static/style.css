@@ -232,7 +232,7 @@ button.icon { width: 2.1rem; padding: 0; display: inline-flex; align-items: cent
 .popover .help { font-size: .85rem; line-height: 1.9; }
 
 /* the three columns size themselves to the window */
-main { grid-template-columns: clamp(15.5rem, 16vw, 20rem) minmax(0, 1fr) clamp(15rem, 18vw, 22rem); }
+main { grid-template-columns: clamp(17.5rem, 17vw, 21rem) minmax(0, 1fr) clamp(15rem, 18vw, 22rem); }
 .preview-wrap { height: clamp(5.5rem, 12vh, 9rem); }
 #overview { height: 2.9rem; }
 .effect-list { max-height: none; }
@@ -291,3 +291,7 @@ main { grid-template-columns: clamp(15.5rem, 16vw, 20rem) minmax(0, 1fr) clamp(1
 .inspector .row label { white-space: normal; overflow-wrap: anywhere; }
 .inspector .row input[type=range] { flex: 1 1 7rem; width: auto; min-width: 4.5rem; max-width: 9.231rem; }
 .inspector .row > span.val { min-width: 2.6rem; text-align: right; }
+.light-list .flip { width: 1.9rem; min-height: 1.7rem; padding: 0; flex: none; color: var(--muted); }
+.light-list .flip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+.light-list .seg { width: 3.2rem; padding-left: .2rem; padding-right: .2rem; }
+.light-list label { gap: .45rem; }

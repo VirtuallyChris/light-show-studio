@@ -421,12 +421,15 @@
     if (!S.lights.length) { el.innerHTML = '<div class="hint">No lights found. Enable LAN Control in the Govee app and rescan.</div>'; return; }
     for (const l of S.lights) {
       const row = document.createElement('label');
-      row.innerHTML = `<input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
+      row.innerHTML = `<input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
       const nm = row.querySelector('.light-name'); nm.value = l.name || '';
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
       nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
       if (l.online === false) row.style.opacity = '0.6';
       row.querySelector('input[type=checkbox]').onchange = e => { l.on = e.target.checked; sendSelect(); saveSelection(); draw(); };
+      row.querySelector('.flip').onclick = e => { e.preventDefault(); l.flip = !l.flip; renderLights(); S.forceSend = true;
+        fetch('/api/devices/flip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, ip: l.ip, flip: l.flip }) }).catch(() => { });
+        toast(`${lightLabel(l)}: ${l.flip ? 'flipped' : 'normal direction'}`); };
       row.querySelector('.seg').onchange = async e => { l.segments = parseInt(e.target.value) || 1; await fetch('/api/devices/segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: l.mac || l.ip, segments: l.segments }) }); };
       el.appendChild(row);
     }
@@ -606,13 +609,15 @@
   // Light output runs on its own clock in a Web Worker: browsers freeze
   // requestAnimationFrame and throttle timers when the tab is not in front,
   // which would silently stop the lights. Worker ticks keep coming regardless.
+  /** a light mounted the other way round: its segments in reverse order (each keeps its r, g, b) */
+  function flipPx(px) { const n = px.length / 3, o = new Array(px.length); for (let i = 0; i < n; i++) { const j = (n - 1 - i) * 3; o[i * 3] = px[j]; o[i * 3 + 1] = px[j + 1]; o[i * 3 + 2] = px[j + 2]; } return o; }
   function outputTick() {
     if (!S.analysis || !S.outputActive) return;
     if (!S.audio.playing && !S.forceSend && performance.now() - S.lastLightSend < 200) return;   // paused: ~5 fps hold
     const t = pos();
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
     const lf = renderFrame(lt);
-    wsSend({ type: 'frame', frames: lf.map(f => f.px) });
+    wsSend({ type: 'frame', frames: lf.map(f => f.light.flip ? flipPx(f.px) : f.px) });
     S.forceSend = false; S.framesSent = (S.framesSent || 0) + 1; S.lastLightSend = performance.now();
   }
   (function startOutputClock() {
@@ -1683,7 +1688,7 @@
   $('#btnSync').onclick = () => runSyncCheck(false);
   $('#castLocal').onchange = syncLocalToCast; $('#btnStart').onclick = () => { seek(0); scrollTo(0); };
   $('#btnZoomIn').onclick = () => zoomAt(1.4, xOf(pos())); $('#btnZoomOut').onclick = () => zoomAt(0.7, xOf(pos())); $('#btnZoomFit').onclick = zoomFit;
-  $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo; $('#btnSave').onclick = () => saveNow();
+  $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
   $('#btnRedetect').onclick = async () => {
     if (!S.analysis) return;
     // ask the server again rather than reusing what was loaded: if SongFormer could not run
