@@ -59,9 +59,6 @@ kbd { background: var(--bg3); border: 1px solid var(--line2); border-bottom-widt
 #btnPlay { background: var(--bg4); }
 .time { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 1.077rem; min-width: 6.769rem; text-align: right; font-variant-numeric: tabular-nums; }
 .time.small { font-size: 0.9231rem; color: var(--muted); min-width: 4.615rem; }
-.dot { width: 0.7692rem; height: 0.7692rem; border-radius: 50%; background: #555c6b; display: inline-block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.4); }
-.dot.on { background: var(--ok); box-shadow: 0 0 0.6154rem rgba(74,222,128,.5); }
-.dot.out { background: var(--accent2); box-shadow: 0 0 0.7692rem var(--accent2); }
 
 /* ---------- layout ----------------------------------------------------- */
 main { display: grid; grid-template-columns: 19.38rem 1fr 20.92rem; grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; }
@@ -295,3 +292,5 @@ main { grid-template-columns: clamp(17.5rem, 17vw, 21rem) minmax(0, 1fr) clamp(1
 .light-list .flip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 .light-list .seg { width: 3.2rem; padding-left: .2rem; padding-right: .2rem; }
 .light-list label { gap: .45rem; }
+h3.with-switch { align-items: center; }
+h3.with-switch .toggle { text-transform: none; letter-spacing: 0; }

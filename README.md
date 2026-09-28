@@ -193,14 +193,14 @@ after that. Saved shows live in the `shows/` folder and reload from the
    existing clip swaps the effect and keeps the clip's timing, layer, colors
    and opacity. Click the eye on a layer name to hide that layer while you
    work on the others.
-5. **Play** with **Lights on** ticked to drive the real lights in sync with a
-   live preview of every strip. The **Offset** (under the ⚙ button, top right)
+5. **Play** with the **Lights** switch on (at the top of the Lights list) to
+   drive the real lights in sync with a live preview of every strip. The **Offset** (under the ⚙ button, top right)
    sends the lights a few milliseconds ahead of the audio to line them up by
    eye; it is saved once for every song.
-   **Lights on** is ticked when the studio opens (unless you last switched it
+   The switch is on when the studio opens (unless you last switched it
    off), but the lights keep showing whatever they were until something plays:
    then the studio remembers each light's power, brightness and color and takes
-   it over at full brightness. Closing the studio (or unticking Lights on) gives
+   it over at full brightness. Closing the studio (or switching Lights off) gives
    every light back as it was, and so does unticking one light in the Lights
    list, just that light; ticking one mid-show takes it over the same way. A
    scene from the Govee app comes back by itself; the network control can only

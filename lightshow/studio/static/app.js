@@ -462,9 +462,9 @@
   const lightLabel = l => l.name || `${l.sku} ${l.ip}`;
   function connectWs() {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-    ws.onopen = () => { S.wsOpen = true; $('#wsState').classList.add('on'); sendSelect(); autoLights(); if ($('#outputOn').checked) pushFrameIfIdle(); };
-    ws.onclose = () => { S.wsOpen = false; S.outputActive = false; $('#wsState').className = 'dot'; setTimeout(connectWs, 2000); };
-    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'started') { S.outputActive = true; $('#wsState').classList.add('out'); } if (m.type === 'stopped') { S.outputActive = false; $('#wsState').classList.remove('out'); } };
+    ws.onopen = () => { S.wsOpen = true; sendSelect(); autoLights(); if ($('#outputOn').checked) pushFrameIfIdle(); };
+    ws.onclose = () => { S.wsOpen = false; S.outputActive = false; setTimeout(connectWs, 2000); };
+    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'started') S.outputActive = true; if (m.type === 'stopped') S.outputActive = false; };
     S.ws = ws;
   }
   const wsSend = o => { if (S.wsOpen) S.ws.send(JSON.stringify(o)); };
@@ -643,10 +643,6 @@
       const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })));
       w.onmessage = outputTick;
     } catch (e) { setInterval(outputTick, 16); }
-    setInterval(() => {  // once a second: the real send rate, in the connection dot's tooltip
-      const n = S.framesSent || 0; const fps = n - (S.framesSentPrev || 0); S.framesSentPrev = n;
-      const dot = $('#wsState'); dot.title = S.outputActive ? `Lights: ${fps} frames/s` : 'Server connection';
-    }, 1000);
   })();
   function fmtTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(3).padStart(6, '0')}`; }
 

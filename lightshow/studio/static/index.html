@@ -41,8 +41,6 @@
     <button id="btnJam" title="Spotify picks the music; the lights still know what is coming">Jam</button>
   </div>
   <div class="group lights right">
-    <label class="toggle"><input id="outputOn" type="checkbox"> Lights on</label>
-    <span id="wsState" class="dot" title="Server connection"></span>
     <div class="menu-wrap">
       <button id="btnSettings" class="icon" title="Settings">&#9881;</button>
       <div id="settingsMenu" class="menu end" hidden>
@@ -58,7 +56,7 @@
 <main>
   <aside class="library">
     <div class="panel">
-      <h3>Lights <span class="hint" id="lightScan" title="The studio looks for lights by itself every half minute while nothing is playing">auto-found</span></h3>
+      <h3 class="with-switch">Lights <label class="toggle" title="Play the show on the ticked lights. Off: every light goes back to how it was."><input id="outputOn" type="checkbox"></label></h3>
       <div id="lightList" class="light-list"></div>
     </div>
     <div class="panel">
