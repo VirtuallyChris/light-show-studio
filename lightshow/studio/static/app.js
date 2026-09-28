@@ -95,6 +95,12 @@
   /** older projects had a palette lane: bake it into the clips, then drop it */
   function migrateProject(p) {
     for (const lane of p.lanes) lane.hidden = !!lane.hidden;
+    // Lead trace and Bass note used to color by note by default, ignoring the clip's colors: once, switch that off
+    p.settings = p.settings || {};
+    if (!p.settings.byNoteOff) {
+      for (const lane of p.lanes) for (const c of lane.clips) if ((c.effect === 'leadtrace' || c.effect === 'bassnote') && c.params) c.params.byNote = false;
+      p.settings.byNoteOff = true;
+    }
     // the strobe riser used to speed up smoothly between two rates; now it steps through note values
     for (const lane of p.lanes) for (const c of lane.clips) if (c.effect === 'strobeRiser' && c.params && c.params.startRate !== undefined) {
       const note = (r, opts) => opts.reduce((best, o) => Math.abs(Math.log2(o / r)) < Math.abs(Math.log2(best / r)) ? o : best, opts[0]);
@@ -935,6 +941,12 @@
         const cur = selectedClips().map(i => i.clip.id);
         setSelection(cur.includes(h.id) ? cur.filter(id => id !== h.id) : cur.concat(h.id)); return;
       }
+      if (S.view.multi.includes(h.id) && h.edge) {    // an edge of a member: every selected clip changes by the same amount
+        beginChange();
+        S.view.drag = { type: 'groupedge', edge: h.edge, ref: clip, b0: h.edge === 'r' ? clip.start + clip.len : clip.start, moved: false,
+          items: selectedClips().map(i => ({ clip: i.clip, lane: i.lane, start0: i.clip.start, len0: i.clip.len })) };
+        return;
+      }
       if (S.view.multi.includes(h.id) && !h.edge) {   // drag a member: the whole group comes along
         beginChange();
         S.view.drag = { type: 'group', id: h.id, items: selectedClips().map(i => ({ clip: i.clip, lane: i.lane, start0: i.clip.start })), b0: h.b, delta: 0, moved: false };
@@ -960,6 +972,22 @@
       const hits = Math.abs(d.x - d.x0) < 4 && Math.abs(d.y - d.y0) < 4 ? [] : clipsInRect(Math.min(d.x0, d.x), Math.min(d.y0, d.y), Math.max(d.x0, d.x), Math.max(d.y0, d.y));
       if (hits.length !== d.hits.length || hits.some((id, i) => id !== d.hits[i])) { d.hits = hits; draw(); }
       return;
+    }
+    if (d.type === 'groupedge') {
+      const delta = snapBeat(b) - d.b0;
+      for (const it of d.items) {
+        const c = it.clip, others = it.lane.clips.filter(k => k !== c);
+        if (d.edge === 'r') {
+          const nextStart = Math.min(Infinity, ...others.filter(k => k.start >= it.start0 + it.len0 - 0.001).map(k => k.start));
+          c.len = Math.max(0.25, Math.min(it.len0 + delta, nextStart - it.start0));
+        } else {
+          const end = it.start0 + it.len0;
+          const prevEnd = Math.max(0, ...others.filter(k => k.start + k.len <= it.start0 + 0.001).map(k => k.start + k.len));
+          const ns = Math.min(end - 0.25, Math.max(prevEnd, it.start0 + delta));
+          c.start = ns; c.len = end - ns;
+        }
+      }
+      d.moved = d.moved || delta !== 0; draw(); return;
     }
     if (d.type === 'group') {
       const delta = snapBeat(d.items[0].start0 + (b - d.b0)) - d.items[0].start0;
@@ -994,6 +1022,10 @@
     if (d.type === 'marquee') {
       if (Math.abs(d.x - d.x0) < 4 && Math.abs(d.y - d.y0) < 4) { draw(); return; }   // a plain click, already cleared
       setSelection(d.add.concat(d.hits)); return;
+    }
+    if (d.type === 'groupedge') {
+      if (!d.moved) { S.undo.pop(); return; }
+      inspector(); changed(); return;
     }
     if (d.type === 'group') {
       if (!d.moved) { S.undo.pop(); if (!d.tried) setSelection([d.id]); return; }   // a plain click on a member picks just that clip

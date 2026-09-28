@@ -190,11 +190,11 @@ const Effects = (() => {
 
   def({ id: 'meter', name: 'Energy meter', cat: 'medium', desc: 'The song’s loudness fills the strip like a VU meter.', swatch: ['#00a000', '#ff0000'],
     params: { direction: P.direction(), color: P.color(), floor: { type: 'range', def: 0.05, min: 0, max: 1, step: 0.01, label: 'Floor' }, gain: { type: 'range', def: 1, min: 0.5, max: 2, step: 0.05, label: 'Gain' } },
-    render(c) { const lvl = clamp(c.energy * c.p.gain); for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const on = x < lvl; const col = c.p.color === 'cycle' ? hsv(0.33 * (1 - x), 1, 1) : colorFor(c, x, 0); const v = on ? 1 : c.p.floor; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
+    render(c) { const lvl = clamp(c.energy * c.p.gain); for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const on = x < lvl; const col = c.p.color === 'cycle' ? palAt(c.pal, x) : colorFor(c, x, 0); const v = on ? 1 : c.p.floor; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'spectrum', name: 'Spectrum', cat: 'medium', desc: 'A live spectrum analyser: bass at one end, treble at the other.', swatch: ['#ff0000', '#0000ff'],
     params: { direction: P.direction(), color: P.color(), floor: { type: 'range', def: 0.05, min: 0, max: 1, step: 0.01, label: 'Floor' } },
-    render(c) { const nb = c.bands.length; for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const fb = x * (nb - 1); const j = Math.floor(fb); const e = lerp(c.bands[j], c.bands[Math.min(nb - 1, j + 1)], fb - j); const col = c.p.color === 'cycle' ? hsv(0.66 * x, 1, 1) : colorFor(c, x, 0); const v = c.p.floor + (1 - c.p.floor) * e * e; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
+    render(c) { const nb = c.bands.length; for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const fb = x * (nb - 1); const j = Math.floor(fb); const e = lerp(c.bands[j], c.bands[Math.min(nb - 1, j + 1)], fb - j); const col = c.p.color === 'cycle' ? palAt(c.pal, x) : colorFor(c, x, 0); const v = c.p.floor + (1 - c.p.floor) * e * e; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'scanner', name: 'Scanner', cat: 'medium', desc: 'A bright bar sweeps back and forth with a soft tail.', swatch: ['#ff0000', '#300000'],
     params: { speed: P.speed(2, 'Sweep (beats)'), size: P.size(0.12, 'Width'), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
@@ -265,8 +265,8 @@ const Effects = (() => {
         if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
       } } });
 
-  def({ id: 'leadtrace', name: 'Lead trace', cat: 'signature', desc: 'A streak for every note of the wide lead instrument \u2014 a saw synth, horn line or riff. Its color and place on the strip follow the note played.', swatch: ['#00ffd0', '#8a2be2'],
-    params: { tail: P.size(0.25, 'Tail length'), decay: P.decay(0.4), byNote: P.bool('Color by note', true), spread: { type: 'range', def: 0.8, min: 0, max: 1, step: 0.05, label: 'Spread by pitch' } },
+  def({ id: 'leadtrace', name: 'Lead trace', cat: 'signature', desc: 'A streak for every note of the wide lead instrument \u2014 a saw synth, horn line or riff. Its place on the strip follows the note played; its color is the clip\u2019s (or the note\u2019s, with Color by note).', swatch: ['#00ffd0', '#8a2be2'],
+    params: { tail: P.size(0.25, 'Tail length'), decay: P.decay(0.4), byNote: P.bool('Color by note', false), spread: { type: 'range', def: 0.8, min: 0, max: 1, step: 0.05, label: 'Spread by pitch' } },
     render(c) { clear(c.out); const L = c.music.lead; if (L.index < 0) return;
       const life = 0.2 + c.p.decay * 1.2; if (L.age > life) return;
       const env = Math.pow(1 - L.age / life, 1.4) * (0.35 + 0.65 * L.strength);
@@ -316,8 +316,8 @@ const Effects = (() => {
         if (frac(u) > 0.55) { const col = colorFor(c, x, Math.floor(u)); add(c.out, i, col[0], col[1], col[2], 1); }
       } } });
 
-  def({ id: 'bassnote', name: 'Bass note', cat: 'signature', desc: 'The color follows the bass note being played and the strip swells on every new note, so the lights move with the bassline rather than the kick.', swatch: ['#7a00ff', '#ff9a00'],
-    params: { byNote: P.bool('Color by note', true), decay: P.decay(0.5), floor: { type: 'range', def: 0.06, min: 0, max: 0.5, step: 0.01, label: 'Floor' }, direction: P.direction('out') },
+  def({ id: 'bassnote', name: 'Bass note', cat: 'signature', desc: 'The strip swells on every new bass note, so the lights move with the bassline rather than the kick. In the clip\u2019s colors, or one per note with Color by note.', swatch: ['#7a00ff', '#ff9a00'],
+    params: { byNote: P.bool('Color by note', false), decay: P.decay(0.5), floor: { type: 'range', def: 0.06, min: 0, max: 0.5, step: 0.01, label: 'Floor' }, direction: P.direction('out') },
     render(c) { const b = c.music.bass;
       const env = b.index < 0 ? 0 : Math.exp(-b.age / (0.1 + c.p.decay * 0.7)) * (0.4 + 0.6 * b.strength);
       const col = c.p.byNote ? hsv(noteHue(b.pitch), 0.95, 1) : palIdx(c.pal, Math.max(0, b.index));
