@@ -356,13 +356,8 @@ class VirtualOutput:
 class CastOutput:
     """The real speakers: a Cast device playing the relay's stream."""
 
-    # MP3 plays this much later than the samples fed to it (encoder start-up, measured through a
-    # decoder that does not trim it; there is no header telling the speaker to)
-    MP3_DELAY_S = 0.051
-
-    def __init__(self, cast, stream_url, offset_s=lambda: 0.0, fmt: str = "wav"):
+    def __init__(self, cast, stream_url, offset_s=lambda: 0.0):
         self.cast, self.stream_url, self._offset = cast, stream_url, offset_s
-        self.fmt = fmt if fmt in ("wav", "mp3") else "wav"
         self.stream: RelayStream | None = None
         self.sid = 0
 
@@ -372,14 +367,14 @@ class CastOutput:
 
     @property
     def offset(self) -> float:
-        return float(self._offset()) + (self.MP3_DELAY_S if self.fmt == "mp3" else 0.0)
+        return float(self._offset())
 
     def start_stream(self, stream: RelayStream) -> None:
         if self.stream:
             self.stream.close()
         self.stream, self.sid = stream, self.sid + 1
         self.started_at = time.monotonic()
-        self.cast.play_stream(self.stream_url(self.sid), "audio/mpeg" if self.fmt == "mp3" else "audio/wav", "Light Show Jam")
+        self.cast.play_stream(self.stream_url(self.sid), "audio/wav", "Light Show Jam")
 
     def position(self) -> float:
         return float(self.cast.status().get("position", 0.0))

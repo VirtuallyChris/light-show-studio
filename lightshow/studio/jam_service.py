@@ -65,7 +65,6 @@ class JamService:
             web.post("/api/jam/demo/{action}", self.demo_action),
             web.get("/api/jam/analysis", self.analysis),
             web.get("/api/jam/stream.wav", self.stream),
-            web.get("/api/jam/stream.mp3", self.stream),
             web.post("/api/spotify/client", self.set_client),
             web.get("/api/spotify/login", self.login),
             web.get("/api/spotify/callback", self.callback),
@@ -158,9 +157,11 @@ class JamService:
         """The room's output: the Cast speaker, this PC's default output, or nothing (preview)."""
         if where == "cast" and self.studio.cast.cast is not None:
             ip = self.local_ip() or "127.0.0.1"
-            fmt = "mp3" if self.load_config().get("cast_stream_format", "mp3") == "mp3" else "wav"
-            return CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.{fmt}?sid={sid}",
-                              self._speaker_offset, fmt)
+            # Raw audio. MP3 was tried to lighten the Wi-Fi load, but libsndfile's MP3 encoder
+            # (1.2.2, the one installed) turned music into noise: 0.59 correlation with the original
+            # and noise 36 dB above the music over 16 kHz. It sounded "like death" on the speakers.
+            return CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.wav?sid={sid}",
+                              self._speaker_offset)
         if where == "pc":
             from .audio_io import ProcessOutput
             from .local_output import DEFAULT_OFFSET_S
@@ -367,7 +368,7 @@ class JamService:
     RECONNECT_AFTER_S = 3.0      # a speaker that had played less of the stream than this was only starting it
 
     async def stream(self, request):
-        """The delayed audio, as an endless WAV or MP3, for the speakers to pull.
+        """The delayed audio, as an endless WAV, for the speakers to pull.
 
         A speaker that loses its connection (Wi-Fi) asks for the same stream again. Picking up
         where the connection broke would put the speaker's clock out of step with what it plays,
@@ -392,18 +393,11 @@ class JamService:
             threading.Thread(target=self._restart_cast, args=(out,), daemon=True).start()
             raise web.HTTPGone()
         served.setdefault(sid, 0.0)
-        mp3 = request.path.endswith(".mp3")
-        resp = web.StreamResponse(headers={"Content-Type": "audio/mpeg" if mp3 else "audio/wav", "Cache-Control": "no-store",
-                                           "Accept-Ranges": "none"})
+        resp = web.StreamResponse(headers={"Content-Type": "audio/wav", "Cache-Control": "no-store", "Accept-Ranges": "none"})
         await resp.prepare(request)
         loop = asyncio.get_running_loop()
-        enc = None
         try:
-            if mp3:
-                from .mp3stream import Mp3Encoder
-                enc = Mp3Encoder(stream.relay.sr, stream.relay.channels)
-            else:
-                await resp.write(stream.header())
+            await resp.write(stream.header())
             frame_bytes = 2 * stream.relay.channels
             while True:
                 data = await loop.run_in_executor(None, stream.read, 8192, 0.5)
@@ -412,19 +406,10 @@ class JamService:
                 if not data:
                     break
                 served[sid] = served.get(sid, 0.0) + len(data) / frame_bytes / stream.relay.sr
-                if enc is not None:
-                    import numpy as np
-                    pcm = np.frombuffer(data, dtype=np.int16).reshape(-1, stream.relay.channels)
-                    data = await loop.run_in_executor(None, enc.encode, pcm)
-                    if not data:
-                        continue
                 await resp.write(data)
         except (ConnectionResetError, ConnectionError, OSError, asyncio.CancelledError, RuntimeError):
             if eng is not None and served.get(sid, 0.0) >= self.RECONNECT_AFTER_S and getattr(out, "stream", None) is stream:
                 eng.say("the speaker's connection dropped (Wi-Fi)")
-        finally:
-            if enc is not None:
-                enc.close()
         return resp
 
     def _restart_cast(self, out) -> None:

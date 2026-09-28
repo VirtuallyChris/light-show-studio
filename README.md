@@ -440,13 +440,14 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
 started by itself or was already running on this PC: the sound moves at the
 point the room had reached. When the Cast goes away the sound comes back here.
 
-**Cast over Wi-Fi.** The speaker gets the jam as MP3 at 320 kbit/s, under a
-quarter of raw audio, which matters most for a group: its leader resends
-everything to every other speaker. The speaker may buffer up to 20 s ahead, so
-a Wi-Fi dropout shorter than that goes unheard. If it loses the stream anyway
-and comes back for it, the studio restarts the stream at the point the room had
-reached, so the lights stay in step (the Jam log says when this happens). Set
-`cast_stream_format` to `wav` in `config.json` to send raw audio instead.
+**Cast over Wi-Fi.** The speaker may buffer up to 20 s ahead, so a Wi-Fi dropout
+shorter than that goes unheard. If it loses the stream anyway and comes back for
+it, the studio restarts the stream at the point the room had reached, so the
+lights stay in step (the Jam log says when this happens). A Cast speaker that
+is not playing within 15 s (off, or on weak Wi-Fi) hands the room to this PC;
+press Cast to try it again. The stream is raw audio: MP3 was tried to lighten
+the Wi-Fi load, but the installed encoder (libsndfile 1.2.2) turned music into
+noise.
 
 **How the auto-built shows look.**
 

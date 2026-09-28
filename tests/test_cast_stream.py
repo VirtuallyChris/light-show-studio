@@ -46,28 +46,6 @@ class TestReserve(unittest.TestCase):
         self.assertEqual(s2.segments[-1][1], -1)
 
 
-class TestMp3(unittest.TestCase):
-    def test_the_stream_encodes_as_it_goes_and_decodes_whole(self):
-        import soundfile as sf
-        from lightshow.studio.mp3stream import Mp3Encoder
-        sr = 44100
-        t = np.arange(sr * 6) / sr
-        x = (0.3 * np.sin(2 * np.pi * 330 * t) * 32767).astype(np.int16)
-        pcm = np.stack([x, x], 1)
-        enc, out, pieces = Mp3Encoder(sr, 2), bytearray(), 0
-        for i in range(0, len(pcm), 4410):
-            b = enc.encode(pcm[i:i + 4410])
-            out += b
-            pieces += bool(b)
-        out += enc.close()
-        self.assertGreater(pieces, 55)                              # bytes come out as the audio goes in
-        kbps = len(out) * 8 / 6 / 1000
-        self.assertLess(kbps, 340)                                  # under a quarter of raw audio (1411)
-        y, ysr = sf.read(io.BytesIO(bytes(out)), dtype="float32")
-        self.assertEqual(ysr, sr)
-        self.assertAlmostEqual(len(y) / sr, 6.0, delta=0.1)
-
-
 class TestReconnect(unittest.IsolatedAsyncioTestCase):
     async def test_a_speaker_that_comes_back_gets_a_clean_restart(self):
         import threading
@@ -97,7 +75,7 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
                 self.lock, self.relay, self.log = threading.RLock(), relay, []
                 self.gate = type("G", (), {"paused": False})()
                 self.cfg = type("C", (), {"target_delay": 45.0})()
-                self.output = CastOutput(Cast(), lambda sid: f"http://x/api/jam/stream.wav?sid={sid}", fmt="wav")
+                self.output = CastOutput(Cast(), lambda sid: f"http://x/api/jam/stream.wav?sid={sid}", )
                 self.output.start_stream(relay.open_stream(10.0))
             def room_capture_time(self): return 12.0
             def say(self, m): self.log.append(m)
