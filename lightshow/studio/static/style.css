@@ -188,3 +188,5 @@ main { display: grid; grid-template-columns: 252px 1fr 272px; grid-template-rows
 .jam-style { display: inline-block; font-size: 10.5px; color: var(--muted); border: 1px solid var(--line2); border-radius: 999px; padding: 0 7px; text-transform: capitalize; }
 .jam-check { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--muted, #8b92a3); margin: 6px 0 2px; cursor: pointer; }
 .jam-check input { margin-top: 2px; flex: none; }
+.main-color { display: flex; align-items: center; gap: 6px; }
+.main-color input[type=color] { width: 34px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }

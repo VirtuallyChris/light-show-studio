@@ -479,6 +479,10 @@ noise.
   only if its sound opens up (brightens) toward the drop; a song that just
   arrives at its chorus gets none. Songs learned by an older analysis are heard
   afresh the next time they play.
+- **Main color.** In the Song panel (click empty timeline), pick a *Main color*
+  and press *Rebuild*: the show is built around it and two neighboring hues,
+  the way a jam song is built around its album cover. *Auto* goes back to the
+  automatic palettes. Setting it does not touch the show until you rebuild.
 - **Contrast.** Effects that are mostly dark with bright things moving (comets,
   meteors, orbits, sparks, sweeps) take the opposite colors of the base under
   them: a comet over red is cyan-blue. Buildups and breakdowns run on the
