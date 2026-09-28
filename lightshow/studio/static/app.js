@@ -54,7 +54,7 @@
       sections: tidySections(a.sections),
       drops: a.drops.slice(), palettes: JSON.parse(JSON.stringify(Effects.PALETTES)), defaultPalette: 'Neon',
       paletteClips: [], lanes: Array.from({ length: DEFAULT_LANES }, newLane),
-      settings: { latency: 30, master: 1 },
+      settings: { latency: 30 },
     };
   }
   const P = () => S.project;
@@ -154,7 +154,6 @@
     P().name = $('#projectName').value || S.name;
     P().settings.latency = parseFloat($('#latency').value) || 0;
     P().settings.castOffset = parseFloat($('#castOffset').value) || 0;
-    P().settings.master = parseFloat($('#master').value) / 100;
     return P();
   }
   async function save() {
@@ -205,7 +204,6 @@
     const measured = S.cast.active ? S.defaults.castOffsets[S.cast.device] : null;
     $('#castOffset').value = S.project.settings.castOffsetCustom ? (S.project.settings.castOffset || 0)
       : (measured != null ? measured : S.defaults.castOffset);
-    $('#master').value = Math.round(S.project.settings.master * 100);
     renderLights(); sendSelect();
     $('#emptyState').hidden = true;
     S.undo.length = 0; S.redo.length = 0; S.view.sel = null; S.view.multi = []; S.audio.pos = 0;
@@ -540,7 +538,7 @@
     const p = P(); const b = timeToBeat(t); const f = featureAt(t); const lanePal = currentPalette(b);
     const music = musicAt(t);
     const kick = Math.exp(-frac(b) * 6);
-    const master = parseFloat($('#master').value) / 100 * loudnessGain(t);
+    const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
     const out = [];
     for (const L of selectedLights()) {
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
@@ -623,10 +621,9 @@
       const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })));
       w.onmessage = outputTick;
     } catch (e) { setInterval(outputTick, 16); }
-    setInterval(() => {  // once a second: show the real send rate next to the connection dot
+    setInterval(() => {  // once a second: the real send rate, in the connection dot's tooltip
       const n = S.framesSent || 0; const fps = n - (S.framesSentPrev || 0); S.framesSentPrev = n;
       const dot = $('#wsState'); dot.title = S.outputActive ? `Lights: ${fps} frames/s` : 'Server connection';
-      const lbl = $('#fpsLabel'); if (lbl) lbl.textContent = S.outputActive ? `${fps} fps` : '';
     }, 1000);
   })();
   function fmtTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(3).padStart(6, '0')}`; }
@@ -1722,7 +1719,7 @@
     S.defaults.lightOffset = parseFloat($('#latency').value) || 0;
     fetch('/api/settings/light_offset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ms: S.defaults.lightOffset }) }).catch(() => {});
     scheduleSave();
-  }; $('#master').oninput = () => { scheduleSave(); pushFrameIfIdle(); };
+  };
   $('#projectName').onchange = scheduleSave;
   if ($('#btnNewPalette')) $('#btnNewPalette').onclick = () => { if (!P()) return; const name = prompt('Palette name'); if (!name) return; beginChange(); P().palettes[name] = ['#ff0000', '#0000ff']; renderPalettes(); changed(); };
   window.addEventListener('resize', () => draw());
