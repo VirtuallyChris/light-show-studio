@@ -378,6 +378,7 @@ class CastOutput:
         if self.stream:
             self.stream.close()
         self.stream, self.sid = stream, self.sid + 1
+        self.started_at = time.monotonic()
         self.cast.play_stream(self.stream_url(self.sid), "audio/mpeg" if self.fmt == "mp3" else "audio/wav", "Light Show Jam")
 
     def position(self) -> float:

@@ -60,6 +60,11 @@ class CastManager:
         return out
 
     # -- connection ------------------------------------------------------------------
+    @staticmethod
+    def _answered(c) -> bool:
+        sc = getattr(c, "socket_client", None)
+        return c.status is not None and bool(getattr(sc, "is_connected", True))
+
     def connect(self, name: str) -> dict:
         if not self.casts:
             self.discover()
@@ -68,6 +73,24 @@ class CastManager:
             raise LookupError(f"no Cast device named {name!r}")
         self.disconnect()
         target.wait(timeout=10)
+        if not self._answered(target):
+            # A group lives on whichever of its speakers leads it, and that can change (a speaker
+            # rejoining Wi-Fi); the address found earlier may be stale. Look again, once.
+            try:
+                target.disconnect(timeout=2)
+            except Exception:  # noqa: BLE001
+                pass
+            self.discover()
+            target = next((c for c in self.casts if c.cast_info.friendly_name.lower() == name.lower()), None)
+            if target is None:
+                raise LookupError(f"{name} is not on the network right now (a speaker in it may be off or rejoining Wi-Fi)")
+            target.wait(timeout=10)
+            if not self._answered(target):
+                try:
+                    target.disconnect(timeout=2)
+                except Exception:  # noqa: BLE001
+                    pass
+                raise ConnectionError(f"{name} is not answering (a speaker in it may be off or on weak Wi-Fi)")
         self.cast = target
         self.name = target.cast_info.friendly_name
         mc = target.media_controller

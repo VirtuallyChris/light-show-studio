@@ -517,6 +517,7 @@ class Studio:
 
     async def cast_connect(self, request):
         body = await request.json()
+        self.jam._cast_failed = None                  # pressing Cast tries the speaker again, even one that failed
         return await self._cast_call(self.cast.connect, body.get("name", ""))
 
     async def cast_disconnect(self, request):

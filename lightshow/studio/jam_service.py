@@ -184,10 +184,32 @@ class JamService:
         kind = self._output_kind(e.output)
         if kind == "none" and not getattr(self, "room_wanted", False):
             return                                      # a preview stays a preview
-        want = "cast" if self.studio.cast.cast is not None else "pc"
+        cast = self.studio.cast
+        if kind == "cast" and self._cast_stuck(e):
+            # The speaker is not playing what it was sent (unreachable, or dropped out): the room
+            # would sit silent with its clock frozen. Move to this PC until Cast is pressed again.
+            self._cast_failed = cast.cast
+            e.say(f"{cast.name or 'the Cast speaker'} is not playing (not reachable?): the room is on this PC now. Press Cast to try it again.")
+        usable = cast.cast is not None and cast.cast is not getattr(self, "_cast_failed", None)
+        want = "cast" if usable else "pc"
         if want != kind:
             self._switching = True
             threading.Thread(target=self._switch_output, args=(want,), daemon=True).start()
+
+    CAST_GRACE_S = 15.0
+
+    def _cast_stuck(self, e) -> bool:
+        """Has the Cast speaker failed to play for CAST_GRACE_S while it should have been?"""
+        now = time.monotonic()
+        if e.gate.paused or not e.streaming:
+            self._cast_ok_at = now
+            return False
+        status = getattr(self.studio.cast, "status", None)
+        if not callable(status) or status().get("state") in ("PLAYING", "BUFFERING", "PAUSED"):
+            self._cast_ok_at = now
+            return False
+        since = max(getattr(self, "_cast_ok_at", 0.0), getattr(e.output, "started_at", 0.0))
+        return now - since > self.CAST_GRACE_S
 
     def _switch_output(self, want: str) -> None:
         """Hand the room's sound to another output at the very point it had reached."""

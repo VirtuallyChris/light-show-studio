@@ -300,6 +300,69 @@ class TestSpeakersAlwaysPlay(unittest.TestCase):
             self.assertEqual(svc._output_kind(svc.engine.output), expect, f"speakers wanted: {wanted}")
 
 
+class TestCastThatDoesNotPlay(unittest.TestCase):
+    def test_a_silent_cast_hands_the_room_to_this_pc_until_cast_is_pressed(self):
+        import threading
+        import time as _t
+        import numpy as np
+        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.relay import Relay
+
+        class Cast:                                   # a speaker that never starts playing
+            state = "UNKNOWN"
+            def play_stream(self, *a): pass
+            def status(self): return {"position": 0.0}
+            def stop(self): pass
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = object(), "Everywhere", ""
+                @staticmethod
+                def status(): return {"state": Studio.cast.state_now}
+                state_now = "UNKNOWN"
+                play_stream = Cast().play_stream
+                stop = Cast().stop
+
+        class PcOut:
+            device_name, name, offset, stream = "default", "This PC", 0.0, None
+            def stop(self): pass
+            def start_stream(self, stream): self.stream = stream
+            def pause(self): pass
+
+        relay = Relay(sr=1000, channels=2, capacity_s=120)
+        relay.write(np.zeros((60_000, 2), dtype=np.int16))
+
+        class Engine:
+            def __init__(self):
+                self.lock, self.streaming, self.relay, self.log = threading.RLock(), True, relay, []
+                self.gate = type("G", (), {"paused": False})()
+                self.cfg = type("C", (), {"target_delay": 45.0})()
+                self.output = CastOutput(Cast(), lambda sid: f"http://x/{sid}")
+                self.output.start_stream(relay.open_stream(0.0))
+            def room_capture_time(self): return 10.0
+            def say(self, m): self.log.append(m)
+
+        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc.engine, svc.source, svc.room_wanted = Engine(), "studio", True
+        real = svc._output_for
+        svc._output_for = lambda where, *a, **k: PcOut() if where == "pc" else real(where, *a, **k)
+        wait = lambda: [_t.sleep(0.02) for _ in range(50) if getattr(svc, "_switching", False)]
+
+        svc._follow_cast(); wait()
+        self.assertEqual(svc._output_kind(svc.engine.output), "cast")     # still within its 15 s to start
+        svc.engine.output.started_at -= 20                                # 20 s on, and it never played
+        svc._follow_cast(); wait()
+        self.assertEqual(svc._output_kind(svc.engine.output), "pc")
+        self.assertTrue(any("not playing" in m for m in svc.engine.log))
+        svc._follow_cast(); wait()
+        self.assertEqual(svc._output_kind(svc.engine.output), "pc")       # and it stays here
+        svc._cast_failed = None                                           # Cast pressed again
+        Studio.cast.state_now = "PLAYING"
+        svc._follow_cast(); wait()
+        self.assertEqual(svc._output_kind(svc.engine.output), "cast")
+
+
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)
