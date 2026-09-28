@@ -14,7 +14,7 @@
 <body>
 <header class="topbar">
   <div class="group file">
-    <button id="btnLib" class="icon narrow-only" title="Lights, effects and palettes">&#9776;</button>
+    <button id="btnLib" class="icon narrow-only" title="Lights and effects">&#9776;</button>
     <div class="brand">Light Show Studio</div>
     <input id="projectName" class="project-name" placeholder="untitled" title="Project name">
     <button id="btnOpen" title="Open a song (or drop one anywhere)">Open song</button>
@@ -70,11 +70,6 @@
       <input id="effectSearch" placeholder="search…" class="search">
       <div id="effectList" class="effect-list"></div>
     </div>
-    <div class="panel">
-      <h3>Palettes <span class="hint">drag onto a clip</span></h3>
-      <div id="paletteList" class="palette-list"></div>
-      <button id="btnNewPalette" class="small">New palette</button>
-    </div>
   </aside>
 
   <section class="workspace">
@@ -83,10 +78,9 @@
       <div class="group grid">
         <label title="Tempo in beats per minute">BPM <input id="bpm" type="number" step="0.01" min="40" max="240" class="num"></label>
         <div class="menu-wrap">
-          <button id="btnGridMenu" title="Tap tempo, halve or double it, nudge the grid, move the downbeat">Beat grid ▾</button>
+          <button id="btnGridMenu" title="Halve or double the tempo, nudge the grid, move the downbeat">Beat grid ▾</button>
           <div id="gridMenu" class="menu" hidden>
             <div class="menu-title">Tempo</div>
-            <button id="btnTap" title="Tap along with the beat">Tap tempo</button>
             <div class="menu-row"><button id="btnHalf" title="Halve the tempo: keep every other beat. Use when the grid counts eighth notes.">Halve &divide;2</button><button id="btnDouble" title="Double the tempo: add a beat between every pair.">Double &times;2</button></div>
             <div class="menu-title">Grid</div>
             <div class="menu-row"><button id="btnNudgeL" title="Shift the beat grid 10 ms earlier">◁ 10 ms</button><button id="btnNudgeR" title="Shift the beat grid 10 ms later">10 ms ▷</button></div>

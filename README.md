@@ -183,9 +183,8 @@ after that. Saved shows live in the `shows/` folder and reload from the
    its own colors, shown as a color bar
    along the bottom of the clip on the timeline. Select a clip and pick from
    the visual palette grid in the inspector, choose *Custom* for your own
-   color swatches, or drag a palette card from the library straight onto a
-   clip. Clips without their own choice use the project's default palette
-   (double-click a palette card to set it). Dropping an *effect* onto an
+   color swatches. Clips without their own choice use the song's
+   **Default palette** (in the Song panel of the inspector). Dropping an *effect* onto an
    existing clip swaps the effect and keeps the clip's timing, layer, colors
    and opacity. Click the eye on a layer name to hide that layer while you
    work on the others.
@@ -248,7 +247,7 @@ snap to bar lines, so getting this right first saves nudging every boundary.
 **Beats**: turn on **Beat edit** to fix the grid. Click the waveform to add a
 beat, tap <kbd>Space</kbd> along with the music while it plays to lay beats
 down, drag a beat to move it, <kbd>Delete</kbd> to remove one. Or set the
-**BPM** (or **Tap tempo** in the Beat grid menu) and press **Regrid from BPM**
+**BPM** and press **Regrid from BPM** in the Beat grid menu
 for a fresh even grid, and nudge the whole grid with the 10 ms buttons there.
 **Bar +1** moves the downbeat.
 
@@ -302,7 +301,7 @@ edge, so a drop and its blast stay together.
 a 1440p monitor, text, buttons and timeline alike. The top bar holds the file,
 building, transport, Cast and lights controls; the timeline's own controls
 (BPM, the Beat grid menu, snap, zoom, undo, Beat edit) sit in a strip right
-above it. Below about 1150 px wide the library of lights, effects and palettes
+above it. Below about 1150 px wide the library of lights and effects
 becomes a drawer behind the ☰ button, and on a very narrow window the
 inspector moves to the bottom. The **?** button lists the keyboard shortcuts.
 
@@ -312,7 +311,8 @@ it is what you are looking at: drag it to scroll, drag its edges to zoom, or
 click anywhere to jump there. In the timeline the wheel zooms around the
 pointer, <kbd>Shift</kbd>+wheel pans, and <kbd>Ctrl</kbd>+wheel scrolls the
 layer stack. <kbd>Space</kbd> plays and pauses, clicking the waveform seeks,
-dragging the ruler scrubs, and <kbd>+</kbd>/<kbd>-</kbd>/<kbd>Fit</kbd> zoom
+dragging the ruler scrubs (the playhead snaps to the **Snap** setting, like
+clips; hold <kbd>Alt</kbd> to place it freely), and <kbd>+</kbd>/<kbd>-</kbd>/<kbd>Fit</kbd> zoom
 from the keyboard.
 <kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo/redo, <kbd>Ctrl</kbd>+<kbd>S</kbd>
 to save. Everything auto-saves a couple of seconds after you stop editing.

@@ -14,7 +14,7 @@
     lights: [], ws: null, wsOpen: false, outputActive: false, lastLightSend: 0,
     cast: { active: false, device: '', state: 'IDLE', pos: 0, at: 0, poll: null, devices: [] },
     defaults: { castOffset: 0, castOffsets: {} },
-    undo: [], redo: [], saveTimer: null, tap: [], lastFrame: null,
+    undo: [], redo: [], saveTimer: null, lastFrame: null,
   };
   const HEADER = 96, ROW = { ruler: 22, sections: 20, wave: 84, pal: 0, lane: 48 };
   // The canvases draw in "logical" pixels scaled by UI, which follows the page's text size (the
@@ -75,6 +75,8 @@
   }
   const snapVal = () => parseFloat($('#snap').value);
   function snapBeat(x) { const s = snapVal(); if (!s) return x; const ph = P().phase; return ph + Math.round((x - ph) / s) * s; }
+  // the playhead follows the Snap setting too when you click or drag it; Alt lets it go anywhere
+  function snapTime(t, e) { if (!snapVal() || (e && e.altKey)) return t; return clamp(beatToTime(snapBeat(timeToBeat(t))), 0, duration()); }
   const barOf = b => Math.floor((b - P().phase) / 4);
   const barLabel = b => { const bar = barOf(b); const beat = Math.floor(b - P().phase - bar * 4); return `${bar + 1}.${beat + 1}`; };
   const duration = () => S.analysis ? S.analysis.duration : 0;
@@ -942,7 +944,7 @@
     const p = P(); S.view.mouse = { x, y };
     if (h.type === 'ruler' || h.type === 'wave') {
       if (h.type === 'wave' && $('#beatEdit').checked) { beginChange(); const t = h.t; const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); S.view.sel = { type: 'beat', index: i < 0 ? p.beats.length - 1 : i }; inspector(); changed(); return; }
-      seek(h.t); S.view.sel = null; inspector(); S.view.drag = { type: 'scrub' }; draw(); return;
+      const st = snapTime(h.t, e); seek(st); S.view.sel = null; inspector(); S.view.drag = { type: 'scrub', last: st }; draw(); return;
     }
     if (h.type === 'beat') { S.view.sel = { type: 'beat', index: h.index }; inspector(); if ($('#beatEdit').checked) { beginChange(); S.view.drag = { type: 'beat', index: h.index }; } draw(); return; }
     if (h.type === 'drop') { S.view.sel = { type: 'drop', index: h.index }; inspector(); beginChange(); S.view.drag = { type: 'drop', index: h.index }; draw(); return; }
@@ -985,7 +987,7 @@
     const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const d = S.view.drag;
     if (!d) { const h = hitTest(x, y); tl.style.cursor = h && h.type === 'clip' && h.edge ? 'ew-resize' : h && (h.type === 'section-edge' || (h.type === 'beat' && $('#beatEdit').checked)) ? 'col-resize' : h && (h.type === 'clip' || h.type === 'drop') ? 'grab' : h && (h.type === 'laneEye' || h.type === 'addLane') ? 'pointer' : 'default'; return; }
     const p = P(); const t = clamp(tOf(x), 0, duration()); const b = timeToBeat(t);
-    if (d.type === 'scrub') { seek(t); return; }
+    if (d.type === 'scrub') { const st = snapTime(t, e); if (st !== d.last) { d.last = st; seek(st); } return; }
     if (d.type === 'marquee') {
       d.x = clamp(x, HEADER, TW()); d.y = clamp(y, lanesTop(), TH());
       // clips inside the box show as selected while it is still being drawn
@@ -1228,7 +1230,6 @@
     S.view.sel = null; inspector(); changed();
     toast(`Tempo ${factor === 0.5 ? 'halved' : 'doubled'}: ${p.bpm.toFixed(1)} bpm. Clips kept their place in the song.`);
   }
-  function tapTempo() { const now = performance.now(); S.tap = S.tap.filter(t => now - t < 3000); S.tap.push(now); if (S.tap.length >= 4) { const iv = []; for (let i = 1; i < S.tap.length; i++) iv.push(S.tap[i] - S.tap[i - 1]); const bpm = 60000 / (iv.reduce((a, b) => a + b, 0) / iv.length); $('#bpm').value = bpm.toFixed(2); toast(`Tap: ${bpm.toFixed(1)} bpm — press Regrid to apply`); } }
 
   // ------------------------------------------------------------------ drag & drop from the library
   function libraryDrag(el, kind, id) { el.draggable = true; el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', kind + ':' + id); e.dataTransfer.effectAllowed = 'copy'; }); }
@@ -1263,14 +1264,14 @@
     }
   }
   function renderPalettes() {
-    const list = $('#paletteList'); list.innerHTML = ''; const pals = P() ? P().palettes : Effects.PALETTES;
+    const list = $('#paletteList'); if (!list) return; list.innerHTML = ''; const pals = P() ? P().palettes : Effects.PALETTES;
     for (const [name, cols] of Object.entries(pals)) { const card = document.createElement('div'); card.className = 'palette-card'; card.innerHTML = `<span class="nm">${name}</span><div class="bar" style="background:linear-gradient(90deg,${cols.join(',')})"></div>`; libraryDrag(card, 'palette', name); card.title = 'Drag onto a clip to give it these colors. Double-click to make it the default for clips without their own.'; card.ondblclick = () => { if (P()) { beginChange(); P().defaultPalette = name; changed(); toast(`Default palette: ${name}`); } }; list.appendChild(card); }
   }
 
   // ------------------------------------------------------------------ toolbar menus
   const SHORTCUTS = `<h3>Shortcuts</h3><div class="help">
       <kbd>Space</kbd> play / pause &nbsp; <kbd>Home</kbd> start<br>Wheel zooms · <kbd>Shift</kbd>+wheel pans · <kbd>Ctrl</kbd>+wheel scrolls layers<br>Drag the strip on top to scroll, its edges to zoom<br>
-      Click waveform to seek, drag the ruler to scrub<br>Drag effects onto layers; drag edges to resize<br>Drag across empty space to box-select clips · <kbd>Shift</kbd>+click adds · <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all<br>Drag any selected clip to move the whole block<br>Drop an effect on a clip to swap the effect, same timing<br>Drag a palette onto a clip to recolor it<br>Click a layer's eye to hide it<br><kbd>Alt</kbd>+drag copies a clip<br>
+      Click waveform to seek, drag the ruler to scrub (snaps like clips; hold <kbd>Alt</kbd> to go anywhere)<br>Drag effects onto layers; drag edges to resize<br>Drag across empty space to box-select clips · <kbd>Shift</kbd>+click adds · <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all<br>Drag any selected clip to move the whole block<br>Drop an effect on a clip to swap the effect, same timing<br>Click a clip to pick its colors in the inspector<br>Click a layer's eye to hide it<br><kbd>Alt</kbd>+drag copies a clip<br>
       <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd> copy / cut / paste / duplicate<br><kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
       Double-click a section to cycle its type<br>Right-click anything for more<br>
       <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays</div>`;
@@ -1703,7 +1704,6 @@
   $('#btnPath').onclick = () => { const v = $('#pathInput').value.trim(); if (v) openPath(v); }; $('#pathInput').onkeydown = e => { if (e.key === 'Enter') $('#btnPath').click(); };
   $('#recent').onchange = e => { if (e.target.value) openProject(e.target.value); };
   $('#btnRescan').onclick = () => loadLights(true);
-  $('#btnTap').onclick = tapTempo;
   $('#btnHalf').onclick = () => scaleTempo(0.5); $('#btnDouble').onclick = () => scaleTempo(2); $('#btnRegrid').onclick = () => { if (P()) regrid(); }; $('#btnNudgeL').onclick = () => P() && nudge(-10); $('#btnNudgeR').onclick = () => P() && nudge(10);
   $('#btnPhase').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 1) % 4; changed(); };
   $('#btnPhaseL').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 3) % 4; changed(); };
@@ -1719,7 +1719,7 @@
     scheduleSave();
   }; $('#master').oninput = () => { scheduleSave(); pushFrameIfIdle(); };
   $('#projectName').onchange = scheduleSave;
-  $('#btnNewPalette').onclick = () => { if (!P()) return; const name = prompt('Palette name'); if (!name) return; beginChange(); P().palettes[name] = ['#ff0000', '#0000ff']; renderPalettes(); changed(); };
+  if ($('#btnNewPalette')) $('#btnNewPalette').onclick = () => { if (!P()) return; const name = prompt('Palette name'); if (!name) return; beginChange(); P().palettes[name] = ['#ff0000', '#0000ff']; renderPalettes(); changed(); };
   window.addEventListener('resize', () => draw());
   window.addEventListener('beforeunload', () => {
     if (S.outputActive) stopOutput();

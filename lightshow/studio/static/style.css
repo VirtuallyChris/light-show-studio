@@ -204,7 +204,7 @@ body { font-size: 1rem; }
 .group { gap: .4rem; padding: .2rem .55rem; border-left: none; border-radius: .6rem; background: rgba(255,255,255,.025); }
 .group.file { background: none; padding-left: .1rem; }
 .group.right { margin-left: auto; }
-button, select, input { min-height: 2.05rem; }
+button, select, input:not([type=checkbox]):not([type=range]):not([type=radio]) { min-height: 2.05rem; }
 button.small { min-height: 1.7rem; }
 button.icon { width: 2.1rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .transport button.icon { width: 2.3rem; font-size: 1rem; }
@@ -261,7 +261,7 @@ main { grid-template-columns: clamp(15.5rem, 16vw, 20rem) minmax(0, 1fr) clamp(1
   border-bottom: 1px solid var(--line); position: relative; z-index: 5; flex: none; }
 .tl-bar .group { background: none; padding: 0 .3rem; }
 .tl-bar .group + .group { border-left: 1px solid var(--line); padding-left: .8rem; border-radius: 0; }
-.tl-bar button, .tl-bar select, .tl-bar input { min-height: 1.85rem; }
+.tl-bar button, .tl-bar select, .tl-bar input:not([type=checkbox]):not([type=range]) { min-height: 1.85rem; }
 .tl-bar button.icon { width: 1.95rem; }
 /* keep the top bar to one row on ordinary screens */
 .brand { padding-right: .4rem; margin-right: 0; }
@@ -283,3 +283,6 @@ main { grid-template-columns: clamp(15.5rem, 16vw, 20rem) minmax(0, 1fr) clamp(1
   .recent { max-width: 7.5rem; }
   .fps { display: none; }
 }
+.fps { color: var(--muted); font-size: .78rem; }
+/* the library is lights and effects: effects take all the height that is left */
+.library > .panel:nth-child(2) { flex: 1 1 0; min-height: 16rem; }
