@@ -27,6 +27,10 @@ NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 MCAST_GROUP = "239.255.255.250"
 SCAN_PORT = 4001
 LISTEN_PORT = 4002
+
+# Segments (separately colorable zones) of models whose count is known, for a new light
+# nobody has set a count for yet. Anything else starts at 10 until set in the studio.
+SKU_SEGMENTS = {"H6076": 7}
 CONTROL_PORT = 4003
 # Light frames are marked as real-time traffic (DSCP 46, "expedited forwarding"), so a Wi-Fi access
 # point that honors the mark (WMM) sends them ahead of other traffic, such as a Cast stream. Windows
@@ -218,14 +222,27 @@ def discover(timeout: float = 2.0, interface: str | None = None) -> list[GoveeDe
                 ls.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(iface))
             except OSError:
                 pass
-        # Multicast over wifi is lossy; ask twice so a missed packet does not
+        # Multicast is what Govee documents, but some networks (a VPN adapter on the PC,
+        # a router's IGMP snooping) let none of it through. A plain broadcast on the home
+        # subnet reaches the lights there, so the scan goes out all three ways.
+        targets = [MCAST_GROUP]
+        try:
+            ls.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            if iface:
+                targets.append(iface.rsplit(".", 1)[0] + ".255")   # the home subnet (a /24, as routers set up)
+            targets.append("255.255.255.255")
+        except OSError:
+            pass
+        # Over wifi any of it can be lost; ask twice so a missed packet does not
         # make a light vanish from the list.
-        ls.sendto(scan, (MCAST_GROUP, SCAN_PORT))
-        for ip, msg in _drain(ls, min(0.4, timeout / 2)):
-            _collect(found, ip, msg, arp)
-        ls.sendto(scan, (MCAST_GROUP, SCAN_PORT))
-        for ip, msg in _drain(ls, timeout):
-            _collect(found, ip, msg, arp)
+        for wait in (min(0.4, timeout / 2), timeout):
+            for t in targets:
+                try:
+                    ls.sendto(scan, (t, SCAN_PORT))
+                except OSError:
+                    pass
+            for ip, msg in _drain(ls, wait):
+                _collect(found, ip, msg, arp)
     return sorted(found.values(), key=lambda d: tuple(int(p) for p in d.ip.split(".")))
 
 

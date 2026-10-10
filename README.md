@@ -576,8 +576,11 @@ loudness from the first bar. Delete the `calibration` block to reset it.
 `lightshow/show.py` maps those features to a color per segment, per light,
 for the selected mode and rate-limits the sends.
 
-`lightshow/govee_lan.py` is a small client for the Govee LAN API: multicast
-discovery on 239.255.255.250:4001, control on UDP 4003, plus the binary
+`lightshow/govee_lan.py` is a small client for the Govee LAN API: discovery
+by a scan to UDP 4001, sent to the multicast group 239.255.255.250 and also as
+a broadcast on the home subnet (some networks pass no multicast at all: on one
+with a VPN adapter installed, only the broadcast found anything), control on
+UDP 4003, plus the binary
 "razer" real-time protocol (`BB 00 len cmd data.. xor`, cmd `B1` = enable,
 `B0` = per-LED colors). The light leaves real-time mode by itself after about
 a minute without packets, so the show re-enables it periodically.

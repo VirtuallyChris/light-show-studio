@@ -478,7 +478,7 @@ class Studio:
         for d in self.known:
             if not d.mac:   # ARP may not have the entry yet; use what we remembered
                 d.mac = remembered.get(d.ip, {}).get("mac", "")
-            n = seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or 10
+            n = seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10
             name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""
             flip = bool(flipped.get(d.mac) or flipped.get(d.device_id) or flipped.get(d.ip))
             out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online, "flip": flip,
