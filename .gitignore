@@ -12,6 +12,8 @@ studio.log
 # Songs and the shows built on them are yours: kept on this computer, not in git.
 # (That covers Jam mode's learned tracks in shows/_jam/ and the scratch test project too.)
 shows/
+# songs dropped in for testing the analysis: someone else's copyright, never committed
+song_samples/
 
 # Editors and OS
 .vscode/
