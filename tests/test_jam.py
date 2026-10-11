@@ -618,3 +618,16 @@ class TestDemo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTrackColors(unittest.TestCase):
+    def test_a_tracks_colors_are_kept_and_can_be_cleared(self):
+        d = tempfile.mkdtemp()
+        try:
+            JamLibrary(d).set_colors("abc", "#8000ff", "#00ff00")
+            self.assertEqual(JamLibrary(d).colors(), {"abc": {"primary": "#8000ff", "secondary": "#00ff00"}})   # kept on disk
+            lib = JamLibrary(d)
+            lib.set_colors("abc", None, None)                  # back to the jam's colors
+            self.assertEqual(JamLibrary(d).colors(), {})
+        finally:
+            shutil.rmtree(d)

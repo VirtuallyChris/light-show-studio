@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import html
 import os
+import re
 import threading
 import time
 
@@ -72,6 +73,7 @@ class JamService:
             web.get("/api/spotify/token", self.token),
             web.post("/api/jam/sdk_state", self.sdk_state),
             web.post("/api/jam/prefs", self.prefs),
+            web.post("/api/jam/colors", self.colors),
             web.get("/api/jam/art", self.art),
             web.post("/api/jam/player/open", self.player_open),
             web.post("/api/jam/player/transfer", self.player_transfer),
@@ -291,7 +293,8 @@ class JamService:
                 "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error,
                             "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
-                "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started}
+                "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
+                "jam_colors": self._jam_colors(), "track_colors": self.library.colors()}
         if self.engine is None:
             return base
         st = self.engine.state()
@@ -566,6 +569,33 @@ class JamService:
 
     def _last(self) -> dict:
         return {"source": "studio", "speakers": "pc", "target_delay": 45.0, **self.load_config().get("jam_last", {})}
+
+    DEFAULT_COLORS = {"mode": "album", "primary": "#8000ff", "secondary": "#00ff00"}
+
+    def _jam_colors(self) -> dict:
+        """The jam's own colors: every song in a primary and a secondary, or ("album") its cover's."""
+        return {**self.DEFAULT_COLORS, **self.load_config().get("jam_colors", {})}
+
+    async def colors(self, request):
+        """Set the jam's colors ({mode, primary, secondary}), or one track's ({track_id, primary,
+        secondary}; without the colors, the track goes back to the jam's)."""
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
+        if body.get("track_id"):
+            self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")))
+        else:
+            cfg = self.load_config()
+            cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
+            if body.get("mode") in ("pick", "album"):
+                cur["mode"] = body["mode"]
+            for k in ("primary", "secondary"):
+                if hexcolor(body.get(k)):
+                    cur[k] = hexcolor(body[k])
+            cfg["jam_colors"] = cur
+            self.save_config(cfg)
+        return web.json_response(self._state())
 
     def _auto_on(self) -> bool:
         return bool(self.load_config().get("jam_auto", True))

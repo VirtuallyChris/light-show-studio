@@ -1462,7 +1462,10 @@
     // coherent across the track, but two drops never open on the same color.
     const mood = S.analysis.mood || {};
     S.songPals = (mood.palettes || [mood.palette]).filter(n => p.palettes[n]);
-    if (p.settings && p.settings.mainColor) { p.palettes.Main = mainPalette(p.settings.mainColor); S.songPals = ['Main']; }   // chosen by hand
+    // Jam mode's two colors (the jam's, or the ones picked for this track in the queue) come first
+    S.pairMode = !!(S.jamColors && S.jamColors.length === 2);
+    if (S.pairMode) { p.palettes.Jam = Effects.solidPalette(S.jamColors); S.songPals = ['Jam']; }
+    else if (p.settings && p.settings.mainColor) { p.palettes.Main = mainPalette(p.settings.mainColor); S.songPals = ['Main']; }   // chosen by hand
     else if (S.albumPalette && S.albumPalette.length) { p.palettes.Album = Effects.solidPalette(S.albumPalette); S.songPals = ['Album']; }   // the cover's own colors
     if (!S.songPals.length) S.songPals = [p.defaultPalette];
     S.songPal = S.songPals[0];
@@ -1522,16 +1525,20 @@
       return '#' + Effects.hsv(h, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
     }));
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effect) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
     const fam = S.songPals && S.songPals.length ? S.songPals : [p.defaultPalette];
-    S.buildPal = paletteVariant(fam[idx % fam.length], idx);
+    // Two colors (Jam mode): the primary leads, the secondary is "the other one". Nothing else comes
+    // in: the opposite of the pair is the pair swapped, not the opposite side of the color wheel.
+    const pair = S.pairMode && p.palettes.Jam;
+    S.buildPal = pair ? p.palettes.Jam.slice() : paletteVariant(fam[idx % fam.length], idx);
+    const opposite = pair ? (cols => cols.slice().reverse()) : contrastPalette;
     // Buildups and breakdowns run on the opposite colors, so the drop lands back on the song's
     // own palette and the change of color hits with it.
-    if (s.type === 'buildup' || s.type === 'breakdown') S.buildPal = contrastPalette(S.buildPal);
-    S.contrastPal = contrastPalette(S.buildPal);
+    if (s.type === 'buildup' || s.type === 'breakdown') S.buildPal = opposite(S.buildPal);
+    S.contrastPal = opposite(S.buildPal);
     const chillStyle = showStyle() === 'chill';
     S.bedLevel = ({ drop: 0.4, buildup: 0.35 }[s.type] || 0.3) + (chillStyle ? 0.1 : 0);
     S.bedDuck = chillStyle ? 0.35 : ({ drop: 0.7, verse: 0.55, buildup: 0.5 }[s.type] || 0.4);

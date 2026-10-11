@@ -486,8 +486,16 @@ noise.
 - **Tempo tops out at 135 bpm.** Anything faster is counted in half time, on the
   half of the beats the kick lands on.
 - **Solid colors.** Every palette color is full saturation and brightness; greys
-  become white or black. A jam track takes its palette from the album cover: its
-  dominant bright color and a second one from the cover.
+  become white or black.
+- **Jam colors.** In the Jam panel, **Colors** sets how every jam song is shown:
+  in two colors you pick ahead of time (a primary and a secondary, say purple
+  and green for a Halloween party), or in its album cover's colors (its dominant
+  bright color and a second one from the cover). Each song in the room and in
+  *Up next* has its own two color swatches: change them and that track keeps
+  those colors whenever it plays again (↺ puts it back to the jam's). In two
+  colors the primary leads verses and drops, buildups and breakdowns swap to the
+  secondary, and overlays take the other color of the pair, so nothing else
+  comes in. A song with a show you made keeps that show's colors.
 - **Dual comets** are for drops only; the **strobe riser** for the rave style
   only.
 - **Concert-style layers.** The bed (gradients, aurora, breathe) sets color and

@@ -67,6 +67,8 @@ class JamLibrary:
         self.learned_dir = os.path.join(self.dir, "learned")
         self.links_path = os.path.join(self.dir, "links.json")
         self._links: dict | None = None
+        self.colors_path = os.path.join(self.dir, "colors.json")
+        self._colors: dict | None = None
         self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
         self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
 
@@ -126,6 +128,30 @@ class JamLibrary:
         os.makedirs(self.dir, exist_ok=True)
         with open(self.links_path, "w", encoding="utf-8") as fh:
             json.dump(links, fh, indent=1)
+
+    # -- colors picked for a track in the jam queue ------------------------------------------
+    def colors(self) -> dict:
+        """track id -> {"primary": hex, "secondary": hex}: kept for the next time the track plays."""
+        if self._colors is None:
+            try:
+                with open(self.colors_path, encoding="utf-8") as fh:
+                    self._colors = json.load(fh)
+            except (OSError, ValueError):
+                self._colors = {}
+        return self._colors
+
+    def set_colors(self, track_id: str, primary: str | None, secondary: str | None) -> None:
+        """Give a track its own two colors, or (with None) send it back to the jam's colors."""
+        colors = self.colors()
+        if primary and secondary:
+            colors[track_id] = {"primary": primary, "secondary": secondary}
+        else:
+            colors.pop(track_id, None)
+        os.makedirs(self.dir, exist_ok=True)
+        tmp = self.colors_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(colors, fh, indent=1)
+        os.replace(tmp, self.colors_path)
 
     def match_project(self, track: Track) -> str | None:
         linked = self.links().get(track.id)

@@ -294,3 +294,9 @@ main { grid-template-columns: clamp(17.5rem, 17vw, 21rem) minmax(0, 1fr) clamp(1
 .light-list label { gap: .45rem; }
 h3.with-switch { align-items: center; }
 h3.with-switch .toggle { text-transform: none; letter-spacing: 0; }
+/* Jam mode: a song's two colors */
+.jam-pair { display: inline-flex; align-items: center; gap: .3rem; margin-left: .4rem; }
+.jam-pair input[type=color] { width: 1.7rem; height: 1.5rem; min-height: 0; padding: 0; border: 1px solid var(--line2); border-radius: .35rem; background: none; cursor: pointer; }
+.jam-pair input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+.jam-pair input[type=color]::-webkit-color-swatch { border: none; border-radius: .2rem; }
+.jam-pair .jp-reset { min-height: 1.5rem; padding: 0 .4rem; }
