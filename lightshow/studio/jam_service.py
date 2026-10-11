@@ -111,6 +111,8 @@ class JamService:
             web.post("/api/party/colors", self.party_colors),
             web.post("/api/party/playback", self.party_playback),
             web.post("/api/party/level", self.party_level_set),
+            web.get("/api/party/volumes", self.party_volumes),
+            web.post("/api/party/volume", self.party_volume),
             web.get("/api/jam/art", self.art),
             web.post("/api/jam/player/open", self.player_open),
             web.post("/api/jam/player/transfer", self.player_transfer),
@@ -736,6 +738,39 @@ class JamService:
             return web.json_response({"error": "unknown action"}, status=400)
         ok = await asyncio.get_running_loop().run_in_executor(None, fn)
         return web.json_response({"ok": bool(ok)})
+
+    async def party_volumes(self, request):
+        """The speaker the jam plays on (its volume is the cast's), and every speaker and group's own."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        cast = self.studio.cast
+
+        def read():
+            st = cast.status()
+            return {"cast": {"name": st["device"], "volume": st["volume"]} if st["connected"] else None,
+                    "devices": cast.device_volumes()}
+        try:
+            return web.json_response(await asyncio.get_running_loop().run_in_executor(None, read))
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
+
+    async def party_volume(self, request):
+        """Set a volume: the cast's ({level}), or one speaker's or group's ({name, level})."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        level = max(0.0, min(1.0, float(body.get("level", 0))))
+        cast = self.studio.cast
+        if body.get("name"):
+            fn = lambda: cast.set_device_volume(str(body["name"]), level)
+        else:
+            if cast.cast is None:
+                return web.json_response({"error": "not casting"}, status=400)
+            fn = lambda: cast.set_volume(level)
+        try:
+            return web.json_response(await asyncio.get_running_loop().run_in_executor(None, fn))
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
 
     async def party_level_set(self, request):
         if not self._lan(request):

@@ -417,8 +417,11 @@ ahead of time (it is kept for that track, as in the studio; ↺ goes back to the
 jam's). The **Party** slider sets how hard every show goes, live: at 100% the
 full show; lower, the song's main color is laid over the show, that much more
 opaque (at 10%, 90% of the light is the song's color), so the room calms down
-into one color without going dark. The level is remembered. The Party Hub
-answers only devices on the home network (private addresses) and this PC.
+into one color without going dark. The level is remembered. The ⚙ button opens
+**Settings**: the volume of the cast the jam plays on (a group's volume scales
+its speakers together), and every Google speaker and group on the network with
+its own slider. The Party Hub answers only devices on the home network (private
+addresses) and this PC.
 
 The "now and then" extras are picked for each song from its own two colors: the
 two hues farthest from both, either side of the middle of the wider gap between

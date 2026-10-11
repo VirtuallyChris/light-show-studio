@@ -107,3 +107,35 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSpeakerVolumes(unittest.TestCase):
+    """The Party Hub's settings: every speaker's volume, read and set (stand-in speakers: nothing plays)."""
+
+    def test_volumes_are_read_and_set_per_speaker(self):
+        from types import SimpleNamespace
+        from lightshow.studio.cast import CastManager
+
+        class Speaker:
+            def __init__(self, name, kind, vol):
+                self.cast_info = SimpleNamespace(friendly_name=name, cast_type=kind, model_name="Google Home")
+                self.status = SimpleNamespace(volume_level=vol)
+                self.socket_client = SimpleNamespace(is_connected=True)
+                self.set_to = None
+
+            def wait(self, timeout=None):
+                pass
+
+            def set_volume(self, v):
+                self.set_to = v
+        m = CastManager(None)
+        kitchen, group = Speaker("Kitchen Home", "audio", 0.4), Speaker("Everywhere", "group", 0.38)
+        m.casts = [kitchen, group]
+        vols = m.device_volumes()
+        self.assertEqual([v["name"] for v in vols], ["Everywhere", "Kitchen Home"])        # groups first
+        self.assertEqual(vols[1]["volume"], 0.4)
+        m.set_device_volume("Kitchen Home", 1.7)
+        self.assertEqual(kitchen.set_to, 1.0)                                              # clamped
+        self.assertIsNone(group.set_to)
+        with self.assertRaises(ValueError):
+            m.set_device_volume("Nowhere", 0.5)

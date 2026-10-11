@@ -230,6 +230,41 @@ class CastManager:
             self.cast.set_volume(max(0.0, min(1.0, level)))
         return self.status()
 
+    # -- every speaker's own volume (the Party Hub's settings) ----------------------------------
+    def _device(self, name: str):
+        if not self.casts:
+            self.discover()
+        c = next((c for c in self.casts if c.cast_info.friendly_name == name), None)
+        if c is not None and not self._answered(c):
+            c.wait(timeout=3)                            # a socket of its own; reading a volume plays nothing
+        return c
+
+    def device_volumes(self) -> list[dict]:
+        """Every speaker and group on the network with its volume (0..1), groups first."""
+        if not self.casts:
+            self.discover()
+        out = []
+        for c in list(self.casts):
+            i = c.cast_info
+            vol = None
+            try:
+                if not self._answered(c):
+                    c.wait(timeout=3)
+                if c.status is not None:
+                    vol = round(float(c.status.volume_level), 2)
+            except Exception:  # noqa: BLE001 - a speaker that does not answer just shows no level
+                pass
+            out.append({"name": i.friendly_name, "type": i.cast_type, "model": i.model_name, "volume": vol})
+        out.sort(key=lambda d: (d["type"] != "group", d["name"].lower()))
+        return out
+
+    def set_device_volume(self, name: str, level: float) -> dict:
+        c = self._device(name)
+        if c is None:
+            raise ValueError(f"no speaker called {name!r}")
+        c.set_volume(max(0.0, min(1.0, float(level))))
+        return {"name": name, "volume": round(max(0.0, min(1.0, float(level))), 2)}
+
     def status(self) -> dict:
         playing = self.state == "PLAYING"
         pos = self.base + self.last_time + (time.monotonic() - self.last_at if playing else 0.0)
