@@ -566,6 +566,43 @@ def drums_present(d, sr, hop, n_frames):
     return np.clip(sm / ref, 0, 1)
 
 
+def find_rolls(S_d, freqs, sr, hop, duration, beats, kick_band=(30, 150)):
+    """Drum rolls: stretches of the drum track where the hits above the kick come three or more to
+    a beat for at least a bar (snare rolls, tom runs, the machine-gun build into a drop). Every hit
+    in them, as close as 46 ms apart, so a buildup can follow the roll exactly. Returns the hits as
+    (time, strength) and the stretches as [start, end]."""
+    import librosa
+    from scipy.signal import find_peaks
+    beats = np.asarray(beats, dtype=float)
+    if len(beats) < 8:
+        return [], []
+    m = (freqs >= max(150, kick_band[1])) & (freqs <= 2500)       # snares and toms: below most of a hi-hat's energy
+    env = S_d[m].sum(axis=0)
+    r = np.maximum(0.0, np.diff(env, prepend=env[:1]))
+    r /= float(np.percentile(r, 99.5)) + 1e-9
+    pk, props = find_peaks(r, height=0.12, distance=2)
+    t = librosa.frames_to_time(pk, sr=sr, hop_length=hop)
+    st = props["peak_heights"]
+    per_beat = np.histogram(t, bins=beats)[0]
+    # a roll is a change from the song's own groove: at least three hits a beat, and twice its usual
+    # density (a groove of steady sixteenths is not a roll, however busy)
+    usual = float(np.median(per_beat[per_beat > 0])) if (per_beat > 0).any() else 0.0
+    busy = per_beat >= max(3.0, 2.0 * usual)
+    spans, i = [], 0
+    while i < len(busy):
+        if busy[i]:
+            j = i
+            while j < len(busy) and busy[j]:
+                j += 1
+            if j - i >= 4:                                 # a bar or more
+                spans.append([float(beats[i]), float(beats[min(j, len(beats) - 1)])])
+            i = j
+        else:
+            i += 1
+    hits = [(float(a), float(min(1.0, b))) for a, b in zip(t, st) if any(s0 <= a < s1 for s0, s1 in spans) and a < duration]
+    return hits, [[round(a, 3), round(b, 3)] for a, b in spans]
+
+
 def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
     """Kicks and snares from the full mix and from the separated drum track, keeping for each drum
     whichever is more believable. Separation makes most drums far clearer, but not all: a clap can
@@ -596,6 +633,9 @@ def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
            "quality": {f"{a}_{b}": round(v, 2) for (a, b), v in q.items()},
            **((scal if k_src == "stem" else mcal) or {}), "mix": mcal, "stem": scal}
     cal["has_drums"] = True
+    roll_hits, rolls = find_rolls(S_d, freqs, sr, hop, duration, beats, tuple(cal.get("kick_band") or (30, 150)))
+    roll_hits = [h for h in roll_hits if playing(h[0])]
+    cal["rolls"], cal["roll_hits"] = rolls, roll_hits
     return kicks, snares, cal, present
 
 
@@ -671,7 +711,9 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         return [[round(float(a), 3), round(float(b), 2), 0] for a, b in hits]
 
     return {
-        "events": {**{k: pack(k) for k in ("lead", "bass", "ghost")}, "kick": pack_hits(kick), "snare": pack_hits(snare)},
+        "events": {**{k: pack(k) for k in ("lead", "bass", "ghost")}, "kick": pack_hits(kick), "snare": pack_hits(snare),
+                   "roll": pack_hits((drum_cal or {}).pop("roll_hits", []))},
+        "rolls": (drum_cal or {}).get("rolls", []),
         "fills": fills,
         "hook": hook,
         "curves": {

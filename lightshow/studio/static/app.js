@@ -467,6 +467,8 @@
     }
   }
   const selectedLights = () => S.lights.filter(l => l.on);
+  /** Short lamps (a dozen segments or fewer) and long strips play different parts of a show. */
+  const lightKind = l => (l.segments || 10) <= 12 ? 'short' : 'long';
   /** the ticked lights belong to the room, not the song: saved with the studio's settings */
   function saveSelection() {
     fetch('/api/devices/selected', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -524,7 +526,7 @@
     for (const [f0, f1] of a.fills || []) if (t >= f0 && t < f1) { fill = { active: true, progress: (t - f0) / Math.max(0.1, f1 - f0) }; break; }
     return {
       lead: hitAt('lead', t), ghost: hitAt('ghost', t), bass: hitAt('bass', t),
-      kick: hitAt('kick', t), snare: hitAt('snare', t), hasDrums: (((a.events || {}).kick) || []).length > 0,
+      kick: hitAt('kick', t), snare: hitAt('snare', t), roll: hitAt('roll', t), hasDrums: (((a.events || {}).kick) || []).length > 0,
       hitsBetween: (stream, t0, t1) => {                          // the times of one instrument's hits in [t0, t1)
         const arr = (a.events || {})[stream] || []; const out = [];
         for (let i = Math.max(0, lastBefore(arr, t0)); i < arr.length && arr[i][0] < t1; i++) if (arr[i][0] >= t0) out.push(arr[i][0]);
@@ -578,10 +580,11 @@
     for (const [ri, L] of lights.entries()) {
       const room = { i: ri, n: lights.length, side: ri < Math.ceil(lights.length / 2) ? 0 : 1 };
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
+      const kind = lightKind(L);
       p.lanes.forEach((lane, li) => {
         if (lane.hidden) return;
         let clip = null;
-        for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && (!clip || c.start >= clip.start)) clip = c;
+        for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && (!c.target || c.target === kind) && (!clip || c.start >= clip.start)) clip = c;
         if (!clip) return;
         const e = Effects.byId[clip.effect]; if (!e) return;
         const src = buf('src' + li + L.ip, n); src.fill(0);
@@ -767,19 +770,20 @@
         // measured from there too, or it (and its label) spills over the next clip
         const vx = Math.max(HEADER, x0), vw = Math.max(0, x1 - vx - 2);
         const e = Effects.byId[c.effect]; const sw = e ? e.swatch : ['#666', '#333'];
-        const grad = g.createLinearGradient(x0, y, x0, y + ROW.lane); grad.addColorStop(0, sw[0]); grad.addColorStop(1, sw[1]);
-        g.fillStyle = grad; g.globalAlpha = 0.55 * ga; g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.fill(); g.globalAlpha = ga;
+        const [cy, ch] = clipBox(c, y);
+        const grad = g.createLinearGradient(x0, cy, x0, cy + ch); grad.addColorStop(0, sw[0]); grad.addColorStop(1, sw[1]);
+        g.fillStyle = grad; g.globalAlpha = 0.55 * ga; g.beginPath(); g.roundRect(vx, cy, vw, ch, 5); g.fill(); g.globalAlpha = ga;
         const isSel = isSelected(c.id);
         g.strokeStyle = isSel ? '#fff' : 'rgba(255,255,255,0.25)'; g.lineWidth = isSel ? 2 : 1;
-        g.beginPath(); g.roundRect(vx, y + 4, vw, ROW.lane - 8, 5); g.stroke(); g.lineWidth = 1;
-        g.save(); g.beginPath(); g.rect(vx, y, Math.max(0, vw - 4), ROW.lane); g.clip();
-        const compact = ROW.lane < 42;
-        g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText(e ? e.name : c.effect, Math.max(HEADER, x0) + 6, y + (compact ? 16 : 19));
-        if (!compact) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '10px system-ui'; g.fillText(clipSummary(c), Math.max(HEADER, x0) + 6, y + 31); }
+        g.beginPath(); g.roundRect(vx, cy, vw, ch, 5); g.stroke(); g.lineWidth = 1;
+        g.save(); g.beginPath(); g.rect(vx, cy, Math.max(0, vw - 4), ch); g.clip();
+        const compact = ch < 34;
+        g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText((e ? e.name : c.effect) + (c.target && compact ? (c.target === 'long' ? ' \u00b7 strips' : ' \u00b7 lamps') : ''), Math.max(HEADER, x0) + 6, cy + (compact ? Math.min(12, ch - 4) : 15));
+        if (!compact) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '10px system-ui'; g.fillText(clipSummary(c), Math.max(HEADER, x0) + 6, cy + 27); }
         g.restore();
         // the clip's own colors, as a bar along its bottom edge
         const cols = clipPaletteHex(c); const bx0 = Math.max(HEADER, x0) + 5, bx1 = Math.min(w, x1) - 7;
-        if (bx1 > bx0 + 4) { const pg = g.createLinearGradient(bx0, 0, bx1, 0); cols.forEach((col, i) => pg.addColorStop(i / Math.max(1, cols.length - 1), col)); g.fillStyle = pg; g.beginPath(); if (compact) g.roundRect(bx0, y + ROW.lane - 10, bx1 - bx0, 4, 2); else g.roundRect(bx0, y + ROW.lane - 12, bx1 - bx0, 6, 3); g.fill(); }
+        if (bx1 > bx0 + 4) { const pg = g.createLinearGradient(bx0, 0, bx1, 0); cols.forEach((col, i) => pg.addColorStop(i / Math.max(1, cols.length - 1), col)); g.fillStyle = pg; g.beginPath(); if (compact) g.roundRect(bx0, cy + ch - 5, bx1 - bx0, 3, 1.5); else g.roundRect(bx0, cy + ch - 8, bx1 - bx0, 6, 3); g.fill(); }
       }
       g.globalAlpha = 1; g.filter = 'none';
     });
@@ -807,7 +811,13 @@
     g.fillStyle = getComputedStyle(document.body).backgroundColor || '#0b0c10'; g.fillRect(0, ay + ADD_ROW, w, Math.max(0, h - ay - ADD_ROW));
     g.restore();
   }
-  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
+  /** Where a clip sits in its layer: the whole height, or for one kind of light, its half (strips on top). */
+  function clipBox(c, y) {
+    if (!c.target) return [y + 4, ROW.lane - 8];
+    const h = ROW.lane / 2 - 3;
+    return c.target === 'long' ? [y + 3, h] : [y + ROW.lane / 2, h];
+  }
+  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : 'lamps'); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
   function compose() {
     if (!S.analysis || !off.width || !off.height) return;   // nothing rendered yet (or a zero-size canvas)
     const w = TW(), h = TH(); const g = tctx;
@@ -936,7 +946,11 @@
       return { type: 'wave', t };
     }
     const li = Math.floor((y - laneTop(0)) / ROW.lane); if (li < 0 || li >= p.lanes.length) return null;
-    for (const c of p.lanes[li].clips) { const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x >= x0 && x <= x1) return { type: 'clip', lane: li, id: c.id, edge: x - x0 < 7 ? 'l' : x1 - x < 7 ? 'r' : null, b }; }
+    for (const c of p.lanes[li].clips) {
+      const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x < x0 || x > x1) continue;
+      if (c.target) { const [cy, ch] = clipBox(c, laneTop(li)); if (y < cy - 2 || y > cy + ch + 2) continue; }
+      return { type: 'clip', lane: li, id: c.id, edge: x - x0 < 7 ? 'l' : x1 - x < 7 ? 'r' : null, b };
+    }
     return { type: 'lane', lane: li, b };
   }
   const findClip = id => { for (const lane of P().lanes) { const c = lane.clips.find(c => c.id === id); if (c) return { clip: c, lane }; } return null; };
@@ -1166,11 +1180,13 @@
   // ------------------------------------------------------------------ editing helpers
   // Clips never overlap inside a layer. A clip that would collide goes to the next
   // layer up that has room (new layers are created as needed), so effects stack.
-  const overlaps = (lane, start, len, ignore) => lane.clips.some(c => c !== ignore && start < c.start + c.len && c.start < start + len);
-  function freeLaneFor(start, len, from = 0, ignore = null) {
+  /** Clips for different lights (long strips, short lamps) never collide: they share a layer, one half each. */
+  const sameLights = (a, b) => !a || !b || a === b;
+  const overlaps = (lane, start, len, ignore, target) => lane.clips.some(c => c !== ignore && sameLights(c.target, target) && start < c.start + c.len && c.start < start + len);
+  function freeLaneFor(start, len, from = 0, ignore = null, target = undefined) {
     const p = P();
     // a clip may ask for a layer several above the top one: add every layer up to it, not just one
-    for (let i = Math.max(0, from); ; i++) { while (i >= p.lanes.length) p.lanes.push(newLane()); if (!overlaps(p.lanes[i], start, len, ignore)) return i; }
+    for (let i = Math.max(0, from); ; i++) { while (i >= p.lanes.length) p.lanes.push(newLane()); if (!overlaps(p.lanes[i], start, len, ignore, target)) return i; }
   }
   /** nearest start position in `lane` where [start, start+len) fits, or null if it cannot */
   function fitInLane(lane, start, len, ignore) {
@@ -1347,12 +1363,16 @@
       const heard = g ? [...(g.genres || []), ...((g.spotify || []).length ? ['Spotify: ' + g.spotify.slice(0, 2).join(', ')] : [])].join(', ') : '';
       const styleRow = `<div class="row"><label title="How hard the lights go when you auto-build. Chill never strobes; groove moves but lifts drops without flashing; dance flashes on the beat; rave goes all out.">Show style</label><select id="songStyle">
         <option value="">Auto${auto ? ': ' + STYLE_NAMES[auto] : ''}</option>${Object.entries(STYLE_NAMES).map(([k, n]) => `<option value="${k}" ${p.settings && p.settings.style === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+        <div class="row"><label title="The set of effects auto-build draws on, chosen from the song's vibe">Look</label><select id="songLook">
+        <option value="">Auto: ${LOOKS[chooseLook()].name}</option>${Object.entries(LOOKS).map(([k, l]) => `<option value="${k}" ${p.settings && p.settings.look === k ? 'selected' : ''}>${l.name}</option>`).join('')}</select></div>
         ${heard ? `<div class="row"><label>Sounds like</label><span class="genre-heard">${esc(heard)}</span></div>` : ''}`;
       el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label title="Auto-build builds the show around this color, the way a jam song is built around its album cover">Main color</label><span class="main-color"><input id="mainColor" type="color" value="${p.settings.mainColor || '#ff0000'}"><button id="mainColorRebuild" class="small" title="Auto-build the show with this color now">Rebuild</button>${p.settings.mainColor ? '<button id="mainColorAuto" class="small" title="Back to the automatic palettes">Auto</button>' : ''}</span></div><div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label title="When the music goes quiet, every light dims with it, even in a drop">Dim with the music</label><input id="followLoud" type="checkbox" ${p.settings.followLoudness === false ? '' : 'checked'}></div>${S.analysis && S.analysis.structure_source === 'loudness' ? `<div class="hint warn">Section timing was not refined: ${esc(S.analysis.structure_error || 'SongFormer did not run')}. Boundaries may be a bar or two off. Press Re-detect to try again.</div>` : ''}</div>` + help; $('#mainColor').onchange = e => { beginChange(); p.settings.mainColor = Effects.solid(e.target.value); changed(); inspector(); toast('Main color set. Press Rebuild (or Auto-build show) to build the show around it.'); };
       $('#mainColorRebuild').onclick = () => { if (!p.settings.mainColor) p.settings.mainColor = Effects.solid($('#mainColor').value); autoBuild(); inspector(); };
       if ($('#mainColorAuto')) $('#mainColorAuto').onclick = () => { beginChange(); delete p.settings.mainColor; changed(); inspector(); toast('Back to the automatic palettes. Press Auto-build show to rebuild.'); };
       $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
       $('#followLoud').onchange = e => { beginChange(); p.settings.followLoudness = e.target.checked; changed(); pushFrameIfIdle(); };
+      $('#songLook').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.look = e.target.value; changed(); inspector();
+        toast(`Look: ${e.target.value ? LOOKS[e.target.value].name : 'Auto (' + LOOKS[chooseLook()].name + ')'}. Press Auto-build show to rebuild in it.`); };
       $('#songStyle').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.style = e.target.value; changed(); inspector();
         toast(`Show style: ${e.target.value ? STYLE_NAMES[e.target.value] : 'Auto (' + STYLE_NAMES[showStyle()] + ')'}. Press Auto-build show to rebuild in it.`); };
       return; }
@@ -1384,6 +1404,7 @@
         <div class="row"><label>Length (beats)</label><input id="cLen" type="number" step="0.25" min="0.25" value="${clip.len}"></div>
         <div class="row"><label>Opacity</label><input id="cOp" type="range" min="0" max="1" step="0.01" value="${clip.opacity ?? 1}"><span class="val">${Math.round((clip.opacity ?? 1) * 100)}%</span></div>
         <div class="row"><label title="Dips this layer on every kick and snare, so what is on top of it punches through">Duck under drums</label><input id="cDuck" type="range" min="0" max="1" step="0.05" value="${clip.duck || 0}"><span class="val">${Math.round((clip.duck || 0) * 100)}%</span></div>
+        <div class="row"><label title="Which lights play this clip: long strips carry motion, short lamps the drums">Lights</label><select id="cTarget"><option value="">All</option><option value="long" ${clip.target === 'long' ? 'selected' : ''}>Long strips</option><option value="short" ${clip.target === 'short' ? 'selected' : ''}>Short lamps</option></select></div>
         <div class="row"><label>Blend</label><select id="cBlend">${Object.entries(Effects.BLENDS).map(([k, v]) => `<option value="${k}" ${(clip.blend || 'normal') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
         <div class="row"><label>Fade in (beats)</label><input id="cFi" type="number" step="0.5" min="0" value="${clip.fadeIn || 0}"></div>
         <div class="row"><label>Fade out (beats)</label><input id="cFo" type="number" step="0.5" min="0" value="${clip.fadeOut || 0}"></div></div>
@@ -1414,6 +1435,7 @@
       $('#cOp').oninput = ev => { clip.opacity = parseFloat(ev.target.value); ev.target.nextElementSibling.textContent = Math.round(clip.opacity * 100) + '%'; upd(); };
       $('#cOp').onchange = () => beginChange();
       $('#cBlend').onchange = ev => { beginChange(); clip.blend = ev.target.value; upd(); };
+      $('#cTarget').onchange = ev => { beginChange(); if (ev.target.value) clip.target = ev.target.value; else delete clip.target; upd(); };
       $('#cDuck').oninput = ev => { clip.duck = parseFloat(ev.target.value); ev.target.nextElementSibling.textContent = Math.round(clip.duck * 100) + '%'; upd(); };
       $('#cDuck').onchange = () => beginChange();
       $('#cFi').onchange = ev => { beginChange(); clip.fadeIn = parseFloat(ev.target.value) || 0; upd(); };
@@ -1461,7 +1483,64 @@
     const k = ((n % cols.length) + cols.length) % cols.length;
     return cols.slice(k).concat(cols.slice(0, k));
   }
-  const MOTIONS = ['comets', 'sparkles', 'meteors', 'orbit', 'ripples'];
+  const MOTIONS = ['comets', 'sparkles', 'meteors', 'orbit', 'ripples', 'bounce', 'scanner'];
+  /** A song's look: which beds, motion and drop moves it is built from. One look per song keeps the
+   *  show coherent; the look comes from the song's vibe, so a night of songs is not one show over
+   *  and over. Each drop recipe is [base effect, its settings] and what goes over it: 'motion' (the
+   *  song's motion family), or [effect, settings, clip settings]; `flash` marks one that flashes. */
+  const LOOKS = {
+    haunted: { name: 'Haunted', intro: ['ember', { speed: 2, intensity: 0.6 }], verse: [['ember', { speed: 1, intensity: 0.75 }], ['aurora', { speed: 16, intensity: 0.45, depth: 0.85 }]],
+      verseTop: [['meteors', { every: 2, chance: 0.5, travel: 3, tail: 0.3 }], ['bounce', { speed: 4, tail: 0.35 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.9, intensity: 0.35 }], outro: ['ember', { speed: 2, intensity: 0.5 }], motion: ['meteors', 'orbit', 'bounce'],
+      drops: [{ base: ['battle', { speed: 8, surge: 0.2 }], top: 'motion' }, { base: ['wave', { speed: 2, waves: 2, floor: 0.05 }], top: 'motion' },
+              { base: ['ember', { speed: 0.5, intensity: 1 }], top: ['lightning', { rate: 0.35 }, { opacity: 0.8, blend: 'add' }], flash: true }] },
+    neon: { name: 'Neon club', intro: ['gradient', { speed: 16, intensity: 0.4 }], verse: [['gradient', { speed: 8, intensity: 0.4 }], ['wave', { speed: 4, waves: 1.5, floor: 0 }]],
+      verseTop: [['ripple', { every: 2, travel: 2, width: 0.12 }], ['chase', { speed: 2, size: 0.1, gap: 0.7 }, { opacity: 0.7 }]],
+      breakdown: ['colorwash', { speed: 8, intensity: 0.4 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['ripples', 'sparkles', 'orbit'],
+      drops: [{ base: ['chase', { speed: 1, size: 0.12, gap: 0.6 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.55, blend: 'add' }], flash: true },
+              { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
+              { base: ['hyperchase', { speed: 0.25, size: 0.08 }], top: 'motion' },
+              { base: ['roomsplit', { every: 1, pump: 0.4 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true, room: true }] },
+    dreamy: { name: 'Dreamy', intro: ['twinkle', { density: 0.25, speed: 4, base: 0.12 }], verse: [['colorwash', { speed: 16, intensity: 0.45 }], ['aurora', { speed: 16, intensity: 0.4, depth: 0.7 }]],
+      verseTop: [['sparkle', { density: 0.08, life: 0.25 }, { opacity: 0.8 }], ['orbit', { speed: 8, count: 2 }, { opacity: 0.8 }]],
+      breakdown: ['twinkle', { density: 0.2, speed: 4, base: 0.15 }], outro: ['colorwash', { speed: 16, intensity: 0.35 }], motion: ['sparkles', 'orbit', 'meteors'],
+      drops: [{ base: ['wave', { speed: 4, waves: 1, floor: 0.1 }], top: 'motion' }, { base: ['colorwash', { speed: 8, intensity: 0.75 }], top: 'motion' },
+              { base: ['roomwave', { speed: 8, floor: 0.25 }], top: 'motion', room: true }] },
+    rock: { name: 'Rock show', intro: ['breathe', { speed: 4, floor: 0.05 }], verse: [['gradient', { speed: 16, intensity: 0.4 }], ['breathe', { speed: 2, floor: 0.1 }]],
+      verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['bounce', { speed: 2, tail: 0.3 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['breathe', { speed: 4, floor: 0.05 }], motion: ['scanner', 'comets', 'bounce'],
+      drops: [{ base: ['alternate', { every: 1, size: 2 }], top: 'motion' }, { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
+              { base: ['scanner', { speed: 1, size: 0.2, floor: 0.15 }], top: ['flash', { every: 2, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true }] },
+    storm: { name: 'Storm', intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.9 }], verse: [['battle', { speed: 16, surge: 0.1 }], ['halves', { every: 2, dim: 0.15 }]],
+      verseTop: [['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.25 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }]],
+      breakdown: ['ember', { speed: 2, intensity: 0.5 }], outro: ['aurora', { speed: 16, intensity: 0.35, depth: 0.9 }], motion: ['meteors', 'comets', 'ripples'],
+      drops: [{ base: ['battle', { speed: 4, surge: 0.3 }], top: ['lightning', { rate: 0.5 }, { opacity: 0.85, blend: 'add' }], flash: true },
+              { base: ['halves', { every: 1, dim: 0 }], top: 'motion' }, { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
+              { base: ['roomsplit', { every: 0.5, pump: 0.5 }], top: 'motion', room: true }] },
+  };
+  /** The look that fits this song best: from its style, drive, brightness, key and genre. */
+  function chooseLook() {
+    const a = S.analysis || {}, m = a.mood || {}, st = showStyle();
+    const drive = m.drive ?? 0.5, bright = m.brightness ?? 0.5, minor = m.mode === 'minor';
+    const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
+    const rocky = /rock|indie|independent|punk|alternative|grunge|metal|emo|folk/.test(g), electronic = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g);
+    if (noDrums() || st === 'chill') return 'dreamy';
+    const clubby = st === 'dance' || st === 'rave', heavy = /dubstep|bass music|metal|hardstyle|trap|drum and bass/.test(g);
+    const score = {
+      haunted: (minor ? 1 : 0.3) * (1 - 0.6 * Math.abs(drive - 0.5) * 2) * (1 - 0.5 * bright) * (st === 'rave' ? 0.5 : 1),
+      neon: (clubby ? 1 : 0.4) * (0.3 + 0.7 * bright) * (minor ? 0.6 : 1) * (electronic ? 1 : 0.7),
+      dreamy: ({ groove: 0.7, chill: 1 }[st] || 0.25) * Math.max(0.05, 1.2 - drive) * (minor ? 0.7 : 1) * (0.5 + 0.5 * bright),
+      rock: (st === 'groove' ? 1 : 0.4) * (rocky ? 1 : 0.45) * (0.4 + 0.6 * drive) * (electronic ? 0.5 : 1),
+      storm: (minor ? 1 : 0.3) * (0.3 + 0.7 * drive) * (clubby ? 1 : 0.4) * (heavy ? 1 : 0.8) * (1 - 0.4 * bright),
+    };
+    const key = Math.round((a.duration || 0) * 10) + Math.round((a.bpm || 0) * 100);
+    let best = null;
+    for (const [name, sc] of Object.entries(score)) {
+      const v = sc * (0.9 + 0.2 * Effects.hash(key + name.length * 7919));       // a nudge, so close calls vary from song to song
+      if (!best || v > best[1]) best = [name, v];
+    }
+    return best[0];
+  }
   /** A song that goes all out: rave, or a hard-driving dance track with more than one drop. */
   function isEpic() {
     const a = S.analysis || {}, style = showStyle(), drive = (a.mood && a.mood.drive) || 0;
@@ -1498,7 +1577,12 @@
     // Each song gets its own kind of motion in the drops (not comets every time), chosen from the song
     // itself so it is the same on every rebuild, and a song that goes all out may get rainbow drops.
     const a0 = S.analysis || {};
-    S.motionFam = MOTIONS[Math.floor(Effects.hash(Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100)) * MOTIONS.length) % MOTIONS.length];
+    S.look = (p.settings && LOOKS[p.settings.look]) ? p.settings.look : chooseLook();
+    const fams = LOOKS[S.look].motion, f0 = Math.floor(Effects.hash(Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100)) * fams.length) % fams.length;
+    S.motionFam = fams[f0];
+    S.motionFams = [fams[f0], fams[(f0 + 1) % fams.length]];      // the song's own motion, and a second for every other drop
+    const kinds = new Set(selectedLights().map(lightKind));
+    S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
     S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
     const counts = {};
     p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
@@ -1522,7 +1606,7 @@
   // Concert lighting in three tiers. The bed sets the color and the mood and stays low; motion keeps
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
-  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe']);
+  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning']);
   const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout']);
   function tier(c) {
     if (BED.has(c.effect)) {
@@ -1559,7 +1643,7 @@
   // (orange and red at Halloween): little extras, never the base, the comets or the drums.
   const EXTRAS = new Set(['hookstrike', 'sweepout', 'colorslam', 'ghostspark', 'fillrush', 'sparkle', 'meteors', 'ripple', 'whiteflash']);
   const extraHere = (effect, start) => S.pairMode && S.jamExtras && EXTRAS.has(effect) && Effects.hash(Math.round(start * 4) * 7919 + effect.length * 104729) < 0.35;
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
@@ -1602,29 +1686,33 @@
       let on = 0; for (let i = i0; i < i1; i++) on += present[i] >= 0.3; return i1 > i0 ? on / (i1 - i0) >= 0.5 : false; })() : true;
     const drumsHere = !noDrums() && playing && (drumsKnown ? hitsHere >= Math.max(4, len / 4) : !['intro', 'breakdown', 'outro'].includes(s.type));
     const drums = (opacity, size = 0.75) => drumsHere && clip(2, 'pulse', b0, len, { follow: 'drums', decay: 0.45, size }, { opacity, blend: 'add' });
-    const snaresHere = drumsKnown ? (ev.snare || []).filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
+    const snaresHere = drumsKnown ? [...(ev.snare || []), ...(ev.roll || [])].filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
     // the drum strobe: flashes on the real hits only; how hard depends on the kind of song
     const strobeLevel = { rave: 0.9, dance: 0.6, groove: 0.3 }[style] || 0;
     // the song's motion over a drop: pace 1 is a normal drop, below 1 slower
     const motion = (pace = 1, extra = {}) => {
-      const fam = S.motionFam || 'comets', sp = x => Math.max(0.5, x / pace);
+      const fam = (S.motionFams && s.type === 'drop' ? S.motionFams[variant % 2] : S.motionFam) || 'comets', sp = x => Math.max(0.5, x / pace);
       if (fam === 'sparkles') return clip(1, 'sparkle', b0, len, { density: 0.2 * pace + 0.05, life: 0.15 }, { opacity: 0.95, ...extra });
       if (fam === 'meteors') return clip(1, 'meteors', b0, len, { every: sp(1), chance: 0.6, travel: sp(2), tail: 0.3 }, { opacity: 0.95, ...extra });
       if (fam === 'orbit') return clip(1, 'orbit', b0, len, { speed: sp(2), count: 3 }, { opacity: 0.9, ...extra });
       if (fam === 'ripples') return clip(1, 'ripple', b0, len, { every: sp(1), travel: sp(1.5), width: 0.12 }, { opacity: 0.9, ...extra });
+      if (fam === 'bounce') return clip(1, 'bounce', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
+      if (fam === 'scanner') return clip(1, 'scanner', b0, len, { speed: sp(2), size: 0.15, floor: 0 }, { opacity: 0.85, ...extra });
       return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
     };
+    const look = LOOKS[S.look] || LOOKS.neon;
+    const first = S.sectionClips = [];
+    const top = (spec, extra = {}) => spec && clip(1, spec[0], b0, len, spec[1], { opacity: 0.85, ...(spec[2] || {}), ...extra });
     switch (s.type) {
       case 'intro':
-        clip(0, 'aurora', b0, len, { speed: 16, intensity: 0.45, depth: 0.8 });
+        clip(0, look.intro[0], b0, len, look.intro[1]);
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.35, travel: 4 });
         drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
         if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
-        else clip(0, v ? 'wave' : 'gradient', b0, len, v ? { speed: chill ? 16 : 8, waves: 1.5, floor: 0 } : { speed: 16, intensity: 0.35 });
-        // dual comets are drop material; a verse gets calmer movement
-        clip(1, v ? 'comet' : 'orbit', b0, len, v ? { every: chill ? 4 : 2, travel: chill ? 4 : 2, tail: 0.3 } : { speed: chill ? 8 : 4, count: 2 }, { opacity: 0.85 });
+        else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
+        top(look.verseTop[v]);                                          // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
         break;
       case 'buildup':
@@ -1644,25 +1732,14 @@
         if (S.epic) {                                                   // all out: the whole room in a running rainbow
           clip(0, 'gradient', b0, len, { speed: 4, stretch: 0.67, intensity: 0.85 }, { palette: 'Rainbow' });
           motion(1.5);
-        } else if (hard) {
-          if (kind === 0 && room) { clip(0, 'roomsplit', b0, len, { every: 1, pump: 0.4 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.5, blend: 'add' }); }   // the room in two halves, swapping on the beat
-          else if (kind === 0) { clip(0, 'chase', b0, len, { speed: 1, size: 0.12, gap: 0.6 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.6, blend: 'add' }); }
-          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.7 }, rainbow); motion(1); }
-          else if (kind === 2) { clip(0, 'battle', b0, len, { speed: 8, surge: 0.2 }); clip(1, 'sparkle', b0, len, { density: 0.2 }, { opacity: 0.9 }); }
-          else if (room) { clip(0, 'roomsplit', b0, len, { every: 2, pump: 0.3 }); clip(1, 'roomchase', b0, len, { every: 0.5 }, { opacity: 0.9, blend: 'add' }); }
-          else { clip(0, 'halves', b0, len, { every: 1, dim: 0 }); motion(1.5); }
-        } else if (chill) {
-          // the biggest moment of a chill song: a slow, full wash, nothing on the beat
-          if (kind % 2 === 0) { clip(0, 'gradient', b0, len, { speed: 16, stretch: 1, intensity: 0.8 }); motion(0.5, { opacity: 0.85 }); }
-          else if (room) { clip(0, 'roomwave', b0, len, { speed: 8, floor: 0.25 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
-          else { clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.75 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
         } else {
-          // motion rather than flashing: it still lifts, without turning into a strobe
-          if (kind === 0) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.75 }, rainbow); motion(1); }
-          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 1, intensity: 0.8 }); motion(1); }
-          else if (kind === 2 && room) { clip(0, 'roomsplit', b0, len, { every: 2, pump: 0.3 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
-          else if (kind === 2) { clip(0, 'wave', b0, len, { speed: 2, waves: 2, floor: 0.05 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
-          else { clip(0, 'battle', b0, len, { speed: 8, surge: 0.25 }); motion(1.3); }
+          // The look's drop moves, one per drop, in turn. A chill or groove song lifts its drops with
+          // motion rather than flashing: the flashy recipes are for dance and rave.
+          const ok = look.drops.filter(r => (hard || !r.flash) && (room || !r.room));
+          const r = ok[kind % ok.length] || look.drops[0];
+          clip(0, r.base[0], b0, len, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
+          if (r.top === 'motion') motion(chill ? 0.5 : hard ? 1.3 : 1);
+          else top(r.top);
         }
         drums(chill ? 0.8 : 1, 0.85);
         if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
@@ -1670,18 +1747,33 @@
         break;
       }
       case 'breakdown':
-        clip(0, 'aurora', b0, len, { speed: 16, depth: 0.85, intensity: 0.35 });
+        clip(0, look.breakdown[0], b0, len, look.breakdown[1]);
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 }, { opacity: 0.85 });
         drums(0.5, 0.5);
         break;
       case 'outro':
-        clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.4 });
+        clip(0, look.outro[0], b0, len, look.outro[1]);
         clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
         drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }
     addSignature(s, b0, len, variant, style);
+    // Long strips and short lamps together: the moving things (comets, chases, sparkles) run on the
+    // long strips, where there is room for them to travel; on seven segments they read as flicker.
+    // The lamps play the drums instead, the whole lamp blooming on every kick and snare, or breathe
+    // slowly where there are no drums: different instruments in one show.
+    if (S.mixedLights) {
+      for (const c of first) if (MOVERS.has(c.effect)) {
+        c.target = 'long';
+        if (p.lanes[0].clips.includes(c))                  // it was the base: the lamps get a wash of their own beneath the drums
+          clip(0, 'colorwash', c.start, c.len, { speed: 8, intensity: 0.55 }, { target: 'short', palette: c.palette });
+      }
+      if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0 }, { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
+      else clip(6, 'breathe', b0, len, { speed: 4, floor: 0.15 }, { target: 'short', opacity: 0.6, palette: S.contrastPal });
+    }
+    S.sectionClips = null;
   }
+  const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
 
   /** The flair that belongs to *this* song: its riff, its lead line, its fills.
    *

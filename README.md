@@ -532,9 +532,40 @@ noise.
   in drops, and on the snares in buildups, growing toward the drop. How hard
   depends on the style: subtle for groove, clear for dance, full for rave, none
   for chill.
-- **Each song moves its own way.** A drop's motion over the base is picked per
-  song from comets, sparkles, meteors, orbits and ripples, so a night of songs
-  is not comets in every drop.
+- **Each song has a look.** One look per song keeps a show coherent, and the
+  look comes from the song's vibe (its style, drive, brightness, key and genre),
+  so a night of songs is not one show over and over:
+  - *Haunted* (dark, minor, mid-tempo): embers and aurora, meteors and a
+    bouncing comet, color battles in the drops.
+  - *Neon club* (bright dance music): fast gradients and waves, ripples and
+    chases, hyper chases and flashing chases in the drops.
+  - *Dreamy* (soft, bright, and every song without drums): color washes, aurora
+    and twinkles, slow sparkles and orbits, never a flash.
+  - *Rock show* (live-drum rock and indie): gradients and breathing, a scanner
+    sweeping, alternating and random blocks in the drops, big kick and snare hits.
+  - *Storm* (hard, minor, driving): battles and halves, lightning and meteors.
+  Each look has its drops (taken in turn, the flashing ones only for dance and
+  rave), and each song a motion of its own from the look's (comets, sparkles,
+  meteors, orbits, ripples, a bouncing comet, a scanner), alternating with a
+  second from drop to drop. The Song panel's **Look** shows the one chosen and
+  can set another. Over 20 songs of different genres: Neon club 9, Rock show 6,
+  Storm 2, Haunted 1, Dreamy 2 (the two without drums).
+- **Long strips and short lamps play different parts.** With both kinds ticked
+  (a short lamp has a dozen segments or fewer, like a 7-segment floor lamp), the
+  things that travel (comets, chases, sparkles, scanners) run on the long strips,
+  where they have room to move, and the lamps play the drums: **Drum hits** makes
+  the whole lamp bloom in the first color on every kick and the second on every
+  snare. Where there are no drums the lamps breathe slowly in the other color.
+  When a drop's base itself travels, the lamps get a color wash of their own
+  under the drums. A clip for one kind of light is drawn in its half of the
+  layer (strips on top, lamps below), and the clip inspector's **Lights** sets
+  it by hand.
+- **Drum rolls.** In the drum track, a stretch where the hits above the kick come
+  three or more to a beat, and twice as thick as the song's own groove, for a bar
+  or more, is a roll. Its hits (as close as 46 ms) count as steps for a buildup's
+  riser and flashes for the snare strobe, so the buildup speeds up exactly with
+  the roll, and a roll that runs straight into a drop with no buildup marked
+  becomes that drop's buildup. Steady sixteenth-note grooves are not rolls.
 - **Tempo tops out at 135 bpm.** Anything faster is counted in half time, on the
   half of the beats the kick lands on.
 - **Solid colors.** Every palette color is full saturation and brightness; greys

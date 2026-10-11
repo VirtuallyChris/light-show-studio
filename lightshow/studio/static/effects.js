@@ -332,13 +332,27 @@ const Effects = (() => {
     params: { every: { type: 'beats', def: 0.5, label: 'Flash every (beats)' }, duty: { type: 'range', def: 0.25, min: 0.05, max: 0.9, step: 0.01, label: 'Flash length' }, white: P.bool('White', false), color: P.color(), overlay: P.bool('Transparent between flashes', true) },
     render(c) { clear(c.out); const u = c.beat / c.p.every; const on = frac(u) < c.p.duty; if (!on) { if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); return; } const col = c.p.white ? [1, 1, 1] : colorFor(c, 0.5, Math.floor(u)); fillAll(c.out, c.n, col[0], col[1], col[2], 1); } });
 
+  def({ id: 'drumhits', name: 'Drum hits', cat: 'medium', desc: 'The whole light blooms on the drums: the first color on every kick, the second on every snare, and fades between. Made for small lamps, which play the drums while the long strips move.', swatch: ['#8000ff', '#00ff00'],
+    params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only' }, label: 'Follows' }, decay: P.decay(0.35),
+      floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    render(c) {
+      clear(c.out); const m = c.music || {}, tau = c.p.decay * 0.4 + 0.03;
+      let ek, es;
+      if (m.hasDrums) {
+        const hit = h => (h && h.index >= 0 ? Math.exp(-h.age / tau) * (0.6 + 0.4 * h.strength) : 0);
+        ek = hit(m.kick); es = c.p.follow === 'drums' ? hit(m.snare) : 0;
+      } else { ek = Math.exp(-c.phase * c.beatSec / tau); es = 0; }      // no drums known: on the beat
+      const col = ek >= es ? c.pal[0] : c.pal[1 % c.pal.length], v = Math.max(c.p.floor, ek, es);
+      fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);
+    } });
+
   def({ id: 'drumstrobe', name: 'Drum strobe', cat: 'fast', desc: 'A hard flash on every real kick (or snare) hit and nothing in between, so it is exactly as busy as the drummer. With Grows on it starts faint and is full on the drop.', swatch: ['#ffffff', '#000000'],
     params: { follow: { type: 'select', def: 'kick', options: { kick: 'the kick', snare: 'the snare', both: 'kick and snare' }, label: 'Flashes on' },
       length: { type: 'range', def: 0.05, min: 0.02, max: 0.25, step: 0.01, label: 'Flash length (s)' }, grows: P.bool('Grows toward the end', false), white: P.bool('White', false), color: P.color() },
     render(c) {
       clear(c.out); const m = c.music || {}; if (!m.hasDrums) return;
       let h = null;
-      for (const x of [c.p.follow !== 'snare' ? m.kick : null, c.p.follow !== 'kick' ? m.snare : null]) if (x && x.index >= 0 && (!h || x.age < h.age)) h = x;
+      for (const x of [c.p.follow !== 'snare' ? m.kick : null, c.p.follow !== 'kick' ? m.snare : null, c.p.follow !== 'kick' ? m.roll : null]) if (x && x.index >= 0 && (!h || x.age < h.age)) h = x;
       if (!h || h.age > c.p.length) return;
       const v = (c.p.grows ? 0.2 + 0.8 * c.clipT * c.clipT : 1) * (0.6 + 0.4 * h.strength);
       const col = c.p.white ? [1, 1, 1] : colorFor(c, 0.5, h.index);
@@ -462,6 +476,10 @@ const Effects = (() => {
       const stream = c.p.follow === 'snare' ? 'snare' : 'kick';
       let kicks = c.p.follow !== 'beat' && c.music && c.music.hasDrums && c.clipT1 > c.clipT0
         ? c.music.hitsBetween(stream, c.clipT0 - 0.03, c.clipT1 - 0.08) : null;
+      if (kicks && stream === 'snare') {                 // a roll's hits count as steps too, so the fill speeds up with it
+        const roll = c.music.hitsBetween('roll', c.clipT0 - 0.03, c.clipT1 - 0.08);
+        if (roll.length) kicks = [...kicks, ...roll].sort((a, b) => a - b).filter((t, i, a) => i === 0 || t - a[i - 1] > 0.03);
+      }
       if (stream === 'snare' && (!kicks || kicks.length < 4) && c.music && c.music.hasDrums) kicks = c.music.hitsBetween('kick', c.clipT0 - 0.03, c.clipT1 - 0.08);
       if (kicks && kicks.length >= 4) {
         steps = kicks.length; n = 0; while (n < steps && kicks[n] <= c.t + 1e-3) n++;

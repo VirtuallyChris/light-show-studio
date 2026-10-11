@@ -152,3 +152,32 @@ class TestLayoutsAndStems(unittest.TestCase):
         recall, extra = score(out["events"]["kick"], K)
         self.assertGreater(recall, 0.9)
         self.assertLess(extra, len(K) * 0.15)
+
+
+class TestRolls(unittest.TestCase):
+    def test_a_snare_roll_is_found_and_becomes_the_buildup(self):
+        import librosa
+        from lightshow.studio.events import find_rolls
+        from lightshow.studio.analysis import buildups_from_rolls
+        drums, beats, dur, _, _ = pattern_song(128, 12, 4, kicks_at=(0, 1, 2, 3), snares_at=(1, 3), hats_per_beat=2)
+        beat = 60 / 128
+        rng = np.random.default_rng(9)
+        ts = np.arange(int(0.08 * SR)) / SR
+        hit = (0.6 * np.sin(2 * np.pi * 220 * ts) + 0.7 * rng.standard_normal(len(ts))) * np.exp(-ts * 40)
+        r0 = 0.5 + 8 * 4 * beat                       # bars 9 and 10: a roll in 16ths, then 32nds
+        t, step = r0, beat / 4
+        while t < r0 + 8 * beat:
+            i = int(t * SR); drums[i:i + len(hit)] += (0.5 * hit[: len(drums) - i]).astype(np.float32)
+            t += step if t < r0 + 4 * beat else step / 2
+        S = np.abs(librosa.stft(drums, hop_length=512))
+        hits, spans = find_rolls(S, librosa.fft_frequencies(sr=SR), SR, 512, dur, beats)
+        self.assertTrue(spans)
+        self.assertLess(abs(spans[0][0] - r0), beat * 1.01)
+        self.assertGreater(len(hits), 40)
+        drop = r0 + 8 * beat
+        sections = [{"start": 0.0, "end": drop, "type": "verse"}, {"start": drop, "end": dur, "type": "drop"}]
+        out, added = buildups_from_rolls(sections, spans, beats, 0)
+        self.assertEqual(added, 1)
+        self.assertEqual([x["type"] for x in out], ["verse", "buildup", "drop"])
+        self.assertLess(abs(out[1]["start"] - r0), beat * 1.01)
+        self.assertEqual(sections[0]["type"], "verse")            # the original list is left alone

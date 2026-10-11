@@ -128,6 +128,8 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                                audio=(stereo if stereo is not None else y, sr) if path is None else None, stems=stems)
         except Exception as e:  # noqa: BLE001 - a show without flair is better than no show
             print(f"[events] skipped: {type(e).__name__}: {e}")
+    if ev.get("rolls"):
+        sections, _ = buildups_from_rolls(sections, ev["rolls"], beats, phase)
 
     return {
         "duration": duration,
@@ -138,6 +140,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "events": ev["events"],
         "drum_calibration": ev.get("drum_calibration"),
         "fills": ev["fills"],
+        "rolls": ev.get("rolls", []),
         "hook": ev["hook"],
         "curves": ev["curves"],
         "bpm": round(bpm, 3),
@@ -207,6 +210,36 @@ def song_mood(y, sr, energy, centroid_hz) -> dict:
             "drive": round(drive, 3), "palette": family[0], "palettes": family}
 
 
+def buildups_from_rolls(sections: list[dict], rolls: list, beats, phase: int) -> tuple[list[dict], int]:
+    """A drum roll that runs straight into a drop is that drop's buildup. Where the sections have no
+    buildup there, the bars the roll covers (from the bar line it starts in, two bars at least, sixteen
+    at most) become one. Returns the sections and how many buildups were added."""
+    beats = np.asarray(beats, dtype=float)
+    if not rolls or len(beats) < 8 or len(sections) < 2:
+        return sections, 0
+    sections = [dict(x) for x in sections]                                 # the detector's own list stays as it was
+    period = float(np.median(np.diff(beats)))
+    bars = beats[int(phase)::4]
+    added = 0
+    for r0, r1 in rolls:
+        idx = next((i for i, x in enumerate(sections) if x["type"] == "drop" and abs(x["start"] - r1) <= 1.5 * period), None)
+        if not idx:
+            continue
+        prev, drop = sections[idx - 1], sections[idx]
+        if prev["type"] == "buildup":
+            continue
+        start = float(bars[bars <= r0 + 0.05].max()) if (bars <= r0 + 0.05).any() else prev["start"]
+        start = min(start, drop["start"] - 8 * period)                      # two bars at least
+        start = max(start, drop["start"] - 64 * period)                     # sixteen at most
+        if start <= prev["start"] + 4 * period:
+            prev["type"] = "buildup"                                         # the roll is the whole section
+        else:
+            sections.insert(idx, {**prev, "start": round(start, 3), "end": drop["start"], "type": "buildup"})
+            prev["end"] = round(start, 3)
+        added += 1
+    return sections, added
+
+
 def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) -> tuple[float, float]:
     """Precise constant tempo and beat phase from the onset envelope.
 
@@ -241,7 +274,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 21         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 22         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
