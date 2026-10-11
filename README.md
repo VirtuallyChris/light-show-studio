@@ -415,9 +415,12 @@ The studio also serves a phone app on the home network. On the iPhone, open
 and choose **Share, Add to Home Screen**: it opens full screen like an app. It
 shows the song the room is hearing (with play/pause and skip, which steer Spotify
 the way the phone's own controls would), what comes next, and each song's two
-colors and its two "now and then" extras. Tap a color to change a song's pair
-ahead of time (it is kept for that track, as in the studio; ↺ goes back to the
-jam's). The **Party** slider sets how hard every show goes, live: at 100% the
+colors. Tap a color to change a song's pair ahead of time (it is kept for that
+track, as in the studio; ↺ goes back to the jam's). **Party colors** switches the
+party's colors (purple and green, or the pairs) on or off for every song: off,
+each song plays in its album cover's two colors. Each song's **party** / **cover**
+chip does the same for that song alone (kept for the track). A change of colors
+reaches the song playing within a second: the studio rebuilds its show in them. The **Party** slider sets how hard every show goes, live: at 100% the
 full show; lower, the song's main color is laid over the show, that much more
 opaque (at 10%, 90% of the light is the song's color), so the room calms down
 into one color without going dark. The level is remembered. The ⚙ button opens
@@ -685,7 +688,7 @@ noise.
   comes in, except the extras: tick **Now and then** and a few of the small
   accents (a hook strike, a spark, a sweep, a color slam, a meteor shower; about
   a third of them) take two more colors instead, picked from the song's own two
-  (see the Party Hub). The base,
+  (they are not shown: a song shows its two colors). The base,
   the comets and the drums stay in the two. A song with a show you made keeps
   that show's colors.
 - **Dual comets** are for drops only; the **strobe riser** for the rave style

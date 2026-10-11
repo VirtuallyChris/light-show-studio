@@ -30,8 +30,11 @@
   // ------------------------------------------------------------------ colors
   // Every jam song is shown in two colors: the ones picked for that track (kept for next time), else
   // the jam's own pair, else (jam set to "album cover") its cover's. A show you made keeps its own.
+  // The party's colors can be switched off for every song, or for one: then its cover's colors.
+  const themeOn = () => ((J.state || {}).jam_colors || {}).on !== false;
   function colorsFor(track) {
     const st = J.state || {}, own = track && (st.track_colors || {})[track.id], jc = st.jam_colors || {};
+    if (!themeOn() || (own && own.off)) return null;
     if (own) return [own.primary, own.secondary];
     if (jc.mode === 'pick') return [jc.primary, jc.secondary];
     if (jc.mode === 'mix') return (st.assigned_colors || {})[track.id] || (jc.pairs || [])[0] || null;
@@ -42,7 +45,7 @@
    *  wheel (purple and green get red and orange). The server's extras_for does the same for the phone. */
   function extrasFor(pair) {
     const jc = (J.state || {}).jam_colors || {};
-    if (!jc.extras || !pair || pair.length < 2) return null;
+    if (!jc.extras || !themeOn() || !pair || pair.length < 2) return null;
     const hue = hx => { const r = parseInt(hx.slice(1, 3), 16) / 255, g = parseInt(hx.slice(3, 5), 16) / 255, b = parseInt(hx.slice(5, 7), 16) / 255;
       const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!mx || d / mx < 0.2 || mx < 0.2) return null;
       let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return ((h * 60) + 360) % 360; };
@@ -54,7 +57,7 @@
     return [hex((start + span * 0.38) % 360), hex((start + span * 0.62) % 360)];
   }
   /** rainbow drops for the songs that go all out, in "a different pair each song" */
-  const rainbowOn = () => { const jc = (J.state || {}).jam_colors || {}; return jc.mode === 'mix' && !!jc.rainbow; };
+  const rainbowOn = () => { const jc = (J.state || {}).jam_colors || {}; return themeOn() && jc.mode === 'mix' && !!jc.rainbow; };
   function shownColors(t) {
     const cols = colorsFor(t) || ((J.art || {})[t.image] || []).slice(0, 2);
     if (!colorsFor(t) && t.image && J.art && J.art[t.image] === undefined) fetchArt(t);
@@ -68,20 +71,26 @@
   function pairPicker(t) {
     if (!t || !t.id || t.kind === 'custom') return '';
     const [a, b] = shownColors(t), own = (J.state.track_colors || {})[t.id];
-    return `<span class="jam-pair" data-id="${esc(t.id)}"><input type="color" class="jp-a" value="${a}" title="Primary color for this song (kept for next time)"><input type="color" class="jp-b" value="${b}" title="Secondary color for this song">${own ? '<button class="jp-reset small" title="Back to the jam\'s colors">&#8634;</button>' : ''}</span>`;
+    if (!themeOn()) return `<span class="jam-pair"><span class="jam-sw" style="background:${a}" title="Its album cover's colors"></span><span class="jam-sw" style="background:${b}"></span></span>`;
+    const off = !!(own && own.off);
+    return `<span class="jam-pair" data-id="${esc(t.id)}"><input type="color" class="jp-a" value="${a}" title="Primary color for this song (kept for next time)"><input type="color" class="jp-b" value="${b}" title="Secondary color for this song">`
+      + (['pick', 'mix'].includes((J.state.jam_colors || {}).mode) || off ? `<button class="jp-theme small ${off ? '' : 'on'}" title="${off ? 'This song plays in its album cover\'s colors. Click for the party\'s' : 'This song plays in the party\'s colors. Click for its album cover\'s'}">${off ? 'cover' : 'party'}</button>` : '')
+      + `${own && !off ? '<button class="jp-reset small" title="Back to the jam\'s colors">&#8634;</button>' : ''}</span>`;
   }
   function colorsSection(st) {
     const jc = st.jam_colors || {};
-    return `<div class="jam-sec"><h4>Colors</h4>
+    if (jc.on === false) return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn"></label></h4></div>`;
+    return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn" checked></label></h4>
         <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option><option value="album" ${jc.mode !== 'pick' && jc.mode !== 'mix' ? 'selected' : ''}>Its album cover's colors</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
         ${jc.mode === 'mix' ? `<div class="jam-row"><label title="Each song gets one of these, chosen by its vibe, never the same pair twice in a row">Pairs</label><span class="jam-pairs">${(jc.pairs || []).map((p, i) => `<span class="jam-pair"><input type="color" class="mx-a" data-i="${i}" value="${esc(p[0])}"><input type="color" class="mx-b" data-i="${i}" value="${esc(p[1])}"></span>`).join('')}</span></div>
         <div class="jam-row"><label title="A song that goes all out gets rainbow drops">Rainbow for epic songs</label><input type="checkbox" id="jamRainbow" ${jc.rainbow ? 'checked' : ''}></div>` : ''}
         ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take two more colors now and then, picked for each song from its own two (purple and green get red and orange)">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}></span></div>` : ''}</div>`;
   }
-  /** The song in the room got new colors: build its show again in them. */
+  /** The song in the room got new colors (here, or on the Party Hub): build its show again in them. */
+  const colorSig = () => JSON.stringify([colorsFor(J.doc && J.doc.track), extrasFor(colorsFor(J.doc && J.doc.track)), rainbowOn()]);
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
-    S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors); S.jamRainbow = rainbowOn();
+    S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors); S.jamRainbow = rainbowOn(); J.colorSig = colorSig();
     try { St.autoBuild(true); J.built = sectionKeys(); } catch (e) { console.error(e); }
     St.draw();
   }
@@ -195,6 +204,7 @@
       J.shown = null; render();
     };
     const el2 = $('#jamBody');
+    const themeSw = $('#jamThemeOn'); if (themeSw) themeSw.onchange = () => saveJam({ on: themeSw.checked }).catch(e => toast(e.message, true));
     const mode = $('#jamColorMode');
     if (mode) mode.onchange = () => saveJam({ mode: mode.value }).catch(e => toast(e.message, true));
     for (const id of ['jamPrimary', 'jamSecondary']) { const e = $('#' + id); if (e) e.onchange = () => saveJam({ primary: $('#jamPrimary').value, secondary: $('#jamSecondary').value }).catch(err => toast(err.message, true)); }
@@ -205,7 +215,7 @@
     const rb = $('#jamRainbow'); if (rb) rb.onchange = () => saveJam({ rainbow: rb.checked }).catch(err => toast(err.message, true));
     const ex = $('#jamExtras'); if (ex) ex.onchange = () => saveJam({ extras: ex.checked }).catch(err => toast(err.message, true));
     for (const box of el2.querySelectorAll('.jam-pair[data-id]')) {
-      const id = box.dataset.id, a = box.querySelector('.jp-a'), b = box.querySelector('.jp-b'), reset = box.querySelector('.jp-reset');
+      const id = box.dataset.id, a = box.querySelector('.jp-a'), b = box.querySelector('.jp-b'), reset = box.querySelector('.jp-reset'), theme = box.querySelector('.jp-theme');
       const save = async body => {
         J.state = await api('jam/colors', { track_id: id, ...body });
         if (id === roomTrackId()) recolor();
@@ -214,6 +224,7 @@
       };
       a.onchange = b.onchange = () => save({ primary: a.value, secondary: b.value }).catch(e => toast(e.message, true));
       if (reset) reset.onclick = () => save({}).catch(e => toast(e.message, true));
+      if (theme) theme.onclick = () => save(theme.classList.contains('on') ? { theme: false } : {}).catch(e => toast(e.message, true));
     }
     on('jamPlayerHere', async () => { await api('jam/player/transfer', {}); toast('Spotify is now playing on Light Show Studio'); });
     const dev = $('#jamDevice');
@@ -238,6 +249,7 @@
       const st = await api('jam/state'); const was = J.state && J.state.running;
       J.state = st;
       if (typeof st.party_level === 'number' && st.party_level !== S.partyLevel) { S.partyLevel = st.party_level; S.forceSend = true; }
+      if (J.live && J.doc && J.doc.kind !== 'custom' && J.colorSig !== undefined && colorSig() !== J.colorSig) recolor();   // changed on the phone: at once
       if (st.running && !was && st.auto_started) toast('Music started on Light Show Studio: the jam started by itself');
       if (st.running && st.streaming) await follow(st); else if (J.live && !(st.running)) leave();
       if (J.open || st.running !== was) render();
@@ -324,7 +336,7 @@
     J.live = true; J.doc = doc;
     S.albumPalette = await albumPalette(doc.track);
     S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
-    S.jamExtras = extrasFor(S.jamColors); S.jamRainbow = rainbowOn();
+    S.jamExtras = extrasFor(S.jamColors); S.jamRainbow = rainbowOn(); J.colorSig = colorSig();
     if (doc.kind === 'custom' && doc.project) {
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);

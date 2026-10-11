@@ -676,6 +676,29 @@ class TestPartyHub(unittest.TestCase):
         self.assertEqual(extras_for(["#ffffff", "#000000"]), ["#ff6000", "#ff0000"])   # no hue to steer by
         self.assertIsNone(extras_for(None))
 
+    def test_the_party_colors_switch_off_for_every_song_or_one(self):
+        from types import SimpleNamespace
+        from lightshow.studio.jam_service import JamService
+
+        def hub(jam_colors, track_colors):
+            room = {"id": "a", "label": "A", "kind": "live"}
+            st = {"running": True, "room": room, "queue": [{"id": "b", "label": "B", "kind": "live"}],
+                  "jam_colors": {**JamService.DEFAULT_COLORS, **jam_colors}, "track_colors": track_colors, "assigned_colors": {}}
+            fake = SimpleNamespace(_state=lambda: st, party_level=1.0, studio=SimpleNamespace(rooms=None))
+            return JamService._party(fake)
+        pick = {"mode": "pick", "primary": "#8000ff", "secondary": "#00ff00"}
+        on = hub(pick, {})
+        self.assertEqual(on["room"]["colors"], ["#8000ff", "#00ff00"])
+        self.assertTrue(on["theme_on"])
+        self.assertNotIn("extras", on["room"])                             # two colors a song, nothing more
+        off = hub({**pick, "on": False}, {"a": {"primary": "#ff0000", "secondary": "#0000ff"}})
+        self.assertIsNone(off["room"]["colors"])                           # every song in its cover's colors
+        self.assertFalse(off["theme_on"])
+        one = hub(pick, {"a": {"off": True}})
+        self.assertIsNone(one["room"]["colors"])                           # this song in its cover's
+        self.assertTrue(one["room"]["theme_off"])
+        self.assertEqual(one["upcoming"][0]["colors"], ["#8000ff", "#00ff00"])   # the rest keep the party's
+
     def test_only_the_home_network_may_use_it(self):
         from types import SimpleNamespace
         from lightshow.studio.jam_service import JamService

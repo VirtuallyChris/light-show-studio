@@ -611,7 +611,7 @@ class JamService:
         return {"source": "studio", "speakers": "pc", "target_delay": 90.0, **self.load_config().get("jam_last", {})}
 
     # extras: two more colors a few of the small accents take now and then (orange and red at Halloween)
-    DEFAULT_COLORS = {"mode": "album", "primary": "#8000ff", "secondary": "#00ff00", "extras": False, "accent1": "#ff6000", "accent2": "#ff0000",
+    DEFAULT_COLORS = {"on": True, "mode": "album", "primary": "#8000ff", "secondary": "#00ff00", "extras": False, "accent1": "#ff6000", "accent2": "#ff0000",
                       # "mix": each song gets one of these pairs, by its vibe, never the same pair twice in a row
                       "pairs": [["#8000ff", "#00ff00"], ["#8000ff", "#ff6000"], ["#00ff00", "#ff6000"], ["#ff0000", "#0040ff"]],
                       "rainbow": True}                     # in "mix", a song that goes all out gets rainbow drops
@@ -686,6 +686,8 @@ class JamService:
             if t.get("kind") == "custom":
                 return None, False                       # your own show: its colors are its own
             own = own_all.get(t.get("id"))
+            if not jc.get("on", True) or (own and own.get("off")):
+                return None, False                       # out of the party's colors: its cover's
             if own:
                 return [own["primary"], own["secondary"]], True
             if jc.get("mode") == "pick":
@@ -700,12 +702,13 @@ class JamService:
             pair, own = colors(t)
             return {"id": t.get("id"), "label": t.get("label"), "name": t.get("name"), "artists": t.get("artists"),
                     "image": t.get("image"), "kind": t.get("kind"), "duration": t.get("duration"), "colors": pair, "own": own,
-                    "extras": extras_for(pair) if (pair and jc.get("extras")) else None, **(extra or {})}
+                    "theme_off": bool((own_all.get(t.get("id")) or {}).get("off")), **(extra or {})}
         room, ahead = st.get("room"), st.get("ahead")
         up = ([ahead] if ahead and (not room or ahead.get("key") != room.get("key")) else []) + list(st.get("queue") or [])
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
                 "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
-                "color_mode": jc.get("mode"), "extras_on": bool(jc.get("extras")), "party_level": self.party_level,
+                "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
+                "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
                 "room": item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
                 "upcoming": [item(t) for t in up[:12]]}
@@ -716,14 +719,19 @@ class JamService:
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
 
     async def party_colors(self, request):
-        """A track's own two colors from the phone (kept for next time), or back to the jam's."""
+        """From the phone: a track's own two colors (kept for next time), a track out of the party's colors
+        ({track_id, theme: false}: its cover's), back to the jam's, or the party's colors on or off ({on})."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
         hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
-        if not body.get("track_id"):
+        if not body.get("track_id") and "on" in body:
+            self._set_theme_on(bool(body["on"]))
+        elif not body.get("track_id"):
             return web.json_response({"error": "no track"}, status=400)
-        self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")))
+        else:
+            self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
+                                    off=body.get("theme") is False)
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
 
     async def party_playback(self, request):
@@ -817,10 +825,13 @@ class JamService:
         body = await request.json()
         hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
         if body.get("track_id"):
-            self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")))
+            self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
+                                    off=body.get("theme") is False)
         else:
             cfg = self.load_config()
             cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
+            if "on" in body:
+                cur["on"] = bool(body["on"])
             if body.get("mode") in ("pick", "mix", "album"):
                 cur["mode"] = body["mode"]
             for k in ("primary", "secondary", "accent1", "accent2"):
@@ -839,6 +850,12 @@ class JamService:
             self.save_config(cfg)
         # off the event loop: handing out pairs afresh reads what was learned about each queued track
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._state))
+
+    def _set_theme_on(self, on: bool) -> None:
+        """The party's colors for every song, or (off) every song in its own album cover's colors."""
+        cfg = self.load_config()
+        cfg["jam_colors"] = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {}), "on": bool(on)}
+        self.save_config(cfg)
 
     def _auto_on(self) -> bool:
         return bool(self.load_config().get("jam_auto", True))

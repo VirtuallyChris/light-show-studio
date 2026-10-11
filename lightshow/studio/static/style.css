@@ -241,6 +241,9 @@ button.icon { width: 2.1rem; padding: 0; display: inline-flex; align-items: cent
 .rooms-pop .chip { font-size: .8rem; padding: .15rem .55rem; border-radius: 999px; min-height: 0; color: var(--muted); }
 .rooms-pop .chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 .light-list label.room-off { opacity: .5; }
+.jam-sw { display: inline-block; width: 1.6rem; height: 1.6rem; border-radius: .35rem; border: 1px solid var(--line2); vertical-align: middle; }
+.jam-pair .jp-theme { min-height: 0; padding: .1rem .45rem; font-size: .75rem; color: var(--muted); }
+.jam-pair .jp-theme.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 
 /* the three columns size themselves to the window */
 main { grid-template-columns: clamp(17.5rem, 17vw, 21rem) minmax(0, 1fr) clamp(15rem, 18vw, 22rem); }
