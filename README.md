@@ -724,10 +724,13 @@ noise.
   between the whole-strip strobe and the ceiling split in halves (the kick on one
   half, the snare on the other); groove drops flash a fifth of each strip on the
   snare; verses land each snare on a quarter of the ceiling, going round.
-- **A lift into every drop.** A drop with no buildup before it (common in a
-  song without drums) still gets one: the last 2 or 4 bars of the section before
-  it lift into it with Build-up hits on the drums, or on a build of beats,
-  eighths and sixteenths.
+- **A buildup where the snares build.** A drop with no buildup marked before it,
+  where the snares do build into it (at least 8 in its last 4 bars, rolls
+  counting, the last 2 bars as busy as the 2 before; or at least 4 in its last
+  2 bars), gets a buildup section over those bars: the section row says so, it
+  can be moved or retyped like any other, and it is built as one. A drop that
+  simply arrives (no snares building, or no drums) stays that way. Shows built
+  before this have their lifts named buildups the same way when opened.
 - **Drops are the brightest thing in a song.** Once a show is built it is looked
   at as the room would see it (twice a second, every light), and evened out: each
   drop gets most of the light of the brightest one (a quieter drop a little less,

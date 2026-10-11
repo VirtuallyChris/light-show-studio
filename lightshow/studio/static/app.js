@@ -48,6 +48,35 @@
     return join(out, (a, b) => a.type === b.type);                                  // a sliver may have joined two alike
   }
 
+  /** How many beats of snare buildup run into beat `end`: 16 when the last 4 bars hold at least 8
+   *  snares (rolls count) and the last 2 bars are at least as busy as the 2 before, else 8 when the
+   *  last 2 bars hold at least 4, else 0: no build there to call a buildup. */
+  function snareBuild(end, room = 16) {
+    const ev = (S.analysis && S.analysis.events) || {}, hits = [...(ev.snare || []), ...(ev.roll || [])].map(e => timeToBeat(e[0]));
+    const n = (b0, b1) => hits.filter(b => b >= b0 && b < b1).length;
+    if (room >= 16 && n(end - 16, end) >= 8 && n(end - 8, end) >= n(end - 16, end - 8)) return 16;
+    if (room >= 8 && n(end - 8, end) >= 4) return 8;
+    return 0;
+  }
+  /** A drop with no buildup marked before it, where the snares do build into it, gets one: those last
+   *  bars of the section before become a buildup, so the section row says so and it can be moved or
+   *  retyped like any other. Not in a calm song, and not where nothing builds (a drop that simply
+   *  arrives stays that way). On the project's own beat grid. */
+  function withBuildups(sections) {
+    if (!P() || !P().beats || !P().beats.length || showStyle() === 'chill') return sections;
+    const out = [];
+    for (let i = 0; i < sections.length; i++) {
+      const s = sections[i], next = sections[i + 1];
+      const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)), len = b1 - b0;
+      const lift = next && next.type === 'drop' && !['buildup', 'drop'].includes(s.type) && len >= 12 ? snareBuild(b1, len >= 24 ? 16 : 8) : 0;
+      if (lift) {
+        const cut = beatToTime(b1 - lift);
+        out.push({ ...s, end: cut }, { start: cut, end: s.end, type: 'buildup', lift: true });
+      } else out.push(s);
+    }
+    return out;
+  }
+
   function newProject(a, name) {
     return {
       version: 1, name, bpm: a.bpm, phase: a.downbeat_phase, beats: a.beats.slice(),
@@ -127,6 +156,21 @@
       const e = Effects.byId[c.effect]; if (!e || !c.params) continue;
       for (const [k, d] of Object.entries(e.params)) if (d.type === 'beats' && typeof c.params[k] === 'number' && Math.abs(c.params[k] * 4 - Math.round(c.params[k] * 4)) > 1e-6)
         c.params[k] = Math.max(0.25, Math.round(c.params[k] * 4) / 4);
+    }
+    // shows built before buildups were sections of their own: a lift (Build-up hits ending right on a
+    // drop, inside another kind of section) gets its stretch named a buildup, clips untouched
+    if (p.beats && p.beats.length && p.sections) {
+      const bt = t => { const b = p.beats; let i = 0; while (i < b.length - 2 && b[i + 1] <= t) i++; return i + (t - b[i]) / Math.max(1e-6, b[i + 1] - b[i]); };
+      const tb = x => { const b = p.beats, k = Math.max(0, Math.min(b.length - 2, Math.floor(x))); return b[k] + (x - k) * (b[k + 1] - b[k]); };
+      const lifts = p.lanes.flatMap(l => l.clips.filter(c => c.effect === 'buildhits'));
+      const out = [];
+      p.sections.forEach((sc, i) => {
+        const next = p.sections[i + 1], end = Math.round(bt(sc.end));
+        const lift = next && next.type === 'drop' && !['buildup', 'drop'].includes(sc.type) && snareBuild(end) > 0
+          && lifts.find(c => Math.abs(c.start + c.len - end) <= 1 && c.start > bt(sc.start) + 1);
+        if (lift) { const cut = tb(lift.start); out.push({ ...sc, end: cut }, { start: cut, end: sc.end, type: 'buildup', lift: true }); } else out.push(sc);
+      });
+      p.sections = out;
     }
     // lights are chosen once for the room, never by the song
     delete p.lights;
@@ -1710,6 +1754,7 @@
   }
   function autoBuild(quiet = false) {
     if (!P()) return; if (!quiet) beginChange(); const p = P();
+    p.sections = withBuildups(p.sections);
     for (const lane of p.lanes) lane.clips = []; p.paletteClips = [];
     while (p.lanes.length < DEFAULT_LANES) p.lanes.push(newLane());
     // one palette carries the whole song, chosen from its key, brightness and drive
@@ -1947,13 +1992,6 @@
         else clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
         drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
-    }
-    // A drop with no buildup before it (a song without drums often has none the analysis can see) still
-    // gets one: the last bars of this section lift into it, a riser stepping on the drums or the beat.
-    const next = p.sections[idx + 1];
-    if (!chill && next && next.type === 'drop' && s.type !== 'buildup' && s.type !== 'drop' && len >= 12 && Math.abs(b1 - Math.round(timeToBeat(next.start))) <= 1) {
-      const lift = len >= 24 ? 16 : 8;
-      clip(3, 'buildhits', b1 - lift, lift, { follow: drumsHere ? 'drums' : 'build', most: hard ? 4 : 3, decay: 0.25 }, { opacity: 0.95 });
     }
     addSignature(s, b0, len, variant, style);
     // Long strips and short lamps together: the moving things (comets, chases, sparkles) run on the
@@ -2344,6 +2382,6 @@
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {};
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
-  window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
+  window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
     draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook };
 })();

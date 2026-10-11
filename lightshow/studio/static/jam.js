@@ -428,7 +428,7 @@
     S.analysis = a; J.lastFeat = performance.now();
     if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); St.draw(); return; }
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
-    p.sections = St.tidySections(a.sections);
+    p.sections = St.withBuildups(St.tidySections(a.sections));      // a drop with none still gets its buildup
     $('#bpm').value = p.bpm.toFixed(2);
     // the genre arrived, or the drums did (the beat pulse goes only where there are drums): rebuild
     const drumsNow = !!(a.events && a.events.kick && a.events.kick.length);
