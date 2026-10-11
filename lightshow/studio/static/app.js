@@ -116,6 +116,12 @@
       c.params.from = String(from); c.params.to = String(Math.min(8, to));
       delete c.params.startRate; delete c.params.maxRate;
     }
+    // the strip-filling riser is gone: a show that had one gets Build-up hits over the same stretch,
+    // on the same drums (hits all around the room instead of a strip filling up)
+    for (const lane of p.lanes) for (const c of lane.clips) if (c.effect === 'riser') {
+      const follow = { drums: 'drums', snare: 'snare', beat: 'beat' }[(c.params || {}).follow] || 'drums';
+      c.effect = 'buildhits'; c.params = { ...Effects.defaults('buildhits'), follow };
+    }
     // lights are chosen once for the room, never by the song
     delete p.lights;
     for (const lane of p.lanes) for (const c of lane.clips) delete c.lights;
@@ -1287,7 +1293,7 @@
   const effectColors = id => { const e = Effects.byId[id]; return e && (e.palette || (e.colors ? e.colors.slice() : null)) || null; };
   function addClip(laneIdx, effectId, startBeat, len) {
     const e = Effects.byId[effectId]; if (!e) return null; beginChange();
-    len = len ?? (e.cat === 'accent' ? (effectId === 'riser' ? 16 : 2) : 16);
+    len = len ?? (e.cat === 'accent' ? 2 : 16);
     const start = Math.max(0, startBeat);
     const li = freeLaneFor(start, len, laneIdx);
     const clip = { id: uid(), effect: effectId, start, len, params: Effects.defaults(effectId), opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effectId) };
@@ -1406,7 +1412,7 @@
   function renderLibrary() {
     const list = $('#effectList'); list.innerHTML = ''; const q = ($('#effectSearch').value || '').toLowerCase();
     for (const [cat, label] of Object.entries(Effects.CATS)) {
-      const items = Effects.list.filter(e => e.cat === cat && (!q || e.name.toLowerCase().includes(q) || e.desc.toLowerCase().includes(q)));
+      const items = Effects.list.filter(e => e.cat === cat && !e.hidden && (!q || e.name.toLowerCase().includes(q) || e.desc.toLowerCase().includes(q)));
       if (!items.length) continue; const h = document.createElement('div'); h.className = 'cat'; h.textContent = label; list.appendChild(h);
       for (const e of items) { const card = document.createElement('div'); card.className = 'effect-card'; card.title = e.desc + '\nDrag onto a layer, or double-click to add at the playhead.'; card.innerHTML = `<div class="sw" style="background:linear-gradient(90deg,${e.swatch[0]},${e.swatch[1]})"></div><div><div class="nm">${e.name}</div><div class="ds">${e.desc.slice(0, 44)}${e.desc.length > 44 ? '…' : ''}</div></div>`; libraryDrag(card, 'effect', e.id); card.ondblclick = () => { if (P()) addClip(e.cat === 'accent' ? P().lanes.length - 1 : 0, e.id, snapBeat(timeToBeat(pos()))); }; list.appendChild(card); }
     }
@@ -1744,7 +1750,7 @@
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
   const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
-  const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight']);   // set as placed: never tiered or balanced (a star is one bright segment)
+  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight']);   // set as placed: never tiered or balanced (a star is one bright segment)
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
     // a color battle at full motion brightness made a verse outshine its drop
@@ -1880,19 +1886,12 @@
         // every crazy snare build, and every other buildup of a hard song, jumps around the room
         zoneBuild = hard && len >= 8 && longStrips && (snaresHere >= 8 || variant % 2 === 0);
         clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
-        if (room) clip(1, 'roomchase', b0, len, { every: chill ? 2 : 1 }, { opacity: 0.9 });       // round the room, beat by beat
-        else clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
-        drums(0.85, 0.6);
-        // chill songs build by filling slowly; the strobe riser is for rave only
-        clip(3, 'riser', b0, len, chill ? { follow: 'beat', step: '2', accel: false } : { follow: snaresHere >= 4 ? 'snare' : 'drums', accel: false });
-        if (zoneBuild) {
-          // An EDM snare build on ceiling-long strips: for its first half each snare lights one stretch
-          // somewhere in the room and the rest stays dark, so the light jumps around the room (a small
-          // lamp is a stretch of its own); then the riser fills with the hits still jumping on top.
-          const follow = snaresHere >= 8 ? 'snare' : drumsHere ? 'both' : 'build';
-          clip(5, 'zonehits', b0, len, { follow, mode: room ? 'room' : 'each', zones: 5, decay: 0.14, darkFor: 0.5, grows: true }, { opacity: 1 });
-        } else if (!chill && snaresHere >= 4 && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'snare', grows: true, length: 0.05 }, { opacity: strobeLevel, blend: 'add' });
-        else if (style === 'rave') clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.3, from: '1', to: '8' });
+        // The build is felt all around the room: every snare (else every hit, else a build of beats,
+        // eighths and sixteenths) lights random stretches of the strips and lamps, more of them,
+        // brighter and snappier as it goes. A hard song's crazier builds start out in the dark, so the
+        // light jumps around the room; a calm song's build is gentle, on the beat, two at most.
+        const follow = chill ? 'beat' : snaresHere >= 4 ? 'snare' : drumsHere ? 'drums' : 'build';
+        clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: hard ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         break;
@@ -1947,7 +1946,7 @@
     const next = p.sections[idx + 1];
     if (!chill && next && next.type === 'drop' && s.type !== 'buildup' && s.type !== 'drop' && len >= 12 && Math.abs(b1 - Math.round(timeToBeat(next.start))) <= 1) {
       const lift = len >= 24 ? 16 : 8;
-      clip(3, 'riser', b1 - lift, lift, { follow: drumsHere ? 'drums' : 'beat', step: lift >= 16 ? '1' : '0.5', accel: !drumsHere }, { opacity: 0.9 });
+      clip(3, 'buildhits', b1 - lift, lift, { follow: drumsHere ? 'drums' : 'build', most: hard ? 4 : 3, decay: 0.25 }, { opacity: 0.95 });
     }
     addSignature(s, b0, len, variant, style);
     // Long strips and short lamps together: the moving things (comets, chases, sparkles) run on the
@@ -1960,7 +1959,7 @@
         if (p.lanes[0].clips.includes(c))                  // it was the base: the lamps get a wash of their own beneath the drums
           clip(0, 'colorwash', c.start, c.len, { speed: 8, intensity: 0.55 }, { target: 'short', palette: c.palette });
       }
-      if (zoneBuild) { /* the lamps are stretches of the room's jump */ }
+      if (zoneBuild || s.type === 'buildup') { /* in a buildup the lamps are stretches of the room's hits */ }
       else if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0 }, { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
       else if (!chill && noDrums() && ['drop', 'verse'].includes(s.type) && ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end).length) >= 0.4 * len)
         clip(6, 'basshits', b0, len, { decay: 0.45 }, { target: 'short', blend: 'add', opacity: s.type === 'drop' ? 0.85 : 0.5 });   // no drums: the bass keeps time
@@ -2235,7 +2234,8 @@
     if (loud) {
       if (leads.length >= 3) clip(4, 'leadtrace', b0, len, { tail: 0.2 }, { opacity: 0.95 });
       if (ghosts.length >= 8) clip(5, 'ghostspark', b0, len, { count: 3 }, { opacity: 0.7 });
-      if (leads.length < 3 && basses.length >= 6) clip(2, 'bassnote', b0, len, {}, { opacity: 0.8, blend: 'add' });
+      // (not in a buildup: a whole strip swelling on every bass note would bury the build's hits)
+      if (leads.length < 3 && basses.length >= 6 && s.type !== 'buildup') clip(2, 'bassnote', b0, len, {}, { opacity: 0.8, blend: 'add' });
     } else if (leads.length >= 4) {
       // in the calm, the lead only makes the strip breathe; it never flashes
       clip(1, 'leadglow', b0, len, { gain: quiet ? 1.1 : 1.3, floor: 0 }, { opacity: quiet ? 0.4 : 0.55, blend: 'add' });

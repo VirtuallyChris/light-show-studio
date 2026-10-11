@@ -145,7 +145,7 @@ after that. Saved shows live in the `shows/` folder and reload from the
    room*. With one light they play across that light's own strip.
 2. **Auto-build show** generates a complete show from the detected structure
    as a starting point: aurora in intros, gradients and beat pulses in verses,
-   an accelerating riser through buildups, a white blast and rainbow on drops,
+   hits all around the room through buildups, a white blast and rainbow on drops,
    and fades on the outro, with the palette changing per section.
    **How hard it goes depends on the kind of music.** Each song gets a show
    style:
@@ -340,8 +340,8 @@ There are around 40 effects grouped as slow (aurora, gradient, breathe, wave,
 twinkle, embers), groove (pulse, chase, comets, dual comets, meteors, pulsar,
 orbit, color battle, spectrum, scanner, ripples, sparkles), fast
 (strobe, blackout strobe, hyper chase, lightning, chaos, glitch,
-halves) and one-shot accents (drop blast, riser, fades, flash, slam, sweep
-out). Effect timing is always in beats, so a "1 beat" pulse stays locked to
+halves), the room's buildup (Build-up hits) and one-shot accents (drop
+blast, fades, flash, slam, sweep out). Effect timing is always in beats, so a "1 beat" pulse stays locked to
 the song whatever its tempo.
 
 **Signature flair: what makes each song sound like itself.** The analysis also
@@ -388,11 +388,14 @@ the groove effects default to black between their bright parts, the sparse
 effects (meteors, pulsar, orbit, dual comets) draw on transparent black, and
 auto-build pairs a dim base with one sparse overlay. Auto-build keeps one base
 effect and one overlay for the whole of every drop; only the blast on its
-first beats is extra. The buildup riser is two effects: **Riser** fills the strip toward the center
-and heats up, and **Strobe riser** is a separate blackout strobe on the layer
-above that accelerates smoothly to its maximum (default 8 flashes a beat)
-right at the drop. Auto-build stacks them; use one without the other if you
-prefer.
+first beats is extra. A buildup is **Build-up hits**: every snare (or every
+hit, or a beat-by-beat build) lights random stretches all around the room,
+never the same ones twice running, and more of them at once as it goes (one at
+the start, up to four at the end), brighter and snappier, so the energy builds
+around the room rather than along one strip. (The old strip-filling Riser is
+gone: a show that had one gets Build-up hits over the same stretch, on the
+same drums, when it is opened.) **Strobe riser** is a blackout strobe for the
+layer above that steps up into the drop, if you want one.
 
 ## The lights' frame rate follows the Wi-Fi
 
@@ -649,13 +652,15 @@ noise.
   detection, since each song measures how well its fingerprint separates.
   Beat pulse follows the hits: the kick blooms from the center, the snare from
   the ends. It goes only where there are drums (at least 4 hits, one every 4
-  beats); a drumless breakdown gets none. The **buildup riser** steps on the
-  snare when the build is a snare build (one section of lights per hit, so it
-  speeds up exactly as the roll does), else on the kick. It is full exactly on
-  the drop: if the hits stop early, the last stretch fills smoothly the rest of
-  the way, and if they start late, the beat grid steps it until they do. The
-  **Drum strobe** flashes on the hits themselves and nothing else: on the kicks
-  in drops, and on the snares in buildups, growing toward the drop. How hard
+  beats); a drumless breakdown gets none. A **buildup** is hits all around the
+  room: each snare when it is a snare build (so it speeds up exactly as the roll
+  does), else each kick and snare, else (no drums found) a build of beats,
+  eighths and sixteenths, lights random stretches of the strips and lamps, more
+  of them, brighter and snappier toward the drop, over a dim bed; a calm song's
+  build is gentle, on the beat, two stretches at most. The lamps are stretches
+  of the room there, not blooming on every hit, and the whole-strip strobes and
+  bass swells stay out of buildups. The **Drum strobe** flashes on the hits
+  themselves and nothing else, on the kicks in drops. How hard
   depends on the style: subtle for groove, clear for dance, full for rave, none
   for chill.
 - **The bass.** With the bass separated out, the bass notes and the bass level
@@ -697,8 +702,8 @@ noise.
   start) and counts a small lamp as one zone of its own. In a hard song's buildup
   (every snare build, and every other buildup otherwise) the first half is dark
   and each hit lights one zone somewhere in the room, never the same one twice
-  running, so the light jumps strip to lamp to strip; then the riser fills with
-  the hits still jumping on top, and the drop lands out of a beat of black. The
+  running, so the light jumps strip to lamp to strip; then more stretches light
+  per hit over a dim bed, and the drop lands out of a beat of black. The
   hits are the snares when there are plenty, else kick and snare, else (no drums
   found) a build of beats, then eighths, then sixteenths. Hard drops take turns
   between the whole-strip strobe and the ceiling split in halves (the kick on one
@@ -706,8 +711,8 @@ noise.
   snare; verses land each snare on a quarter of the ceiling, going round.
 - **A lift into every drop.** A drop with no buildup before it (common in a
   song without drums) still gets one: the last 2 or 4 bars of the section before
-  it lift into it with a riser stepping on the drums, or on the beat, faster near
-  the end.
+  it lift into it with Build-up hits on the drums, or on a build of beats,
+  eighths and sixteenths.
 - **Drops are the brightest thing in a song.** Once a show is built it is looked
   at as the room would see it (twice a second, every light), and evened out: each
   drop gets most of the light of the brightest one (a quieter drop a little less,
@@ -715,7 +720,7 @@ noise.
   floor), and every other section gets a share of the drops' light by how loud it
   is next to them (a quiet verse about half, a near-chorus up to 85%), never
   outshining the drop it leads to. A section brighter than its share is turned
-  down; risers and fades are left alone.
+  down; buildups, fades and stars are left alone.
 - **Each song's own flavor.** A few effects only appear where a song has the
   thing they are made for, so a night of songs does not look the same all
   through (the separated tracks are what hear them; see `flavor.py`):
@@ -760,9 +765,8 @@ noise.
   a minute and a half before the room does).
 - **Drum rolls.** In the drum track, a stretch where the hits above the kick come
   three or more to a beat, and twice as thick as the song's own groove, for a bar
-  or more, is a roll. Its hits (as close as 46 ms) count as steps for a buildup's
-  riser and flashes for the snare strobe, so the buildup speeds up exactly with
-  the roll, and a roll that runs straight into a drop with no buildup marked
+  or more, is a roll. Its hits (as close as 46 ms) count as a buildup's hits,
+  so the buildup speeds up exactly with the roll, and a roll that runs straight into a drop with no buildup marked
   becomes that drop's buildup. Steady sixteenth-note grooves are not rolls.
 - **The song's moments.** The separated tracks also mark the moments a
   person would light by hand:
@@ -805,8 +809,7 @@ noise.
   (they are not shown: a song shows its two colors). The base,
   the comets and the drums stay in the two. A song with a show you made keeps
   that show's colors.
-- **Dual comets** are for drops only; the **strobe riser** for the rave style
-  only.
+- **Dual comets** are for drops only.
 - **Concert-style layers.** The bed (gradients, aurora, breathe) sets color and
   mood at about 30% (40% in drops); motion runs up to 85%; hits (beat pulse,
   strikes, flashes) own full brightness. The bed and motion *duck under the

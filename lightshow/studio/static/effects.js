@@ -555,6 +555,45 @@ const Effects = (() => {
       for (let i = i0; i < i1 && i < c.n; i++) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, dark ? 1 : v);
     } });
 
+  // A buildup felt all around the room: each hit lights a few stretches somewhere in it (a small lamp is
+  // a stretch of its own), never the same ones twice running, and as the build goes on more of them
+  // light at once, brighter and snappier, until the drop.
+  def({ id: 'buildhits', name: 'Build-up hits', cat: 'room', desc: 'For buildups: every snare (or every hit, or a beat-by-beat build) lights random stretches all around the room. As the buildup goes on, more light at once (one at the start, up to four at the end), brighter and snappier, so the energy builds toward the drop.', swatch: ['#ffffff', '#ff2fa0'],
+    params: { follow: { type: 'select', def: 'snare', options: { snare: 'the snare', drums: 'kick and snare', beat: 'the beat', build: 'a build: beats, eighths, sixteenths' }, label: 'Hits on' },
+      zones: { type: 'range', def: 6, min: 2, max: 12, step: 1, label: 'Stretches on a long strip' },
+      most: { type: 'range', def: 4, min: 1, max: 8, step: 1, label: 'Most at once (at the end)' },
+      decay: { type: 'range', def: 0.22, min: 0.05, max: 1, step: 0.01, label: 'Fade at the start (s)' },
+      darkFor: { type: 'range', def: 0, min: 0, max: 1, step: 0.05, label: 'Dark between hits for the first (share)' }, color: P.color() },
+    render(c) {
+      clear(c.out); const m = c.music || {}, k = c.clipT, dark = k < c.p.darkFor;
+      if (dark) fillAll(c.out, c.n, 0, 0, 0, 1);
+      let h = null;
+      if (c.p.follow === 'beat') h = { index: Math.floor(c.beat), age: frac(c.beat) * c.beatSec, strength: 1 };
+      else if (c.p.follow === 'build') { const sub = k < 0.5 ? 1 : k < 0.75 ? 2 : 4, u = c.clipBeat * sub; h = { index: sub * 10007 + Math.floor(u), age: frac(u) * c.beatSec / sub, strength: 1 }; }
+      else if (m.hasDrums) for (const x of [c.p.follow === 'drums' ? m.kick : null, m.snare, m.roll]) if (x && x.index >= 0 && (!h || x.age < h.age)) h = x;
+      if (!h || h.index < 0) return;
+      const decay = c.p.decay * (1 - 0.55 * k), v = Math.exp(-h.age / Math.max(0.03, decay)) * (0.45 + 0.55 * Math.pow(k, 1.3)) * (0.7 + 0.3 * (h.strength ?? 1));
+      if (v < 0.01) return;
+      const short = c.n <= 12, zn = short ? 1 : Math.max(2, Math.round(c.p.zones));
+      // how many stretches this hit lights, over the whole room (or over this light, when it is alone)
+      const many = Math.max(1, Math.min(Math.round(c.p.most), 1 + Math.floor(k * c.p.most * 0.999)));
+      let total = zn, off = 0;
+      if (c.room && c.room.n >= 2 && c.room.kinds) {
+        const counts = c.room.kinds.map(kd => kd === 'short' ? 1 : Math.max(2, Math.round(c.p.zones)));
+        total = counts.reduce((x, y) => x + y, 0); off = counts.slice(0, c.room.i).reduce((x, y) => x + y, 0);
+      }
+      const prev = new Set(), lit = new Set();
+      const pickSet = (idx, into) => { let j = 0, tries = 0; while (into.size < Math.min(many, total) && tries++ < 40) { into.add(Math.floor(hash(idx * 7919 + j * 104729 + 13) * total)); j++; } };
+      pickSet(h.index - 1, prev); pickSet(h.index, lit);
+      // never the same spot twice running: a stretch the last hit lit moves on
+      for (const z of [...lit]) if (prev.has(z) && total > many * 2) { lit.delete(z); let y = (z + 1 + Math.floor(hash(h.index * 31 + z) * (total - 1))) % total; while (lit.has(y) || prev.has(y)) y = (y + 1) % total; lit.add(y); }
+      for (const g of lit) {
+        const z = g - off; if (z < 0 || z >= zn) continue;
+        const i0 = Math.floor(z * c.n / zn), i1 = Math.max(i0 + 1, Math.floor((z + 1) * c.n / zn)), col = colorFor(c, (z + 0.5) / zn, h.index + g);
+        for (let i = i0; i < i1 && i < c.n; i++) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, dark ? 1 : v);
+      }
+    } });
+
   def({ id: 'roomsplit', name: 'Room split', cat: 'room', desc: 'One side of the room in one color, the other side in the other, swapping on the beat. With one light, its two halves.', swatch: ['#8000ff', '#00ff00'],
     params: { every: P.speed(1, 'Swap every (beats)'), pump: { type: 'range', def: 0.35, min: 0, max: 1, step: 0.01, label: 'Beat pump' } },
     render(c) {
@@ -610,71 +649,8 @@ const Effects = (() => {
   /** where the drop is, in clip beats: the song beat nearest the end of the clip, so a clip
    *  that is a little off the grid still changes gear on the beat */
   const dropAt = c => Math.round(c.beat - c.clipBeat + c.clipBeats) - (c.beat - c.clipBeat);
-  const riserGrids = new Map();
-  /** the beats (from the clip start) on which a Riser steps forward, and so how many steps there are */
-  function riserGrid(clipBeats, offset, step, accel, end) {
-    const key = `${clipBeats}|${offset.toFixed(3)}|${step}|${accel}|${end.toFixed(3)}`;
-    let g = riserGrids.get(key); if (g) return g;
-    const k = accel ? 3 : 1, len = stageLen(clipBeats, k);
-    g = [];
-    for (let t = offset; t < Math.min(clipBeats, end) - 1e-6 && g.length < 2048;) {
-      g.push(t);
-      const idx = Math.min(k - 1, stageFromEnd(end, t, len));
-      t += step / 2 ** (k - 1 - idx);
-    }
-    if (riserGrids.size > 64) riserGrids.clear();
-    riserGrids.set(key, g); return g;
-  }
 
-  def({ id: 'riser', name: 'Riser (buildup)', cat: 'accent', desc: 'Adds a section of lights from both ends toward the center on every kick (or every beat), brightening as it goes, and is full exactly on the drop. End it on the drop. Pair it with a Strobe riser on the layer above.', swatch: ['#f59e0b', '#7a1f00'],
-    params: { follow: { type: 'select', def: 'drums', options: { drums: 'the kick drum', snare: 'the snare drum', beat: 'the beat grid' }, label: 'Steps on' },
-      step: { type: 'select', def: '1', options: { '4': 'every bar', '2': 'every 2 beats', '1': 'every beat', '0.5': 'every 1/8 note' }, label: 'Step (beat grid)' },
-      accel: P.bool('Steps get faster near the end', false), color: P.color(), fill: P.bool('Fill toward center', true),
-      floor: { type: 'range', def: 0.08, min: 0, max: 1, step: 0.01, label: 'Unfilled level' } },
-    render(c) {
-      // The steps: the kick hits inside the clip when the song's drums are known (so every step
-      // lands on a kick you hear), otherwise the beat grid, starting on the first whole beat.
-      let steps, n, pop, fill = null;
-      // a snare build steps on every snare hit, so it speeds up exactly as the roll does
-      const stream = c.p.follow === 'snare' ? 'snare' : 'kick';
-      let kicks = c.p.follow !== 'beat' && c.music && c.music.hasDrums && c.clipT1 > c.clipT0
-        ? c.music.hitsBetween(stream, c.clipT0 - 0.03, c.clipT1 - 0.08) : null;
-      if (kicks && stream === 'snare') {                 // a roll's hits count as steps too, so the fill speeds up with it
-        const roll = c.music.hitsBetween('roll', c.clipT0 - 0.03, c.clipT1 - 0.08);
-        if (roll.length) kicks = [...kicks, ...roll].sort((a, b) => a - b).filter((t, i, a) => i === 0 || t - a[i - 1] > 0.03);
-      }
-      if (stream === 'snare' && (!kicks || kicks.length < 4) && c.music && c.music.hasDrums) kicks = c.music.hitsBetween('kick', c.clipT0 - 0.03, c.clipT1 - 0.08);
-      // the hits lead only when they run through the buildup: drums that come in near its end would
-      // leave the riser dark until then, so then it steps on the beat grid instead
-      if (kicks && kicks.length >= 4 && kicks[0] - c.clipT0 < 0.35 * (c.clipT1 - c.clipT0)) {
-        steps = kicks.length; n = 0; while (n < steps && kicks[n] <= c.t + 1e-3) n++;
-        pop = n ? Math.exp(-(c.t - kicks[n - 1]) / 0.12) : 0;
-        // Drums often stop before the end of a build (the last bar is a sweep): then the hits fill the
-        // strip up to where the last one falls, and the rest fills smoothly to full on the drop.
-        const span = Math.max(1e-3, c.clipT1 - c.clipT0), last = kicks[steps - 1], fLast = clamp((last - c.clipT0) / span, 0, 1);
-        fill = n < steps ? (n / steps) * fLast : fLast + (1 - fLast) * clamp((c.t - last) / Math.max(1e-3, c.clipT1 - last), 0, 1);
-      } else {
-        const offset = (1 - frac(c.beat - c.clipBeat)) % 1;
-        const grid = riserGrid(c.clipBeats, offset, Number(c.p.step) || 1, !!c.p.accel, dropAt(c));
-        steps = grid.length; n = 0; while (n < steps && grid[n] <= c.clipBeat + 1e-6) n++;
-        const next = n < steps ? grid[n] : c.clipBeats, prev = n ? grid[n - 1] : 0;
-        pop = n ? Math.pow(1 - clamp((c.clipBeat - prev) / Math.max(0.05, next - prev)), 2) : 0;
-      }
-      const p = steps ? n / steps : c.clipT;                                    // how far it has filled
-      // Every step adds its share of the strip from both ends, so the fill grows with each hit across
-      // the whole buildup and the last step fills the center exactly on the drop. (Whole sections
-      // per step, counted back from the drop, left a long strip dark for most of a busy buildup.)
-      const half = Math.ceil(c.n / 2);
-      const litSide = fill !== null ? clamp(Math.ceil(half * fill), 0, half) : steps ? clamp(Math.ceil(half * n / steps), 0, half) : Math.round(half * p);
-      const col = c.p.color === 'cycle' ? palAt(c.pal, p * 0.5) : colorFor(c, p, 0);
-      for (let i = 0; i < c.n; i++) {
-        const fromEdge = Math.min(i, c.n - 1 - i);
-        const lit = !c.p.fill || fromEdge < litSide;
-        const v = lit ? Math.min(1, (0.45 + 0.4 * p) * (1 + 0.45 * pop)) : c.p.floor + 0.2 * p;
-        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, 1);
-      } } });
-
-  def({ id: 'strobeRiser', name: 'Strobe riser', cat: 'accent', desc: 'A blackout strobe that steps up through note values into the drop: 1/4 notes, then 1/8, then 1/16. Each step lasts a whole number of bars when the clip allows, and every cut lands on the beat. Transparent between cuts, so put it on the layer above a Riser. End it on the drop.', swatch: ['#000000', '#ffffff'],
+  def({ id: 'strobeRiser', name: 'Strobe riser', cat: 'accent', desc: 'A blackout strobe that steps up through note values into the drop: 1/4 notes, then 1/8, then 1/16. Each step lasts a whole number of bars when the clip allows, and every cut lands on the beat. Transparent between cuts, so put it on the layer above the buildup. End it on the drop.', swatch: ['#000000', '#ffffff'],
     params: { from: { type: 'select', def: '1', options: { '1': NOTES['1'], '2': NOTES['2'], '4': NOTES['4'] }, label: 'Starts in' },
       to: { type: 'select', def: '4', options: { '2': NOTES['2'], '4': NOTES['4'], '8': NOTES['8'] }, label: 'Ends in' },
       strobeFrom: { type: 'range', def: 0.3, min: 0, max: 1, step: 0.01, label: 'Starts at' },
