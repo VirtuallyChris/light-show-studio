@@ -660,6 +660,19 @@ noise.
   under the drums. A clip for one kind of light is drawn in its half of the
   layer (strips on top, lamps below), and the clip inspector's **Lights** sets
   it by hand.
+- **Ceiling-long strips play in zones.** A long strip (more than a dozen
+  segments) runs the length of a ceiling, so a hit can land on one stretch of it
+  and leave the rest dark: **Zone hits** splits each long strip into zones (5 to
+  start) and counts a small lamp as one zone of its own. In a hard song's buildup
+  (every snare build, and every other buildup otherwise) the first half is dark
+  and each hit lights one zone somewhere in the room, never the same one twice
+  running, so the light jumps strip to lamp to strip; then the riser fills with
+  the hits still jumping on top, and the drop lands out of a beat of black. The
+  hits are the snares when there are plenty, else kick and snare, else (no drums
+  found) a build of beats, then eighths, then sixteenths. Hard drops take turns
+  between the whole-strip strobe and the ceiling split in halves (the kick on one
+  half, the snare on the other); groove drops flash a fifth of each strip on the
+  snare; verses land each snare on a quarter of the ceiling, going round.
 - **Drum rolls.** In the drum track, a stretch where the hits above the kick come
   three or more to a beat, and twice as thick as the song's own groove, for a bar
   or more, is a roll. Its hits (as close as 46 ms) count as steps for a buildup's

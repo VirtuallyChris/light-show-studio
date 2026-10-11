@@ -400,6 +400,48 @@ const Effects = (() => {
   // in the order they stand around the room, the first half one side and the rest the other. With
   // one light (no room), they play across that light's own strip instead.
   const inRoom = c => c.room && c.room.n >= 2;
+  // The long strips run the length of a ceiling: a hit can land on one stretch of it and leave the rest
+  // dark, so the light jumps around the room. A long strip is split into zones; a short lamp is one zone.
+  def({ id: 'zonehits', name: 'Zone hits', cat: 'room', desc: 'Each hit lights one stretch of the strip and leaves the rest dark. Room: one zone anywhere in the room per hit (a small lamp is a zone of its own), so the light jumps light to light. Each light: one zone on every light. Halves: the kick on one half, the snare on the other. Quarters: the hits go round the quarters.', swatch: ['#ffffff', '#000000'],
+    params: { follow: { type: 'select', def: 'snare', options: { kick: 'the kick', snare: 'the snare', both: 'kick and snare', beat: 'the beat', build: 'a build: beats, eighths, sixteenths' }, label: 'Hits on' },
+      mode: { type: 'select', def: 'room', options: { room: 'one zone in the room', each: 'one zone on each light', halves: 'halves (kick, snare)', quarters: 'quarters, in turn' }, label: 'Where' },
+      zones: { type: 'range', def: 5, min: 2, max: 12, step: 1, label: 'Zones on a long strip' },
+      decay: { type: 'range', def: 0.18, min: 0.04, max: 1, step: 0.01, label: 'Fade (s)' },
+      darkFor: { type: 'range', def: 0, min: 0, max: 1, step: 0.05, label: 'Dark for the first (share of the clip)' },
+      grows: P.bool('Grows toward the end', false), color: P.color() },
+    render(c) {
+      clear(c.out); const m = c.music || {}, dark = c.clipT < c.p.darkFor;
+      if (dark) fillAll(c.out, c.n, 0, 0, 0, 1);
+      let h = null, kind = 'kick';
+      if (c.p.follow === 'beat') h = { index: Math.floor(c.beat), age: frac(c.beat) * c.beatSec, strength: 1 };
+      else if (c.p.follow === 'build') {                                // a build with no drums found: quarters, then eighths, then sixteenths
+        const sub = c.clipT < 0.5 ? 1 : c.clipT < 0.75 ? 2 : 4, u = c.clipBeat * sub;
+        h = { index: sub * 10007 + Math.floor(u), age: frac(u) * c.beatSec / sub, strength: 1 };
+      }
+      else if (m.hasDrums) for (const [x, k] of [[c.p.follow !== 'snare' ? m.kick : null, 'kick'], [c.p.follow !== 'kick' ? m.snare : null, 'snare'], [c.p.follow !== 'kick' ? m.roll : null, 'snare']])
+        if (x && x.index >= 0 && (!h || x.age < h.age)) { h = x; kind = k; }
+      if (!h || h.index < 0) return;
+      const v = Math.exp(-h.age / c.p.decay) * (0.6 + 0.4 * (h.strength ?? 1)) * (c.p.grows && !dark ? (g => 0.5 + 0.5 * g * g)((c.clipT - c.p.darkFor) / Math.max(1e-3, 1 - c.p.darkFor)) : 1);
+      if (v < 0.01) return;
+      const short = c.n <= 12, zn = short ? 1 : Math.max(2, Math.round(c.p.zones));
+      // which zone of this light the hit lands on (-1: none here)
+      let z = -1; const k = h.index + (kind === 'snare' ? 100003 : 0);
+      const pick = (i, nz) => Math.floor(hash(i * 7919 + 17) * nz);
+      const fresh = (i, nz) => { const a = pick(i, nz), b = pick(i - 1, nz); return nz > 1 && a === b ? (a + 1 + Math.floor(hash(i * 31 + 5) * (nz - 1))) % nz : a; };   // never the same spot twice running
+      if (c.p.mode === 'room' && inRoom(c) && c.room.kinds) {
+        const counts = c.room.kinds.map(kd => kd === 'short' ? 1 : Math.max(2, Math.round(c.p.zones))), total = counts.reduce((x, y) => x + y, 0);
+        const g = fresh(k, total), off = counts.slice(0, c.room.i).reduce((x, y) => x + y, 0);
+        z = g >= off && g < off + counts[c.room.i] ? g - off : -1;
+      } else if (c.p.mode === 'halves') z = short ? 0 : (kind === 'snare' ? 1 : 0) * 1;
+      else if (c.p.mode === 'quarters') z = short ? 0 : h.index % 4;
+      else z = fresh(k + (c.room ? c.room.i * 7 : 0), zn);
+      if (z < 0) return;
+      const parts = c.p.mode === 'halves' ? (short ? 1 : 2) : c.p.mode === 'quarters' ? (short ? 1 : 4) : zn;
+      const i0 = Math.floor(z * c.n / parts), i1 = Math.max(i0 + 1, Math.floor((z + 1) * c.n / parts));
+      const col = colorFor(c, (z + 0.5) / parts, h.index);
+      for (let i = i0; i < i1 && i < c.n; i++) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, dark ? 1 : v);
+    } });
+
   def({ id: 'roomsplit', name: 'Room split', cat: 'room', desc: 'One side of the room in one color, the other side in the other, swapping on the beat. With one light, its two halves.', swatch: ['#8000ff', '#00ff00'],
     params: { every: P.speed(1, 'Swap every (beats)'), pump: { type: 'range', def: 0.35, min: 0, max: 1, step: 0.01, label: 'Beat pump' } },
     render(c) {

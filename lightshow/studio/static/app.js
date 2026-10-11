@@ -647,11 +647,11 @@
     const music = musicAt(t);
     const kick = Math.exp(-frac(b) * 6);
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
-    const out = [], lights = selectedLights(), inRoom = lights.filter(l => !roomOff(l));
+    const out = [], lights = selectedLights(), inRoom = lights.filter(l => !roomOff(l)); let roomKinds = null;
     for (const L of lights) {
       // the order around the room counts only the rooms in the party, so a chase never runs into one that is off
       const ri = Math.max(0, inRoom.indexOf(L)), rn = Math.max(1, inRoom.length);
-      const room = { i: ri, n: rn, side: ri < Math.ceil(rn / 2) ? 0 : 1 };
+      const room = { i: ri, n: rn, side: ri < Math.ceil(rn / 2) ? 0 : 1, kinds: roomKinds || (roomKinds = inRoom.map(lightKind)) };
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
       const kind = lightKind(L);
       p.lanes.forEach((lane, li) => {
@@ -1699,7 +1699,7 @@
   // Concert lighting in three tiers. The bed sets the color and the mood and stays low; motion keeps
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
-  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits']);
+  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
   const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout']);
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
@@ -1796,6 +1796,9 @@
       return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
     };
     const look = LOOKS[S.look] || LOOKS.neon;
+    // long strips (more than a dozen segments) run the length of a ceiling: room for hits on part of them
+    const longStrips = selectedLights().some(l => lightKind(l) === 'long');
+    let zoneBuild = false;
     // A long verse or breakdown (over 16 bars) is built in 8-bar stretches that alternate between the
     // look's two verse styles, so two minutes the analysis calls one verse do not look the same.
     if ((s.type === 'verse' || s.type === 'breakdown') && len > 64 && !s.chunk) {
@@ -1821,15 +1824,25 @@
         else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
         top(look.verseTop[v]);                                          // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
+        if (!chill && drumsHere && longStrips && snaresHere >= len / 8)   // the snare lands on a quarter of the ceiling, in turn
+          clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'quarters', decay: 0.3 }, { opacity: 0.4, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
         break;
       case 'buildup':
+        // every crazy snare build, and every other buildup of a hard song, jumps around the room
+        zoneBuild = hard && len >= 8 && longStrips && (snaresHere >= 8 || variant % 2 === 0);
         clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
         if (room) clip(1, 'roomchase', b0, len, { every: chill ? 2 : 1 }, { opacity: 0.9 });       // round the room, beat by beat
         else clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
         drums(0.85, 0.6);
         // chill songs build by filling slowly; the strobe riser is for rave only
         clip(3, 'riser', b0, len, chill ? { follow: 'beat', step: '2', accel: false } : { follow: snaresHere >= 4 ? 'snare' : 'drums', accel: false });
-        if (!chill && snaresHere >= 4 && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'snare', grows: true, length: 0.05 }, { opacity: strobeLevel, blend: 'add' });
+        if (zoneBuild) {
+          // An EDM snare build on ceiling-long strips: for its first half each snare lights one stretch
+          // somewhere in the room and the rest stays dark, so the light jumps around the room (a small
+          // lamp is a stretch of its own); then the riser fills with the hits still jumping on top.
+          const follow = snaresHere >= 8 ? 'snare' : drumsHere ? 'both' : 'build';
+          clip(5, 'zonehits', b0, len, { follow, mode: room ? 'room' : 'each', zones: 5, decay: 0.14, darkFor: 0.5, grows: true }, { opacity: 1 });
+        } else if (!chill && snaresHere >= 4 && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'snare', grows: true, length: 0.05 }, { opacity: strobeLevel, blend: 'add' });
         else if (style === 'rave') clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.3, from: '1', to: '8' });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
@@ -1858,6 +1871,10 @@
         const bassHits = ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end)).length / Math.max(1, len);
         const bassy = !chill && bassHits >= 0.6 && bassHits <= 1.7;
         if (bassy) clip(5, 'basshits', b0, len, { decay: 0.3 }, { opacity: hard ? 0.8 : 0.45, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
+        else if (drumsHere && strobeLevel && longStrips && hard && variant % 2)   // the ceiling split: kick on one half, snare on the other
+          clip(5, 'zonehits', b0, len, { follow: 'both', mode: 'halves', decay: 0.14 }, { opacity: strobeLevel, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
+        else if (drumsHere && strobeLevel && longStrips && style === 'groove')     // a fifth of the strip on each snare
+          clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'each', zones: 5, decay: 0.25 }, { opacity: 0.55, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
         else if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
         break;
@@ -1884,7 +1901,8 @@
         if (p.lanes[0].clips.includes(c))                  // it was the base: the lamps get a wash of their own beneath the drums
           clip(0, 'colorwash', c.start, c.len, { speed: 8, intensity: 0.55 }, { target: 'short', palette: c.palette });
       }
-      if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0 }, { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
+      if (zoneBuild) { /* the lamps are stretches of the room's jump */ }
+      else if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0 }, { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
       else clip(6, 'breathe', b0, len, { speed: 4, floor: 0.15 }, { target: 'short', opacity: 0.6, palette: S.contrastPal });
     }
     S.sectionClips = null;
