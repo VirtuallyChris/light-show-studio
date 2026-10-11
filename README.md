@@ -135,6 +135,14 @@ after that. Saved shows live in the `shows/` folder and reload from the
    If a light is mounted the other way round (a left-to-right comet runs right
    to left on it), press its **⇄** button: everything sent to that light is
    mirrored, the preview stays as designed, and the setting is remembered.
+   **Around the room:** drag the lights by their grip (⋮⋮) into the order they
+   stand around the room, once. The ticked lights, in that order, are the room:
+   the first half one side, the rest the other. With two or more ticked, every
+   auto-built show (Jam mode included) uses the room with no extra work: drops
+   split it in two colors that swap on the beat (**Room split**), buildups run a
+   light around it lamp by lamp (**Room chase**), and some verses roll a swell
+   around it (**Room wave**). They are also in the library under *Around the
+   room*. With one light they play across that light's own strip.
 2. **Auto-build show** generates a complete show from the detected structure
    as a starting point: aurora in intros, gradients and beat pulses in verses,
    an accelerating riser through buildups, a white blast and rainbow on drops,

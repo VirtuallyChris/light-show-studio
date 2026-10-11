@@ -438,12 +438,27 @@
     if (!S.lights.length) { el.innerHTML = '<div class="hint">No lights found yet. Turn on LAN Control in the Govee app; the studio keeps looking.</div>'; return; }
     for (const l of S.lights) {
       const row = document.createElement('label');
-      row.innerHTML = `<input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
+      row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
       const nm = row.querySelector('.light-name'); nm.value = l.name || '';
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
       nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
       if (l.online === false) row.style.opacity = '0.6';
       row.querySelector('input[type=checkbox]').onchange = e => { l.on = e.target.checked; sendSelect(); saveSelection(); draw(); };
+      const grip = row.querySelector('.grip');
+      grip.onmousedown = () => { row.draggable = true; };
+      grip.onclick = e => e.preventDefault();
+      row.ondragstart = e => { S.dragLight = l.ip; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'light:' + l.ip); row.classList.add('dragging'); };
+      row.ondragend = () => { row.draggable = false; S.dragLight = null; row.classList.remove('dragging'); };
+      row.ondragover = e => { if (!S.dragLight || S.dragLight === l.ip) return; e.preventDefault(); const r = row.getBoundingClientRect(); row.classList.toggle('drop-above', e.clientY < r.top + r.height / 2); row.classList.toggle('drop-below', e.clientY >= r.top + r.height / 2); };
+      row.ondragleave = () => row.classList.remove('drop-above', 'drop-below');
+      row.ondrop = e => {
+        if (!S.dragLight) return; e.preventDefault(); e.stopPropagation();
+        const below = row.classList.contains('drop-below'); row.classList.remove('drop-above', 'drop-below');
+        const moving = S.lights.find(x => x.ip === S.dragLight); if (!moving || moving === l) return;
+        S.lights.splice(S.lights.indexOf(moving), 1); S.lights.splice(S.lights.indexOf(l) + (below ? 1 : 0), 0, moving);
+        fetch('/api/devices/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: S.lights.map(x => x.mac || x.ip) }) }).catch(() => { });
+        renderLights(); sendSelect(); draw(); S.forceSend = true;
+      };
       row.querySelector('.flip').onclick = e => { e.preventDefault(); l.flip = !l.flip; renderLights(); S.forceSend = true;
         fetch('/api/devices/flip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, ip: l.ip, flip: l.flip }) }).catch(() => { });
         toast(`${lightLabel(l)}: ${l.flip ? 'flipped' : 'normal direction'}`); };
@@ -559,8 +574,9 @@
     const music = musicAt(t);
     const kick = Math.exp(-frac(b) * 6);
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
-    const out = [];
-    for (const L of selectedLights()) {
+    const out = [], lights = selectedLights();
+    for (const [ri, L] of lights.entries()) {
+      const room = { i: ri, n: lights.length, side: ri < Math.ceil(lights.length / 2) ? 0 : 1 };
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
       p.lanes.forEach((lane, li) => {
         if (lane.hidden) return;
@@ -574,7 +590,7 @@
         const c = { n, out: src, t, beat: b, beatSec: Math.max(0.05, beatToTime(b + 1) - beatToTime(b)), phase: frac(b), bar: (b - p.phase) / 4, barPhase: frac((b - p.phase) / 4),
           clipT0: beatToTime(clip.start), clipT1: beatToTime(clip.start + clip.len),
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
-          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music };
+          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room };
         e.render(c);
         let alpha = clip.opacity ?? 1;
         // Ducking, like sidechain compression: the layer dips on every kick and snare and swells back,
@@ -1552,7 +1568,9 @@
     //     and rave goes all the way.
     const style = showStyle();
     const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
-    const rainbow = S.albumPalette ? {} : { palette: 'Rainbow' };      // with the album's colors, drops stay in them
+    const rainbow = S.albumPalette || S.pairMode ? {} : { palette: 'Rainbow' };      // with the album's (or the jam's) colors, drops stay in them
+    // Two or more lights: some moves go around the room, light to light, instead of along each strip.
+    const room = selectedLights().length >= 2;
     // The beat pulse follows the real drums (kick from the center, snare from the ends), and it is
     // only placed where there are drums to follow: a section with at least 4 kick or snare hits and
     // one every 4 beats. When the song's drums are not known yet, the quiet kinds of section get none.
@@ -1568,14 +1586,16 @@
         drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
-        clip(0, v ? 'wave' : 'gradient', b0, len, v ? { speed: chill ? 16 : 8, waves: 1.5, floor: 0 } : { speed: 16, intensity: 0.35 });
+        if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
+        else clip(0, v ? 'wave' : 'gradient', b0, len, v ? { speed: chill ? 16 : 8, waves: 1.5, floor: 0 } : { speed: 16, intensity: 0.35 });
         // dual comets are drop material; a verse gets calmer movement
         clip(1, v ? 'comet' : 'orbit', b0, len, v ? { every: chill ? 4 : 2, travel: chill ? 4 : 2, tail: 0.3 } : { speed: chill ? 8 : 4, count: 2 }, { opacity: 0.85 });
         drums(chill ? 0.7 : 0.95);
         break;
       case 'buildup':
         clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
-        clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
+        if (room) clip(1, 'roomchase', b0, len, { every: chill ? 2 : 1 }, { opacity: 0.9 });       // round the room, beat by beat
+        else clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
         drums(0.85, 0.6);
         // chill songs build by filling slowly; the strobe riser is for rave only
         clip(3, 'riser', b0, len, chill ? { follow: 'beat', step: '2', accel: false } : { follow: 'drums', accel: false });
@@ -1586,18 +1606,22 @@
       case 'drop': {
         const kind = variant % 4;
         if (hard) {
-          if (kind === 0) { clip(0, 'chase', b0, len, { speed: 1, size: 0.12, gap: 0.6 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.6, blend: 'add' }); }
+          if (kind === 0 && room) { clip(0, 'roomsplit', b0, len, { every: 1, pump: 0.4 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.5, blend: 'add' }); }   // the room in two halves, swapping on the beat
+          else if (kind === 0) { clip(0, 'chase', b0, len, { speed: 1, size: 0.12, gap: 0.6 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.6, blend: 'add' }); }
           else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.7 }, rainbow); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
           else if (kind === 2) { clip(0, 'battle', b0, len, { speed: 8, surge: 0.2 }); clip(1, 'sparkle', b0, len, { density: 0.2 }, { opacity: 0.9 }); }
+          else if (room) { clip(0, 'roomsplit', b0, len, { every: 2, pump: 0.3 }); clip(1, 'roomchase', b0, len, { every: 0.5 }, { opacity: 0.9, blend: 'add' }); }
           else { clip(0, 'halves', b0, len, { every: 1, dim: 0 }); clip(1, 'comet', b0, len, { every: 1, travel: 1, tail: 0.25 }, { opacity: 0.9 }); }
         } else if (chill) {
           // the biggest moment of a chill song: a slow, full wash, nothing on the beat
           if (kind % 2 === 0) { clip(0, 'gradient', b0, len, { speed: 16, stretch: 1, intensity: 0.8 }); clip(1, 'dualcomet', b0, len, { speed: 4, tail: 0.4 }, { opacity: 0.85 }); }
+          else if (room) { clip(0, 'roomwave', b0, len, { speed: 8, floor: 0.25 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
           else { clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.75 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
         } else {
           // motion rather than flashing: it still lifts, without turning into a strobe
           if (kind === 0) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.75 }, rainbow); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
           else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 1, intensity: 0.8 }); clip(1, 'comet', b0, len, { every: 1, travel: 1.5, tail: 0.3 }, { opacity: 0.95 }); }
+          else if (kind === 2 && room) { clip(0, 'roomsplit', b0, len, { every: 2, pump: 0.3 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
           else if (kind === 2) { clip(0, 'wave', b0, len, { speed: 2, waves: 2, floor: 0.05 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
           else { clip(0, 'battle', b0, len, { speed: 8, surge: 0.25 }); clip(1, 'dualcomet', b0, len, { speed: 1.5, tail: 0.3 }, { opacity: 0.9 }); }
         }

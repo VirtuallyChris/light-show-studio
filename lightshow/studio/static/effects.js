@@ -360,6 +360,44 @@ const Effects = (() => {
     params: { every: P.speed(1, 'Swap every (beats)'), dim: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Off-side level' } },
     render(c) { const k = Math.floor(c.beat / c.p.every); const a = palIdx(c.pal, k), b = palIdx(c.pal, k + 1); for (let i = 0; i < c.n; i++) { const left = i < c.n / 2; const on = left === (k % 2 === 0); const col = left ? a : b; const v = on ? 1 : c.p.dim; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
+  // ===== AROUND THE ROOM =====
+  // These see the whole room: c.room is this light's place in it ({ i, n, side }), the ticked lights
+  // in the order they stand around the room, the first half one side and the rest the other. With
+  // one light (no room), they play across that light's own strip instead.
+  const inRoom = c => c.room && c.room.n >= 2;
+  def({ id: 'roomsplit', name: 'Room split', cat: 'room', desc: 'One side of the room in one color, the other side in the other, swapping on the beat. With one light, its two halves.', swatch: ['#8000ff', '#00ff00'],
+    params: { every: P.speed(1, 'Swap every (beats)'), pump: { type: 'range', def: 0.35, min: 0, max: 1, step: 0.01, label: 'Beat pump' } },
+    render(c) {
+      // the two sides take colors from opposite ends of the palette (with two colors, one each)
+      const k = Math.floor(c.beat / c.p.every), a = palIdx(c.pal, k), b = palIdx(c.pal, k + Math.max(1, Math.floor(c.pal.length / 2)));
+      const v = (1 - c.p.pump) + c.p.pump * Math.exp(-c.phase * 4);
+      for (let i = 0; i < c.n; i++) {
+        const side = inRoom(c) ? c.room.side : (i < c.n / 2 ? 0 : 1), col = side ? b : a;
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v);
+      }
+    } });
+  def({ id: 'roomchase', name: 'Room chase', cat: 'room', desc: 'The light runs around the room, one lamp after the next, on the beat. With one light, a block runs along it.', swatch: ['#00ff00', '#000000'],
+    params: { every: P.speed(1, 'Next light every (beats)'), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    render(c) {
+      const t = c.beat / c.p.every, step = Math.floor(t), env = Math.exp(-(t - step) * 2.5), col = palIdx(c.pal, step);
+      for (let i = 0; i < c.n; i++) {
+        const lit = inRoom(c) ? (step % c.room.n) === c.room.i : Math.floor(i / c.n * 4) === step % 4;
+        const v = lit ? Math.max(c.p.floor, env) : c.p.floor;
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, lit ? 1 : (c.p.floor > 0 ? 1 : 0));
+      }
+    } });
+  def({ id: 'roomwave', name: 'Room wave', cat: 'room', desc: 'A slow swell rolls around the room from lamp to lamp, each half of the room in its own color. With one light, along its strip.', swatch: ['#8000ff', '#00ff00'],
+    params: { speed: P.speed(8, 'Once round (beats)'), floor: { type: 'range', def: 0.1, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    render(c) {
+      const t = c.beat / c.p.speed;
+      for (let i = 0; i < c.n; i++) {
+        const x = inRoom(c) ? (c.room.i + 0.5) / c.room.n : i / Math.max(1, c.n);
+        const v = c.p.floor + (1 - c.p.floor) * (0.5 + 0.5 * Math.cos(2 * Math.PI * (t - x)));
+        const col = palIdx(c.pal, x < 0.5 ? 0 : 1);              // solid colors by half, never mixed into mud
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v);
+      }
+    } });
+
   // ===== ACCENTS (one-shots shaped by the clip length) =====
   def({ id: 'dropblast', name: 'Drop blast', cat: 'accent', desc: 'White blast then a shockwave racing out from the center. Place it right on the drop.', swatch: ['#ffffff', '#ff2fa0'],
     params: { flash: { type: 'range', def: 0.15, min: 0.02, max: 0.5, step: 0.01, label: 'Flash (beats)' }, ring: P.size(0.12, 'Ring width'), color: P.color() },
@@ -466,7 +504,7 @@ const Effects = (() => {
     render(c) { clear(c.out); const col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const v = Math.exp(-1 * ((x - c.clipT) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   const byId = Object.fromEntries(E.map(e => [e.id, e]));
-  const CATS = { signature: 'Follows this song', slow: 'Slow & smooth', medium: 'Groove', fast: 'Fast & intense', accent: 'Accents (one-shot)' };
+  const CATS = { signature: 'Follows this song', room: 'Around the room', slow: 'Slow & smooth', medium: 'Groove', fast: 'Fast & intense', accent: 'Accents (one-shot)' };
 
   function defaults(effectId) {
     const e = byId[effectId]; const p = {};

@@ -300,3 +300,8 @@ h3.with-switch .toggle { text-transform: none; letter-spacing: 0; }
 .jam-pair input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
 .jam-pair input[type=color]::-webkit-color-swatch { border: none; border-radius: .2rem; }
 .jam-pair .jp-reset { min-height: 1.5rem; padding: 0 .4rem; }
+/* Lights list: a grip to drag a light to where it stands around the room */
+.light-list .grip { cursor: grab; color: var(--dim); font-size: .8rem; letter-spacing: -.25em; padding: 0 .35rem 0 0; user-select: none; flex: none; }
+.light-list label.dragging { opacity: .4; }
+.light-list label.drop-above { box-shadow: 0 -2px 0 var(--accent); }
+.light-list label.drop-below { box-shadow: 0 2px 0 var(--accent); }

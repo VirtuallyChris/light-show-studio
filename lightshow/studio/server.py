@@ -322,6 +322,7 @@ class Studio:
             web.post("/api/output/fps", self.set_output_fps),
             web.post("/api/devices/segments", self.set_segments),
             web.post("/api/devices/flip", self.set_flip),
+            web.post("/api/devices/order", self.set_order),
             web.post("/api/devices/name", self.set_name),
             web.post("/api/devices/selected", self.set_selected),
             web.post("/api/song", self.upload_song),
@@ -484,7 +485,19 @@ class Studio:
             out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online, "flip": flip,
                         "default": d.mac.upper() == DEFAULT_LIGHT_MAC,
                         "on": (d.mac in chosen or d.device_id in chosen) if chosen is not None else d.mac.upper() == DEFAULT_LIGHT_MAC})
+        # in the order they stand around the room (set by dragging them in the studio); new ones last
+        order = cfg.get("light_order", [])
+        rank = lambda d: next((order.index(k) for k in (d["mac"], d["device_id"], d["ip"]) if k and k in order), len(order))
+        out.sort(key=rank)
         return web.json_response(out)
+
+    async def set_order(self, request):
+        """Remember the order the lights stand in around the room: a list of keys (MAC, else IP)."""
+        keys = [str(k) for k in (await request.json()).get("keys", []) if k]
+        cfg = load_config()
+        cfg["light_order"] = keys
+        save_config(cfg)
+        return web.json_response({"ok": True})
 
     async def set_output_fps(self, request):
         """Cap the frames a second sent to the lights (0: no cap). Takes effect at once, and is remembered."""
