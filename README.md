@@ -284,10 +284,10 @@ opened, and **Re-detect** asks again too. To set it up (about 5 GB, once):
 
 ```bash
 winget install --id Python.Python.3.12 --scope user
-%LOCALAPPDATA%\Programs\Python\Python312\python.exe -m venv %LOCALAPPDATA%\lanlightshowenv-songformer
-%LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
-%LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
-%LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install demucs
+%LOCALAPPDATA%\Programs\Python\Python312\python.exe -m venv %LOCALAPPDATA%\lanlightshow\venv-songformer
+%LOCALAPPDATA%\lanlightshow\venv-songformer\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+%LOCALAPPDATA%\lanlightshow\venv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
+%LOCALAPPDATA%\lanlightshow\venv-songformer\Scripts\python.exe -m pip install demucs
 ```
 
 The weights download automatically on first use. The environment lives on
