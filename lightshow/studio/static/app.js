@@ -603,6 +603,8 @@
           for (const h of [music.kick, music.snare]) if (h && h.index >= 0) env = Math.max(env, Math.exp(-h.age / 0.16) * (0.6 + 0.4 * h.strength));
           alpha *= 1 - clamp(clip.duck, 0, 1) * env;
         }
+        // a drop's bed can breathe with the bass: brighter as the bass swells, dimmer as it drops out
+        if (clip.bassPump > 0) alpha *= (1 - clip.bassPump) + clip.bassPump * clamp(music.bassLevel * 1.15, 0, 1);
         if (clip.fadeIn > 0) alpha *= clamp(clipBeat / clip.fadeIn, 0, 1);
         if (clip.fadeOut > 0) alpha *= clamp((clip.len - clipBeat) / clip.fadeOut, 0, 1);
         Effects.composite(dst, src, n, alpha, clip.blend || 'normal');
@@ -1404,6 +1406,7 @@
         <div class="row"><label>Length (beats)</label><input id="cLen" type="number" step="0.25" min="0.25" value="${clip.len}"></div>
         <div class="row"><label>Opacity</label><input id="cOp" type="range" min="0" max="1" step="0.01" value="${clip.opacity ?? 1}"><span class="val">${Math.round((clip.opacity ?? 1) * 100)}%</span></div>
         <div class="row"><label title="Dips this layer on every kick and snare, so what is on top of it punches through">Duck under drums</label><input id="cDuck" type="range" min="0" max="1" step="0.05" value="${clip.duck || 0}"><span class="val">${Math.round((clip.duck || 0) * 100)}%</span></div>
+        <div class="row"><label title="Brightens as the bass line swells and dims as it drops out (with the bass separated out, it follows a wobble)">Follow the bass</label><input id="cBass" type="range" min="0" max="1" step="0.05" value="${clip.bassPump || 0}"><span class="val">${Math.round((clip.bassPump || 0) * 100)}%</span></div>
         <div class="row"><label title="Which lights play this clip: long strips carry motion, short lamps the drums">Lights</label><select id="cTarget"><option value="">All</option><option value="long" ${clip.target === 'long' ? 'selected' : ''}>Long strips</option><option value="short" ${clip.target === 'short' ? 'selected' : ''}>Short lamps</option></select></div>
         <div class="row"><label>Blend</label><select id="cBlend">${Object.entries(Effects.BLENDS).map(([k, v]) => `<option value="${k}" ${(clip.blend || 'normal') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
         <div class="row"><label>Fade in (beats)</label><input id="cFi" type="number" step="0.5" min="0" value="${clip.fadeIn || 0}"></div>
@@ -1438,6 +1441,8 @@
       $('#cTarget').onchange = ev => { beginChange(); if (ev.target.value) clip.target = ev.target.value; else delete clip.target; upd(); };
       $('#cDuck').oninput = ev => { clip.duck = parseFloat(ev.target.value); ev.target.nextElementSibling.textContent = Math.round(clip.duck * 100) + '%'; upd(); };
       $('#cDuck').onchange = () => beginChange();
+      $('#cBass').oninput = ev => { clip.bassPump = parseFloat(ev.target.value); ev.target.nextElementSibling.textContent = Math.round(clip.bassPump * 100) + '%'; upd(); };
+      $('#cBass').onchange = () => beginChange();
       $('#cFi').onchange = ev => { beginChange(); clip.fadeIn = parseFloat(ev.target.value) || 0; upd(); };
       $('#cFo').onchange = ev => { beginChange(); clip.fadeOut = parseFloat(ev.target.value) || 0; upd(); };
       el.querySelectorAll('#cPalGrid .pal-opt').forEach(opt => opt.onclick = () => {
@@ -1748,6 +1753,9 @@
           else top(r.top);
         }
         drums(chill ? 0.8 : 1, 0.85);
+        // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
+        const pump = chill ? 0 : hard ? 0.5 : 0.3;
+        if (pump) for (const c of first) if (BED.has(c.effect) || c === first[0]) c.bassPump = pump;
         if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
         break;

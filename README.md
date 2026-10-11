@@ -537,6 +537,11 @@ noise.
   in drops, and on the snares in buildups, growing toward the drop. How hard
   depends on the style: subtle for groove, clear for dance, full for rave, none
   for chill.
+- **The bass.** With the bass separated out, the bass notes and the bass level
+  come from the bass track alone, quick enough to follow a wobble. A drop's base
+  layer breathes with it (clip setting **Follow the bass**: half for dance and
+  rave, 30% for groove, none for chill): brighter as the bass swells, dimmer
+  when it drops out for a beat.
 - **Each song has a look.** One look per song keeps a show coherent, and the
   look comes from the song's vibe (its style, drive, brightness, key and genre),
   so a night of songs is not one show over and over:

@@ -680,7 +680,16 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     # Deliberately sparse: a light that marks every note is a strobe, one that marks
     # the notable notes reads as following the instrument.
     env_lead, idx_lead, _ = _band_onsets(S_side, freqs, 300, 5000, sr, hop, 0.35, 3.2)
-    env_bass, idx_bass, _ = _band_onsets(S_h, freqs, 35, 250, sr, hop, 0.30, 2.8)
+    # the bass line: from the separated bass track when there is one (nothing else in it), else the
+    # harmonic part of the mix below 250 Hz
+    S_b, bass_smooth = S_h, 0.25
+    if stems and stems.get("bass") is not None:
+        b = np.asarray(stems["bass"], dtype=np.float32)
+        if stems.get("sr", sr) != sr:
+            b = librosa.resample(b, orig_sr=stems["sr"], target_sr=sr)
+        b = np.pad(b, (0, max(0, len(mid) - len(b))))[: len(mid)]
+        S_b, bass_smooth = np.abs(librosa.stft(b, hop_length=hop)), 0.12      # quick enough to follow a wobble
+    env_bass, idx_bass, _ = _band_onsets(S_b, freqs, 35, 250, sr, hop, 0.30, 2.8)
     env_drum, idx_drum, _ = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
     present = None
     if stems:
@@ -690,7 +699,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
 
     streams = {}
     for name, env, idx, S, lo, hi in (("lead", env_lead, idx_lead, S_side, 300, 5000),
-                                      ("bass", env_bass, idx_bass, S_h, 35, 250),
+                                      ("bass", env_bass, idx_bass, S_b, 35, 250),
                                       ("drum", env_drum, idx_drum, S_p, 1200, 9000)):
         times = librosa.frames_to_time(idx, sr=sr, hop_length=hop)
         keep = (times > 0.05) & (times < duration)
@@ -729,7 +738,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         "hook": hook,
         "curves": {
             "lead": [round(float(v), 3) for v in _level(S_side, freqs, 300, 5000, sr, hop, out_times)],
-            "bass": [round(float(v), 3) for v in _level(S_h, freqs, 35, 250, sr, hop, out_times)],
+            "bass": [round(float(v), 3) for v in _level(S_b, freqs, 35, 250, sr, hop, out_times, bass_smooth)],
             "drum": [round(float(v), 3) for v in _level(S_p, freqs, 1200, 9000, sr, hop, out_times, 0.15)],
             **({"drums_present": [round(float(v), 3) for v in np.interp(out_times, librosa.frames_to_time(np.arange(len(present)), sr=sr, hop_length=hop), present)]}
                if present is not None else {}),
