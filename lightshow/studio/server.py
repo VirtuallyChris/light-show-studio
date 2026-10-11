@@ -311,6 +311,14 @@ class Studio:
         self.known: list[govee_lan.GoveeDevice] = []
         self.scan_lock = asyncio.Lock()                  # one scan at a time: they all listen on the same UDP port
         self.output = LightOutput(enabled=lights)
+        # The frame rate follows the Wi-Fi: pings while a show plays, between 15 and 60 frames a second
+        # (light_fps_auto false in config.json keeps the fixed light_max_fps instead).
+        self.link = None
+        if lights and load_config().get("light_fps_auto", True):
+            from .link_health import LinkMonitor
+            self.link = LinkMonitor(self.output, 15, 60)
+            self.output.max_fps = self.link.governor.fps
+            self.link.start()
         self.cast = CastManager(govee_lan.local_ip())
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
@@ -511,7 +519,7 @@ class Studio:
     async def output_status(self, request):
         o = self.output
         return web.json_response({"active": o.active, "devices": [d.ip for d in o.devices], "frames": o.frames,
-                                  "sent": o.sent, "max_fps": o.max_fps,
+                                  "sent": o.sent, "max_fps": o.max_fps, "fps_auto": self.link.to_json() if self.link else None,
                                   "wifi_priority": await asyncio.get_running_loop().run_in_executor(None, light_priority_policy),
                                   "errors": o.errors, "last_error": o.last_error,
                                   "seconds_since_last_frame": round(time.monotonic() - o.last_frame, 2) if o.last_frame else None})

@@ -391,6 +391,20 @@ above that accelerates smoothly to its maximum (default 8 flashes a beat)
 right at the drop. Auto-build stacks them; use one without the other if you
 prefer.
 
+## The lights' frame rate follows the Wi-Fi
+
+Real-time frames to the lights are one-way UDP: a light never says whether a
+frame arrived. But the Wi-Fi they share shows its state in a ping, slow or lost
+exactly when frames arrive late and the lights stutter. So while a show plays,
+the studio pings the lights it drives (one small ping every half second, in
+turn, through Windows' own ICMP API) and sets the frame rate from the replies,
+between 15 and 60 frames a second: a step down at once when a ping is lost or
+the replies turn slow (90th percentile over 90 ms; two steps when a third are
+lost or they pass 200 ms), and a step back up after 15 s of clean, quick replies
+(none lost, under 45 ms), never sooner than 30 s after a step down. Steps: 15,
+20, 24, 30, 40, 50, 60; it starts at 24. Changes go to studio.log. Set
+`"light_fps_auto": false` in config.json to keep a fixed `light_max_fps`.
+
 ## Party Hub: the jam from your phone
 
 The studio also serves a phone app on the home network. On the iPhone, open
