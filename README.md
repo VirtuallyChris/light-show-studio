@@ -509,15 +509,20 @@ noise.
   band's hits are laid over the sixteen sixteenths of a bar: the kick band is
   the low band whose pattern stands out most, the snare band the one that stands
   out where the kick does not land and stays quiet where only the kick does
-  (hi-hats, on every eighth, have no standout places). Every hit in those bands
+  (hi-hats, on every eighth, have no standout places). A snare may also sit on
+  top of a kick (dance music: a kick on every beat, a clap on 2 and 4): a kick
+  place counts as a snare place where the band jumps far more, for the kick
+  band's jump, than at the kick's other places. Every hit in those bands
   counts, rolls and fills included; a hit next to a kick counts as a snare only
   if its band jumps well beyond the kick's own share. Then a check: most real
   snares land on the pattern's places (a backbeat's twin half a bar away
   counts), so if under 60% do, the band was hearing a synth or a vocal and is
   dropped. Over 20 songs of different genres, 8 had a clear snare band and
   gained 1.5-2.5x the snares, concentrated on the backbeat; the rest kept the
-  fixed bands. A song with no clear pattern falls back to fixed bands (the kick below 150 Hz; the snare by its
-  crack plus the body a hi-hat lacks). The bands chosen are saved with the
+  fixed bands; with the clap on top of the kick found as well, 3 more songs got
+  one (Mansionz from 50 snares to 152). A song with no clear pattern falls back
+  to fixed bands (the kick below 150 Hz; the snare by its crack plus the body a
+  hi-hat lacks). The bands chosen are saved with the
   analysis (`drum_calibration`). Where a song's kick is consistent (a produced
   kick), its kicks are then found again by a fingerprint: the average shape of its
   confident kicks over their first 140 ms, from 20 to 400 Hz, which tells a kick
