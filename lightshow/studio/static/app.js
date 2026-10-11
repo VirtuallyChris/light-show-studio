@@ -1639,6 +1639,25 @@
     }
     return best[0];
   }
+  /** A song's mean energy from t0 to t1 (0..1). */
+  function energyIn(t0, t1) {
+    const a = S.analysis, fps = (a && a.feature_fps) || 30; if (!a || !a.energy) return 0;
+    let sum = 0, n = 0; for (let i = Math.max(0, Math.floor(t0 * fps)); i < Math.min(a.energy.length, t1 * fps); i++) { sum += a.energy[i]; n++; }
+    return n ? sum / n : 0;
+  }
+  /** The cute parts of a song that is not calm overall: a quiet stretch with no drums (a soft intro, a
+   *  hushed breakdown, a gentle last verse), at most half as loud as the song gets. They get the calm
+   *  songs' stars. Only the three quietest, so the stars stay special. Returns their [start, end]s. */
+  function cuteParts() {
+    const a = S.analysis, p = P(); if (!a || !a.energy || !p || showStyle() === 'chill') return [];
+    const top = (() => { const e = Array.from(a.energy).filter(v => v > 0.02).sort((x, y) => x - y); return e[Math.floor(0.9 * e.length)] || 1; })();
+    const present = (a.curves || {}).drums_present, fps = a.feature_fps || 30;
+    const drumless = sct => { if (noDrums()) return true; if (!present || !present.length) return false;
+      let on = 0, n = 0; for (let i = Math.floor(sct.start * fps); i < Math.min(present.length, sct.end * fps); i++) { on += present[i] >= 0.3; n++; } return n > 0 && on / n < 0.2; };
+    const quiet = p.sections.filter(sct => ['intro', 'breakdown', 'outro', 'verse'].includes(sct.type) && timeToBeat(sct.end) - timeToBeat(sct.start) >= 8
+      && drumless(sct) && energyIn(sct.start, sct.end) <= 0.5 * top);
+    return quiet.sort((x, y) => energyIn(x.start, x.end) - energyIn(y.start, y.end)).slice(0, 3).map(sct => [sct.start, sct.end]);
+  }
   /** A song that goes all out: rave, or a hard-driving dance track with more than one drop. */
   function isEpic() {
     const a = S.analysis || {}, style = showStyle(), drive = (a.mood && a.mood.drive) || 0;
@@ -1694,6 +1713,7 @@
     const a0 = S.analysis || {};
     pickLook();
     S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
+    S.cute = cuteParts();
     const counts = {};
     p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
     // drop markers that are not section starts still get a blast (a chill song never flashes, so it gets none)
@@ -1833,18 +1853,19 @@
     S.bedSectionNow = ['intro', 'verse', 'breakdown', 'outro'].includes(s.type);
     const top = (spec, extra = {}) => spec && clip(1, spec[0], b0, len, spec[1], { opacity: 0.85, ...(spec[2] || {}), ...extra });
     // under a calm song's stars, a soft color rather than colored twinkles of its own
-    const starBed = spec => chill && spec[0] === 'twinkle' ? ['colorwash', { speed: 16, intensity: 0.3 }] : spec;
+    const cute = !chill && (S.cute || []).some(([t0, t1]) => s.start >= t0 - 0.01 && s.start < t1), stars = chill || cute;   // a calm song, or a cute part of another
+    const starBed = spec => stars && spec[0] === 'twinkle' ? ['colorwash', { speed: 16, intensity: 0.3 }] : spec;
     switch (s.type) {
       case 'intro':
         clip(0, starBed(look.intro)[0], b0, len, starBed(look.intro)[1]);
-        if (chill) clip(1, 'starlight', b0, len, { density: 0.08, life: 8 }, { blend: 'add' });   // a calm song: the stars come out
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.08, life: 8 }, { blend: 'add' });   // a calm song: the stars come out
         else clip(1, 'meteors', b0, len, { every: 4, chance: 0.35, travel: 4 });
         drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
         if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
         else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
-        if (chill) clip(1, 'starlight', b0, len, { density: 0.12, life: 6 }, { blend: 'add' });   // single white stars, slowly, here and there
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.12, life: 6 }, { blend: 'add' });   // single white stars, slowly, here and there
         else top(look.verseTop[v]);                                     // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
         if (!chill && drumsHere && longStrips && snaresHere >= len / 8)   // the snare lands on a quarter of the ceiling, in turn
@@ -1905,13 +1926,13 @@
       }
       case 'breakdown':
         clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
-        if (chill) clip(1, 'starlight', b0, len, { density: 0.1, life: 8 }, { blend: 'add' });
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 8 }, { blend: 'add' });
         else clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 }, { opacity: 0.85 });
         drums(0.5, 0.5);
         break;
       case 'outro':
         clip(0, look.outro[0], b0, len, look.outro[1]);
-        if (chill) clip(1, 'starlight', b0, len, { density: 0.06, life: 10 }, { blend: 'add' });   // and go out again, one by one
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.06, life: 10 }, { blend: 'add' });   // and go out again, one by one
         else clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
         drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;

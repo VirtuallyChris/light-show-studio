@@ -611,7 +611,12 @@ noise.
   a time at random spots along every strip and lamp, like stars coming out, over
   a soft color wash (a handful per 50 segments, each lasting a few seconds; more
   and a little quicker in its louder parts, fewer and slower as it ends). Stars
-  keep their full brightness however the rest of a section is dimmed. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
+  keep their full brightness however the rest of a section is dimmed. Other
+  songs get stars in their cute parts only: an intro, breakdown, outro or verse
+  with no drums playing and at most half as loud as the song gets (a soft
+  intro, a hushed breakdown), the three quietest at most, so they stay special.
+  Over 18 songs that was mostly intros, outros and the odd breakdown; songs that
+  never go quiet (COIN, ELEY, The 1975) get none. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
   ones at 1-2%. Without the model environment the drums come from the mix alone.
   The drum pattern is learned per song, in the song's own meter: four beats or
   three, in sixteenths or triplets (a shuffle, 6/8), decided from how tightly all
