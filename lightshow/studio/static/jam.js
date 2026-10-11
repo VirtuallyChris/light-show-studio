@@ -346,6 +346,7 @@
     const drumsNow = !!(a.events && a.events.kick && a.events.kick.length);
     const style = St.showStyle(), restyled = style !== J.style || drumsNow !== !!J.drums;
     if (style !== J.style) toast(`${(doc.track || {}).name || 'This track'}: ${style} style from here on`);
+    if (restyled) St.pickLook();                                   // the look follows the style it now has
     const keys = reconcile(J.built, Math.ceil(St.timeToBeat(J.pos()) + 0.1), restyled);
     J.built = keys; J.version = doc.version; J.style = style; J.drums = drumsNow;
     St.draw();

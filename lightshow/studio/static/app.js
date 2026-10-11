@@ -1518,6 +1518,17 @@
               { base: ['halves', { every: 1, dim: 0 }], top: 'motion' }, { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
               { base: ['roomsplit', { every: 0.5, pump: 0.5 }], top: 'motion', room: true }] },
   };
+  /** Settle the song's look and motions, and which kinds of light are ticked. Jam mode calls it again
+   *  when it learns a song's style part way through, before building the rest. */
+  function pickLook() {
+    const p = P(), a0 = S.analysis || {};
+    S.look = (p && p.settings && LOOKS[p.settings.look]) ? p.settings.look : chooseLook();
+    const fams = LOOKS[S.look].motion, f0 = Math.floor(Effects.hash(Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100)) * fams.length) % fams.length;
+    S.motionFam = fams[f0];
+    S.motionFams = [fams[f0], fams[(f0 + 1) % fams.length]];      // the song's own motion, and a second for every other drop
+    const kinds = new Set(selectedLights().map(lightKind));
+    S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
+  }
   /** The look that fits this song best: from its style, drive, brightness, key and genre. */
   function chooseLook() {
     const a = S.analysis || {}, m = a.mood || {}, st = showStyle();
@@ -1577,12 +1588,7 @@
     // Each song gets its own kind of motion in the drops (not comets every time), chosen from the song
     // itself so it is the same on every rebuild, and a song that goes all out may get rainbow drops.
     const a0 = S.analysis || {};
-    S.look = (p.settings && LOOKS[p.settings.look]) ? p.settings.look : chooseLook();
-    const fams = LOOKS[S.look].motion, f0 = Math.floor(Effects.hash(Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100)) * fams.length) % fams.length;
-    S.motionFam = fams[f0];
-    S.motionFams = [fams[f0], fams[(f0 + 1) % fams.length]];      // the song's own motion, and a second for every other drop
-    const kinds = new Set(selectedLights().map(lightKind));
-    S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
+    pickLook();
     S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
     const counts = {};
     p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
@@ -1932,5 +1938,5 @@
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook };
 })();
