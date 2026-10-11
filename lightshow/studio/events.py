@@ -167,16 +167,115 @@ def find_fills(drum_times, duration, beats):
     return [r for r in out if r[1] - r[0] >= win * 0.9]
 
 
-def find_drums(S_p, freqs, sr, hop, duration):
-    """The kick and snare hits themselves, from the percussive part of the mix.
+# Bands tried for each drum, per song. Kicks sit anywhere from a deep sub thump to a punchy 150 Hz;
+# snares from a fat 200 Hz body to a dry 3 kHz crack (a dubstep snare can live around 600 Hz).
+KICK_BANDS = [(30, 70), (40, 100), (50, 130), (60, 160), (80, 200)]
+SNARE_BANDS = [(150, 300), (200, 450), (300, 700), (400, 1000), (700, 1600), (1500, 3500), (2500, 6000)]
 
-    The kick is a thump below 150 Hz. The snare cracks between 1.5 and 5 kHz, but
-    so does a hi-hat; what tells them apart is body: a snare also carries energy
-    around 150-400 Hz, a hat has almost none. So a crack counts as a snare only
-    when that body is there too, and not when it is just the click of a kick.
-    Returns two lists of (time, strength 0..1).
+
+def _rise(S_p, freqs, lo, hi):
+    """How sharply a band's energy jumps each frame, scaled so a strong hit in this song is about 1."""
+    m = (freqs >= lo) & (freqs <= hi)
+    env = S_p[m].mean(axis=0) if m.any() else np.zeros(S_p.shape[1])
+    r = np.maximum(0.0, np.diff(env, prepend=env[:1]))
+    return env, r / (float(np.percentile(r, 99.5)) + 1e-9)
+
+
+def _bar_profile(rise, frame_t, beats, phase):
+    """A band's average jump at each sixteenth of the bar, over the bars that have drums."""
+    beats = np.asarray(beats, dtype=float)
+    rows = []
+    for bi in range(int(phase), len(beats) - 4, 4):
+        b0, b4 = beats[bi], beats[bi + 4]
+        js = np.searchsorted(frame_t, b0 + (b4 - b0) * np.arange(16) / 16)
+        rows.append([rise[max(0, j - 1):j + 3].max() if j < len(rise) else 0.0 for j in js])
+    if not rows:
+        return None
+    rows = np.array(rows)
+    busy = rows.sum(axis=1)
+    keep = busy >= np.percentile(busy, 30)          # the quiet bars (intros, breakdowns) would blur the pattern
+    return rows[keep].mean(axis=0) if keep.any() else rows.mean(axis=0)
+
+
+def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
+    """Where this song's kick and snare live, learned from where they land in the bar.
+
+    Every song mixes its drums differently, so no fixed band finds them all. But a drum pattern
+    repeats bar after bar: the kick lands in the same few places, the snare in its own. So each
+    band's average jump is laid out over the sixteen sixteenths of a bar. The kick is the low band
+    whose pattern stands out most; the snare the band (above the kick) that stands out most in the
+    places the kick does not land. Hi-hats, on every eighth, have no standout places and lose.
+    Returns None when the song has no clear pattern (no grid, or no drums), and the fixed bands
+    are used instead.
     """
     import librosa
+    if beats is None or len(beats) < 16:
+        return None
+    frame_t = librosa.frames_to_time(np.arange(S_p.shape[1]), sr=sr, hop_length=hop)
+
+    def contrast(prof, where):
+        top = np.sort(prof[where])[-2:].mean()
+        rest = np.median(prof[where]) + 0.02
+        return float(top / rest)
+
+    best_k = None
+    allpos = np.arange(16)
+    for band in KICK_BANDS:
+        prof = _bar_profile(_rise(S_p, freqs, *band)[1], frame_t, beats, phase)
+        if prof is None:
+            return None
+        sc = contrast(prof, allpos)
+        if best_k is None or sc > best_k[0]:
+            best_k = (sc, band, prof)
+    if best_k[0] < 2.0:
+        return None                                      # no kick pattern to learn from
+    kick_pos = np.where(best_k[2] >= 0.5 * best_k[2].max())[0]
+    free = np.array([q for q in allpos if q not in set(kick_pos)])
+    # A snare band must stand out in the places the kick does not land (contrast), and be quieter
+    # where only the kick lands than where the snare does (selectivity): a kick is broad, and a
+    # band it fills is no use for telling the two apart.
+    best_s = None
+    kprof = best_k[2]
+    for band in SNARE_BANDS:
+        if len(free) < 4:
+            break
+        prof = _bar_profile(_rise(S_p, freqs, *band)[1], frame_t, beats, phase)
+        sc = contrast(prof, free)
+        level = float(np.sort(prof[free])[-2:].mean())
+        sel = level / (float(prof[kick_pos].mean()) + 0.05)
+        if sc < 2.0 or sel < 1.4:                       # a weak pattern is worse than none: false snares flash on synths
+            continue
+        if best_s is None or sc * sel > best_s[0]:
+            best_s = (sc * sel, band, prof, sc, sel)
+    cal = {"kick_band": list(best_k[1]), "kick_score": round(best_k[0], 2), "kick_pos": kick_pos.tolist()}
+    if best_s is not None:
+        prof = best_s[2]
+        snare_pos = free[prof[free] >= 0.6 * prof[free].max()]
+        ratio = lambda where: float(prof[where].mean()) / (float(kprof[where].mean()) + 0.05)
+        others = np.array([q for q in free if q not in set(snare_pos)])
+        cal.update({"snare_band": list(best_s[1]), "snare_score": round(best_s[3], 2), "snare_selectivity": round(best_s[4], 2),
+                    "snare_pos": snare_pos.tolist(),
+                    # how hard this band jumps where a snare is (normalized units)
+                    "snare_level": round(float(prof[snare_pos].mean()), 3),
+                    # and in the places neither drum lands: the band's own busyness (synths, vocals)
+                    "snare_noise": round(float(np.median(prof[others])) if len(others) else 0.0, 3),
+                    # this band's jump over the kick band's, where a snare lands and where only a kick does
+                    "ratio_snare": round(ratio(snare_pos), 3), "ratio_kick": round(ratio(kick_pos), 3)})
+    return cal
+
+
+def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
+    """The kick and snare hits themselves, from the percussive part of the mix.
+
+    The bands come from calibrate_drums when the song has a clear pattern; otherwise the kick is
+    a thump below 150 Hz and the snare a 1.5-5 kHz crack with some 150-400 Hz body (which a
+    hi-hat lacks). Every hit is found, not only those on the pattern: rolls and fills count.
+    Returns two lists of (time, strength 0..1), and the calibration (or None).
+    """
+    import librosa
+    from scipy.signal import find_peaks
+
+    cal = calibrate_drums(S_p, freqs, sr, hop, beats, phase)
 
     def band(lo, hi):
         m = (freqs >= lo) & (freqs <= hi)
@@ -194,16 +293,45 @@ def find_drums(S_p, freqs, sr, hop, duration):
     # The kick, measured on a linear scale: in decibels the faint low end of a snare or a
     # hat looks as big as a kick. A kick is a jump in low-band energy that reaches a real
     # share of the song's typical kick.
-    low_all = band(30, 150)
+    k_lo, k_hi = cal["kick_band"] if cal else (30, 150)
+    low_all = band(k_lo, k_hi)
     rise = np.maximum(0.0, np.diff(low_all, prepend=low_all[:1]))
     idx_k = np.array([], dtype=int)
     if rise.size > 4 and rise.max() > 0:
-        from scipy.signal import find_peaks
         cand, _ = find_peaks(rise, distance=max(1, int(0.09 * sr / hop)), height=0.15 * float(np.percentile(rise, 99.5)))
         if len(cand):
             level = np.array([low_all[i:i + 3].max() for i in cand])
             idx_k = cand[level >= 0.3 * float(np.percentile(level, 90))]
     idx_k, t_k, s_k = hits(rise, idx_k)
+
+    if cal and "snare_band" in cal:
+        # The calibrated snare: every jump in its band that is as big as a real snare in this song.
+        # Next to a kick the band jumps anyway (a kick is broad), so there it must clear the
+        # kick's own jump by a good margin.
+        s_lo, s_hi = cal["snare_band"]
+        _, r = _rise(S_p, freqs, s_lo, s_hi)
+        _, kr = _rise(S_p, freqs, *cal["kick_band"])
+        lvl, noise = cal["snare_level"], cal.get("snare_noise", 0.0)
+        floor = max(0.4 * lvl, noise + 0.6 * max(0.0, lvl - noise))   # a hit must stand well clear of the band's busyness
+        split = float(np.sqrt(max(cal["ratio_snare"], 1e-3) * max(cal["ratio_kick"], 1e-3)))   # between a kick's ratio and a snare's
+        cand, _ = find_peaks(r, distance=max(1, int(0.07 * sr / hop)), height=floor)
+        t_c = librosa.frames_to_time(cand, sr=sr, hop_length=hop)
+        hat_check = s_lo >= 1500                         # a crack band also hears the hats: ask for body
+        body = band(150, 400)
+        ref = float(np.percentile(body[cand], 90)) + 1e-9 if len(cand) else 1.0
+        snare = []
+        for i, t in zip(cand, t_c):
+            if not (0.02 < t < duration):
+                continue
+            v = float(r[max(0, i - 1):i + 2].max())
+            dk = t - t_k if len(t_k) else np.array([1.0])
+            if np.any((dk > -0.03) & (dk < 0.06)) and v / (float(kr[max(0, i - 1):i + 2].max()) + 0.05) < split:
+                continue                                 # the kick's own jump in this band
+            if hat_check and float(body[max(0, i - 1):i + 3].max()) < 0.35 * ref:
+                continue                                 # no body: a hat or a shaker
+            snare.append((t, float(np.clip(v / (lvl * 1.6 + 1e-9), 0, 1))))
+        return list(zip(t_k, s_k)), snare, cal
+
     env_c, idx_c, _ = _band_onsets(S_p, freqs, 1500, 5000, sr, hop, 0.10, 1.6)
     idx_c, t_c, s_c = hits(env_c, idx_c)
     body, low, crack = band(150, 400), band(30, 150), band(1500, 5000)
@@ -222,7 +350,7 @@ def find_drums(S_p, freqs, sr, hop, duration):
             if near_kick and (st < 0.5 or float(low[j].max()) > 1.5 * b):
                 continue                                         # the kick's own click, not a snare with it
             snare.append((t, st))
-    return list(zip(t_k, s_k)), snare
+    return list(zip(t_k, s_k)), snare, cal
 
 
 def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None) -> dict:
@@ -257,7 +385,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     env_lead, idx_lead, _ = _band_onsets(S_side, freqs, 300, 5000, sr, hop, 0.35, 3.2)
     env_bass, idx_bass, _ = _band_onsets(S_h, freqs, 35, 250, sr, hop, 0.30, 2.8)
     env_drum, idx_drum, _ = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
-    kick, snare = find_drums(S_p, freqs, sr, hop, duration)
+    kick, snare, drum_cal = find_drums(S_p, freqs, sr, hop, duration, beats, phase)
 
     streams = {}
     for name, env, idx, S, lo, hi in (("lead", env_lead, idx_lead, S_side, 300, 5000),
@@ -302,6 +430,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
             "drum": [round(float(v), 3) for v in _level(S_p, freqs, 1200, 9000, sr, hop, out_times, 0.15)],
         },
         "stereo": bool(wide),
+        "drum_calibration": drum_cal,                   # the bands this song's kick and snare were found in
     }
 
 

@@ -631,3 +631,34 @@ class TestTrackColors(unittest.TestCase):
             self.assertEqual(JamLibrary(d).colors(), {})
         finally:
             shutil.rmtree(d)
+
+
+class TestPairPerSong(unittest.TestCase):
+    """'A different pair each song': stable per track, and never the same pair twice in a row."""
+
+    def service(self, moods=None):
+        from types import SimpleNamespace
+        from lightshow.studio.jam_service import JamService
+        moods = moods or {}
+        lib = SimpleNamespace(learned=lambda tid: {"analysis": {"mood": moods[tid]}} if tid in moods else None)
+        s = SimpleNamespace(library=lib, _assigned={}, _moods={},
+                            _jam_colors=lambda: {**JamService.DEFAULT_COLORS, "mode": "mix"})
+        s._vibe_order = lambda tid, n: JamService._vibe_order(s, tid, n)
+        s.assign = lambda tracks: JamService._assign_colors(s, tracks)
+        return s
+
+    def test_neighbors_differ_and_a_track_keeps_its_pair(self):
+        s = self.service()
+        tracks = [{"id": f"t{i}", "kind": "live"} for i in range(12)]
+        first = s.assign(tracks)
+        pairs = [tuple(first[t["id"]]) for t in tracks]
+        self.assertTrue(all(a != b for a, b in zip(pairs, pairs[1:])))
+        self.assertEqual(s.assign(tracks[3:]), {t["id"]: first[t["id"]] for t in tracks[3:]})   # the queue moved on: same pairs
+        self.assertGreaterEqual(len(set(pairs)), 3)
+
+    def test_vibe_picks_the_pair_and_a_custom_show_gets_none(self):
+        s = self.service({"hard": {"drive": 0.8, "mode": "minor"}, "soft": {"drive": 0.3, "mode": "minor"}})
+        out = s.assign([{"id": "hard", "kind": "learned"}, {"id": "mine", "kind": "custom"}, {"id": "soft", "kind": "learned"}])
+        self.assertEqual(out["hard"], ["#ff0000", "#0040ff"])              # hard and dark: red/blue
+        self.assertEqual(out["soft"], ["#8000ff", "#00ff00"])              # soft and dark: purple/green
+        self.assertNotIn("mine", out)

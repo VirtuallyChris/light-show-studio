@@ -332,6 +332,19 @@ const Effects = (() => {
     params: { every: { type: 'beats', def: 0.5, label: 'Flash every (beats)' }, duty: { type: 'range', def: 0.25, min: 0.05, max: 0.9, step: 0.01, label: 'Flash length' }, white: P.bool('White', false), color: P.color(), overlay: P.bool('Transparent between flashes', true) },
     render(c) { clear(c.out); const u = c.beat / c.p.every; const on = frac(u) < c.p.duty; if (!on) { if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); return; } const col = c.p.white ? [1, 1, 1] : colorFor(c, 0.5, Math.floor(u)); fillAll(c.out, c.n, col[0], col[1], col[2], 1); } });
 
+  def({ id: 'drumstrobe', name: 'Drum strobe', cat: 'fast', desc: 'A hard flash on every real kick (or snare) hit and nothing in between, so it is exactly as busy as the drummer. With Grows on it starts faint and is full on the drop.', swatch: ['#ffffff', '#000000'],
+    params: { follow: { type: 'select', def: 'kick', options: { kick: 'the kick', snare: 'the snare', both: 'kick and snare' }, label: 'Flashes on' },
+      length: { type: 'range', def: 0.05, min: 0.02, max: 0.25, step: 0.01, label: 'Flash length (s)' }, grows: P.bool('Grows toward the end', false), white: P.bool('White', false), color: P.color() },
+    render(c) {
+      clear(c.out); const m = c.music || {}; if (!m.hasDrums) return;
+      let h = null;
+      for (const x of [c.p.follow !== 'snare' ? m.kick : null, c.p.follow !== 'kick' ? m.snare : null]) if (x && x.index >= 0 && (!h || x.age < h.age)) h = x;
+      if (!h || h.age > c.p.length) return;
+      const v = (c.p.grows ? 0.2 + 0.8 * c.clipT * c.clipT : 1) * (0.6 + 0.4 * h.strength);
+      const col = c.p.white ? [1, 1, 1] : colorFor(c, 0.5, h.index);
+      fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);
+    } });
+
   def({ id: 'blackout', name: 'Blackout strobe', cat: 'fast', desc: 'Cuts whatever is below to black in a rhythm. Put it on top of a base effect.', swatch: ['#000000', '#444444'],
     params: { every: { type: 'beats', def: 0.5, label: 'Cut every (beats)' }, duty: { type: 'range', def: 0.5, min: 0.05, max: 0.95, step: 0.01, label: 'Dark length' } },
     render(c) { clear(c.out); const u = c.beat / c.p.every; if (frac(u) > 1 - c.p.duty) fillAll(c.out, c.n, 0, 0, 0, 1); } });
@@ -437,7 +450,7 @@ const Effects = (() => {
   }
 
   def({ id: 'riser', name: 'Riser (buildup)', cat: 'accent', desc: 'Adds a section of lights from both ends toward the center on every kick (or every beat), brightening as it goes, and is full exactly on the drop. End it on the drop. Pair it with a Strobe riser on the layer above.', swatch: ['#f59e0b', '#7a1f00'],
-    params: { follow: { type: 'select', def: 'drums', options: { drums: 'the kick drum', beat: 'the beat grid' }, label: 'Steps on' },
+    params: { follow: { type: 'select', def: 'drums', options: { drums: 'the kick drum', snare: 'the snare drum', beat: 'the beat grid' }, label: 'Steps on' },
       step: { type: 'select', def: '1', options: { '4': 'every bar', '2': 'every 2 beats', '1': 'every beat', '0.5': 'every 1/8 note' }, label: 'Step (beat grid)' },
       accel: P.bool('Steps get faster near the end', false), color: P.color(), fill: P.bool('Fill toward center', true),
       floor: { type: 'range', def: 0.08, min: 0, max: 1, step: 0.01, label: 'Unfilled level' } },
@@ -445,8 +458,11 @@ const Effects = (() => {
       // The steps: the kick hits inside the clip when the song's drums are known (so every step
       // lands on a kick you hear), otherwise the beat grid, starting on the first whole beat.
       let steps, n, pop;
-      const kicks = c.p.follow !== 'beat' && c.music && c.music.hasDrums && c.clipT1 > c.clipT0
-        ? c.music.hitsBetween('kick', c.clipT0 - 0.03, c.clipT1 - 0.08) : null;
+      // a snare build steps on every snare hit, so it speeds up exactly as the roll does
+      const stream = c.p.follow === 'snare' ? 'snare' : 'kick';
+      let kicks = c.p.follow !== 'beat' && c.music && c.music.hasDrums && c.clipT1 > c.clipT0
+        ? c.music.hitsBetween(stream, c.clipT0 - 0.03, c.clipT1 - 0.08) : null;
+      if (stream === 'snare' && (!kicks || kicks.length < 4) && c.music && c.music.hasDrums) kicks = c.music.hitsBetween('kick', c.clipT0 - 0.03, c.clipT1 - 0.08);
       if (kicks && kicks.length >= 4) {
         steps = kicks.length; n = 0; while (n < steps && kicks[n] <= c.t + 1e-3) n++;
         pop = n ? Math.exp(-(c.t - kicks[n - 1]) / 0.12) : 0;

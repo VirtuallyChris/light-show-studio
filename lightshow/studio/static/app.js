@@ -1461,6 +1461,12 @@
     const k = ((n % cols.length) + cols.length) % cols.length;
     return cols.slice(k).concat(cols.slice(0, k));
   }
+  const MOTIONS = ['comets', 'sparkles', 'meteors', 'orbit', 'ripples'];
+  /** A song that goes all out: rave, or a hard-driving dance track with more than one drop. */
+  function isEpic() {
+    const a = S.analysis || {}, style = showStyle(), drive = (a.mood && a.mood.drive) || 0;
+    return style === 'rave' || (style === 'dance' && drive >= 0.75 && (a.drops || []).length >= 2);
+  }
   /** chill | groove | dance | rave: chosen for the song from its genre, unless set by hand in the Song panel */
   const STYLE_NAMES = { chill: 'Chill', groove: 'Groove', dance: 'Dance', rave: 'Rave' };
   function showStyle() {
@@ -1486,6 +1492,11 @@
     if (!S.songPals.length) S.songPals = [p.defaultPalette];
     S.songPal = S.songPals[0];
     p.defaultPalette = S.songPal;
+    // Each song gets its own kind of motion in the drops (not comets every time), chosen from the song
+    // itself so it is the same on every rebuild, and a song that goes all out may get rainbow drops.
+    const a0 = S.analysis || {};
+    S.motionFam = MOTIONS[Math.floor(Effects.hash(Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100)) * MOTIONS.length) % MOTIONS.length];
+    S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
     const counts = {};
     p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
     // drop markers that are not section starts still get a blast (a chill song never flashes, so it gets none)
@@ -1508,7 +1519,7 @@
   // Concert lighting in three tiers. The bed sets the color and the mood and stays low; motion keeps
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
-  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush']);
+  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe']);
   const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout']);
   function tier(c) {
     if (BED.has(c.effect)) {
@@ -1583,6 +1594,18 @@
     const hitsHere = drumsKnown ? [...(ev.kick || []), ...(ev.snare || [])].filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
     const drumsHere = drumsKnown ? hitsHere >= Math.max(4, len / 4) : !['intro', 'breakdown', 'outro'].includes(s.type);
     const drums = (opacity, size = 0.75) => drumsHere && clip(2, 'pulse', b0, len, { follow: 'drums', decay: 0.45, size }, { opacity, blend: 'add' });
+    const snaresHere = drumsKnown ? (ev.snare || []).filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
+    // the drum strobe: flashes on the real hits only; how hard depends on the kind of song
+    const strobeLevel = { rave: 0.9, dance: 0.6, groove: 0.3 }[style] || 0;
+    // the song's motion over a drop: pace 1 is a normal drop, below 1 slower
+    const motion = (pace = 1, extra = {}) => {
+      const fam = S.motionFam || 'comets', sp = x => Math.max(0.5, x / pace);
+      if (fam === 'sparkles') return clip(1, 'sparkle', b0, len, { density: 0.2 * pace + 0.05, life: 0.15 }, { opacity: 0.95, ...extra });
+      if (fam === 'meteors') return clip(1, 'meteors', b0, len, { every: sp(1), chance: 0.6, travel: sp(2), tail: 0.3 }, { opacity: 0.95, ...extra });
+      if (fam === 'orbit') return clip(1, 'orbit', b0, len, { speed: sp(2), count: 3 }, { opacity: 0.9, ...extra });
+      if (fam === 'ripples') return clip(1, 'ripple', b0, len, { every: sp(1), travel: sp(1.5), width: 0.12 }, { opacity: 0.9, ...extra });
+      return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
+    };
     switch (s.type) {
       case 'intro':
         clip(0, 'aurora', b0, len, { speed: 16, intensity: 0.45, depth: 0.8 });
@@ -1602,34 +1625,39 @@
         else clip(1, 'orbit', b0, len, { speed: 4, count: 2 }, { opacity: 0.9 });
         drums(0.85, 0.6);
         // chill songs build by filling slowly; the strobe riser is for rave only
-        clip(3, 'riser', b0, len, chill ? { follow: 'beat', step: '2', accel: false } : { follow: 'drums', accel: false });
-        if (style === 'rave') clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.3, from: '1', to: '8' });
+        clip(3, 'riser', b0, len, chill ? { follow: 'beat', step: '2', accel: false } : { follow: snaresHere >= 4 ? 'snare' : 'drums', accel: false });
+        if (!chill && snaresHere >= 4 && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'snare', grows: true, length: 0.05 }, { opacity: strobeLevel, blend: 'add' });
+        else if (style === 'rave') clip(4, 'strobeRiser', b0, len, { strobeFrom: 0.3, from: '1', to: '8' });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         break;
       case 'drop': {
         const kind = variant % 4;
-        if (hard) {
+        if (S.epic) {                                                   // all out: the whole room in a running rainbow
+          clip(0, 'gradient', b0, len, { speed: 4, stretch: 0.67, intensity: 0.85 }, { palette: 'Rainbow' });
+          motion(1.5);
+        } else if (hard) {
           if (kind === 0 && room) { clip(0, 'roomsplit', b0, len, { every: 1, pump: 0.4 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.5, blend: 'add' }); }   // the room in two halves, swapping on the beat
           else if (kind === 0) { clip(0, 'chase', b0, len, { speed: 1, size: 0.12, gap: 0.6 }); clip(1, 'flash', b0, len, { every: 1, decay: 0.3 }, { opacity: 0.6, blend: 'add' }); }
-          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.7 }, rainbow); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
+          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.7 }, rainbow); motion(1); }
           else if (kind === 2) { clip(0, 'battle', b0, len, { speed: 8, surge: 0.2 }); clip(1, 'sparkle', b0, len, { density: 0.2 }, { opacity: 0.9 }); }
           else if (room) { clip(0, 'roomsplit', b0, len, { every: 2, pump: 0.3 }); clip(1, 'roomchase', b0, len, { every: 0.5 }, { opacity: 0.9, blend: 'add' }); }
-          else { clip(0, 'halves', b0, len, { every: 1, dim: 0 }); clip(1, 'comet', b0, len, { every: 1, travel: 1, tail: 0.25 }, { opacity: 0.9 }); }
+          else { clip(0, 'halves', b0, len, { every: 1, dim: 0 }); motion(1.5); }
         } else if (chill) {
           // the biggest moment of a chill song: a slow, full wash, nothing on the beat
-          if (kind % 2 === 0) { clip(0, 'gradient', b0, len, { speed: 16, stretch: 1, intensity: 0.8 }); clip(1, 'dualcomet', b0, len, { speed: 4, tail: 0.4 }, { opacity: 0.85 }); }
+          if (kind % 2 === 0) { clip(0, 'gradient', b0, len, { speed: 16, stretch: 1, intensity: 0.8 }); motion(0.5, { opacity: 0.85 }); }
           else if (room) { clip(0, 'roomwave', b0, len, { speed: 8, floor: 0.25 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
           else { clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.75 }); clip(1, 'meteors', b0, len, { every: 2, chance: 0.5, travel: 3 }, { opacity: 0.9 }); }
         } else {
           // motion rather than flashing: it still lifts, without turning into a strobe
-          if (kind === 0) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.75 }, rainbow); clip(1, 'dualcomet', b0, len, { speed: 2, tail: 0.35 }); }
-          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 1, intensity: 0.8 }); clip(1, 'comet', b0, len, { every: 1, travel: 1.5, tail: 0.3 }, { opacity: 0.95 }); }
+          if (kind === 0) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 0.67, intensity: 0.75 }, rainbow); motion(1); }
+          else if (kind === 1) { clip(0, 'gradient', b0, len, { speed: 8, stretch: 1, intensity: 0.8 }); motion(1); }
           else if (kind === 2 && room) { clip(0, 'roomsplit', b0, len, { every: 2, pump: 0.3 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
           else if (kind === 2) { clip(0, 'wave', b0, len, { speed: 2, waves: 2, floor: 0.05 }); clip(1, 'orbit', b0, len, { speed: 2, count: 3 }, { opacity: 0.9 }); }
-          else { clip(0, 'battle', b0, len, { speed: 8, surge: 0.25 }); clip(1, 'dualcomet', b0, len, { speed: 1.5, tail: 0.3 }, { opacity: 0.9 }); }
+          else { clip(0, 'battle', b0, len, { speed: 8, surge: 0.25 }); motion(1.3); }
         }
         drums(chill ? 0.8 : 1, 0.85);
+        if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
         break;
       }

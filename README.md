@@ -396,8 +396,9 @@ Somebody runs a Spotify Jam from their phone, adding and reordering songs all
 night, and the lights still know what is coming. Press **Jam** in the studio.
 
 **How it works.** Spotify plays on this PC. The studio listens to the PC's own
-audio output, holds it in memory, and sends it to the Cast speakers about 45
-seconds late. In that gap it studies music the room has not heard yet, so a drop
+audio output, holds it in memory, and sends it to the Cast speakers about 90
+seconds late (**Stay behind by**; a longer lead gives the analysis more of each
+song to work on). In that gap it studies music the room has not heard yet, so a drop
 is on the timeline, with a buildup running into it, before anybody hears it.
 Spotify is only ever asked what a remote control could ask: what is playing, how
 far in, whether it is paused, what is queued. It is never asked for audio, and
@@ -484,21 +485,44 @@ noise.
 
 **How the auto-built shows look.**
 
-- **The drums lead.** The analysis finds the kick and snare hits themselves (the
-  kick below 150 Hz; the snare by its crack plus the body that a hi-hat lacks).
-  Beat pulse follows them: the kick blooms from the center, the snare from the
-  ends. It goes only where there are drums (at least 4 hits, one every 4
-  beats), strongest in verses and drops; a drumless breakdown gets none. Set
-  *Follows* to *every beat* for the old behavior. The riser steps on the kick
-  too: one section of lights per hit, full on the last one.
+- **The drums lead.** The analysis finds the kick and snare hits themselves,
+  calibrated per song: every song mixes its drums differently (a deep sub kick
+  or a punchy 150 Hz one; a fat 200 Hz snare, a dry 3 kHz crack, a dubstep
+  snare around 600 Hz). A drum pattern repeats bar after bar, so each frequency
+  band's hits are laid over the sixteen sixteenths of a bar: the kick band is
+  the low band whose pattern stands out most, the snare band the one that stands
+  out where the kick does not land and stays quiet where only the kick does
+  (hi-hats, on every eighth, have no standout places). Every hit in those bands
+  counts, rolls and fills included; a hit next to a kick counts as a snare only
+  if its band jumps well beyond the kick's own share. A song with no clear
+  pattern falls back to fixed bands (the kick below 150 Hz; the snare by its
+  crack plus the body a hi-hat lacks). The bands chosen are saved with the
+  analysis (`drum_calibration`).
+  Beat pulse follows the hits: the kick blooms from the center, the snare from
+  the ends. It goes only where there are drums (at least 4 hits, one every 4
+  beats); a drumless breakdown gets none. The **buildup riser** steps on the
+  snare when the build is a snare build (one section of lights per hit, so it
+  speeds up exactly as the roll does, full on the drop), else on the kick. The
+  **Drum strobe** flashes on the hits themselves and nothing else: on the kicks
+  in drops, and on the snares in buildups, growing toward the drop. How hard
+  depends on the style: subtle for groove, clear for dance, full for rave, none
+  for chill.
+- **Each song moves its own way.** A drop's motion over the base is picked per
+  song from comets, sparkles, meteors, orbits and ripples, so a night of songs
+  is not comets in every drop.
 - **Tempo tops out at 135 bpm.** Anything faster is counted in half time, on the
   half of the beats the kick lands on.
 - **Solid colors.** Every palette color is full saturation and brightness; greys
   become white or black.
 - **Jam colors.** In the Jam panel, **Colors** sets how every jam song is shown:
   in two colors you pick ahead of time (a primary and a secondary, say purple
-  and green for a Halloween party), or in its album cover's colors (its dominant
-  bright color and a second one from the cover). Each song in the room and in
+  and green for a Halloween party); in **a different pair each song**, from a
+  set of pairs (purple/green, purple/orange, green/orange, red/blue to start),
+  chosen by the song's vibe (soft or hard, minor or major, as learned the last
+  time it played; new songs take turns) and never the same pair twice in a row,
+  with **Rainbow for epic songs** giving a song that goes all out (rave, or a
+  hard dance track with several drops) rainbow drops; or in its album cover's
+  colors (its dominant bright color and a second one from the cover). Each song in the room and in
   *Up next* has its own two color swatches: change them and that track keeps
   those colors whenever it plays again (↺ puts it back to the jam's). In two
   colors the primary leads verses and drops, buildups and breakdowns swap to the

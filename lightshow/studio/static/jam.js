@@ -34,6 +34,7 @@
     const st = J.state || {}, own = track && (st.track_colors || {})[track.id], jc = st.jam_colors || {};
     if (own) return [own.primary, own.secondary];
     if (jc.mode === 'pick') return [jc.primary, jc.secondary];
+    if (jc.mode === 'mix') return (st.assigned_colors || {})[track.id] || (jc.pairs || [])[0] || null;
     return null;
   }
   /** The extras (a few small accents in two more colors), with the jam's two colors only. */
@@ -41,6 +42,8 @@
     const jc = (J.state || {}).jam_colors || {};
     return jc.extras ? [jc.accent1, jc.accent2] : null;
   }
+  /** rainbow drops for the songs that go all out, in "a different pair each song" */
+  const rainbowOn = () => { const jc = (J.state || {}).jam_colors || {}; return jc.mode === 'mix' && !!jc.rainbow; };
   function shownColors(t) {
     const cols = colorsFor(t) || ((J.art || {})[t.image] || []).slice(0, 2);
     if (!colorsFor(t) && t.image && J.art && J.art[t.image] === undefined) fetchArt(t);
@@ -59,13 +62,15 @@
   function colorsSection(st) {
     const jc = st.jam_colors || {};
     return `<div class="jam-sec"><h4>Colors</h4>
-        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="album" ${jc.mode !== 'pick' ? 'selected' : ''}>Its album cover's colors</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
-        ${jc.mode === 'pick' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take these instead, now and then">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}><input type="color" id="jamAccent1" value="${esc(jc.accent1 || '#ff6000')}" title="Extra color"><input type="color" id="jamAccent2" value="${esc(jc.accent2 || '#ff0000')}" title="Extra color"></span></div>` : ''}</div>`;
+        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option><option value="album" ${jc.mode !== 'pick' && jc.mode !== 'mix' ? 'selected' : ''}>Its album cover's colors</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
+        ${jc.mode === 'mix' ? `<div class="jam-row"><label title="Each song gets one of these, chosen by its vibe, never the same pair twice in a row">Pairs</label><span class="jam-pairs">${(jc.pairs || []).map((p, i) => `<span class="jam-pair"><input type="color" class="mx-a" data-i="${i}" value="${esc(p[0])}"><input type="color" class="mx-b" data-i="${i}" value="${esc(p[1])}"></span>`).join('')}</span></div>
+        <div class="jam-row"><label title="A song that goes all out gets rainbow drops">Rainbow for epic songs</label><input type="checkbox" id="jamRainbow" ${jc.rainbow ? 'checked' : ''}></div>` : ''}
+        ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take these instead, now and then">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}><input type="color" id="jamAccent1" value="${esc(jc.accent1 || '#ff6000')}" title="Extra color"><input type="color" id="jamAccent2" value="${esc(jc.accent2 || '#ff0000')}" title="Extra color"></span></div>` : ''}</div>`;
   }
   /** The song in the room got new colors: build its show again in them. */
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
-    S.jamColors = colorsFor(J.doc.track); S.jamExtras = S.jamColors ? extrasFor() : null;
+    S.jamColors = colorsFor(J.doc.track); S.jamExtras = S.jamColors ? extrasFor() : null; S.jamRainbow = rainbowOn();
     try { St.autoBuild(true); J.built = sectionKeys(); } catch (e) { console.error(e); }
     St.draw();
   }
@@ -100,7 +105,7 @@
           <option value="pc">This PC</option>
           <option value="none">Nowhere (preview only)</option></select></div>
         <div class="hint" id="jamPcHint">This PC plays on Windows' default output.</div>
-        <div class="jam-row"><label>Stay behind by</label><span><input id="jamDelay" type="number" min="10" max="120" step="5" value="45" class="num"> s</span></div>
+        <div class="jam-row"><label>Stay behind by</label><span><input id="jamDelay" type="number" min="10" max="180" step="5" value="90" class="num"> s</span></div>
         <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
         <div class="jam-row"><label>On a skip</label><select id="jamOnSkip">
           <option value="keep">Keep the delay</option>
@@ -112,7 +117,7 @@
         <button id="jamOpener" ${sp.signed_in && st.speaker_connected ? '' : 'disabled'} title="Play one of your shows from disk first. Spotify is released as it ends, so the jam begins with the buffer already full.">Start behind this song</button>
         <button id="jamDemo" title="Synthetic songs and a pretend Spotify. No sound, no speakers, no sign-in.">Silent demo</button></div>`;
     } else {
-      const room = st.room, ahead = st.ahead; const pct = Math.max(0, Math.min(100, 100 * (st.delay || 0) / (st.target_delay || 45)));
+      const room = st.room, ahead = st.ahead; const pct = Math.max(0, Math.min(100, 100 * (st.delay || 0) / (st.target_delay || 90)));
       html += `<div class="jam-sec"><h4>${esc(st.mode || 'jam')}</h4>
         <div class="jam-now"><div class="lbl">In the room</div><div class="ttl">${room ? esc(room.label) : (st.streaming ? 'between songs' : `filling the buffer… ${Math.round(st.buffered || 0)} s of ${Math.round(st.target_delay)} s`)}</div>${room ? badge(room.kind) + styleTag(room) + (room.project ? ` <span class="hint">${esc(room.project)}</span>` : '') + pairPicker(room) : ''}</div>
         <div class="jam-now"><div class="lbl">On Spotify now, ${Math.round(st.delay || 0)} s ahead of the room</div><div class="ttl">${ahead ? esc(ahead.label) : '—'}</div>${ahead ? badge(ahead.kind) + styleTag(ahead) + (ahead.kind === 'live' ? ` <span class="hint">analysed to ${fmt(ahead.horizon)}</span>` : '') : ''}</div>
@@ -182,6 +187,11 @@
     const mode = $('#jamColorMode');
     if (mode) mode.onchange = () => saveJam({ mode: mode.value }).catch(e => toast(e.message, true));
     for (const id of ['jamPrimary', 'jamSecondary']) { const e = $('#' + id); if (e) e.onchange = () => saveJam({ primary: $('#jamPrimary').value, secondary: $('#jamSecondary').value }).catch(err => toast(err.message, true)); }
+    for (const e of el2.querySelectorAll('.mx-a, .mx-b')) e.onchange = () => {
+      const pairs = [...el2.querySelectorAll('.mx-a')].map(a => [a.value, el2.querySelector(`.mx-b[data-i="${a.dataset.i}"]`).value]);
+      saveJam({ pairs }).catch(err => toast(err.message, true));
+    };
+    const rb = $('#jamRainbow'); if (rb) rb.onchange = () => saveJam({ rainbow: rb.checked }).catch(err => toast(err.message, true));
     for (const id of ['jamExtras', 'jamAccent1', 'jamAccent2']) { const e = $('#' + id); if (e) e.onchange = () => saveJam({ extras: $('#jamExtras').checked, accent1: $('#jamAccent1').value, accent2: $('#jamAccent2').value }).catch(err => toast(err.message, true)); }
     for (const box of el2.querySelectorAll('.jam-pair[data-id]')) {
       const id = box.dataset.id, a = box.querySelector('.jp-a'), b = box.querySelector('.jp-b'), reset = box.querySelector('.jp-reset');
@@ -200,7 +210,7 @@
     const cid = $('#jamClient'); if (cid) cid.onchange = () => api('spotify/client', { client_id: cid.value.trim() }).then(s => { J.state = { ...J.state, ...s }; render(); }).catch(e => toast(e.message, true));
     on('jamSignIn', async () => { if (cid && cid.value.trim() !== ((J.state.spotify || {}).client_id || '')) await api('spotify/client', { client_id: cid.value.trim() }); window.open('/api/spotify/login', 'spotify', 'width=520,height=760'); });
     on('jamSignOut', async () => { J.state = await api('spotify/signout', {}); render(); });
-    const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 45, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, skip_jumps: (($('#jamOnSkip') || {}).value) === 'jump', source: (source && source.value) || 'studio', speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });
+    const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 90, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, skip_jumps: (($('#jamOnSkip') || {}).value) === 'jump', source: (source && source.value) || 'studio', speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });
     on('jamStart', async () => { J.state = await start({}); render(); toast({ cast: 'Jam started. The speakers join once the buffer is full.', pc: 'Jam started. This PC starts playing once the buffer is full.' }[J.state.output_kind] || 'Jam started as a preview: nothing plays.'); });
     on('jamOpener', async () => { if (!S.cast.active || !S.audio.playing) return toast('Cast one of your shows and press play first, then press this', true); J.state = await start({ opener: true, speakers: 'cast' }); render(); toast('Armed. Spotify will be released as this song ends.'); });
     on('jamDemo', async () => { J.state = await start({ demo: true, speakers: 'none', target_delay: 20 }); render(); toast('Silent demo running: synthetic songs, no sound.'); });
@@ -302,7 +312,7 @@
     J.live = true; J.doc = doc;
     S.albumPalette = await albumPalette(doc.track);
     S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
-    S.jamExtras = S.jamColors ? extrasFor() : null;
+    S.jamExtras = S.jamColors ? extrasFor() : null; S.jamRainbow = rainbowOn();
     if (doc.kind === 'custom' && doc.project) {
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
@@ -420,7 +430,7 @@
   }
 
   function leave() {
-    S.albumPalette = null; S.jamColors = null; S.jamExtras = null; J.doc = null;
+    S.albumPalette = null; S.jamColors = null; S.jamExtras = null; S.jamRainbow = false; J.doc = null;
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;
     St.updateTransport(); St.stopOutput(); St.draw();

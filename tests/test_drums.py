@@ -61,7 +61,13 @@ def score(found, truth, tol=0.04):
 class TestDrums(unittest.TestCase):
     def test_kick_and_snare_are_found_and_hats_are_not_snares(self):
         y, beats, dur, kicks, snares = groove()
-        ev = detect_events(None, beats, dur, audio=(y, SR))["events"]
+        out = detect_events(None, beats, dur, audio=(y, SR))
+        ev, cal = out["events"], out["drum_calibration"]
+        # the bands were learned from this groove: a low kick band, and a snare band the kick does not fill
+        self.assertIsNotNone(cal)
+        self.assertLessEqual(cal["kick_band"][1], 200)
+        self.assertIn("snare_band", cal)
+        self.assertEqual(sorted(cal["snare_pos"]), [4, 12])             # 2 and 4 of the bar
         k_recall, k_extra = score(ev["kick"], kicks)
         s_recall, s_extra = score(ev["snare"], snares)
         print(f"kick {k_recall:.0%} found, {k_extra} extra; snare {s_recall:.0%} found, {s_extra} extra")

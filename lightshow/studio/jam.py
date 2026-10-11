@@ -458,7 +458,7 @@ class JamTrack:
 
 @dataclass
 class JamSettings:
-    target_delay: float = 45.0          # how far behind the capture head the room should be
+    target_delay: float = 90.0          # how far behind the capture head the room should be (90 s: time for a full analysis)
     min_delay: float = 3.0              # where the stream restarts after a skip
     max_gap: float = 6.0                # most silence to add between two songs when growing the delay back
     analyse_every: float = 6.0          # new audio needed before the live analysis runs again

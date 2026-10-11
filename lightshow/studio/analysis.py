@@ -123,6 +123,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "align_fps": round(sr / HOP, 4),
         "mood": mood,
         "events": ev["events"],
+        "drum_calibration": ev.get("drum_calibration"),
         "fills": ev["fills"],
         "hook": ev["hook"],
         "curves": ev["curves"],
@@ -227,7 +228,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 19         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 20         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
@@ -542,7 +543,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     """Analyse once per (path, size, mtime); cache the JSON next to the project."""
     os.makedirs(cache_dir, exist_ok=True)
     st = os.stat(path)
-    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v19.json"
+    key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v{ANALYSIS_VERSION}.json"
     cache = os.path.join(cache_dir, key)
     data = None
     if os.path.exists(cache):

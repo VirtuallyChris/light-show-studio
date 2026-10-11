@@ -305,3 +305,5 @@ h3.with-switch .toggle { text-transform: none; letter-spacing: 0; }
 .light-list label.dragging { opacity: .4; }
 .light-list label.drop-above { box-shadow: 0 -2px 0 var(--accent); }
 .light-list label.drop-below { box-shadow: 0 2px 0 var(--accent); }
+.jam-pairs { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: .2rem .1rem; }
+.jam-pairs .jam-pair { margin-left: .3rem; gap: .15rem; }

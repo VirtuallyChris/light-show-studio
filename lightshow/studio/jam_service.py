@@ -27,6 +27,8 @@ class JamService:
         self.studio, self.shows_dir = studio, shows_dir
         self.load_config, self.save_config, self.local_ip = load_config, save_config, local_ip
         self.library = JamLibrary(shows_dir)
+        self._assigned: dict[str, int] = {}                  # track id -> the pair it got in "mix"
+        self._moods: dict[str, dict | None] = {}             # track id -> its learned mood (or None)
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
@@ -98,7 +100,7 @@ class JamService:
         demo = bool(body.get("demo"))
         relay = Relay(sr=44100, channels=2, capacity_s=600.0)
         gate = Gate()
-        cfg = JamSettings(target_delay=float(body.get("target_delay", 45.0)), max_gap=float(body.get("max_gap", 6.0)),
+        cfg = JamSettings(target_delay=float(body.get("target_delay", 90.0)), max_gap=float(body.get("max_gap", 6.0)),
                           crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))),
                           skip_jumps=bool(body.get("skip_jumps", False)))
         hidden_name = self._hidden_output_name()
@@ -308,7 +310,8 @@ class JamService:
         st["output_kind"] = self._output_kind(out)
         if self.capture is not None and getattr(self.capture, "lost", 0):
             st["capture"]["lost_s"] = round(self.capture.lost, 2)
-        return {**base, **st, "now": time.monotonic()}
+        played = [st.get("room"), st.get("ahead"), *(st.get("queue") or [])]
+        return {**base, **st, "now": time.monotonic(), "assigned_colors": self._assign_colors(played)}
 
     async def _run(self, fn, *args):
         try:
@@ -568,10 +571,45 @@ class JamService:
             self.auto_error = f"{type(e).__name__}: {e}"
 
     def _last(self) -> dict:
-        return {"source": "studio", "speakers": "pc", "target_delay": 45.0, **self.load_config().get("jam_last", {})}
+        return {"source": "studio", "speakers": "pc", "target_delay": 90.0, **self.load_config().get("jam_last", {})}
 
     # extras: two more colors a few of the small accents take now and then (orange and red at Halloween)
-    DEFAULT_COLORS = {"mode": "album", "primary": "#8000ff", "secondary": "#00ff00", "extras": False, "accent1": "#ff6000", "accent2": "#ff0000"}
+    DEFAULT_COLORS = {"mode": "album", "primary": "#8000ff", "secondary": "#00ff00", "extras": False, "accent1": "#ff6000", "accent2": "#ff0000",
+                      # "mix": each song gets one of these pairs, by its vibe, never the same pair twice in a row
+                      "pairs": [["#8000ff", "#00ff00"], ["#8000ff", "#ff6000"], ["#00ff00", "#ff6000"], ["#ff0000", "#0040ff"]],
+                      "rainbow": True}                     # in "mix", a song that goes all out gets rainbow drops
+
+    def _vibe_order(self, track_id: str, n: int) -> list[int]:
+        """Which pairs suit a track, best first, from what was learned about it the last time it played
+        (unknown tracks take turns). The order follows the default pairs: purple/green spooky, purple/orange
+        warm, green/orange bright, red/blue hard."""
+        if track_id not in self._moods:                     # a learned file is megabytes: read each once
+            self._moods[track_id] = ((self.library.learned(track_id) or {}).get("analysis") or {}).get("mood")
+        mood = self._moods[track_id]
+        if not mood:
+            k = len(self._assigned)
+            return [(k + i) % n for i in range(n)]
+        hard, warm = mood.get("drive", 0) > 0.62, mood.get("mode") == "major"
+        pref = ([2, 1, 3, 0] if warm else [3, 0, 1, 2]) if hard else ([1, 2, 0, 3] if warm else [0, 1, 3, 2])
+        return [i for i in pref if i < n] + [i for i in range(n) if i not in pref]
+
+    def _assign_colors(self, tracks: list) -> dict:
+        """In "mix": the pair each of these tracks (in play order) gets. Once given, a track keeps its pair."""
+        jc = self._jam_colors()
+        pairs = jc.get("pairs") or []
+        if jc.get("mode") != "mix" or not pairs:
+            return {}
+        out, prev = {}, None
+        for t in tracks:
+            tid = (t or {}).get("id")
+            if not tid or t.get("kind") == "custom":
+                continue
+            if tid not in self._assigned:
+                order = self._vibe_order(tid, len(pairs))
+                self._assigned[tid] = next((i for i in order if i != prev), order[0])
+            prev = self._assigned[tid]
+            out[tid] = pairs[prev % len(pairs)]
+        return out
 
     def _jam_colors(self) -> dict:
         """The jam's own colors: every song in a primary and a secondary, or ("album") its cover's."""
@@ -589,16 +627,24 @@ class JamService:
         else:
             cfg = self.load_config()
             cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
-            if body.get("mode") in ("pick", "album"):
+            if body.get("mode") in ("pick", "mix", "album"):
                 cur["mode"] = body["mode"]
             for k in ("primary", "secondary", "accent1", "accent2"):
                 if hexcolor(body.get(k)):
                     cur[k] = hexcolor(body[k])
             if "extras" in body:
                 cur["extras"] = bool(body["extras"])
+            if "rainbow" in body:
+                cur["rainbow"] = bool(body["rainbow"])
+            if isinstance(body.get("pairs"), list):
+                pairs = [[hexcolor(p[0]), hexcolor(p[1])] for p in body["pairs"][:8] if isinstance(p, list) and len(p) == 2]
+                if pairs and all(a and b for a, b in pairs):
+                    cur["pairs"] = pairs
+            self._assigned.clear()                              # pairs or mode changed: hand them out afresh
             cfg["jam_colors"] = cur
             self.save_config(cfg)
-        return web.json_response(self._state())
+        # off the event loop: handing out pairs afresh reads what was learned about each queued track
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._state))
 
     def _auto_on(self) -> bool:
         return bool(self.load_config().get("jam_auto", True))
