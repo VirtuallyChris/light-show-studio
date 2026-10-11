@@ -1622,13 +1622,13 @@
     const drive = m.drive ?? 0.5, bright = m.brightness ?? 0.5, minor = m.mode === 'minor';
     const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
     const rocky = /rock|indie|independent|punk|alternative|grunge|metal|emo|folk/.test(g), electronic = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g);
-    if (noDrums() || st === 'chill') return 'dreamy';
+    if (st === 'chill') return 'dreamy';                               // a calm song (with or without drums)
     const clubby = st === 'dance' || st === 'rave', heavy = /dubstep|bass music|metal|hardstyle|trap|drum and bass/.test(g);
     const score = {
       haunted: (minor ? 1 : 0.3) * (1 - 0.6 * Math.abs(drive - 0.5) * 2) * (1 - 0.5 * bright) * (st === 'rave' ? 0.5 : 1),
       neon: (clubby ? 1 : 0.4) * (0.3 + 0.7 * bright) * (minor ? 0.6 : 1) * (electronic ? 1 : 0.7),
       dreamy: ({ groove: 0.7, chill: 1 }[st] || 0.25) * Math.max(0.05, 1.2 - drive) * (minor ? 0.7 : 1) * (0.5 + 0.5 * bright),
-      rock: (st === 'groove' ? 1 : 0.4) * (rocky ? 1 : 0.45) * (0.4 + 0.6 * drive) * (electronic ? 0.5 : 1),
+      rock: (st === 'groove' ? 1 : 0.4) * (rocky ? 1 : 0.45) * (0.4 + 0.6 * drive) * (electronic ? 0.5 : 1) * (noDrums() ? 0.2 : 1),   // a rock show needs a drummer
       storm: (minor ? 1 : 0.3) * (0.3 + 0.7 * drive) * (clubby ? 1 : 0.4) * (heavy ? 1 : 0.8) * (1 - 0.4 * bright),
     };
     const key = Math.round((a.duration || 0) * 10) + Math.round((a.bpm || 0) * 100);
@@ -1648,10 +1648,27 @@
   const STYLE_NAMES = { chill: 'Chill', groove: 'Groove', dance: 'Dance', rave: 'Rave' };
   /** The analysis found no drums at all (the separated drum track is near silent): a calm song. */
   const noDrums = () => !!(S.analysis && S.analysis.drum_calibration && S.analysis.drum_calibration.has_drums === false);
+  /** A song without drums that still lifts: its loud parts (the top tenth) are at least 0.65 and half
+   *  again as loud as its middle, like an indie song whose choruses swell on synths and bass. It gets a
+   *  show that builds and lifts like a groove song, with the bass keeping time; a truly calm song
+   *  (a lullaby-quiet one) stays calm. */
+  function swells() {
+    const a = S.analysis; if (!a || !a.energy || !a.energy.length) return false;
+    if (a._swells === undefined) {
+      // judged on the energy two seconds at a time (a single loud moment is not a chorus), and never for
+      // a song that sounds calm to the listening model (a lullaby-quiet song stays calm however it swells)
+      const w = Math.max(1, Math.round(2 * (a.feature_fps || 30))), en = Array.from(a.energy), e = [];
+      for (let i = 0; i + w <= en.length; i += w) { let m = 0; for (let j = i; j < i + w; j++) m += en[j]; if (m / w > 0.02) e.push(m / w); }
+      e.sort((x, y) => x - y);
+      const q = k => e[Math.min(e.length - 1, Math.floor(k * e.length))] || 0, g = a.genre || {};
+      a._swells = e.length > 15 && g.style !== 'chill' && q(0.9) >= 0.65 && q(0.9) >= 1.45 * q(0.5);
+    }
+    return a._swells;
+  }
   function showStyle() {
     const p = P(), g = S.analysis && S.analysis.genre;
     if (p && p.settings && STYLE_NAMES[p.settings.style]) return p.settings.style;
-    if (noDrums()) return 'chill';                                  // nothing keeps time: slow fades, no flashes
+    if (noDrums()) return swells() ? 'groove' : 'chill';           // nothing keeps time: slow fades, unless the song swells
     if (g && STYLE_NAMES[g.style]) return g.style;
     return ((S.analysis && S.analysis.mood && S.analysis.mood.drive) || 0.6) > 0.72 ? 'dance' : 'groove';
   }
@@ -1682,6 +1699,7 @@
     // drop markers that are not section starts still get a blast (a chill song never flashes, so it gets none)
     if (showStyle() !== 'chill') for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
     addMoments();
+    balance();
     S.view.sel = null; inspector(); changed();
     if (quiet) return;
     const a = S.analysis, hooks = (a.hook && a.hook.times || []).length, fills = (a.fills || []).length;
@@ -1891,6 +1909,13 @@
         drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }
+    // A drop with no buildup before it (a song without drums often has none the analysis can see) still
+    // gets one: the last bars of this section lift into it, a riser stepping on the drums or the beat.
+    const next = p.sections[idx + 1];
+    if (!chill && next && next.type === 'drop' && s.type !== 'buildup' && s.type !== 'drop' && len >= 12 && Math.abs(b1 - Math.round(timeToBeat(next.start))) <= 1) {
+      const lift = len >= 24 ? 16 : 8;
+      clip(3, 'riser', b1 - lift, lift, { follow: drumsHere ? 'drums' : 'beat', step: lift >= 16 ? '1' : '0.5', accel: !drumsHere }, { opacity: 0.9 });
+    }
     addSignature(s, b0, len, variant, style);
     // Long strips and short lamps together: the moving things (comets, chases, sparkles) run on the
     // long strips, where there is room for them to travel; on seven segments they read as flicker.
@@ -1904,12 +1929,49 @@
       }
       if (zoneBuild) { /* the lamps are stretches of the room's jump */ }
       else if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0 }, { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
+      else if (!chill && noDrums() && ['drop', 'verse'].includes(s.type) && ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end).length) >= 0.4 * len)
+        clip(6, 'basshits', b0, len, { decay: 0.45 }, { target: 'short', blend: 'add', opacity: s.type === 'drop' ? 0.85 : 0.5 });   // no drums: the bass keeps time
       else clip(6, 'breathe', b0, len, { speed: 4, floor: 0.15 }, { target: 'short', opacity: 0.6, palette: S.contrastPal });
     }
     S.sectionClips = null;
   }
   const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
 
+  /** The last word on brightness: the show is looked at as the room would see it (twice a second),
+   *  and no other section may outshine the drops. Each gets a share of the drops' light by how loud it
+   *  is next to them (a quiet verse about half, a near-chorus up to 85%), and one brighter than that is
+   *  turned down. Drops that come out dim (a dark wave for a bed) get their bed turned up first. */
+  function balance() {
+    const p = P(), a = S.analysis; if (!p || !a || !a.energy || !selectedLights().length) return;
+    const drops = p.sections.filter(s => s.type === 'drop'); if (!drops.length) return;
+    const fps = a.feature_fps || 30;
+    const energyOf = s => { let sum = 0, n = 0; for (let i = Math.floor(s.start * fps); i < Math.min(a.energy.length, s.end * fps); i++) { sum += a.energy[i]; n++; } return n ? sum / n : 0; };
+    const lightOf = s => { let sum = 0, n = 0; for (let t = s.start + 0.25; t < s.end; t += 0.5) for (const f of renderFrame(t)) { for (const v of f.px) sum += v; n += f.px.length; } return n ? sum / n : 0; };
+    // a section's clips, on the same whole beats it was built on
+    const inSec = s => { const b0 = Math.round(timeToBeat(s.start)) - 0.01, b1 = Math.round(timeToBeat(s.end)) - 0.01; return p.lanes.flatMap(l => l.clips.filter(c => c.start >= b0 && c.start < b1 && !FREE.has(c.effect))); };
+    // every drop gets most of the light of the brightest (a quieter drop a little less), and at least a
+    // fair share: a dim one has its bed turned up, and a bed that sinks to black (a wave) a floor raised
+    const Ld = new Map(drops.map(s => [s, lightOf(s)])), Emax = Math.max(...drops.map(energyOf)) || 1, Lmax = Math.max(...Ld.values());
+    for (const s of drops) {
+      const want = Math.max(60, 0.8 * Lmax * clamp(energyOf(s) / Emax, 0.6, 1)), L = Ld.get(s);
+      if (L >= want) continue;
+      const k = Math.min(2.5, want / Math.max(1, L));
+      for (const c of inSec(s)) if (BED.has(c.effect)) {
+        c.opacity = Math.min(1, (c.opacity ?? 1) * k);
+        if (typeof c.params.floor === 'number') c.params.floor = Math.max(c.params.floor, 0.3);
+      } else if (!HIT.has(c.effect)) c.opacity = Math.min(1, (c.opacity ?? 1) * k);   // a drop with no bed (blocks, a scanner): its motion comes up
+      Ld.set(s, lightOf(s));
+    }
+    const D = [...Ld.values()].reduce((x, y) => x + y, 0) / drops.length, Ed = drops.reduce((x, s) => x + energyOf(s), 0) / drops.length || 1;
+    p.sections.forEach((s, i) => {
+      if (s.type === 'drop') return;
+      let target = D * clamp(0.3 + 0.55 * energyOf(s) / Ed, 0.45, 0.85);
+      const next = p.sections[i + 1];
+      if (next && Ld.has(next)) target = Math.min(target, 0.85 * Ld.get(next));   // never outshine the drop it leads to
+      const L = lightOf(s);
+      if (L > target && L > 1) { const k = Math.max(0.4, target / L); for (const c of inSec(s)) c.opacity = (c.opacity ?? 1) * k; }
+    });
+  }
   /** The song's moments, from what the separated tracks heard:
    *  - an audio cut (the music drops out for a moment): the lights fade to black over the gap and come
    *    back on a white flash as the music does;

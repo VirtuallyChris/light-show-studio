@@ -600,7 +600,13 @@ noise.
   drum track is silent is dropped, the beat pulse goes only where the drums play,
   and a song whose drum track is near silent (under 10% of its level) **has no
   drums**: no kicks, no snares, and a calm, chill show unless a style is set by
-  hand. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
+  hand, or the song swells: a drumless song whose loud parts (its top tenth,
+  two seconds at a time) reach 0.65 and half again its middle, and that does not
+  sound calm to the listening model, gets a show that builds and lifts like a
+  groove song, with the bass keeping time (drops flash with the bass line, the
+  small lamps pulse with it) and its look chosen by its vibe like any other song.
+  The Wldlfe's *Heaven is a place* (choruses twice as loud as its verses) swells;
+  *If I Became Friends With The Aliens* stays calm. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
   ones at 1-2%. Without the model environment the drums come from the mix alone.
   The drum pattern is learned per song, in the song's own meter: four beats or
   three, in sixteenths or triplets (a shuffle, 6/8), decided from how tightly all
@@ -688,6 +694,18 @@ noise.
   between the whole-strip strobe and the ceiling split in halves (the kick on one
   half, the snare on the other); groove drops flash a fifth of each strip on the
   snare; verses land each snare on a quarter of the ceiling, going round.
+- **A lift into every drop.** A drop with no buildup before it (common in a
+  song without drums) still gets one: the last 2 or 4 bars of the section before
+  it lift into it with a riser stepping on the drums, or on the beat, faster near
+  the end.
+- **Drops are the brightest thing in a song.** Once a show is built it is looked
+  at as the room would see it (twice a second, every light), and evened out: each
+  drop gets most of the light of the brightest one (a quieter drop a little less,
+  a dim one has its bed and motion turned up and a bed that sinks to black a
+  floor), and every other section gets a share of the drops' light by how loud it
+  is next to them (a quiet verse about half, a near-chorus up to 85%), never
+  outshining the drop it leads to. A section brighter than its share is turned
+  down; risers and fades are left alone.
 - **Drum rolls.** In the drum track, a stretch where the hits above the kick come
   three or more to a beat, and twice as thick as the song's own groove, for a bar
   or more, is a roll. Its hits (as close as 46 ms) count as steps for a buildup's
