@@ -1620,7 +1620,9 @@
   const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning']);
   const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout']);
   function tier(c) {
-    if (BED.has(c.effect)) {
+    // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
+    // a color battle at full motion brightness made a verse outshine its drop
+    if (BED.has(c.effect) || (S.bedBase && c === S.bedBase)) {
       // the bed's brightness is set here, whatever intensity the effect itself runs at
       const own = typeof c.params.intensity === 'number' && c.params.intensity > 0 ? c.params.intensity : 1;
       c.opacity = Math.min(1, (S.bedLevel || 0.35) / own);
@@ -1654,7 +1656,7 @@
   // (orange and red at Halloween): little extras, never the base, the comets or the drums.
   const EXTRAS = new Set(['hookstrike', 'sweepout', 'colorslam', 'ghostspark', 'fillrush', 'sparkle', 'meteors', 'ripple', 'whiteflash']);
   const extraHere = (effect, start) => S.pairMode && S.jamExtras && EXTRAS.has(effect) && Effects.hash(Math.round(start * 4) * 7919 + effect.length * 104729) < 0.35;
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
@@ -1712,7 +1714,19 @@
       return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
     };
     const look = LOOKS[S.look] || LOOKS.neon;
+    // A long verse or breakdown (over 16 bars) is built in 8-bar stretches that alternate between the
+    // look's two verse styles, so two minutes the analysis calls one verse do not look the same.
+    if ((s.type === 'verse' || s.type === 'breakdown') && len > 64 && !s.chunk) {
+      for (let k = 0, c0 = b0; c0 < b1; k++, c0 += 32) {
+        const c1 = b1 - (c0 + 32) < 16 ? b1 : c0 + 32;                      // no stub of under four bars at the end
+        buildSection({ ...s, start: beatToTime(c0), end: beatToTime(c1), chunk: true }, idx, false, variant + k);
+        if (c1 === b1) break;
+      }
+      return;
+    }
     const first = S.sectionClips = [];
+    S.bedBase = null;
+    S.bedSectionNow = ['intro', 'verse', 'breakdown', 'outro'].includes(s.type);
     const top = (spec, extra = {}) => spec && clip(1, spec[0], b0, len, spec[1], { opacity: 0.85, ...(spec[2] || {}), ...extra });
     switch (s.type) {
       case 'intro':

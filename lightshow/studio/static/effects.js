@@ -481,7 +481,9 @@ const Effects = (() => {
         if (roll.length) kicks = [...kicks, ...roll].sort((a, b) => a - b).filter((t, i, a) => i === 0 || t - a[i - 1] > 0.03);
       }
       if (stream === 'snare' && (!kicks || kicks.length < 4) && c.music && c.music.hasDrums) kicks = c.music.hitsBetween('kick', c.clipT0 - 0.03, c.clipT1 - 0.08);
-      if (kicks && kicks.length >= 4) {
+      // the hits lead only when they run through the buildup: drums that come in near its end would
+      // leave the riser dark until then, so then it steps on the beat grid instead
+      if (kicks && kicks.length >= 4 && kicks[0] - c.clipT0 < 0.35 * (c.clipT1 - c.clipT0)) {
         steps = kicks.length; n = 0; while (n < steps && kicks[n] <= c.t + 1e-3) n++;
         pop = n ? Math.exp(-(c.t - kicks[n - 1]) / 0.12) : 0;
       } else {
@@ -492,10 +494,11 @@ const Effects = (() => {
         pop = n ? Math.pow(1 - clamp((c.clipBeat - prev) / Math.max(0.05, next - prev)), 2) : 0;
       }
       const p = steps ? n / steps : c.clipT;                                    // how far it has filled
-      // Each step adds a whole section of lights from both ends, sized so the last step fills the
-      // center exactly on the drop (counted back from the end: the first steps may add nothing).
-      const half = Math.ceil(c.n / 2), per = Math.max(1, Math.ceil(half / Math.max(1, steps)));
-      const litSide = steps ? clamp(half - (steps - n) * per, 0, half) : Math.round(half * p);
+      // Every step adds its share of the strip from both ends, so the fill grows with each hit across
+      // the whole buildup and the last step fills the center exactly on the drop. (Whole sections
+      // per step, counted back from the drop, left a long strip dark for most of a busy buildup.)
+      const half = Math.ceil(c.n / 2);
+      const litSide = steps ? clamp(Math.ceil(half * n / steps), 0, half) : Math.round(half * p);
       const col = c.p.color === 'cycle' ? palAt(c.pal, p * 0.5) : colorFor(c, p, 0);
       for (let i = 0; i < c.n; i++) {
         const fromEdge = Math.min(i, c.n - 1 - i);
