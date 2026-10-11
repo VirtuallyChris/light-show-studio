@@ -181,3 +181,18 @@ class TestRolls(unittest.TestCase):
         self.assertEqual([x["type"] for x in out], ["verse", "buildup", "drop"])
         self.assertLess(abs(out[1]["start"] - r0), beat * 1.01)
         self.assertEqual(sections[0]["type"], "verse")            # the original list is left alone
+
+
+class TestFourOnTheFloor(unittest.TestCase):
+    def test_a_clap_on_top_of_a_kick_is_still_found(self):
+        from lightshow.studio.events import detect_events
+        drums, beats, dur, K, Sn = pattern_song(124, 16, 4, kicks_at=(0, 1, 2, 3), snares_at=(1, 3), hats_per_beat=2)
+        out = detect_events(None, beats, dur, audio=(drums, SR), stems={"drums": drums, "bass": drums * 0, "sr": SR})
+        cal = out["drum_calibration"]
+        self.assertIn(4, cal.get("snare_pos", []))
+        self.assertIn(12, cal.get("snare_pos", []))
+        recall, extra = score(out["events"]["snare"], Sn)
+        self.assertGreater(recall, 0.9)
+        self.assertLess(extra, len(Sn) * 0.15)
+        k_recall, _ = score(out["events"]["kick"], K)
+        self.assertGreater(k_recall, 0.9)

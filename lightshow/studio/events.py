@@ -320,31 +320,41 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
     kick_pos = np.where(kprof >= 0.5 * kprof.max())[0]
     free = np.array([q for q in allpos if q not in set(kick_pos)])
     cal = {"has_drums": True, "grid": {**grid.to_json(), **how}, "kick_band": list(kband), "kick_score": round(sc, 2), "kick_pos": kick_pos.tolist()}
-    # The snare band must stand out in the places the kick does not land (contrast), and be quieter
-    # where only the kick lands than where the snare does (selectivity): a kick is broad, and a band
-    # it fills is no use for telling the two apart.
+    # The snare's places: where its band jumps hard, and either the kick does not land, or the band
+    # jumps far more for the kick band's jump than at the kick's other places. That second case is
+    # dance music: a kick on every beat and a clap on 2 and 4, on top of it; looking only where the
+    # kick is not, there is nowhere left to look. The band must stand out at its places (contrast)
+    # and be quieter, for the kick band's jump, where only the kick lands (selectivity): a kick is
+    # broad, and a band it fills is no use for telling the two apart.
     best_s = None
+    kset = set(kick_pos.tolist())
     for band in SNARE_BANDS:
-        if len(free) < 4:
-            break
         prof = grid.profile(_rise(S_p, freqs, *band)[1], frame_t)
-        c = _contrast(prof, free)
-        level = float(np.sort(prof[free])[-2:].mean())
-        sel = level / (float(prof[kick_pos].mean()) + 0.05)
+        r = prof / (kprof + 0.05)
+        r_kick = float(np.median(r[kick_pos]))
+        spos = [q for q in allpos if prof[q] >= 0.5 * prof.max() and (q not in kset or r[q] >= 1.6 * r_kick)]
+        if not spos or len(spos) > grid.n // 2:
+            continue
+        spos = np.array(spos)
+        others = np.array([q for q in allpos if q not in set(spos.tolist())])
+        c = float(prof[spos].mean() / (np.median(prof[others]) + 0.02))
+        kick_only = np.array([q for q in kick_pos if q not in set(spos.tolist())])
+        sel = float(r[spos].mean() / (r[kick_only].mean() + 1e-3)) if len(kick_only) else float(prof[spos].mean() / (prof[others].mean() + 0.05))
         if c < 2.0 or sel < 1.4:                      # a weak pattern is worse than none: false snares flash on synths
             continue
         if best_s is None or c * sel > best_s[0]:
-            best_s = (c * sel, band, prof, c, sel)
+            best_s = (c * sel, band, prof, c, sel, spos)
     if best_s is not None:
-        prof = best_s[2]
-        snare_pos = free[prof[free] >= 0.5 * prof[free].max()]
+        prof, snare_pos = best_s[2], best_s[5]
         # a backbeat comes in twos, half a cycle apart (2 and 4): a quieter twin is still the pattern
         if grid.per % 2 == 0:
             half = grid.n // 2
-            twins = [(q + half) % grid.n for q in snare_pos if (q + half) % grid.n in set(free)]
+            twins = [(q + half) % grid.n for q in snare_pos if prof[(q + half) % grid.n] >= 0.25 * prof.max()]
             snare_pos = np.array(sorted(set(snare_pos.tolist()) | set(twins)), dtype=int)
         ratio = lambda where: float(prof[where].mean()) / (float(kprof[where].mean()) + 0.05)
-        others = np.array([q for q in free if q not in set(snare_pos)])
+        sset = set(snare_pos.tolist())
+        others = np.array([q for q in allpos if q not in sset and q not in kset])
+        kick_only = np.array([q for q in kick_pos if q not in sset])
         cal.update({"snare_band": list(best_s[1]), "snare_score": round(best_s[3], 2), "snare_selectivity": round(best_s[4], 2),
                     "snare_pos": snare_pos.tolist(),
                     # how hard this band jumps where a snare is (normalized units)
@@ -352,7 +362,8 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
                     # and in the places neither drum lands: the band's own busyness (synths, vocals)
                     "snare_noise": round(float(np.median(prof[others])) if len(others) else 0.0, 3),
                     # this band's jump over the kick band's, where a snare lands and where only a kick does
-                    "ratio_snare": round(ratio(snare_pos), 3), "ratio_kick": round(ratio(kick_pos), 3)})
+                    "ratio_snare": round(ratio(snare_pos), 3),
+                    "ratio_kick": round(ratio(kick_only) if len(kick_only) else 0.5 * ratio(snare_pos), 3)})
     return cal
 
 
