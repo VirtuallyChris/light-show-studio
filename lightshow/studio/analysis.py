@@ -36,7 +36,8 @@ def analyze(path: str, cache_dir: str | None = None, use_model: bool = True) -> 
 
 
 def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_dir: str | None = None,
-                  use_model: bool = False, events: bool = True, bpm_hint: float | None = None, segment_fn=None) -> dict:
+                  use_model: bool = False, events: bool = True, bpm_hint: float | None = None, segment_fn=None,
+                  separate: bool | None = None) -> dict:
     """The whole analysis, from audio already in memory.
 
     `analyze` is this plus loading a file. Jam mode calls it directly on audio it
@@ -108,11 +109,23 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=HOP)[0]
     mood = song_mood(y, sr, energy, centroid)
     ev = {"events": {}, "fills": [], "hook": None, "curves": {}, "stereo": False}
+    # The drums and bass pulled out of the mix (Demucs, in the model environment), so the drums are
+    # found in a track that has nothing else in it. Only where the models are in use anyway (a song
+    # file; Jam mode with SongFormer), and always in memory: a jam's audio never touches the disk.
+    stems = None
+    if separate is None:
+        separate = bool(use_model or segment_fn is not None)
+    if events and separate:
+        try:
+            from . import stems as stems_mod
+            stems = stems_mod.separate_file(path) if path else stems_mod.separate_audio(stereo if stereo is not None else y, sr)
+        except Exception as e:  # noqa: BLE001 - without stems the drums come from the mix, as before
+            print(f"[stems] skipped: {type(e).__name__}: {e}")
     if events:
         try:
             from .events import detect_events
             ev = detect_events(path, [float(b) for b in beats], duration, phase, SR, HOP, FEATURE_FPS,
-                               audio=(stereo if stereo is not None else y, sr) if path is None else None)
+                               audio=(stereo if stereo is not None else y, sr) if path is None else None, stems=stems)
         except Exception as e:  # noqa: BLE001 - a show without flair is better than no show
             print(f"[events] skipped: {type(e).__name__}: {e}")
 
@@ -228,7 +241,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 20         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 21         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup

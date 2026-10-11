@@ -171,6 +171,12 @@ def find_fills(drum_times, duration, beats):
 # snares from a fat 200 Hz body to a dry 3 kHz crack (a dubstep snare can live around 600 Hz).
 KICK_BANDS = [(30, 70), (40, 100), (50, 130), (60, 160), (80, 200)]
 SNARE_BANDS = [(150, 300), (200, 450), (300, 700), (400, 1000), (700, 1600), (1500, 3500), (2500, 6000)]
+# How a song's drum pattern repeats: (beats per cycle, slots per beat). Four beats in sixteenths is
+# most pop and dance; in triplets, a shuffle or a 6/8 feel; three beats, a waltz.
+LAYOUTS = [(4, 4), (4, 3), (3, 4), (3, 3)]
+NO_DRUMS_BELOW = 3.0       # kick pattern score under which a song is taken to have no drums at all
+FP_FRAMES = 6              # a hit's fingerprint: its first ~140 ms
+FP_MIN_SEPARATION = 0.3    # how much better the kick places must match the fingerprint than the rest
 
 
 def _rise(S_p, freqs, lo, hi):
@@ -181,79 +187,162 @@ def _rise(S_p, freqs, lo, hi):
     return env, r / (float(np.percentile(r, 99.5)) + 1e-9)
 
 
-def _bar_profile(rise, frame_t, beats, phase):
-    """A band's average jump at each sixteenth of the bar, over the bars that have drums."""
+class Grid:
+    """The song's beats laid out as repeating cycles: `per` beats a cycle, `subs` slots a beat,
+    the first cycle starting at beat `start`."""
+
+    def __init__(self, beats, per=4, subs=4, start=0):
+        self.beats, self.per, self.subs, self.start = np.asarray(beats, dtype=float), per, subs, int(start)
+        self.n = per * subs
+
+    def cycles(self):
+        return range(self.start, len(self.beats) - self.per, self.per)
+
+    def slot(self, t):
+        """Which slot of its cycle a moment falls on (None outside the grid)."""
+        i = int(np.searchsorted(self.beats, t)) - 1
+        if i < self.start:
+            return None
+        c = (i - self.start) // self.per * self.per + self.start
+        if c + self.per >= len(self.beats):
+            return None
+        b0, b1 = self.beats[c], self.beats[c + self.per]
+        return int(round((t - b0) / (b1 - b0) * self.n)) % self.n
+
+    def profile(self, rise, frame_t):
+        """A band's average jump at each slot of the cycle, over the cycles that have drums."""
+        rows = []
+        for c in self.cycles():
+            b0, b1 = self.beats[c], self.beats[c + self.per]
+            js = np.searchsorted(frame_t, b0 + (b1 - b0) * np.arange(self.n) / self.n)
+            rows.append([rise[max(0, j - 1):j + 3].max() if j < len(rise) else 0.0 for j in js])
+        if not rows:
+            return None
+        rows = np.array(rows)
+        busy = rows.sum(axis=1)
+        keep = busy >= np.percentile(busy, 30)      # the quiet cycles (intros, breakdowns) would blur the pattern
+        return rows[keep].mean(axis=0) if keep.any() else rows.mean(axis=0)
+
+    def to_json(self):
+        return {"beats_per_cycle": self.per, "slots_per_beat": self.subs, "start": self.start}
+
+
+def _pattern(prof):
+    """The busiest quarter of the cycle against the quietest quarter. A drum pattern, sparse or busy,
+    hits some places hard and leaves others empty; music without drums (a strummed guitar, a piano,
+    a pad) jumps a little everywhere. Over 20 songs: no drums 2.4, drums 3.7 and up."""
+    q = np.sort(prof)
+    k = max(2, len(q) // 4)
+    return float(q[-k:].mean() / (q[:k].mean() + 0.02))
+
+
+def _contrast(prof, where):
+    top = np.sort(prof[where])[-2:].mean()
+    return float(top / (np.median(prof[where]) + 0.02))
+
+
+def choose_layout(S_p, freqs, sr, hop, beats, kick_rises):
+    """How the song's beat divides and repeats: (beats per cycle, slots per beat, how it was decided).
+
+    Two separate questions, each answered with a measure that is fair to both answers.
+    Sixteenths or triplets: how tightly all the song's percussive hits (hats included: they show the
+    subdivision best) gather on a repeating place when the beat is divided in four, and in three.
+    Four beats or three: whether the kick's strength from beat to beat repeats every 4 beats or every 3.
+    """
+    import librosa
+    from scipy.signal import find_peaks
     beats = np.asarray(beats, dtype=float)
-    rows = []
-    for bi in range(int(phase), len(beats) - 4, 4):
-        b0, b4 = beats[bi], beats[bi + 4]
-        js = np.searchsorted(frame_t, b0 + (b4 - b0) * np.arange(16) / 16)
-        rows.append([rise[max(0, j - 1):j + 3].max() if j < len(rise) else 0.0 for j in js])
-    if not rows:
-        return None
-    rows = np.array(rows)
-    busy = rows.sum(axis=1)
-    keep = busy >= np.percentile(busy, 30)          # the quiet bars (intros, breakdowns) would blur the pattern
-    return rows[keep].mean(axis=0) if keep.any() else rows.mean(axis=0)
+    _, r = _rise(S_p, freqs, 150, 10000)
+    _, rk = _rise(S_p, freqs, 30, 200)
+    flux = r + rk
+    idx, props = find_peaks(flux, height=0.1, distance=max(1, int(0.05 * sr / hop)))
+    t = librosa.frames_to_time(idx, sr=sr, hop_length=hop)
+    w = props["peak_heights"]
+    i = np.searchsorted(beats, t) - 1
+    ok = (i >= 0) & (i < len(beats) - 1)
+    t, w, i = t[ok], w[ok], i[ok]
+    pos = (t - beats[i]) / (beats[i + 1] - beats[i])          # where in its beat, 0..1
+    # How tightly the hits gather on a repeating place within the beat, dividing it in n: 1 if every hit
+    # lands on the same place of the n, 0 if they are spread evenly. A constant offset between the
+    # grid's beat times and the drums' onsets does not matter. Straight sixteenths gather at n=4 and
+    # cancel at n=3; triplets the other way round; hits only on the beat gather at both (then: 4).
+    share = {}
+    for n in (4, 3):
+        phase_n = np.exp(2j * np.pi * pos * n)
+        share[n] = float(np.abs((w * phase_n).sum()) / (w.sum() + 1e-9))
+    subs = 3 if share[3] > 0.3 and share[3] > share[4] * 1.3 else 4
+    # the kick, beat by beat: does the pattern come round every 4 beats or every 3?
+    frame_t = librosa.frames_to_time(np.arange(S_p.shape[1]), sr=sr, hop_length=hop)
+    k = max(kick_rises.values(), key=lambda x: float(np.percentile(x, 99)))
+    js = np.searchsorted(frame_t, beats)
+    per_beat = np.array([k[max(0, j - 2):j + 3].max() if j < len(k) else 0.0 for j in js])
+    x = per_beat - per_beat.mean()
+
+    def ac(lag):
+        return float(np.dot(x[:-lag], x[lag:]) / (np.dot(x, x) + 1e-9)) if len(x) > lag + 8 else 0.0
+    a3, a4 = ac(3), ac(4)
+    per = 3 if a3 > 0.1 and a3 > 1.2 * max(a4, 0.0) else 4
+    return per, subs, {"sixteenth_share": round(share[4], 2), "triplet_share": round(share[3], 2), "repeat3": round(a3, 2), "repeat4": round(a4, 2)}
 
 
 def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
-    """Where this song's kick and snare live, learned from where they land in the bar.
+    """Where this song's kick and snare live, learned from where they land in the song's own cycle.
 
-    Every song mixes its drums differently, so no fixed band finds them all. But a drum pattern
-    repeats bar after bar: the kick lands in the same few places, the snare in its own. So each
-    band's average jump is laid out over the sixteen sixteenths of a bar. The kick is the low band
-    whose pattern stands out most; the snare the band (above the kick) that stands out most in the
-    places the kick does not land. Hi-hats, on every eighth, have no standout places and lose.
-    Returns None when the song has no clear pattern (no grid, or no drums), and the fixed bands
-    are used instead.
+    Every song mixes its drums differently, and not every song is in four: so for each way the beat
+    could repeat (four beats in sixteenths, four in triplets, three in sixteenths or triplets, each
+    three-beat layout tried from every beat) and each low band, the band's average jump is laid out
+    over the cycle. The kick is the layout and band whose pattern stands out most: some places hit
+    hard, others empty. If none does, the song has no drums. The snare is the band (above the kick)
+    that stands out in the places the kick does not land and stays quiet where it does.
     """
     import librosa
     if beats is None or len(beats) < 16:
         return None
     frame_t = librosa.frames_to_time(np.arange(S_p.shape[1]), sr=sr, hop_length=hop)
-
-    def contrast(prof, where):
-        top = np.sort(prof[where])[-2:].mean()
-        rest = np.median(prof[where]) + 0.02
-        return float(top / rest)
-
+    kick_rises = {band: _rise(S_p, freqs, *band)[1] for band in KICK_BANDS}
+    per, subs, how = choose_layout(S_p, freqs, sr, hop, beats, kick_rises)
     best_k = None
-    allpos = np.arange(16)
-    for band in KICK_BANDS:
-        prof = _bar_profile(_rise(S_p, freqs, *band)[1], frame_t, beats, phase)
-        if prof is None:
-            return None
-        sc = contrast(prof, allpos)
-        if best_k is None or sc > best_k[0]:
-            best_k = (sc, band, prof)
-    if best_k[0] < 2.0:
-        return None                                      # no kick pattern to learn from
-    kick_pos = np.where(best_k[2] >= 0.5 * best_k[2].max())[0]
+    for start in ([phase] if per == 4 else range(per)):
+        grid = Grid(beats, per, subs, start)
+        for band, r in kick_rises.items():
+            prof = grid.profile(r, frame_t)
+            if prof is None:
+                continue
+            sc = _pattern(prof)
+            if best_k is None or sc > best_k[0]:
+                best_k = (sc, band, prof, grid)
+    if best_k is None:
+        return None
+    sc, kband, kprof, grid = best_k
+    if sc < NO_DRUMS_BELOW:
+        return {"has_drums": False, "kick_score": round(sc, 2), "grid": {**grid.to_json(), **how}}   # nothing in the low end keeps time
+    allpos = np.arange(grid.n)
+    kick_pos = np.where(kprof >= 0.5 * kprof.max())[0]
     free = np.array([q for q in allpos if q not in set(kick_pos)])
-    # A snare band must stand out in the places the kick does not land (contrast), and be quieter
-    # where only the kick lands than where the snare does (selectivity): a kick is broad, and a
-    # band it fills is no use for telling the two apart.
+    cal = {"has_drums": True, "grid": {**grid.to_json(), **how}, "kick_band": list(kband), "kick_score": round(sc, 2), "kick_pos": kick_pos.tolist()}
+    # The snare band must stand out in the places the kick does not land (contrast), and be quieter
+    # where only the kick lands than where the snare does (selectivity): a kick is broad, and a band
+    # it fills is no use for telling the two apart.
     best_s = None
-    kprof = best_k[2]
     for band in SNARE_BANDS:
         if len(free) < 4:
             break
-        prof = _bar_profile(_rise(S_p, freqs, *band)[1], frame_t, beats, phase)
-        sc = contrast(prof, free)
+        prof = grid.profile(_rise(S_p, freqs, *band)[1], frame_t)
+        c = _contrast(prof, free)
         level = float(np.sort(prof[free])[-2:].mean())
         sel = level / (float(prof[kick_pos].mean()) + 0.05)
-        if sc < 2.0 or sel < 1.4:                       # a weak pattern is worse than none: false snares flash on synths
+        if c < 2.0 or sel < 1.4:                      # a weak pattern is worse than none: false snares flash on synths
             continue
-        if best_s is None or sc * sel > best_s[0]:
-            best_s = (sc * sel, band, prof, sc, sel)
-    cal = {"kick_band": list(best_k[1]), "kick_score": round(best_k[0], 2), "kick_pos": kick_pos.tolist()}
+        if best_s is None or c * sel > best_s[0]:
+            best_s = (c * sel, band, prof, c, sel)
     if best_s is not None:
         prof = best_s[2]
         snare_pos = free[prof[free] >= 0.5 * prof[free].max()]
-        # a backbeat comes in twos, half a bar apart (2 and 4): a quieter twin is still the pattern
-        twins = [(q + 8) % 16 for q in snare_pos if (q + 8) % 16 in set(free)]
-        snare_pos = np.array(sorted(set(snare_pos.tolist()) | set(twins)), dtype=int)
+        # a backbeat comes in twos, half a cycle apart (2 and 4): a quieter twin is still the pattern
+        if grid.per % 2 == 0:
+            half = grid.n // 2
+            twins = [(q + half) % grid.n for q in snare_pos if (q + half) % grid.n in set(free)]
+            snare_pos = np.array(sorted(set(snare_pos.tolist()) | set(twins)), dtype=int)
         ratio = lambda where: float(prof[where].mean()) / (float(kprof[where].mean()) + 0.05)
         others = np.array([q for q in free if q not in set(snare_pos)])
         cal.update({"snare_band": list(best_s[1]), "snare_score": round(best_s[3], 2), "snare_selectivity": round(best_s[4], 2),
@@ -267,35 +356,95 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
     return cal
 
 
-def _pattern_share(times, beats, phase, places):
-    """The share of these hits that land on the given sixteenths of the bar."""
-    beats = np.asarray(beats, dtype=float)
+def _grid_of(cal, beats, phase):
+    g = (cal or {}).get("grid") or {}
+    return Grid(beats, g.get("beats_per_cycle", 4), g.get("slots_per_beat", 4), g.get("start", phase))
+
+
+def _pattern_share(times, grid, places):
+    """The share of these hits that land on the given slots of the cycle."""
     places, n, on = set(places), 0, 0
     for t in times:
-        i = int(np.searchsorted(beats, t)) - 1
-        if i < phase:
+        q = grid.slot(t)
+        if q is None:
             continue
-        bar = (i - int(phase)) // 4 * 4 + int(phase)
-        if bar + 4 >= len(beats):
-            continue
-        q = int(round((t - beats[bar]) / (beats[bar + 4] - beats[bar]) * 16)) % 16
         n += 1
         on += q in places
     return on / n if n else 0.0
 
 
+def _fingerprint_kicks(S_p, freqs, sr, hop, duration, grid, cal, t_k, s_k):
+    """Find the kicks again by how this song's kick sounds, where that tells them apart.
+
+    The confident kicks (strong, and on the song's kick places) are averaged into a fingerprint: the
+    shape of the first ~140 ms of the hit, in fine detail from 20 to 400 Hz, so the thump and its
+    falling pitch, not just its loudness in a band. Every jump in the low end is then compared with
+    it. Songs with a produced, consistent kick tell kicks from bass notes this way; songs with live,
+    varied kicks do not (each hit sounds a little different). So each song measures how well its
+    fingerprint separates its kick places from the rest, and keeps the kicks it has unless the
+    separation is clear. What it did is recorded in `cal["kick_fingerprint"]`.
+    """
+    import librosa
+    from scipy.signal import find_peaks
+    places = set(cal.get("kick_pos") or [])
+    seeds = [t for t, st in zip(t_k, s_k) if st >= 0.5 and grid.slot(t) in places][:200]
+    if len(seeds) < 12:
+        cal["kick_fingerprint"] = {"used": False, "why": "too few confident kicks"}
+        return t_k, s_k
+    m = (freqs >= 20) & (freqs <= 400)
+    Sm = S_p[m]
+    L = np.log1p(Sm / (np.percentile(Sm, 99) + 1e-9) * 100)
+    total = Sm.sum(axis=0)
+    rise = np.maximum(0.0, np.diff(total, prepend=total[:1]))
+    top = float(np.percentile(rise, 99.5)) + 1e-9
+    cand, _ = find_peaks(rise, distance=max(1, int(0.07 * sr / hop)), height=0.04 * top)
+
+    def prints(idx):
+        out = np.zeros((len(idx), L.shape[0] * FP_FRAMES))
+        for r, i in enumerate(idx):
+            if 2 <= i and i + FP_FRAMES <= L.shape[1]:
+                v = np.maximum(0.0, L[:, i:i + FP_FRAMES] - L[:, i - 2:i].mean(axis=1, keepdims=True)).ravel()
+                out[r] = v / (np.linalg.norm(v) + 1e-9)
+        return out
+    tmpl = prints(librosa.time_to_frames(np.array(seeds), sr=sr, hop_length=hop)).mean(axis=0)
+    tmpl /= np.linalg.norm(tmpl) + 1e-9
+    sim = prints(cand) @ tmpl
+    ct = librosa.frames_to_time(cand, sr=sr, hop_length=hop)
+    on = np.array([grid.slot(t) in places for t in ct])
+    if on.sum() < 8 or (~on).sum() < 8:
+        cal["kick_fingerprint"] = {"used": False, "why": "not enough to compare"}
+        return t_k, s_k
+    med_on, med_off = float(np.median(sim[on])), float(np.median(sim[~on]))
+    info = {"separation": round(med_on - med_off, 2), "on": round(med_on, 2), "off": round(med_off, 2)}
+    if med_on - med_off < FP_MIN_SEPARATION:
+        cal["kick_fingerprint"] = {**info, "used": False, "why": "kicks vary too much to fingerprint"}
+        return t_k, s_k
+    thr = float(np.clip((med_on + med_off) / 2, 0.55, 0.8))
+    keep = (sim >= thr) & (rise[cand] >= 0.1 * top) & (ct > 0.02) & (ct < duration)
+    if keep.sum() < 8:
+        cal["kick_fingerprint"] = {**info, "used": False, "why": "too few matches"}
+        return t_k, s_k
+    st = np.clip(rise[cand][keep] / (np.percentile(rise[cand][keep], 95) + 1e-9), 0, 1)
+    cal["kick_fingerprint"] = {**info, "used": True, "threshold": round(thr, 2)}
+    return ct[keep], st
+
+
 def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
     """The kick and snare hits themselves, from the percussive part of the mix.
 
-    The bands come from calibrate_drums when the song has a clear pattern; otherwise the kick is
-    a thump below 150 Hz and the snare a 1.5-5 kHz crack with some 150-400 Hz body (which a
-    hi-hat lacks). Every hit is found, not only those on the pattern: rolls and fills count.
-    Returns two lists of (time, strength 0..1), and the calibration (or None).
+    The bands come from calibrate_drums when the song has a clear pattern; a song whose low end keeps
+    no time at all has no drums, and gets no hits. Otherwise the kick is a thump below 150 Hz and the
+    snare a 1.5-5 kHz crack with some 150-400 Hz body (which a hi-hat lacks). Every hit is found, not
+    only those on the pattern: rolls and fills count. Returns two lists of (time, strength 0..1), and
+    the calibration (or None).
     """
     import librosa
     from scipy.signal import find_peaks
 
     cal = calibrate_drums(S_p, freqs, sr, hop, beats, phase)
+    if cal and not cal.get("has_drums", True):
+        return [], [], cal                               # a song without drums: nothing to flash on
+    grid = _grid_of(cal, beats, phase) if cal else None
 
     def band(lo, hi):
         m = (freqs >= lo) & (freqs <= hi)
@@ -323,6 +472,8 @@ def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
             level = np.array([low_all[i:i + 3].max() for i in cand])
             idx_k = cand[level >= 0.3 * float(np.percentile(level, 90))]
     idx_k, t_k, s_k = hits(rise, idx_k)
+    if cal:
+        t_k, s_k = _fingerprint_kicks(S_p, freqs, sr, hop, duration, grid, cal, t_k, s_k)
 
     if cal and "snare_band" in cal:
         # The calibrated snare: every jump in its band that is as big as a real snare in this song.
@@ -351,9 +502,9 @@ def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
                 continue                                 # no body: a hat or a shaker
             snare.append((t, float(np.clip(v / (lvl * 1.6 + 1e-9), 0, 1))))
         # The check: a drummer repeats the pattern, so most real snares land on the places the
-        # calibration found. If they are scattered all over the bar, the band was hearing
+        # calibration found. If they are scattered all over the cycle, the band was hearing
         # something else (a synth, a vocal), and the fixed bands are safer.
-        share = _pattern_share([t for t, _ in snare], beats, phase, cal["snare_pos"])
+        share = _pattern_share([t for t, _ in snare], grid, cal["snare_pos"])
         cal["snare_on_pattern"] = round(share, 2)
         if share >= 0.6:
             return list(zip(t_k, s_k)), snare, cal
@@ -380,7 +531,75 @@ def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
     return list(zip(t_k, s_k)), snare, cal
 
 
-def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None) -> dict:
+DRUMS_PRESENT_BELOW = 0.1  # separated drums quieter than this share of the song: the song has no drums
+
+
+def _hit_quality(hits, cal, beats, phase, kind):
+    """How believable a set of hits is: how much of it lands on a few places of the song's cycle
+    (a drummer repeats the pattern), at a sensible number per cycle. 0 for nothing."""
+    if not hits:
+        return 0.0
+    grid = _grid_of(cal, beats, phase) if cal and cal.get("has_drums") else Grid(beats, 4, 4, phase)
+    cycles = max(1, len(grid.cycles()))
+    sp = np.zeros(grid.n)
+    for t, _ in hits:
+        q = grid.slot(t)
+        if q is not None:
+            sp[q] += 1
+    if not sp.sum():
+        return 0.0
+    conc = float(np.sort(sp)[-4:].sum() / sp.sum())
+    per = len(hits) / cycles
+    lo, hi = (1.0, 8.0) if kind == "kick" else (0.75, 5.0)
+    return conc * min(1.0, per / lo) * min(1.0, hi / per)
+
+
+def drums_present(d, sr, hop, n_frames):
+    """0..1 per frame: how much the separated drum track is playing here (a drumless intro is 0)."""
+    w = max(1, int(0.5 * sr / hop))                    # half a second either side
+    m = len(d) // hop
+    rms = np.sqrt((d[: m * hop].reshape(m, hop) ** 2).mean(axis=1)) if m else np.zeros(1)
+    rms = np.pad(rms, (0, max(0, n_frames - len(rms))))[:n_frames]
+    k = np.ones(2 * w + 1) / (2 * w + 1)
+    sm = np.convolve(rms, k, mode="same")
+    ref = float(np.percentile(sm, 90)) + 1e-9
+    return np.clip(sm / ref, 0, 1)
+
+
+def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
+    """Kicks and snares from the full mix and from the separated drum track, keeping for each drum
+    whichever is more believable. Separation makes most drums far clearer, but not all: a clap can
+    land in "other", and strums can leak into the drum track. The separated drums also tell whether
+    the song has drums at all (quieter than 10% of the song: no drums), and when they are playing:
+    a hit from the mix at a moment the drum track is silent is dropped."""
+    import librosa
+    d = np.asarray(stems["drums"], dtype=np.float32)
+    if stems.get("sr", sr) != sr:
+        d = librosa.resample(d, orig_sr=stems["sr"], target_sr=sr)
+    d = np.pad(d, (0, max(0, len(mid) - len(d))))[: len(mid)]
+    level = float(np.sqrt(np.mean(d ** 2)) / (np.sqrt(np.mean(mid ** 2)) + 1e-9))
+    if level < DRUMS_PRESENT_BELOW:
+        return [], [], {"has_drums": False, "drum_level": round(level, 3), "source": "stems"}, np.zeros(S_mix.shape[1])
+    present = drums_present(d, sr, hop, S_mix.shape[1])
+    S_d = np.abs(librosa.stft(d, hop_length=hop))
+    mk, ms, mcal = find_drums(S_mix, freqs, sr, hop, duration, beats, phase)
+    sk, ss, scal = find_drums(S_d, freqs, sr, hop, duration, beats, phase)
+    q = {("kick", "mix"): _hit_quality(mk, mcal, beats, phase, "kick"), ("kick", "stem"): _hit_quality(sk, scal, beats, phase, "kick"),
+         ("snare", "mix"): _hit_quality(ms, mcal, beats, phase, "snare"), ("snare", "stem"): _hit_quality(ss, scal, beats, phase, "snare")}
+    k_src = "stem" if q[("kick", "stem")] >= q[("kick", "mix")] else "mix"
+    s_src = "stem" if q[("snare", "stem")] >= q[("snare", "mix")] else "mix"
+    kicks, snares = (sk if k_src == "stem" else mk), (ss if s_src == "stem" else ms)
+    playing = lambda t: present[min(len(present) - 1, int(t * sr / hop))] >= 0.15
+    kicks = [h for h in kicks if playing(h[0])]
+    snares = [h for h in snares if playing(h[0])]
+    cal = {"has_drums": True, "drum_level": round(level, 3), "kick_source": k_src, "snare_source": s_src,
+           "quality": {f"{a}_{b}": round(v, 2) for (a, b), v in q.items()},
+           **((scal if k_src == "stem" else mcal) or {}), "mix": mcal, "stem": scal}
+    cal["has_drums"] = True
+    return kicks, snares, cal, present
+
+
+def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None, stems=None) -> dict:
     """`audio` is (array, sr) already in memory, mono or (2, n); otherwise `path` is loaded."""
     import librosa
 
@@ -412,7 +631,11 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     env_lead, idx_lead, _ = _band_onsets(S_side, freqs, 300, 5000, sr, hop, 0.35, 3.2)
     env_bass, idx_bass, _ = _band_onsets(S_h, freqs, 35, 250, sr, hop, 0.30, 2.8)
     env_drum, idx_drum, _ = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
-    kick, snare, drum_cal = find_drums(S_p, freqs, sr, hop, duration, beats, phase)
+    present = None
+    if stems:
+        kick, snare, drum_cal, present = find_drums_both(S_p, freqs, sr, hop, duration, beats, phase, mid, stems)
+    else:
+        kick, snare, drum_cal = find_drums(S_p, freqs, sr, hop, duration, beats, phase)
 
     streams = {}
     for name, env, idx, S, lo, hi in (("lead", env_lead, idx_lead, S_side, 300, 5000),
@@ -455,6 +678,8 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
             "lead": [round(float(v), 3) for v in _level(S_side, freqs, 300, 5000, sr, hop, out_times)],
             "bass": [round(float(v), 3) for v in _level(S_h, freqs, 35, 250, sr, hop, out_times)],
             "drum": [round(float(v), 3) for v in _level(S_p, freqs, 1200, 9000, sr, hop, out_times, 0.15)],
+            **({"drums_present": [round(float(v), 3) for v in np.interp(out_times, librosa.frames_to_time(np.arange(len(present)), sr=sr, hop_length=hop), present)]}
+               if present is not None else {}),
         },
         "stereo": bool(wide),
         "drum_calibration": drum_cal,                   # the bands this song's kick and snare were found in

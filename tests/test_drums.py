@@ -79,3 +79,76 @@ class TestDrums(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def pattern_song(bpm, bars, per, kicks_at, snares_at, hats_per_beat, seed=5):
+    """A groove with `per` beats a bar: kick and snare at the given beat positions (fractions allowed),
+    hats `hats_per_beat` times a beat. Returns the mix, the drums alone, beats, length and the truth."""
+    rng = np.random.default_rng(seed)
+    beat = 60.0 / bpm
+    n = int(bars * per * beat * SR) + SR
+    drums = np.zeros(n, dtype=np.float32)
+    tk = np.arange(int(0.2 * SR)) / SR
+    kick = np.sin(2 * np.pi * (50 + 80 * np.exp(-tk * 30)) * tk) * np.exp(-tk * 14)
+    ts = np.arange(int(0.18 * SR)) / SR
+    snare = 0.6 * np.sin(2 * np.pi * 200 * ts) * np.exp(-ts * 25) + 0.8 * rng.standard_normal(len(ts)) * np.exp(-ts * 22)
+    th = np.arange(int(0.04 * SR)) / SR
+    from scipy.signal import butter, lfilter
+    b, a = butter(4, 7000 / (SR / 2), "high")
+    hat = lfilter(b, a, rng.standard_normal(len(th)) * np.exp(-th / 0.008))
+
+    def put(sig, t, g):
+        i = int(t * SR); j = min(n, i + len(sig))
+        drums[i:j] += (sig[: j - i] * g).astype(np.float32)
+    K, Sn = [], []
+    for bar in range(bars):
+        t0 = 0.5 + bar * per * beat
+        for k in kicks_at:
+            put(kick, t0 + k * beat, 0.9); K.append(t0 + k * beat)
+        for k in snares_at:
+            put(snare, t0 + k * beat, 0.5); Sn.append(t0 + k * beat)
+        for h in range(per * hats_per_beat):
+            put(hat, t0 + h * beat / hats_per_beat, 0.2)
+    beats = [0.5 + i * beat for i in range(bars * per)]
+    return drums, beats, n / SR, np.array(K), np.array(Sn)
+
+
+class TestLayoutsAndStems(unittest.TestCase):
+    def cal(self, y, beats):
+        import librosa
+        from lightshow.studio.events import calibrate_drums
+        S = np.abs(librosa.stft(y, hop_length=512))
+        return calibrate_drums(S, librosa.fft_frequencies(sr=SR), SR, 512, beats, 0)
+
+    def test_a_shuffle_is_heard_in_triplets(self):
+        y, beats, *_ = pattern_song(90, 16, 4, kicks_at=(0, 2, 2 + 2 / 3), snares_at=(1, 3), hats_per_beat=3)
+        self.assertEqual(self.cal(y, beats)["grid"]["slots_per_beat"], 3)
+
+    def test_a_waltz_is_heard_in_three(self):
+        y, beats, *_ = pattern_song(120, 20, 3, kicks_at=(0,), snares_at=(1, 2), hats_per_beat=2)
+        self.assertEqual(self.cal(y, beats)["grid"]["beats_per_cycle"], 3)
+
+    def test_no_drums_in_the_drum_track_means_no_drums(self):
+        import librosa
+        from lightshow.studio.events import detect_events
+        t = np.arange(int(40 * SR)) / SR
+        mix = (0.3 * np.sin(2 * np.pi * 110 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 1.7 * t))).astype(np.float32)   # a strummed-ish tone
+        quiet = (0.002 * np.random.default_rng(1).standard_normal(len(t))).astype(np.float32)
+        beats = list(np.arange(0.5, 39, 0.5))
+        out = detect_events(None, beats, 40.0, audio=(mix, SR), stems={"drums": quiet, "bass": mix, "sr": SR})
+        self.assertFalse(out["drum_calibration"]["has_drums"])
+        self.assertEqual(out["events"]["kick"], [])
+        self.assertEqual(out["events"]["snare"], [])
+
+    def test_the_drum_track_wins_when_the_mix_is_crowded(self):
+        from lightshow.studio.events import detect_events
+        drums, beats, dur, K, _ = pattern_song(100, 16, 4, kicks_at=(0, 2, 2.5), snares_at=(1, 3), hats_per_beat=2)
+        t = np.arange(len(drums)) / SR
+        bass = (0.8 * np.sin(2 * np.pi * 55 * t) * (np.sin(2 * np.pi * 100 / 60 * 2 * t) > 0)).astype(np.float32)   # a loud pumping sub bass on the off beats
+        out = detect_events(None, beats, dur, audio=(drums + bass, SR), stems={"drums": drums, "bass": bass, "sr": SR})
+        cal = out["drum_calibration"]
+        self.assertTrue(cal["has_drums"])
+        self.assertEqual(cal["kick_source"], "stem")
+        recall, extra = score(out["events"]["kick"], K)
+        self.assertGreater(recall, 0.9)
+        self.assertLess(extra, len(K) * 0.15)

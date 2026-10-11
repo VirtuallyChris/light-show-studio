@@ -287,6 +287,7 @@ winget install --id Python.Python.3.12 --scope user
 %LOCALAPPDATA%\Programs\Python\Python312\python.exe -m venv %LOCALAPPDATA%\lanlightshowenv-songformer
 %LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
 %LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
+%LOCALAPPDATA%\lanlightshowenv-songformer\Scripts\python.exe -m pip install demucs
 ```
 
 The weights download automatically on first use. The environment lives on
@@ -485,7 +486,23 @@ noise.
 
 **How the auto-built shows look.**
 
-- **The drums lead.** The analysis finds the kick and snare hits themselves,
+- **The drums lead.** First the song is pulled apart (Demucs, in the model
+  environment, about 3 s a song on the GPU, in memory, never written to disk)
+  into drums, bass, vocals and the rest. Kicks and snares are then found both in
+  the full mix and in the drum track alone, and for each drum the studio keeps
+  whichever is more believable (hits on a steady pattern at a sensible number per
+  bar): separation makes most drums far clearer, but a clap can land among the
+  "other" instruments and strums can leak into the drums. The drum track also
+  says when the drums are playing at all, moment to moment: a hit at a moment the
+  drum track is silent is dropped, the beat pulse goes only where the drums play,
+  and a song whose drum track is near silent (under 10% of its level) **has no
+  drums**: no kicks, no snares, and a calm, chill show unless a style is set by
+  hand. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
+  ones at 1-2%. Without the model environment the drums come from the mix alone.
+  The drum pattern is learned per song, in the song's own meter: four beats or
+  three, in sixteenths or triplets (a shuffle, 6/8), decided from how tightly all
+  its percussion gathers on each division of the beat and whether the kick's
+  pattern comes round every 4 beats or every 3. The kick and snare are then
   calibrated per song: every song mixes its drums differently (a deep sub kick
   or a punchy 150 Hz one; a fat 200 Hz snare, a dry 3 kHz crack, a dubstep
   snare around 600 Hz). A drum pattern repeats bar after bar, so each frequency
@@ -501,7 +518,11 @@ noise.
   gained 1.5-2.5x the snares, concentrated on the backbeat; the rest kept the
   fixed bands. A song with no clear pattern falls back to fixed bands (the kick below 150 Hz; the snare by its
   crack plus the body a hi-hat lacks). The bands chosen are saved with the
-  analysis (`drum_calibration`).
+  analysis (`drum_calibration`). Where a song's kick is consistent (a produced
+  kick), its kicks are then found again by a fingerprint: the average shape of its
+  confident kicks over their first 140 ms, from 20 to 400 Hz, which tells a kick
+  from a bass note in the same range; songs with live, varied kicks keep the band
+  detection, since each song measures how well its fingerprint separates.
   Beat pulse follows the hits: the kick blooms from the center, the snare from
   the ends. It goes only where there are drums (at least 4 hits, one every 4
   beats); a drumless breakdown gets none. The **buildup riser** steps on the

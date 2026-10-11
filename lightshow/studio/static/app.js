@@ -1469,9 +1469,12 @@
   }
   /** chill | groove | dance | rave: chosen for the song from its genre, unless set by hand in the Song panel */
   const STYLE_NAMES = { chill: 'Chill', groove: 'Groove', dance: 'Dance', rave: 'Rave' };
+  /** The analysis found no drums at all (the separated drum track is near silent): a calm song. */
+  const noDrums = () => !!(S.analysis && S.analysis.drum_calibration && S.analysis.drum_calibration.has_drums === false);
   function showStyle() {
     const p = P(), g = S.analysis && S.analysis.genre;
     if (p && p.settings && STYLE_NAMES[p.settings.style]) return p.settings.style;
+    if (noDrums()) return 'chill';                                  // nothing keeps time: slow fades, no flashes
     if (g && STYLE_NAMES[g.style]) return g.style;
     return ((S.analysis && S.analysis.mood && S.analysis.mood.drive) || 0.6) > 0.72 ? 'dance' : 'groove';
   }
@@ -1590,9 +1593,14 @@
     // only placed where there are drums to follow: a section with at least 4 kick or snare hits and
     // one every 4 beats. When the song's drums are not known yet, the quiet kinds of section get none.
     const ev = (S.analysis && S.analysis.events) || {};
-    const drumsKnown = (ev.kick || []).length > 0;
+    const drumsKnown = (ev.kick || []).length > 0 || noDrums();
     const hitsHere = drumsKnown ? [...(ev.kick || []), ...(ev.snare || [])].filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
-    const drumsHere = drumsKnown ? hitsHere >= Math.max(4, len / 4) : !['intro', 'breakdown', 'outro'].includes(s.type);
+    // With the drums separated out, whether they are playing is known moment by moment: a section
+    // has drums when the drum track plays through most of it (a drumless intro is 0 however loud).
+    const present = ((S.analysis && S.analysis.curves) || {}).drums_present;
+    const playing = present && present.length ? (() => { const fps = S.analysis.feature_fps || 30; const i0 = Math.floor(s.start * fps), i1 = Math.min(present.length, Math.ceil(s.end * fps));
+      let on = 0; for (let i = i0; i < i1; i++) on += present[i] >= 0.3; return i1 > i0 ? on / (i1 - i0) >= 0.5 : false; })() : true;
+    const drumsHere = !noDrums() && playing && (drumsKnown ? hitsHere >= Math.max(4, len / 4) : !['intro', 'breakdown', 'outro'].includes(s.type));
     const drums = (opacity, size = 0.75) => drumsHere && clip(2, 'pulse', b0, len, { follow: 'drums', decay: 0.45, size }, { opacity, blend: 'add' });
     const snaresHere = drumsKnown ? (ev.snare || []).filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
     // the drum strobe: flashes on the real hits only; how hard depends on the kind of song
