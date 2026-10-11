@@ -431,6 +431,22 @@ room is as loud as its loudest speaker), and **Edit mix** under it for each
 speaker's own; speakers in no room are listed after. The Party Hub answers only
 devices on the home network (private addresses) and this PC.
 
+## Cues: the doorbell, shot o'clock
+
+The Party Hub's **Cues** are big buttons for the moments the party stops for: tap
+one and the music fades out, Spotify pauses (in a jam the room pauses with it and
+keeps its buffer), one of your saved shows plays, then Spotify resumes and the
+music fades back in where it left off. Tap the running cue to end its show early.
+In **Settings**, each cue has a name, its show (any saved show, with its length),
+and whether the music fades out and back in, and over how many seconds (up to
+30). Doorbell and Shot o'clock are there to start with; **+ Add cue** adds more.
+Cues are kept in config.json (`cues`).
+
+For now every cue is a **rehearsal**: each step runs on its real timing and the
+button follows along (marked *rehearsal*), but no speaker, light or Spotify is
+touched. Playing the show's sound on the jam's speakers and handing them back to
+the jam afterwards is still to be wired, and tried on the real speakers.
+
 ## Rooms
 
 Lights and speakers can be put in rooms (the studio's ⚙ menu, **Rooms…**, or the

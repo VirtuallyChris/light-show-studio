@@ -27,6 +27,7 @@ from . import audiotrim
 from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
 from .jam_service import JamService
 from .rooms import Rooms, FADE_S
+from .cues import CueRunner
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -454,6 +455,7 @@ class Studio:
         self.cast = CastManager(govee_lan.local_ip())
         self.requested: list[str] = []                   # the lights ticked in the studio (by address)
         self.rooms = Rooms(load_config, save_config, self.cast, touch=lights)   # a test copy never touches a speaker
+        self.cues = CueRunner(load_config, save_config, self._show_length)       # rehearsals only, for now
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
         self.jam.player_enabled = player
@@ -470,6 +472,10 @@ class Studio:
             web.get("/api/rooms", self.rooms_get),
             web.post("/api/rooms", self.rooms_set),
             web.post("/api/rooms/on", self.rooms_on),
+            web.get("/api/cues", self.cues_get),
+            web.post("/api/cues", self.cues_set),
+            web.post("/api/cues/run", self.cues_run),
+            web.post("/api/cues/stop", self.cues_stop),
             web.post("/api/song", self.upload_song),
             web.post("/api/open", self.open_path),
             web.get("/api/audio/{project}", self.audio),
@@ -517,6 +523,51 @@ class Studio:
         """A room left off last time stays off: its speakers go quiet again (in the background)."""
         if any(not r["on"] and r["speakers"] for r in self.rooms.list()):
             asyncio.get_running_loop().run_in_executor(None, self.rooms.sync_speakers)
+
+    # -- cues ----------------------------------------------------------------------------
+    def _show_length(self, name: str) -> float:
+        pdir = os.path.join(SHOWS_DIR, safe_name(name))
+        song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
+        if not song:
+            return 0.0
+        try:
+            return float(audiotrim.total_duration(os.path.join(pdir, song[0])))
+        except Exception:  # noqa: BLE001
+            return 0.0
+
+    def _cue_shows(self) -> list[dict]:
+        out = []
+        if os.path.isdir(SHOWS_DIR):
+            for name in sorted(os.listdir(SHOWS_DIR), key=str.lower):
+                if name.startswith("_") or not os.path.isfile(os.path.join(SHOWS_DIR, name, "project.json")):
+                    continue
+                out.append({"name": name, "length": round(self._show_length(name), 1)})
+        return out
+
+    async def cues_get(self, request):
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        shows = await asyncio.get_running_loop().run_in_executor(None, self._cue_shows)
+        return web.json_response({"cues": self.cues.list(), "shows": shows, "running": self.cues.status()})
+
+    async def cues_set(self, request):
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        return web.json_response({"cues": self.cues.replace((await request.json()).get("cues", []))})
+
+    async def cues_run(self, request):
+        """Run a cue. A rehearsal for now: every step on its real timing, nothing touched."""
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        try:
+            return web.json_response(self.cues.run(str((await request.json()).get("id", ""))))
+        except (LookupError, ValueError, RuntimeError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+    async def cues_stop(self, request):
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        return web.json_response(self.cues.stop())
 
     def _off_ips(self) -> set[str]:
         off = self.rooms.off_light_keys()

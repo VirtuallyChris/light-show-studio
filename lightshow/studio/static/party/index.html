@@ -53,6 +53,25 @@
   .sw input { position: absolute; inset: -8px; width: calc(100% + 16px); height: calc(100% + 16px); opacity: 0; }
   .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
   .sw.fixed { border-style: dashed; }
+  /* cues */
+  .cues { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cue { position: relative; overflow: hidden; font: inherit; font-size: 17px; font-weight: 650; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 16px; padding: 18px 10px; min-height: 76px; }
+  .cue:active { transform: scale(0.97); }
+  .cue.empty-show { color: var(--muted); font-weight: 500; }
+  .cue.running { border-color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .cue .phase { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
+  .cue .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
+  .cue:disabled { opacity: .45; }
+  .cue-edit { padding: 12px 0; border-top: 1px solid var(--line); }
+  .cue-edit:first-of-type { border-top: none; }
+  .cue-edit .top { display: flex; align-items: center; gap: 10px; }
+  .cue-edit input[type=text], .cue-edit select { font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .cue-edit .top input[type=text] { flex: 1; min-width: 0; font-weight: 600; }
+  .cue-edit select { width: 100%; margin-top: 10px; }
+  .fade-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+  .fade-row .secs { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+  .fade-row input[type=number] { width: 64px; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; text-align: center; }
+  .fade-row input[type=number]:disabled { opacity: .4; }
   .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
   .theme-chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .theme-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -104,7 +123,7 @@
   .room-edit:first-of-type { border-top: none; }
   .room-edit .top { display: flex; align-items: center; gap: 10px; }
   .room-edit .top input[type=text] { flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-  .room-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; }
+  .room-edit .del, .cue-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .chips .kind { width: 100%; font-size: 12px; color: var(--muted); }
   .chip { font: inherit; font-size: 14px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; }
@@ -117,6 +136,10 @@
 <header><h1 id="title">Party Hub</h1><div class="head-right"><span id="status" class="pill">connecting…</span><button class="gear" id="gear" aria-label="Settings">&#9881;</button></div></header>
 
 <main id="settings" hidden>
+  <section class="card">
+    <div class="label">Cues</div>
+    <div id="cueEdit"><div class="empty">…</div></div>
+  </section>
   <section class="card">
     <div class="label">Rooms</div>
     <div id="roomEdit"><div class="empty">…</div></div>
@@ -136,6 +159,11 @@
   <div class="party-row"><div class="label">Party</div><div class="party-val" id="partyVal">100%</div></div>
   <input id="party" type="range" min="0" max="100" step="1" value="100" aria-label="Party level">
   <div class="hint" id="partyHint">The full show.</div>
+</section>
+
+<section class="card" id="cuesCard" hidden>
+  <div class="label">Cues</div>
+  <div class="cues" id="cues"></div>
 </section>
 
 <section class="card" id="themeCard" hidden>
@@ -243,6 +271,70 @@
     }
   }
 
+  // ---- cues: tap one and the music fades out, a saved show plays, and the music fades back in
+  const PHASE = { starting: 'Starting…', fade_out: 'Fading out…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…', fade_in: 'Fading in…' };
+  let cuesShown = '', cueTick = null;
+  function renderCues(st) {
+    const cues = st.cues || [], run = st.cue || {}, live = run.phase && run.phase !== 'done';
+    $('#cuesCard').hidden = !cues.length;
+    const html = cues.map(c => {
+      const mine = live && run.id === c.id;
+      return `<button class="cue ${mine ? 'running' : ''} ${c.show ? '' : 'empty-show'}" data-id="${esc(c.id)}" ${live && !mine ? 'disabled' : ''}>${esc(c.name)}`
+        + (mine ? `<span class="phase">${esc(PHASE[run.phase] || '')}${run.rehearsal ? ' · rehearsal' : ''}</span><span class="prog"></span>` : c.show ? '' : '<span class="phase">no show yet</span>') + '</button>';
+    }).join('');
+    if (html !== cuesShown) {
+      cuesShown = html; $('#cues').innerHTML = html;
+      for (const b of $('#cues').querySelectorAll('.cue')) b.onclick = async () => {
+        const c = cues.find(x => x.id === b.dataset.id); if (!c) return;
+        if (!c.show) { $('#gear').click(); return; }                     // no show yet: pick one in Settings
+        if (b.classList.contains('running')) { await fetch('/api/cues/stop', { method: 'POST' }).catch(() => {}); poll(); return; }
+        const r = await fetch('/api/cues/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(x => x.json()).catch(() => ({}));
+        if (r.error) alert(r.error);
+        poll();
+      };
+    }
+    // a running cue: its progress moves smoothly between polls
+    clearInterval(cueTick);
+    if (live && run.dur) {
+      const at = performance.now(), p0 = run.progress || 0, bar = () => { const el = $('#cues .prog'); if (el) el.style.width = Math.min(100, 100 * (p0 + (performance.now() - at) / 1000 / run.dur)) + '%'; };
+      bar(); cueTick = setInterval(bar, 100);
+    }
+  }
+
+  // settings: each cue's show, and whether the music fades out and back in, and over how long
+  let cueDoc = null;
+  async function loadCueEdit() {
+    try { cueDoc = await (await fetch('/api/cues')).json(); } catch (e) { $('#cueEdit').innerHTML = '<div class="empty">Couldn’t load the cues.</div>'; return; }
+    renderCueEdit();
+  }
+  async function saveCues(cues) {
+    try { const r = await (await fetch('/api/cues', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cues }) })).json(); cueDoc.cues = r.cues; } catch (e) { /* shown on the next load */ }
+    renderCueEdit(); cuesShown = ''; poll();
+  }
+  function renderCueEdit() {
+    if (!cueDoc) return;
+    const cues = cueDoc.cues.map(c => ({ ...c, fade_out: { ...c.fade_out }, fade_in: { ...c.fade_in } })), shows = cueDoc.shows || [];
+    const len = n => { const s = shows.find(x => x.name === n); return s && s.length ? ` (${Math.floor(s.length / 60)}:${String(Math.round(s.length % 60)).padStart(2, '0')})` : ''; };
+    const fade = (c, k, label) => `<div class="fade-row"><span>${label}</span><span class="secs"><input type="number" min="0" max="30" step="0.5" class="${k}-s" value="${c[k].s}" ${c[k].on ? '' : 'disabled'} aria-label="${label} seconds"> s
+        <label class="switch"><input type="checkbox" class="${k}-on" ${c[k].on ? 'checked' : ''} aria-label="${label}"><span></span></label></span></div>`;
+    $('#cueEdit').innerHTML = cues.map((c, i) => `<div class="cue-edit" data-i="${i}">
+        <div class="top"><input type="text" value="${esc(c.name)}" maxlength="30" aria-label="Cue name"><button class="del" aria-label="Delete ${esc(c.name)}">&times;</button></div>
+        <select aria-label="Show"><option value="">Pick a saved show…</option>${shows.map(s => `<option value="${esc(s.name)}" ${s.name === c.show ? 'selected' : ''}>${esc(s.name)}${len(s.name)}</option>`).join('')}</select>
+        ${fade(c, 'fade_out', 'Fade the music out')}${fade(c, 'fade_in', 'Fade the music back in')}</div>`).join('')
+      + `<button class="add" id="addCue">+ Add cue</button>`;
+    $('#addCue').onclick = () => saveCues([...cues, { name: `Cue ${cues.length + 1}`, show: '', fade_out: { on: true, s: 2 }, fade_in: { on: true, s: 3 } }]);
+    for (const el of $('#cueEdit').querySelectorAll('.cue-edit')) {
+      const c = cues[+el.dataset.i];
+      el.querySelector('input[type=text]').onchange = e => { c.name = e.target.value.trim() || c.name; saveCues(cues); };
+      el.querySelector('select').onchange = e => { c.show = e.target.value; saveCues(cues); };
+      el.querySelector('.del').onclick = () => { if (confirm(`Delete ${c.name}?`)) { cues.splice(+el.dataset.i, 1); saveCues(cues); } };
+      for (const k of ['fade_out', 'fade_in']) {
+        el.querySelector(`.${k}-on`).onchange = e => { c[k].on = e.target.checked; saveCues(cues); };
+        el.querySelector(`.${k}-s`).onchange = e => { c[k].s = Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)); saveCues(cues); };
+      }
+    }
+  }
+
   // ---- the party's colors, on or off for every song (off: each song in its cover's)
   const themeSw = $('#themeOn');
   themeSw.onchange = async () => {
@@ -292,7 +384,7 @@
       if (play) play.onclick = () => api('playback', { action: r.playing ? 'pause' : 'resume' }).then(poll).catch(() => {});
       if (next) next.onclick = () => api('playback', { action: 'next' }).then(poll).catch(() => {});
     }
-    renderRooms(st.rooms || []); renderTheme(st);
+    renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
   }
@@ -392,7 +484,7 @@
         const top = Math.max(...names.map(n => base[n] || 0));
         return Object.fromEntries(names.map(n => [n, top > 0 ? (base[n] || 0) * v / top : v]));
       };
-      const send = () => api('volume', { levels: levelsFor(+r.value / 100) }).catch(() => {});
+      const send = () => { if (base) api('volume', { levels: levelsFor(+r.value / 100) }).catch(() => {}); };
       r.addEventListener('input', () => {
         if (!base) base = Object.fromEntries(names.map(n => [n, (devs.find(d => d.name === n) || {}).volume || 0]));
         box.querySelector(':scope > .vol .vv').textContent = r.value + '%';
@@ -400,7 +492,7 @@
         for (const m of box.querySelectorAll('.mix input[type=range]')) { const v = Math.round((lv[m.dataset.key] || 0) * 100); m.value = v; m.parentElement.querySelector('.vv').textContent = v + '%'; }
         clearTimeout(t); t = setTimeout(send, 150);
       });
-      r.addEventListener('change', () => { send(); for (const n of names) { const d = devs.find(x => x.name === n); if (d) d.volume = levelsFor(+r.value / 100)[n]; } base = null; });
+      r.addEventListener('change', () => { clearTimeout(t); if (!base) return; send(); for (const n of names) { const d = devs.find(x => x.name === n); if (d) d.volume = levelsFor(+r.value / 100)[n]; } base = null; });
       const btn = box.querySelector('.mixbtn'), mix = box.querySelector('.mix');
       if (btn) btn.onclick = () => { const open = mix.hidden; mix.hidden = !open; btn.textContent = open ? 'Hide mix' : 'Edit mix'; open ? mixOpen.add(box.dataset.room) : mixOpen.delete(box.dataset.room); };
       for (const m of mix.querySelectorAll('input[type=range]')) m.addEventListener('change', () => { const d = devs.find(x => x.name === m.dataset.key); if (d) d.volume = +m.value / 100;
@@ -438,7 +530,7 @@
     $('#settings').hidden = !settingsOpen; $('#home').hidden = settingsOpen;
     $('#gear').innerHTML = settingsOpen ? '&#10005;' : '&#9881;'; $('#gear').setAttribute('aria-label', settingsOpen ? 'Close settings' : 'Settings');
     $('#title').textContent = settingsOpen ? 'Settings' : 'Party Hub';
-    if (settingsOpen) { loadRoomEdit(); loadVolumes(); }
+    if (settingsOpen) { loadCueEdit(); loadRoomEdit(); loadVolumes(); }
   };
   document.addEventListener('visibilitychange', poll);
   poll();
