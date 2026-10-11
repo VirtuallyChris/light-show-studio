@@ -75,6 +75,35 @@
   .vol input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--card2); }
   .vol input[type=range]::-webkit-slider-thumb { width: 24px; height: 24px; margin-top: -9px; }
   .group-tag { font-size: 11px; color: var(--muted); margin-left: 6px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .vol.muted .vname span:first-child { color: var(--muted); }
+  .vroom { padding: 10px 0; border-top: 1px solid var(--line); }
+  .vroom:first-of-type { border-top: none; }
+  .vroom > .vol { border-top: none; padding: 0; }
+  .vroom > .vol .vname { font-weight: 650; font-size: 16px; }
+  .mixbtn { border: none; background: none; color: var(--muted); font: inherit; font-size: 13px; padding: 4px 0; }
+  .mix { margin: 2px 0 0 12px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .mix .vol .vname { font-size: 14px; }
+  /* rooms */
+  .switch { position: relative; width: 52px; height: 32px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 16px; background: var(--card2); transition: background .2s; pointer-events: none; }
+  .switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; transition: left .2s; }
+  .switch input:checked + span { background: var(--ok); }
+  .switch input:checked + span::after { left: 23px; }
+  .room-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .room-row:first-of-type { border-top: none; }
+  .room-row .rname { font-size: 17px; font-weight: 600; }
+  .room-row .rsub { font-size: 13px; color: var(--muted); }
+  .room-edit { padding: 12px 0; border-top: 1px solid var(--line); }
+  .room-edit:first-of-type { border-top: none; }
+  .room-edit .top { display: flex; align-items: center; gap: 10px; }
+  .room-edit .top input[type=text] { flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .room-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chips .kind { width: 100%; font-size: 12px; color: var(--muted); }
+  .chip { font: inherit; font-size: 14px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; }
+  .chip.on { background: var(--accent); border-color: var(--accent); }
+  .add { width: 100%; margin-top: 10px; font: inherit; color: var(--text); background: var(--card2); border: 1px dashed var(--line); border-radius: 12px; padding: 10px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -83,11 +112,15 @@
 
 <main id="settings" hidden>
   <section class="card">
+    <div class="label">Rooms</div>
+    <div id="roomEdit"><div class="empty">…</div></div>
+  </section>
+  <section class="card">
     <div class="label">Cast volume</div>
     <div id="castVol"><div class="empty">…</div></div>
   </section>
   <section class="card">
-    <div class="label">Speakers</div>
+    <div class="label">Speakers by room</div>
     <div id="speakers"><div class="empty">Looking for speakers…</div></div>
   </section>
 </main>
@@ -97,6 +130,11 @@
   <div class="party-row"><div class="label">Party</div><div class="party-val" id="partyVal">100%</div></div>
   <input id="party" type="range" min="0" max="100" step="1" value="100" aria-label="Party level">
   <div class="hint" id="partyHint">The full show.</div>
+</section>
+
+<section class="card" id="roomsCard" hidden>
+  <div class="label">Rooms</div>
+  <div id="rooms"></div>
 </section>
 
 <section class="card" id="nowCard">
@@ -191,6 +229,7 @@
       if (play) play.onclick = () => api('playback', { action: r.playing ? 'pause' : 'resume' }).then(poll).catch(() => {});
       if (next) next.onclick = () => api('playback', { action: 'next' }).then(poll).catch(() => {});
     }
+    renderRooms(st.rooms || []);
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
   }
@@ -209,19 +248,100 @@
   }
   setInterval(poll, 1500);
 
+  // ---- rooms: switch one off (karaoke in the living room) and its lights go back to how they were and
+  // its speakers fade out; switch it on and both fade back in
+  let roomsShown = '', roomBusy = 0;
+  function renderRooms(rooms) {
+    $('#roomsCard').hidden = !rooms.length;
+    if (performance.now() < roomBusy) return;                         // a switch just flipped: wait for the studio
+    const html = rooms.map(r => `<div class="room-row"><div><div class="rname">${esc(r.name)}</div>
+        <div class="rsub">${r.on ? 'In the party' : 'Lights back to normal, speakers muted'}</div></div>
+        <label class="switch"><input type="checkbox" data-id="${esc(r.id)}" ${r.on ? 'checked' : ''} aria-label="${esc(r.name)} in the party"><span></span></label></div>`).join('');
+    if (html === roomsShown) return;
+    roomsShown = html; $('#rooms').innerHTML = html;
+    for (const sw of $('#rooms').querySelectorAll('input[data-id]')) sw.onchange = async () => {
+      roomBusy = performance.now() + 2500;
+      sw.closest('.room-row').querySelector('.rsub').textContent = sw.checked ? 'Fading in…' : 'Fading out…';
+      try { await fetch('/api/rooms/on', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sw.dataset.id, on: sw.checked }) }); } catch (e) { /* the next poll shows the truth */ }
+    };
+  }
+
+  // settings: which lights and speakers stand in each room
+  let roomsDoc = null;
+  async function saveRooms(rooms) {
+    try { roomsDoc = await (await fetch('/api/rooms?devices=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rooms }) })).json(); } catch (e) { /* shown below */ }
+    renderRoomEdit(); roomsShown = ''; poll(); loadVolumes();
+  }
+  async function loadRoomEdit() {
+    try { roomsDoc = await (await fetch('/api/rooms?devices=1')).json(); } catch (e) { $('#roomEdit').innerHTML = '<div class="empty">Couldn’t load the rooms.</div>'; return; }
+    renderRoomEdit();
+  }
+  function renderRoomEdit() {
+    if (!roomsDoc) return;
+    const d = roomsDoc, rooms = d.rooms.map(r => ({ ...r, lights: r.lights.slice(), speakers: r.speakers.slice() }));
+    const lightName = l => l.name || `${l.sku} ${l.ip}`;
+    $('#roomEdit').innerHTML = (rooms.length ? '' : '<div class="empty">No rooms yet: every light and speaker plays.</div>') +
+      rooms.map((r, i) => `<div class="room-edit" data-i="${i}">
+        <div class="top"><input type="text" value="${esc(r.name)}" maxlength="40" aria-label="Room name">
+          <label class="switch"><input type="checkbox" class="on" ${r.on ? 'checked' : ''} aria-label="In the party"><span></span></label>
+          <button class="del" aria-label="Delete ${esc(r.name)}">&times;</button></div>
+        <div class="chips"><span class="kind">Lights</span>${(d.lights || []).map(l => `<button class="chip ${r.lights.includes(l.key) ? 'on' : ''}" data-light="${esc(l.key)}">${esc(lightName(l))}</button>`).join('') || '<span class="kind">None found</span>'}</div>
+        <div class="chips"><span class="kind">Speakers</span>${(d.speakers || []).map(sp => `<button class="chip ${r.speakers.includes(sp) ? 'on' : ''}" data-speaker="${esc(sp)}">${esc(sp)}</button>`).join('') || '<span class="kind">None found</span>'}</div>
+      </div>`).join('') + `<button class="add" id="addRoom">+ Add room</button>`;
+    $('#addRoom').onclick = () => saveRooms([...rooms, { name: `Room ${rooms.length + 1}`, on: true, lights: [], speakers: [] }]);
+    for (const el of $('#roomEdit').querySelectorAll('.room-edit')) {
+      const i = +el.dataset.i, r = rooms[i];
+      el.querySelector('input[type=text]').onchange = e => { r.name = e.target.value.trim() || r.name; saveRooms(rooms); };
+      el.querySelector('.on').onchange = e => { r.on = e.target.checked; saveRooms(rooms); };
+      el.querySelector('.del').onclick = () => { if (confirm(`Delete ${r.name}?`)) { rooms.splice(i, 1); saveRooms(rooms); } };
+      // a light or a speaker stands in one room: putting it here takes it out of any other
+      for (const b of el.querySelectorAll('[data-light]')) b.onclick = () => { const k = b.dataset.light, has = r.lights.includes(k);
+        rooms.forEach(o => { o.lights = o.lights.filter(x => x !== k); }); if (!has) r.lights.push(k); saveRooms(rooms); };
+      for (const b of el.querySelectorAll('[data-speaker]')) b.onclick = () => { const k = b.dataset.speaker, has = r.speakers.includes(k);
+        rooms.forEach(o => { o.speakers = o.speakers.filter(x => x !== k); }); if (!has) r.speakers.push(k); saveRooms(rooms); };
+    }
+  }
+
   // ---- settings: the cast's volume, and every speaker's own
   let settingsOpen = false;
   const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
-  function volRow(name, v, key, group) {
-    return `<div class="vol"><div class="vname"><span>${esc(name)}${group ? '<span class="group-tag">group</span>' : ''}</span><span class="vv">${pct(v)}</span></div>
+  function volRow(name, v, key, group, muted) {
+    return `<div class="vol${muted ? ' muted' : ''}"><div class="vname"><span>${esc(name)}${group ? '<span class="group-tag">group</span>' : ''}${muted ? '<span class="group-tag">muted</span>' : ''}</span><span class="vv">${pct(v)}</span></div>
       <input type="range" min="0" max="100" step="1" value="${v == null ? 0 : Math.round(v * 100)}" data-key="${esc(key)}" ${v == null ? 'disabled' : ''}></div>`;
   }
   function wireVols(root) {
     for (const r of root.querySelectorAll('input[type=range]')) {
+      if (r.dataset.roomLevel) continue;                               // a room's: it sets each of its speakers
       let t = null;
       const send = () => api('volume', { ...(r.dataset.key ? { name: r.dataset.key } : {}), level: +r.value / 100 }).catch(() => {});
       r.addEventListener('input', () => { r.parentElement.querySelector('.vv').textContent = r.value + '%'; clearTimeout(t); t = setTimeout(send, 150); });
       r.addEventListener('change', send);
+    }
+  }
+  // A room's volume moves all its speakers together and keeps their mix: the room is as loud as its
+  // loudest speaker, and the rest scale with it. "Edit mix" shows each speaker's own.
+  const mixOpen = new Set();
+  function roomVolumes(root, devs) {
+    for (const box of root.querySelectorAll('.vroom')) {
+      const names = JSON.parse(box.dataset.names), r = box.querySelector(':scope > .vol input[type=range]');
+      let base = null, t = null;
+      const levelsFor = v => {
+        const top = Math.max(...names.map(n => base[n] || 0));
+        return Object.fromEntries(names.map(n => [n, top > 0 ? (base[n] || 0) * v / top : v]));
+      };
+      const send = () => api('volume', { levels: levelsFor(+r.value / 100) }).catch(() => {});
+      r.addEventListener('input', () => {
+        if (!base) base = Object.fromEntries(names.map(n => [n, (devs.find(d => d.name === n) || {}).volume || 0]));
+        box.querySelector(':scope > .vol .vv').textContent = r.value + '%';
+        const lv = levelsFor(+r.value / 100);                         // the mix below follows along
+        for (const m of box.querySelectorAll('.mix input[type=range]')) { const v = Math.round((lv[m.dataset.key] || 0) * 100); m.value = v; m.parentElement.querySelector('.vv').textContent = v + '%'; }
+        clearTimeout(t); t = setTimeout(send, 150);
+      });
+      r.addEventListener('change', () => { send(); for (const n of names) { const d = devs.find(x => x.name === n); if (d) d.volume = levelsFor(+r.value / 100)[n]; } base = null; });
+      const btn = box.querySelector('.mixbtn'), mix = box.querySelector('.mix');
+      if (btn) btn.onclick = () => { const open = mix.hidden; mix.hidden = !open; btn.textContent = open ? 'Hide mix' : 'Edit mix'; open ? mixOpen.add(box.dataset.room) : mixOpen.delete(box.dataset.room); };
+      for (const m of mix.querySelectorAll('input[type=range]')) m.addEventListener('change', () => { const d = devs.find(x => x.name === m.dataset.key); if (d) d.volume = +m.value / 100;
+        const top = Math.max(...names.map(n => (devs.find(x => x.name === n) || {}).volume || 0)); r.value = Math.round(top * 100); box.querySelector(':scope > .vol .vv').textContent = r.value + '%'; });
     }
   }
   async function loadVolumes() {
@@ -229,16 +349,33 @@
       const v = await (await fetch('/api/party/volumes')).json();
       if (v.error) throw new Error(v.error);
       $('#castVol').innerHTML = v.cast ? volRow(v.cast.name, v.cast.volume, '', false) : '<div class="empty">Not casting right now.</div>';
-      $('#speakers').innerHTML = (v.devices || []).map(d => volRow(d.name, d.volume, d.name, d.type === 'group')).join('') || '<div class="empty">No speakers found.</div>';
-      wireVols($('#castVol')); wireVols($('#speakers'));
-    } catch (e) { $('#speakers').innerHTML = '<div class="empty">Couldn’t reach the speakers.</div>'; }
+      const devs = v.devices || [], rooms = (state && state.rooms) || (roomsDoc && roomsDoc.rooms) || [];
+      const placed = new Set(), html = [];
+      for (const rm of rooms) {
+        const mine = devs.filter(d => rm.speakers.includes(d.name));
+        if (!mine.length) continue;
+        mine.forEach(d => placed.add(d.name));
+        const known = mine.filter(d => d.volume != null), top = known.length ? Math.max(...known.map(d => d.volume)) : null;
+        const open = mixOpen.has(rm.id);
+        html.push(`<div class="vroom" data-room="${esc(rm.id)}" data-names="${esc(JSON.stringify(known.map(d => d.name)))}">
+          ${volRow(rm.name, top, '', false, !rm.on).replace('data-key=""', 'data-room-level="1"')}
+          ${mine.length > 1 ? `<button class="mixbtn">${open ? 'Hide mix' : 'Edit mix'}</button>` : ''}
+          <div class="mix" ${open && mine.length > 1 ? '' : 'hidden'}>${mine.map(d => volRow(d.name, d.volume, d.name, false, d.muted)).join('')}</div></div>`);
+      }
+      const rest = devs.filter(d => !placed.has(d.name));
+      if (rest.length) html.push(`${html.length ? '<div class="label" style="margin-top:14px">Not in a room</div>' : ''}${rest.map(d => volRow(d.name, d.volume, d.name, d.type === 'group', d.muted)).join('')}`);
+      $('#speakers').innerHTML = html.join('') || '<div class="empty">No speakers found.</div>';
+      wireVols($('#castVol'));
+      roomVolumes($('#speakers'), devs);
+      wireVols($('#speakers'));
+    } catch (e) { console.error(e); $('#speakers').innerHTML = '<div class="empty">Couldn’t reach the speakers.</div>'; }
   }
   $('#gear').onclick = () => {
     settingsOpen = !settingsOpen;
     $('#settings').hidden = !settingsOpen; $('#home').hidden = settingsOpen;
     $('#gear').innerHTML = settingsOpen ? '&#10005;' : '&#9881;'; $('#gear').setAttribute('aria-label', settingsOpen ? 'Close settings' : 'Settings');
     $('#title').textContent = settingsOpen ? 'Settings' : 'Party Hub';
-    if (settingsOpen) loadVolumes();
+    if (settingsOpen) { loadRoomEdit(); loadVolumes(); }
   };
   document.addEventListener('visibilitychange', poll);
   poll();

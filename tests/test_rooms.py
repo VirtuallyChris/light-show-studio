@@ -1,0 +1,210 @@
+"""Rooms: lights and speakers by room, and a room switched off or on fading out or in.
+
+Everything here is fake: no light and no speaker is ever touched."""
+
+import time
+import unittest
+from unittest import mock
+
+from lightshow.studio import rooms as rooms_mod
+from lightshow.studio import server
+from lightshow.studio.rooms import Rooms, clean
+
+
+class Store:
+    def __init__(self, cfg=None):
+        self.cfg = cfg or {}
+
+    def load(self):
+        import copy
+        return copy.deepcopy(self.cfg)
+
+    def save(self, cfg):
+        import copy
+        self.cfg = copy.deepcopy(cfg)
+
+
+class FakeSpeaker:
+    def __init__(self, level):
+        self.status = mock.Mock(volume_level=level)
+        self.muted = False
+        self.levels = []
+
+    def set_volume(self, v):
+        self.status.volume_level = v
+        self.levels.append(round(v, 3))
+
+    def set_volume_muted(self, m):
+        self.muted = m
+
+
+class FakeCast:
+    def __init__(self, speakers):
+        self.speakers = speakers
+
+    def _device(self, name):
+        return self.speakers.get(name)
+
+
+class TestRoomList(unittest.TestCase):
+    def test_a_light_or_speaker_stands_in_one_room(self):
+        out = clean([{"name": "Living room", "lights": ["A", "B"], "speakers": ["Living Home"]},
+                     {"name": "Game room", "lights": ["B", "C"], "speakers": ["Living Home", "Game Home"], "on": False},
+                     {"name": ""}])
+        self.assertEqual(out[0]["lights"], ["A", "B"])
+        self.assertEqual(out[1]["lights"], ["C"])
+        self.assertEqual(out[1]["speakers"], ["Game Home"])
+        self.assertFalse(out[1]["on"])
+        self.assertEqual(out[2]["name"], "Room 3")
+        self.assertEqual(len({r["id"] for r in out}), 3)
+
+    def test_switching_a_room_off_lists_its_lights(self):
+        st = Store()
+        r = Rooms(st.load, st.save, touch=False)
+        rid = r.replace([{"name": "Living room", "lights": ["A"]}, {"name": "Game room", "lights": ["B"]}])[0]["id"]
+        self.assertEqual(r.off_light_keys(), set())
+        r.set_on(rid, False)
+        self.assertEqual(r.off_light_keys(), {"A"})
+
+
+class TestSpeakers(unittest.TestCase):
+    def setUp(self):
+        self.st = Store()
+        self.home = FakeSpeaker(0.4)
+        self.r = Rooms(self.st.load, self.st.save, FakeCast({"Living Home": self.home}), fade_s=0.2)
+        self.rid = self.r.replace([{"name": "Living room", "speakers": ["Living Home"]}])[0]["id"]
+
+    def test_off_fades_out_then_mutes_and_keeps_its_level(self):
+        self.r.set_on(self.rid, False)
+        self.r.sync_speakers(wait=True)
+        self.assertTrue(self.home.muted)
+        self.assertEqual(self.home.status.volume_level, 0.4)          # muted at its own level
+        self.assertLess(min(self.home.levels), 0.05)                  # it faded down on the way
+        self.assertEqual(self.r.muted(), {"Living Home": 0.4})
+
+    def test_on_again_fades_back_to_its_level(self):
+        self.r.set_on(self.rid, False)
+        self.r.sync_speakers(wait=True)
+        self.home.levels.clear()
+        self.r.set_on(self.rid, True)
+        self.r.sync_speakers(wait=True)
+        self.assertFalse(self.home.muted)
+        self.assertEqual(self.home.levels[0], 0.0)
+        self.assertEqual(self.home.levels[-1], 0.4)
+        self.assertEqual(self.r.muted(), {})
+
+    def test_a_volume_set_while_muted_is_kept_for_later(self):
+        self.r.set_on(self.rid, False)
+        self.r.sync_speakers(wait=True)
+        self.assertTrue(self.r.set_saved_volume("Living Home", 0.6))
+        self.assertTrue(self.home.muted)
+        self.r.set_on(self.rid, True)
+        self.r.sync_speakers(wait=True)
+        self.assertEqual(self.home.status.volume_level, 0.6)
+
+    def test_quitting_unmutes(self):
+        self.r.set_on(self.rid, False)
+        self.r.sync_speakers(wait=True)
+        self.r.unmute_all()
+        self.assertFalse(self.home.muted)
+        self.assertEqual(self.home.status.volume_level, 0.4)
+        self.assertEqual(self.r.muted(), {})
+
+    def test_a_test_copy_never_touches_a_speaker(self):
+        r = Rooms(self.st.load, self.st.save, FakeCast({"Living Home": self.home}), touch=False, fade_s=0.2)
+        r.set_on(self.rid, False)
+        self.assertEqual(r.sync_speakers(wait=True), [])
+        self.assertFalse(self.home.muted)
+        self.assertEqual(self.home.levels, [])
+
+
+class FakeLight:
+    def __init__(self, ip, mac=""):
+        self.ip, self.mac, self.device_id, self.sku = ip, mac, "", "H6076"
+        self.calls, self.frames = [], []
+
+    def razer(self, on):
+        self.calls.append(("razer", on))
+
+    def turn(self, on):
+        self.calls.append(("turn", on))
+
+    def brightness(self, b):
+        self.calls.append(("brightness", b))
+
+    def color(self, r, g, b):
+        self.calls.append(("color", (r, g, b)))
+
+    def white(self, k):
+        self.calls.append(("white", k))
+
+    def razer_leds(self, cols, gradient=False):
+        self.frames.append(cols)
+
+
+class TestLightsLeaveAndArrive(unittest.TestCase):
+    def setUp(self):
+        self.st = Store({"light_states": {"AA": {"onOff": 1, "brightness": 25, "color": {"r": 255, "g": 0, "b": 0}}}})
+        self.patches = [mock.patch.object(server, "load_config", self.st.load), mock.patch.object(server, "save_config", self.st.save),
+                        mock.patch.object(server.govee_lan, "statuses", lambda devs, timeout=1.0: {}),
+                        mock.patch.object(server.time, "sleep", lambda s: None)]
+        for p in self.patches:
+            p.start()
+        self.a, self.b = FakeLight("10.0.0.1", "AA"), FakeLight("10.0.0.2", "BB")
+        self.out = server.LightOutput(enabled=True)
+        self.out.select([self.a.ip, self.b.ip], [self.a, self.b])
+        self.out.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def test_frames_go_to_the_light_they_were_drawn_for(self):
+        self.out.frame([[0, 0, 9], [9, 0, 0]], [self.b.ip, self.a.ip])
+        self.assertEqual(self.a.frames[-1], [(9, 0, 0)])
+        self.assertEqual(self.b.frames[-1], [(0, 0, 9)])
+
+    def test_an_unticked_light_goes_back_even_if_it_never_answered(self):
+        self.out.saved.pop(self.b.ip, None)                            # its state could not be read
+        dropped, _ = self.out.select([self.a.ip], [self.a, self.b])
+        self.b.calls.clear()
+        self.out.reselect(dropped, [])
+        self.assertIn(("razer", False), self.b.calls)
+
+    def test_a_light_that_never_answered_gets_its_state_from_last_time(self):
+        self.assertEqual(self.out.saved.get(self.a.ip, {}).get("brightness"), 25)
+
+    def test_leaving_fades_to_how_it_was_then_is_handed_back(self):
+        dropped, _ = self.out.select([self.b.ip], [self.a, self.b])
+        self.out.leave(dropped, 1.0)
+        show = [[0, 255, 0], [0, 0, 255]]
+        self.out.frame(show, [self.a.ip, self.b.ip])
+        self.assertEqual(self.a.frames[-1], [(0, 255, 0)])            # still the show at the start
+        self.out.leaving[self.a.ip]["t0"] -= 1.0                       # the fade has run
+        self.out.last_sent = 0
+        self.out.frame(show, [self.a.ip, self.b.ip])
+        self.assertEqual(self.a.frames[-1], [(64, 0, 0)])             # red at 25 %: how it was
+        self.a.calls.clear()
+        self.out.finish_leaving()
+        self.assertIn(("razer", False), self.a.calls)
+        self.assertIn(("brightness", 25), self.a.calls)
+        self.assertNotIn(self.a.ip, self.out.leaving)
+
+    def test_arriving_fades_from_how_it_was_into_the_show(self):
+        dropped, _ = self.out.select([self.b.ip], [self.a, self.b])
+        self.out.leave(dropped, 1.0)
+        self.out.leaving[self.a.ip]["t0"] -= 1.0
+        _, added = self.out.select([self.a.ip, self.b.ip], [self.a, self.b])
+        self.out.arrive(added, 1.0)
+        show = [[0, 255, 0], [0, 0, 255]]
+        self.out.last_sent = 0
+        self.out.frame(show, [self.a.ip, self.b.ip])
+        self.assertEqual(self.a.frames[-1], [(64, 0, 0)])             # picks up from where the fade out ended
+        self.out.arriving[self.a.ip]["t0"] -= 1.0
+        self.out.last_sent = 0
+        self.out.frame(show, [self.a.ip, self.b.ip])
+        self.assertEqual(self.a.frames[-1], [(0, 255, 0)])
+
+
+if __name__ == "__main__":
+    unittest.main()

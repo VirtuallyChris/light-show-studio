@@ -421,10 +421,39 @@ jam's). The **Party** slider sets how hard every show goes, live: at 100% the
 full show; lower, the song's main color is laid over the show, that much more
 opaque (at 10%, 90% of the light is the song's color), so the room calms down
 into one color without going dark. The level is remembered. The ⚙ button opens
-**Settings**: the volume of the cast the jam plays on (a group's volume scales
-its speakers together), and every Google speaker and group on the network with
-its own slider. The Party Hub answers only devices on the home network (private
-addresses) and this PC.
+**Settings**: the rooms (below), the volume of the cast the jam plays on (a
+group's volume scales its speakers together), and the speakers by room: one
+slider per room, which moves all its speakers together and keeps their mix (the
+room is as loud as its loudest speaker), and **Edit mix** under it for each
+speaker's own; speakers in no room are listed after. The Party Hub answers only
+devices on the home network (private addresses) and this PC.
+
+## Rooms
+
+Lights and speakers can be put in rooms (the studio's ⚙ menu, **Rooms…**, or the
+Party Hub's Settings): name a room, then tap the lights and speakers that stand
+in it (each stands in one room). Every room has a switch, in both places and on
+the Party Hub's home screen. Switch a room off (karaoke in the living room while
+beer pong goes on in the game room) and over 5 seconds:
+
+- its lights fade from the show to how they were before the show took them (their
+  own color and brightness), and are then handed back, exactly as when the studio
+  closes;
+- its speakers fade out and go muted. Their volume is not changed: each is muted
+  at the level it was set to, so the Party Hub still shows that level (marked
+  *muted*) and its slider still sets it, for when the room is back.
+
+Switch it on again and both fade back in: the lights from how they were into the
+show, the speakers from silence to their level. Chases and other effects that run
+around the room skip the rooms that are off. A room left off stays off when the
+studio starts again; when the studio quits, every speaker a room muted plays
+again. The levels of muted speakers are kept in config.json (`room_muted`), so
+only speakers a room muted are ever unmuted.
+
+A light unticked in the studio is handed back at once. When the show takes a
+light, it asks how the light is; that state is also kept in config.json
+(`light_states`), so a light that does not answer on busy Wi-Fi still goes back
+to how it was last time rather than staying on the show's last frame.
 
 The "now and then" extras are picked for each song from its own two colors: the
 two hues farthest from both, either side of the middle of the wider gap between

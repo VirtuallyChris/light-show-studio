@@ -706,6 +706,7 @@ class JamService:
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
                 "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
                 "color_mode": jc.get("mode"), "extras_on": bool(jc.get("extras")), "party_level": self.party_level,
+                "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
                 "room": item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
                 "upcoming": [item(t) for t in up[:12]]}
 
@@ -745,10 +746,19 @@ class JamService:
             raise web.HTTPForbidden()
         cast = self.studio.cast
 
+        rooms = getattr(self.studio, "rooms", None)
+
         def read():
             st = cast.status()
+            devices = cast.device_volumes()
+            # a speaker its room has muted shows the level it is set to (it plays at that once the room
+            # is back), not what a fade has it at right now
+            muted = rooms.muted() if rooms else {}
+            for d in devices:
+                if d["name"] in muted:
+                    d["volume"], d["muted"] = muted[d["name"]], True
             return {"cast": {"name": st["device"], "volume": st["volume"]} if st["connected"] else None,
-                    "devices": cast.device_volumes()}
+                    "devices": devices}
         try:
             return web.json_response(await asyncio.get_running_loop().run_in_executor(None, read))
         except Exception as e:  # noqa: BLE001
@@ -761,7 +771,25 @@ class JamService:
         body = await request.json()
         level = max(0.0, min(1.0, float(body.get("level", 0))))
         cast = self.studio.cast
-        if body.get("name"):
+        rooms = getattr(self.studio, "rooms", None)
+        if isinstance(body.get("levels"), dict):                 # a room's volume: each of its speakers at once
+            levels = {str(n): max(0.0, min(1.0, float(v))) for n, v in body["levels"].items()}
+
+            def set_all():
+                muted = rooms.muted() if rooms else {}
+                for n, v in levels.items():
+                    if n in muted:
+                        rooms.set_saved_volume(n, v)
+                    else:
+                        cast.set_device_volume(n, v)
+                return {"levels": levels}
+            try:
+                return web.json_response(await asyncio.get_running_loop().run_in_executor(None, set_all))
+            except Exception as e:  # noqa: BLE001
+                return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
+        if body.get("name") and rooms and str(body["name"]) in rooms.muted():
+            fn = lambda: (rooms.set_saved_volume(str(body["name"]), level), {"name": body["name"], "volume": level, "muted": True})[1]
+        elif body.get("name"):
             fn = lambda: cast.set_device_volume(str(body["name"]), level)
         else:
             if cast.cast is None:

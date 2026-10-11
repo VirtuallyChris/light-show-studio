@@ -26,6 +26,7 @@ from .winpaths import local_appdata
 from . import audiotrim
 from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
 from .jam_service import JamService
+from .rooms import Rooms, FADE_S
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -83,6 +84,28 @@ def light_priority_policy() -> bool | None:
     return found
 
 
+def _ease(k: float) -> float:
+    k = max(0.0, min(1.0, k))
+    return k * k * (3 - 2 * k)
+
+
+def _mix_toward(flat: list, rgb: tuple, k: float) -> list:
+    """A frame (r, g, b per segment) moved k of the way toward one color."""
+    if k <= 0:
+        return flat
+    return [int(round(v + (rgb[i % 3] - v) * k)) for i, v in enumerate(flat or [0, 0, 0])]
+
+
+def kelvin_rgb(k: float) -> tuple[int, int, int]:
+    """A white's color temperature as RGB (the usual approximation of a black body)."""
+    import math
+    t = max(1000.0, min(40000.0, float(k))) / 100.0
+    r = 255.0 if t <= 66 else 329.698727446 * ((t - 60) ** -0.1332047592)
+    g = 99.4708025861 * math.log(t) - 161.1195681661 if t <= 66 else 288.1221695283 * ((t - 60) ** -0.0755148492)
+    b = 255.0 if t >= 66 else (0.0 if t <= 19 else 138.5177312231 * math.log(t - 10) - 305.0447927307)
+    return tuple(int(max(0, min(255, round(c)))) for c in (r, g, b))
+
+
 class LightOutput:
     """Holds the currently selected lights and pushes frames to them."""
 
@@ -106,14 +129,55 @@ class LightOutput:
         self.last_error = ""
         self.dark_since = None      # when the stream went all-black (None while lit)
         self.last_rearm = 0.0
+        # Rooms switched off or on fade over a few seconds: a light leaving blends from the show to how
+        # it was before (then is handed back); a light arriving blends from how it was into the show.
+        self.leaving: dict = {}     # ip -> {"dev", "t0", "dur", "target"}
+        self.arriving: dict = {}    # ip -> {"t0", "dur", "target"}
+        self.last_px: dict = {}     # ip -> the last frame it was sent
+
+    # -- how a light was before the show: asked when the show takes it, and kept on disk ------------
+    @staticmethod
+    def _key(d) -> str:
+        return getattr(d, "mac", "") or getattr(d, "device_id", "") or d.ip
+
+    def remembered(self, d) -> dict:
+        """The last state this light was found in before a show took it (kept in config.json), for a
+        light that did not answer when asked this time."""
+        return dict(load_config().get("light_states", {}).get(self._key(d)) or {})
+
+    def _remember(self, states: dict) -> None:
+        if not states:
+            return
+        cfg = load_config()
+        keep = cfg.setdefault("light_states", {})
+        for d, st in states.items():
+            keep[self._key(d)] = {k: st[k] for k in ("onOff", "brightness", "color", "colorTemInKelvin") if k in st}
+        try:
+            save_config(cfg)
+        except OSError:
+            pass
+
+    def target(self, d) -> tuple[int, int, int]:
+        """The color a light shows when it is handed back, as a real-time frame would show it."""
+        was = self.saved.get(d.ip) or self.remembered(d)
+        if not was or not was.get("onOff", 1):
+            return (0, 0, 0)
+        k = int(was.get("colorTemInKelvin") or 0)
+        col = was.get("color") or {}
+        rgb = kelvin_rgb(k) if k else (int(col.get("r", 255)), int(col.get("g", 255)), int(col.get("b", 255)))
+        b = max(0.0, min(1.0, float(was.get("brightness", 100)) / 100.0))
+        return tuple(int(round(c * b)) for c in rgb)
 
     def select(self, ips: list[str], known: list[govee_lan.GoveeDevice]) -> tuple[list, list]:
         """Change which lights the show drives. Returns (dropped, added) so the caller can hand the
         dropped ones back and, mid-show, take the added ones over (both wait on the network)."""
         by_ip = {d.ip: d for d in known}
         old = {d.ip: d for d in self.devices}
-        self.devices = [by_ip.get(ip) or govee_lan.GoveeDevice(ip=ip) for ip in ips]
+        self.devices = [old.get(ip) or by_ip.get(ip) or govee_lan.GoveeDevice(ip=ip) for ip in ips]
         new = {d.ip for d in self.devices}
+        for ip in list(self.arriving):
+            if ip not in new:
+                self.arriving.pop(ip, None)
         return [d for ip, d in old.items() if ip not in new], [d for d in self.devices if d.ip not in old]
 
     def reselect(self, dropped: list, added: list) -> None:
@@ -122,9 +186,46 @@ class LightOutput:
         if not self.enabled:
             return
         if dropped:
-            self.restore([d for d in dropped if d.ip in self.saved])
+            # every light the show was driving goes back, even one whose state could not be read when
+            # the show took it (it still leaves real-time mode, and gets its state from last time)
+            self.restore([d for d in dropped if d.ip in self.saved or self.active])
         if added and self.active:
             self._take_over(added)
+
+    # -- rooms switched off and on: a few seconds' fade either way --------------------------------------
+    @staticmethod
+    def _progress(f: dict, now: float) -> float:
+        return max(0.0, min(1.0, (now - f["t0"]) / max(1e-3, f["dur"])))
+
+    def leave(self, devs: list, secs: float) -> None:
+        """These lights (already out of the selection) fade from the show to how they were."""
+        now = time.monotonic()
+        for d in devs:
+            a = self.arriving.pop(d.ip, None)
+            k0 = 1 - self._progress(a, now) if a else 0.0          # turned around mid-fade: from where it is
+            self.leaving[d.ip] = {"dev": d, "t0": now - k0 * secs, "dur": secs, "target": self.target(d)}
+
+    def arrive(self, devs: list, secs: float) -> None:
+        """These lights (just added to the selection, mid-show) fade from how they are into the show."""
+        if not self.enabled or not devs:
+            return
+        back = {d.ip: self.leaving.pop(d.ip) for d in devs if d.ip in self.leaving}   # still in the show's hands
+        fresh = [d for d in devs if d.ip not in back]
+        if fresh and self.active:
+            self._take_over(fresh)
+        now = time.monotonic()
+        for d in devs:
+            lv = back.get(d.ip)
+            k0 = 1 - self._progress(lv, now) if lv else 0.0          # how far into the show it still was
+            self.arriving[d.ip] = {"t0": now - k0 * secs, "dur": secs, "target": self.target(d)}
+
+    def finish_leaving(self) -> None:
+        """Hand back the lights whose fade has run its course."""
+        now = time.monotonic()
+        done = [ip for ip, f in self.leaving.items() if self._progress(f, now) >= 1]
+        devs = [self.leaving.pop(ip)["dev"] for ip in done]
+        if devs and self.enabled:
+            self.restore(devs)
 
     def start(self) -> None:
         """Take the lights over for a show: remember how each one was, then full brightness, real-time mode."""
@@ -156,6 +257,9 @@ class LightOutput:
                     self.saved[d.ip] = got[d.ip]
                 elif d.ip in self.handed_back:               # never answered: the last known state beats none
                     self.saved[d.ip] = self.handed_back[d.ip][0]
+                elif self.remembered(d):                      # or how it was the last time a show took it
+                    self.saved[d.ip] = self.remembered(d)
+            self._remember({d: got[d.ip] for d in ask if d.ip in got})
         for _ in range(3):
             for d in devices:
                 d.turn(True)
@@ -173,14 +277,22 @@ class LightOutput:
         included), so that comes first; then its power and brightness; and its color only if it
         did not come back to the one it had, so a scene is not painted over for nothing.
         """
-        if not self.enabled or not self.saved:
+        if not self.enabled:
             return
-        if only is not None:                                 # just these lights (unticked in the studio)
+        if only is not None:                                 # just these lights (unticked, or their room switched off)
             devs = only
         else:
+            if not self.saved and not self.leaving:
+                return
             devs = [d for d in self.devices if d.ip in self.saved] or [govee_lan.GoveeDevice(ip=ip) for ip in self.saved]
+            devs += [f["dev"] for f in self.leaving.values() if f["dev"] not in devs]
+            self.leaving.clear()
+            self.arriving.clear()
         if not devs:
             return
+        for d in devs:                                       # a light whose state was never read: as it was last time
+            if not self.saved.get(d.ip) and self.remembered(d):
+                self.saved[d.ip] = self.remembered(d)
         for _ in range(3):
             for d in devs:
                 d.razer(False)
@@ -256,14 +368,17 @@ class LightOutput:
 
     def _rearm(self, now: float, wake: bool = False) -> None:
         self.last_rearm = now
-        for d in self.devices:
+        for d in self.devices + [f["dev"] for f in self.leaving.values()]:
             if wake:
                 d.turn(True)
             d.razer(True)
 
-    def frame(self, frames: list[list[int]]) -> None:
+    def frame(self, frames: list[list[int]], ips: list[str] | None = None) -> None:
         if not self.active:
             return
+        # each frame belongs to the light the page drew it for (by address), so a light leaving or
+        # joining mid-show can never shift the frames onto the wrong lights
+        by_ip = dict(zip(ips, frames)) if ips else dict(zip([d.ip for d in self.devices], frames))
         now = time.monotonic()
         # Re-enable real-time mode after a pause in frames (the light leaves it
         # after ~60 s idle). Re-enabling mid-stream blanks the light for one
@@ -291,7 +406,24 @@ class LightOutput:
             return                                      # over the cap: this one is skipped, the next goes
         self.last_sent = now
         self.sent += 1
-        for d, flat in zip(self.devices, frames):
+        out = []
+        for d in self.devices:
+            flat = by_ip.get(d.ip)
+            if flat is None:
+                continue
+            a = self.arriving.get(d.ip)
+            if a:
+                k = self._progress(a, now)
+                if k >= 1:
+                    self.arriving.pop(d.ip, None)
+                else:
+                    flat = _mix_toward(flat, a["target"], 1 - _ease(k))
+            out.append((d, flat))
+        for ip, f in list(self.leaving.items()):
+            flat = by_ip.get(ip) or self.last_px.get(ip) or [0, 0, 0]
+            out.append((f["dev"], _mix_toward(flat, f["target"], _ease(self._progress(f, now)))))
+        for d, flat in out:
+            self.last_px[d.ip] = flat
             try:
                 cols = [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat) - 2, 3)]
                 if cols:
@@ -320,6 +452,8 @@ class Studio:
             self.output.max_fps = self.link.governor.fps
             self.link.start()
         self.cast = CastManager(govee_lan.local_ip())
+        self.requested: list[str] = []                   # the lights ticked in the studio (by address)
+        self.rooms = Rooms(load_config, save_config, self.cast, touch=lights)   # a test copy never touches a speaker
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
         self.jam.player_enabled = player
@@ -333,6 +467,9 @@ class Studio:
             web.post("/api/devices/order", self.set_order),
             web.post("/api/devices/name", self.set_name),
             web.post("/api/devices/selected", self.set_selected),
+            web.get("/api/rooms", self.rooms_get),
+            web.post("/api/rooms", self.rooms_set),
+            web.post("/api/rooms/on", self.rooms_on),
             web.post("/api/song", self.upload_song),
             web.post("/api/open", self.open_path),
             web.get("/api/audio/{project}", self.audio),
@@ -360,14 +497,90 @@ class Studio:
         ])
         if self.quit_when_closed:
             self.app.on_startup.append(self._start_quit_watchdog)
+        self.app.on_startup.append(self._rooms_at_start)
         self.app.on_shutdown.append(self._close_player)
 
     async def _close_player(self, app):
-        """Any orderly exit: Edge's sound goes back to the default output, and the hidden player closes."""
+        """Any orderly exit: Edge's sound goes back to the default output, the hidden player closes,
+        and every speaker a room muted plays again."""
         try:
             await asyncio.get_running_loop().run_in_executor(None, self.jam.close_player)
         except Exception:  # noqa: BLE001
             pass
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, self.rooms.unmute_all)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # -- rooms ---------------------------------------------------------------------------
+    async def _rooms_at_start(self, app):
+        """A room left off last time stays off: its speakers go quiet again (in the background)."""
+        if any(not r["on"] and r["speakers"] for r in self.rooms.list()):
+            asyncio.get_running_loop().run_in_executor(None, self.rooms.sync_speakers)
+
+    def _off_ips(self) -> set[str]:
+        off = self.rooms.off_light_keys()
+        return {d.ip for d in self.known if {d.mac, d.device_id, d.ip} & off}
+
+    async def apply_rooms(self) -> None:
+        """Bring the show in line with the rooms: lights of a room switched off fade back to how they were,
+        lights of a room switched on fade into the show, speakers fade out or in."""
+        loop = asyncio.get_running_loop()
+        off = self._off_ips()
+        dropped, added = self.output.select([ip for ip in self.requested if ip not in off], self.known)
+        if self.output.enabled and self.output.active:
+            if dropped:
+                self.output.leave(dropped, FADE_S)
+                loop.call_later(FADE_S + 0.1, lambda: asyncio.ensure_future(self._finish_leaving()))
+            if added:
+                async with self.scan_lock:
+                    await loop.run_in_executor(None, self.output.arrive, added, FADE_S)
+        elif dropped:
+            async with self.scan_lock:
+                await loop.run_in_executor(None, self.output.reselect, dropped, [])
+        loop.run_in_executor(None, self.rooms.sync_speakers)
+
+    async def _finish_leaving(self) -> None:
+        async with self.scan_lock:
+            await asyncio.get_running_loop().run_in_executor(None, self.output.finish_leaving)
+
+    def _rooms_doc(self, devices: bool) -> dict:
+        doc = {"rooms": self.rooms.list(), "fade_s": FADE_S, "muted": self.rooms.muted()}
+        if devices:
+            names = load_config().get("light_names", {})
+            doc["lights"] = [{"key": d.mac or d.device_id or d.ip, "ip": d.ip, "sku": d.sku,
+                              "name": names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""} for d in self.known]
+            doc["speakers"] = sorted({c.cast_info.friendly_name for c in self.cast.casts if c.cast_info.cast_type != "group"}
+                                     | {s for r in doc["rooms"] for s in r["speakers"]}, key=str.lower)
+        return doc
+
+    async def rooms_get(self, request):
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        devices = request.query.get("devices") == "1"
+        if devices and not self.cast.casts:
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, self.cast.discover, 4.0)
+            except Exception:  # noqa: BLE001 - no speakers found is not an error
+                pass
+        return web.json_response(self._rooms_doc(devices))
+
+    async def rooms_set(self, request):
+        """Replace the rooms (names, lights, speakers, on or off), from the studio or the Party Hub."""
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        self.rooms.replace((await request.json()).get("rooms", []))
+        await self.apply_rooms()
+        return web.json_response(self._rooms_doc(request.query.get("devices") == "1"))
+
+    async def rooms_on(self, request):
+        """Switch one room on or off."""
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        self.rooms.set_on(str(body.get("id", "")), bool(body.get("on")))
+        await self.apply_rooms()
+        return web.json_response(self._rooms_doc(False))
 
     # The studio quits when its window is closed, like a desktop app would. The page's
     # WebSocket is the signal: relying on the browser process is unreliable because a
@@ -807,7 +1020,11 @@ class Studio:
                     continue
                 kind = data.get("type")
                 if kind == "select":
-                    dropped, added = self.output.select(data.get("ips", []), self.known)
+                    self.requested = [str(ip) for ip in data.get("ips", [])]
+                    off = self._off_ips()
+                    dropped, added = self.output.select([ip for ip in self.requested if ip not in off], self.known)
+                    for ip in [ip for ip in list(self.output.leaving) if ip not in self.requested]:
+                        dropped.append(self.output.leaving.pop(ip)["dev"])     # unticked mid-fade: back at once
                     await ws.send_json({"type": "selected", "ips": [d.ip for d in self.output.devices]})
                     if dropped or added:
                         async with self.scan_lock:          # asking lights how they are shares the scan's port
@@ -821,7 +1038,7 @@ class Studio:
                         await loop.run_in_executor(None, self.output.stop, bool(data.get("off")))
                     await ws.send_json({"type": "stopped"})
                 elif kind == "frame":
-                    self.output.frame(data.get("frames", []))
+                    self.output.frame(data.get("frames", []), data.get("ips"))
         finally:
             self.ws_clients -= 1
             self.last_client = time.monotonic()

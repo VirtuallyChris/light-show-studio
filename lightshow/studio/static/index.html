@@ -46,12 +46,15 @@
       <div id="settingsMenu" class="menu end" hidden>
         <div class="menu-title">Lights</div>
         <label class="menu-field" title="Send lights this many ms ahead of the audio. Saved for every song.">Offset <span><input id="latency" type="number" step="5" value="30" class="num"> ms</span></label>
+        <div class="menu-title">Rooms</div>
+        <button id="btnRooms" title="Which lights and speakers stand in which room, and which rooms the party is in">Rooms…</button>
       </div>
     </div>
     <button id="btnHelp" class="icon" title="Shortcuts and tips">?</button>
   </div>
 </header>
 <div id="helpPop" class="popover" hidden></div>
+<div id="roomsPop" class="popover rooms-pop" hidden></div>
 
 <main>
   <aside class="library">

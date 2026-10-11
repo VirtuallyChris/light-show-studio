@@ -535,6 +535,19 @@ def fake_statuses(devices, timeout=1.0):
 
 
 class TestLightsHandedBack(unittest.TestCase):
+    def setUp(self):
+        # each light's state is remembered in config.json: here, in a config of the test's own
+        from unittest import mock
+        self.cfg = {}
+        self.cfg_patches = [mock.patch("lightshow.studio.server.load_config", lambda: dict(self.cfg)),
+                            mock.patch("lightshow.studio.server.save_config", lambda c: self.cfg.update(c))]
+        for p in self.cfg_patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.cfg_patches:
+            p.stop()
+
     def output(self):
         from lightshow.studio.server import LightOutput
         return LightOutput(enabled=True)

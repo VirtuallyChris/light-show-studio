@@ -438,7 +438,9 @@
     if (!S.lights.length) { el.innerHTML = '<div class="hint">No lights found yet. Turn on LAN Control in the Govee app; the studio keeps looking.</div>'; return; }
     for (const l of S.lights) {
       const row = document.createElement('label');
-      row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
+      const rm = roomOf(l);
+      if (rm && !rm.on) row.classList.add('room-off');
+      row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${rm ? esc(rm.name) + (rm.on ? '' : ' (off)') + ' · ' : ''}${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
       const nm = row.querySelector('.light-name'); nm.value = l.name || '';
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
       nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
@@ -467,6 +469,68 @@
     }
   }
   const selectedLights = () => S.lights.filter(l => l.on);
+
+  // ------------------------------------------------------------------ rooms
+  // Which lights and speakers stand in which room, and which rooms the party is in. A room switched
+  // off (here or on the Party Hub) leaves the show: the studio fades its lights back to how they
+  // were and its speakers out. The page only needs to know so the room order skips it.
+  S.rooms = S.rooms || [];
+  function keysOf(l) { return [l.mac, l.device_id, l.ip].filter(Boolean); }
+  function roomOf(l) { return (S.rooms || []).find(r => r.lights.some(k => keysOf(l).includes(k))) || null; }
+  function roomOff(l) { const r = roomOf(l); return !!(r && !r.on); }
+  async function loadRooms() {
+    try {
+      const d = await (await fetch('/api/rooms')).json();
+      const was = JSON.stringify(S.rooms); S.rooms = d.rooms || [];
+      if (JSON.stringify(S.rooms) !== was) { if (!$('#lightList').contains(document.activeElement)) renderLights(); S.forceSend = true; }
+    } catch (e) { /* the next look will do */ }
+  }
+  setInterval(() => { if (!document.hidden) loadRooms(); }, 3000);
+  loadRooms();
+
+  let roomsDoc = null;
+  async function saveRooms(rooms) {
+    try {
+      const r = await fetch('/api/rooms?devices=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rooms }) });
+      roomsDoc = await r.json(); S.rooms = roomsDoc.rooms; renderRooms(); renderLights(); S.forceSend = true;
+    } catch (e) { toast('Could not save the rooms', true); }
+  }
+  async function openRooms() {
+    const pop = $('#roomsPop');
+    closeMenus(); pop.hidden = false;
+    const r = $('#btnSettings').getBoundingClientRect(); pop.style.top = (r.bottom + 6) + 'px'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
+    if (!roomsDoc) pop.innerHTML = '<div class="hint">Looking for lights and speakers…</div>';
+    try { roomsDoc = await (await fetch('/api/rooms?devices=1')).json(); S.rooms = roomsDoc.rooms; } catch (e) { pop.innerHTML = '<div class="hint">Could not load the rooms.</div>'; return; }
+    renderRooms();
+  }
+  function renderRooms() {
+    const pop = $('#roomsPop'); if (pop.hidden || !roomsDoc) return;
+    if (pop.contains(document.activeElement) && document.activeElement.classList.contains('room-name')) return;   // never under the cursor
+    const d = roomsDoc, rooms = d.rooms.map(r => ({ ...r, lights: r.lights.slice(), speakers: r.speakers.slice() }));
+    const lightName = l => l.name || `${l.sku} ${l.ip}`;
+    pop.innerHTML = `<div class="rooms-head"><div class="menu-title">Rooms</div><button class="small" data-act="add">+ Add room</button></div>` +
+      (rooms.length ? '' : '<div class="hint">No rooms yet: every light and speaker plays.</div>') +
+      rooms.map((r, i) => `<div class="room ${r.on ? '' : 'off'}" data-i="${i}">
+        <div class="room-top"><input class="room-name" value="${esc(r.name)}" maxlength="40" spellcheck="false" title="Room name">
+          <label class="toggle" title="${r.on ? 'In the party. Off: its lights go back to how they were and its speakers fade out' : 'Out of the party. On: its lights and speakers fade back in'}"><input type="checkbox" data-act="on" ${r.on ? 'checked' : ''}></label>
+          <button class="icon small" data-act="del" title="Delete this room">&times;</button></div>
+        <div class="chips"><span class="kind">Lights</span>${(d.lights || []).map(l => `<button class="chip ${r.lights.includes(l.key) ? 'on' : ''}" data-light="${esc(l.key)}">${esc(lightName(l))}</button>`).join('') || '<span class="hint">none found</span>'}</div>
+        <div class="chips"><span class="kind">Speakers</span>${(d.speakers || []).map(sp => `<button class="chip ${r.speakers.includes(sp) ? 'on' : ''}" data-speaker="${esc(sp)}">${esc(sp)}</button>`).join('') || '<span class="hint">none found</span>'}</div>
+      </div>`).join('');
+    pop.querySelector('[data-act=add]').onclick = () => saveRooms([...rooms, { name: `Room ${rooms.length + 1}`, on: true, lights: [], speakers: [] }]);
+    pop.querySelectorAll('.room').forEach(el => {
+      const i = +el.dataset.i, r = rooms[i];
+      el.querySelector('.room-name').onchange = e => { r.name = e.target.value.trim() || r.name; e.target.blur(); saveRooms(rooms); };
+      el.querySelector('.room-name').onkeydown = e => { if (e.key === 'Enter') e.target.blur(); };
+      el.querySelector('[data-act=on]').onchange = e => { r.on = e.target.checked; saveRooms(rooms); };
+      el.querySelector('[data-act=del]').onclick = () => { if (confirm(`Delete ${r.name}?`)) { rooms.splice(i, 1); saveRooms(rooms); } };
+      // a light or a speaker stands in one room: putting it here takes it out of any other
+      el.querySelectorAll('[data-light]').forEach(b => b.onclick = () => { const k = b.dataset.light, has = r.lights.includes(k);
+        rooms.forEach(o => { o.lights = o.lights.filter(x => x !== k); }); if (!has) r.lights.push(k); saveRooms(rooms); });
+      el.querySelectorAll('[data-speaker]').forEach(b => b.onclick = () => { const k = b.dataset.speaker, has = r.speakers.includes(k);
+        rooms.forEach(o => { o.speakers = o.speakers.filter(x => x !== k); }); if (!has) r.speakers.push(k); saveRooms(rooms); });
+    });
+  }
   /** Short lamps (a dozen segments or fewer) and long strips play different parts of a show. */
   const lightKind = l => (l.segments || 10) <= 12 ? 'short' : 'long';
   /** the ticked lights belong to the room, not the song: saved with the studio's settings */
@@ -583,9 +647,11 @@
     const music = musicAt(t);
     const kick = Math.exp(-frac(b) * 6);
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
-    const out = [], lights = selectedLights();
-    for (const [ri, L] of lights.entries()) {
-      const room = { i: ri, n: lights.length, side: ri < Math.ceil(lights.length / 2) ? 0 : 1 };
+    const out = [], lights = selectedLights(), inRoom = lights.filter(l => !roomOff(l));
+    for (const L of lights) {
+      // the order around the room counts only the rooms in the party, so a chase never runs into one that is off
+      const ri = Math.max(0, inRoom.indexOf(L)), rn = Math.max(1, inRoom.length);
+      const room = { i: ri, n: rn, side: ri < Math.ceil(rn / 2) ? 0 : 1 };
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
       const kind = lightKind(L);
       p.lanes.forEach((lane, li) => {
@@ -636,11 +702,14 @@
     const rowH = Math.min(36, (h - 8) / frame.length);
     frame.forEach((fr, r) => {
       const y = 6 + r * rowH; const n = fr.px.length / 3; const x0 = 110, x1 = w - 12; const pw = (x1 - x0) / n;
+      const away = roomOff(fr.light);
+      pctx.globalAlpha = away ? 0.35 : 1;
       pctx.fillStyle = '#9aa'; pctx.font = '11px system-ui'; pctx.fillText(lightLabel(fr.light), 8, y + rowH / 2 + 4);
       for (let i = 0; i < n; i++) {
         pctx.fillStyle = `rgb(${fr.px[i * 3]},${fr.px[i * 3 + 1]},${fr.px[i * 3 + 2]})`;
         const px = x0 + i * pw; pctx.beginPath(); pctx.roundRect(px + 1, y + 3, Math.max(1, pw - 2), rowH - 8, 3); pctx.fill();
       }
+      pctx.globalAlpha = 1;
     });
   }
   function loop() {
@@ -666,7 +735,7 @@
     const t = pos();
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
     const lf = renderFrame(lt);
-    wsSend({ type: 'frame', frames: lf.map(f => f.light.flip ? flipPx(f.px) : f.px) });
+    wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => f.light.flip ? flipPx(f.px) : f.px) });
     S.forceSend = false; S.framesSent = (S.framesSent || 0) + 1; S.lastLightSend = performance.now();
   }
   (function startOutputClock() {
@@ -1355,11 +1424,12 @@
     menu.hidden = false; btn.classList.add('on');
     if (menu.classList.contains('popover')) { const r = btn.getBoundingClientRect(); menu.style.top = (r.bottom + 6) + 'px'; menu.style.right = Math.max(8, innerWidth - r.right) + 'px'; }
   }
-  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnSettings', '#settingsMenu'], ['#btnHelp', '#helpPop']]) { $(m).hidden = true; $(b).classList.remove('on'); } }
+  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnSettings', '#settingsMenu'], ['#btnHelp', '#helpPop'], ['#btnSettings', '#roomsPop']]) { $(m).hidden = true; $(b).classList.remove('on'); } }
   $('#btnGridMenu').onclick = e => { e.stopPropagation(); toggleMenu($('#btnGridMenu'), $('#gridMenu')); };
   $('#btnSettings').onclick = e => { e.stopPropagation(); toggleMenu($('#btnSettings'), $('#settingsMenu')); };
   $('#btnHelp').onclick = e => { e.stopPropagation(); toggleMenu($('#btnHelp'), $('#helpPop'), SHORTCUTS); };
-  for (const id of ['#gridMenu', '#settingsMenu', '#helpPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
+  for (const id of ['#gridMenu', '#settingsMenu', '#helpPop', '#roomsPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
+  $('#btnRooms').onclick = e => { e.stopPropagation(); openRooms(); };
   document.addEventListener('mousedown', closeMenus);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
   // narrow windows: the library is a drawer
