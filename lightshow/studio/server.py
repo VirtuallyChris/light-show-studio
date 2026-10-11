@@ -27,7 +27,7 @@ from . import audiotrim
 from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
 from .jam_service import JamService
 from .rooms import Rooms, FADE_S
-from .cues import CueRunner
+from .cues import CueRunner, LiveHooks
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -455,7 +455,9 @@ class Studio:
         self.cast = CastManager(govee_lan.local_ip())
         self.requested: list[str] = []                   # the lights ticked in the studio (by address)
         self.rooms = Rooms(load_config, save_config, self.cast, touch=lights)   # a test copy never touches a speaker
-        self.cues = CueRunner(load_config, save_config, self._show_length)       # rehearsals only, for now
+        # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
+        self.cues = CueRunner(load_config, save_config, self._show_length,
+                              live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length)) if lights else None)
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
         self.jam.player_enabled = player
@@ -520,7 +522,9 @@ class Studio:
 
     # -- rooms ---------------------------------------------------------------------------
     async def _rooms_at_start(self, app):
-        """A room left off last time stays off: its speakers go quiet again (in the background)."""
+        """A room left off last time stays off: its speakers go quiet again (in the background). The
+        cues' shows are analysed now too, so a tapped cue never waits for it."""
+        asyncio.get_running_loop().run_in_executor(None, self._warm_cues)
         if any(not r["on"] and r["speakers"] for r in self.rooms.list()):
             asyncio.get_running_loop().run_in_executor(None, self.rooms.sync_speakers)
 
@@ -535,6 +539,16 @@ class Studio:
         except Exception:  # noqa: BLE001
             return 0.0
 
+    def _show_song(self, name: str) -> tuple[str, str]:
+        """A saved show's song: the address a speaker fetches it from, and the file."""
+        name = safe_name(name)
+        pdir = os.path.join(SHOWS_DIR, name)
+        song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
+        if not song:
+            raise FileNotFoundError(f"{name} has no song")
+        ip = govee_lan.local_ip() or "127.0.0.1"
+        return f"http://{ip}:{self.port}/api/audio/{name}", os.path.join(pdir, song[0])
+
     def _cue_shows(self) -> list[dict]:
         out = []
         if os.path.isdir(SHOWS_DIR):
@@ -543,6 +557,17 @@ class Studio:
                     continue
                 out.append({"name": name, "length": round(self._show_length(name), 1)})
         return out
+
+    def _warm_cues(self) -> None:
+        """Analyse each cue's show ahead of time (cached), so a tapped cue's lights start at once."""
+        for c in self.cues.list():
+            if not c["show"]:
+                continue
+            try:
+                _, path = self._show_song(c["show"])
+                analyze_cached(path, os.path.join(os.path.dirname(path), "cache"))
+            except Exception:  # noqa: BLE001 - a missing show is shown on the Party Hub, not here
+                pass
 
     async def cues_get(self, request):
         if not JamService._lan(request):
@@ -553,10 +578,12 @@ class Studio:
     async def cues_set(self, request):
         if not JamService._lan(request):
             raise web.HTTPForbidden()
-        return web.json_response({"cues": self.cues.replace((await request.json()).get("cues", []))})
+        cues = self.cues.replace((await request.json()).get("cues", []))
+        asyncio.get_running_loop().run_in_executor(None, self._warm_cues)
+        return web.json_response({"cues": cues})
 
     async def cues_run(self, request):
-        """Run a cue. A rehearsal for now: every step on its real timing, nothing touched."""
+        """Run a cue: the music fades out, a saved show plays, the music comes back."""
         if not JamService._lan(request):
             raise web.HTTPForbidden()
         try:

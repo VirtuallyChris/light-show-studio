@@ -111,5 +111,100 @@ class TestCues(unittest.TestCase):
         self.assertEqual(c["fade_in"], {"on": True, "s": 2.0})
 
 
+
+class FakeCast:
+    def __init__(self, connected=True):
+        self.cast = object() if connected else None
+        self.name = "Everywhere" if connected else ""
+        self.level, self.calls = 0.5, []
+
+    def status(self):
+        return {"volume": self.level if self.cast else None}
+
+    def set_volume(self, v):
+        self.level = v
+
+    def play(self, url, path, title, start=0.0):
+        self.calls.append(("play", url, path, title, start))
+
+    def stop(self):
+        self.calls.append("stop")
+
+
+class FakeSpotify:
+    def __init__(self, playing):
+        from types import SimpleNamespace
+        self.signed_in, self.np, self.calls = True, SimpleNamespace(playing=playing), []
+
+    def now_playing(self):
+        return self.np
+
+    def pause(self):
+        self.calls.append("pause")
+
+    def resume(self):
+        self.calls.append("resume")
+
+
+class FakeJam:
+    def __init__(self, kind=None, playing=True):
+        from types import SimpleNamespace
+        self.spotify = FakeSpotify(playing)
+        self.calls = []
+        self.engine = None if kind is None else SimpleNamespace(
+            output=kind, hold=lambda: self.calls.append("hold"), release=lambda restart: self.calls.append(("release", restart)))
+
+    def _output_kind(self, out):
+        return out
+
+
+class TestLiveCues(unittest.TestCase):
+    """The real hooks, against fake speakers, a fake jam and a fake Spotify: nothing plays."""
+
+    def run_cue(self, hooks, fade=True):
+        st = Store()
+        r = CueRunner(st.load, st.save, lambda n: 0.2, live=lambda: hooks)
+        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding", "fade_out": {"on": fade, "s": 0.2}, "fade_in": {"on": fade, "s": 0.2}}])
+        st_ = r.run("door")
+        r.thread.join(5)
+        return st_, r.status()
+
+    def hooks(self, cast, jam):
+        from lightshow.studio.cues import LiveHooks
+        return LiveHooks(cast, jam, lambda name: (f"http://pc/api/audio/{name}", f"C:/shows/{name}/song.mp3"), lambda n: 0.2)
+
+    def test_a_jam_on_cast_holds_plays_on_its_speakers_and_comes_back(self):
+        cast, jam = FakeCast(), FakeJam("cast")
+        first, last = self.run_cue(self.hooks(cast, jam))
+        self.assertFalse(first["rehearsal"])
+        self.assertEqual((first["via"], first["device"]), ("cast", "Everywhere"))
+        self.assertEqual(jam.calls, ["hold", ("release", True)])             # the speakers get the jam back
+        self.assertEqual(cast.calls, [("play", "http://pc/api/audio/Ding", "C:/shows/Ding/song.mp3", "Ding", 0.0)])
+        self.assertEqual(cast.level, 0.5)                                    # faded back to where it was
+        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
+
+    def test_a_jam_on_this_pc_leaves_the_song_to_the_page_and_does_not_fade(self):
+        cast, jam = FakeCast(connected=False), FakeJam("pc")
+        first, last = self.run_cue(self.hooks(cast, jam))
+        self.assertEqual(first["via"], "pc")
+        self.assertEqual(cast.calls, [])
+        self.assertEqual(jam.calls, ["hold", ("release", False)])
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])  # no volume to fade on this PC
+
+    def test_without_a_jam_spotify_is_paused_only_if_it_was_playing(self):
+        jam = FakeJam(None, playing=True)
+        self.run_cue(self.hooks(FakeCast(connected=False), jam))
+        self.assertEqual(jam.spotify.calls, ["pause", "resume"])
+        quiet = FakeJam(None, playing=False)
+        self.run_cue(self.hooks(FakeCast(connected=False), quiet))
+        self.assertEqual(quiet.spotify.calls, [])
+
+    def test_a_silent_preview_jam_shows_only_the_lights(self):
+        cast, jam = FakeCast(), FakeJam("none")
+        first, _ = self.run_cue(self.hooks(cast, jam))
+        self.assertEqual(first["via"], "none")
+        self.assertEqual(cast.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

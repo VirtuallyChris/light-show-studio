@@ -251,10 +251,74 @@
       if (typeof st.party_level === 'number' && st.party_level !== S.partyLevel) { S.partyLevel = st.party_level; S.forceSend = true; }
       if (J.live && J.doc && J.doc.kind !== 'custom' && J.colorSig !== undefined && colorSig() !== J.colorSig) recolor();   // changed on the phone: at once
       if (st.running && !was && st.auto_started) toast('Music started on Light Show Studio: the jam started by itself');
-      if (st.running && st.streaming) await follow(st); else if (J.live && !(st.running)) leave();
+      await cueTick(st.cue);
+      if (C.run) { /* a cue has the room: the jam waits */ }
+      else if (st.running && st.streaming) await follow(st); else if (J.live && !(st.running)) leave();
       if (J.open || st.running !== was) render();
     } catch (e) { /* server away */ } finally { J.fetching = false; }
   }
+
+  // ------------------------------------------------------------------ cues
+  // A Party Hub cue (the doorbell, shot o'clock) stops the party for one of your saved shows. The
+  // server pauses the jam and plays the show's song on the speakers (or leaves it to this page on this
+  // PC); this page plays the show's lights, following the speaker, then hands the room back to the jam.
+  const C = { run: null };
+  async function cueTick(cue) {
+    const active = !!(cue && cue.phase && cue.phase !== 'done' && cue.show), showing = active && cue.phase === 'show';
+    // the show is fetched while the music fades out, so its lights are ready when it starts
+    if (active && C.fetchRun !== cue.run) { C.fetchRun = cue.run; C.data = fetch('/api/projects/' + encodeURIComponent(cue.show)).then(r => r.json()).catch(e => ({ error: String(e) })); }
+    if (showing && C.run !== cue.run) await cueStart(cue);
+    else if (!showing && C.run) cueEnd();
+  }
+  async function cueStart(cue) {
+    if (C.run) cueEnd();
+    C.run = cue.run; C.via = cue.via;
+    C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing };
+    J.live = false; J.key = null;                                   // the jam steps aside; the room is held
+    // how far into the show the server already is (the page looks once a second), kept up to date below
+    const asked = performance.now(), into = (cue.progress || 0) * (cue.dur || 0);
+    const data = await (C.fetchRun === cue.run && C.data ? C.data : fetch('/api/projects/' + encodeURIComponent(cue.show)).then(r => r.json()).catch(e => ({ error: String(e) })));
+    if (C.run !== cue.run) return;
+    if (data.error) { toast(`${cue.name}: ${data.error}`, true); return; }
+    // the show itself, without touching playback (opening a song the usual way would pause the speaker)
+    adopt(data.analysis, cue.show, data.saved || null); S.name = '';  // never saved over while it plays
+    if (!data.saved) try { St.autoBuild(true); } catch (e) { console.error(e); }
+    const started = asked - into * 1000;                             // when the show began, on this page's clock
+    if (cue.via === 'cast') {
+      // the lights follow the speaker's own position, less its measured delay
+      const off = ((S.defaults.castOffsets || {})[cue.device] ?? S.defaults.castOffset ?? 0) / 1000;
+      C.cast = { pos: 0, at: performance.now(), state: 'BUFFERING' };
+      C.poll = setInterval(async () => { try { const s = await (await fetch('/api/cast/status')).json(); C.cast = { pos: s.position || 0, at: performance.now(), state: s.state }; } catch (e) { } }, 400);
+      C.pos = () => Math.max(0, (C.cast.state === 'PLAYING' ? C.cast.pos + (performance.now() - C.cast.at) / 1000 : C.cast.pos) - off);
+    } else if (cue.via === 'pc') {
+      // this PC plays the song itself
+      try {
+        const a = S.audio; if (!a.ctx) a.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = await a.ctx.decodeAudioData(await (await fetch(data.audio_url)).arrayBuffer());
+        if (C.run !== cue.run) return;
+        if (a.ctx.state === 'suspended') await a.ctx.resume();
+        C.src = a.ctx.createBufferSource(); C.src.buffer = buf; C.src.connect(a.ctx.destination);
+        const lag = (performance.now() - started) / 1000;            // the server's clock started when it asked
+        C.src.start(0, Math.min(lag, Math.max(0, buf.duration - 0.1))); C.t0 = a.ctx.currentTime - lag;
+        C.pos = () => Math.max(0, S.audio.ctx.currentTime - C.t0);
+      } catch (e) { toast(`${cue.name}: could not play the song here`, true); C.pos = () => (performance.now() - started) / 1000; }
+    } else C.pos = () => (performance.now() - started) / 1000;      // a silent preview: the lights only
+    S.cue = { live: true, pos: () => C.pos() };
+    S.audio.playing = true; St.updateTransport();
+    if ($('#outputOn').checked) St.startOutput();
+    S.forceSend = true; St.zoomFit(); St.draw();
+  }
+  function cueEnd() {
+    clearInterval(C.poll); C.poll = null;
+    if (C.src) { try { C.src.stop(); } catch (e) { } C.src = null; }
+    S.cue = null;
+    const p = C.prev || {}; C.run = null; C.prev = null;
+    S.analysis = p.analysis; S.project = p.project; S.name = p.name || ''; S.audio.buffer = p.buffer;
+    if (p.jam) { J.key = null; S.forceSend = true; }               // the next tick finds the room and takes it up again
+    else { S.audio.playing = false; S.audio.pos = 0; St.updateTransport(); }
+    if (S.project) { St.zoomFit(); St.draw(); }
+  }
+  J.cue = C;
 
   function anchorTo(room) {
     // keep a smooth local clock; only re-seat it when the server disagrees by more than a frame or two

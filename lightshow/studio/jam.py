@@ -497,6 +497,10 @@ class JamEngine:
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
         self.handover: str | None = None  # None | 'armed' | 'filling': opening with a song from disk
+        # A Party Hub cue holds the room: where it stopped (a capture time), kept while the speakers play
+        # something else, so the room picks up exactly there afterwards.
+        self.held_at: float | None = None
+        self.cue_hold = False             # while a cue runs, nothing but the cue lets the room go
         if analyse_fn is None:
             from .analysis import analyze_audio
             analyse_fn = analyze_audio
@@ -513,6 +517,8 @@ class JamEngine:
     # ---------------------------------------------------------------- where the room is
     def room_capture_time(self) -> float | None:
         """The capture time the room is hearing right now, or None when it hears nothing of ours."""
+        if self.held_at is not None:
+            return self.held_at                          # a cue has the speakers: the room waits where it stopped
         if not self.streaming or not self.output.stream:
             return None
         return self.output.stream.capture_time_at(self.output.position() - self.output.offset)
@@ -566,7 +572,7 @@ class JamEngine:
                     if self.streaming:
                         self.output.pause()
                 return
-            if self.gate.paused:
+            if self.gate.paused and not self.cue_hold:
                 self.gate.paused = False
                 self.say("resumed")
                 if self.streaming:
@@ -684,6 +690,39 @@ class JamEngine:
         with self.lock:
             self.streaming = False
             self.output.stop()
+
+    # ------------------------------------------------------------------ cues
+    def hold(self) -> float | None:
+        """A cue stops the party: the room stops at once, where it is, and Spotify is paused (the
+        buffer is held, as for a pause on the phone). Returns where the room stopped."""
+        with self.lock:
+            rc = self.room_capture_time()
+            if not self.gate.paused:
+                self.gate.paused = True
+                if self.streaming:
+                    self.output.pause()
+            self.held_at, self.cue_hold = rc, True
+            self.say("a cue has the speakers: the room holds where it is")
+        try:
+            self.spotify.pause()
+        except Exception:  # noqa: BLE001 - nothing playing, or not Premium: the room is held regardless
+            pass
+        return rc
+
+    def release(self, restart: bool) -> None:
+        """The cue is over: the room carries on from where it stopped. When the cue played on the
+        jam's own speakers (restart), they get the jam's stream back from that point and play it at
+        once; then Spotify resumes (otherwise the next poll lets the paused room run again)."""
+        with self.lock:
+            at, self.held_at, self.cue_hold = self.held_at, None, False
+            if restart and self.streaming and at is not None:
+                # it plays from there at once: the buffer already holds what comes next
+                self.output.start_stream(self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput)))
+            self.say("the cue is over: the room carries on")
+        try:
+            self.spotify.resume()
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------------ opening song
     def arm_handover(self) -> None:

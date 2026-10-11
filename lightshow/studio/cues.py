@@ -5,9 +5,17 @@ speakers, its lights in the room), then resumes Spotify and fades the music back
 jam the room is about 90 s behind Spotify; pausing Spotify pauses the room at once and holds the
 buffer, so the room picks up exactly where it stopped.
 
-For now every cue runs as a rehearsal: each step happens on its real timing and the Party Hub
-follows along, but no speaker, light or Spotify is touched. Playing the show on the jam's speakers
-and handing them back afterwards is the part still to be wired (and tried on the real speakers).
+Where the show plays:
+- the jam is on Cast speakers (or the studio is casting): the show's song goes to the same speaker
+  or group, and the studio page plays its lights following that speaker; afterwards the speakers get
+  the jam's stream back from exactly where the room stopped;
+- the jam is on this PC (or there is no jam and no cast): the studio page plays the song on this PC
+  and its lights (fades are skipped: the PC output has no volume to fade);
+- a silent preview jam: the lights only.
+Without a jam, Spotify is paused only if something is playing, and resumed only if it was.
+
+A test copy of the studio (--no-lights) runs every cue as a rehearsal: each step happens on its real
+timing and the Party Hub follows along, but no speaker, light or Spotify is touched.
 """
 
 from __future__ import annotations
@@ -76,10 +84,75 @@ class Rehearsal:
         self.calls.append("stop show")
 
 
+class LiveHooks:
+    """The real thing: the jam (or the studio's cast), Spotify and the speakers."""
+
+    def __init__(self, cast, jam, song, show_length):
+        self.cast, self.jam = cast, jam                  # CastManager, JamService
+        self.song = song                                 # show name -> (audio URL for the speaker, file path)
+        self.show_length = show_length
+        self.engine = jam.engine if jam is not None else None
+        kind = jam._output_kind(self.engine.output) if self.engine is not None else None
+        if kind == "cast" or (kind is None and cast.cast is not None):
+            self.via = "cast"
+        elif kind == "none":
+            self.via = "none"                            # a silent preview jam: the lights only
+        else:
+            self.via = "pc"
+        self.device = cast.name if self.via == "cast" else ""
+        self.paused_spotify = False
+
+    def volume(self):
+        if self.via != "cast":
+            return None                                  # nothing to fade
+        v = self.cast.status().get("volume")
+        return float(v) if v is not None else None
+
+    def set_volume(self, v: float) -> None:
+        if self.via == "cast":
+            self.cast.set_volume(v)
+
+    def pause_music(self) -> None:
+        if self.engine is not None:
+            self.engine.hold()
+            return
+        sp = getattr(self.jam, "spotify", None)
+        try:
+            if sp is not None and sp.signed_in and sp.now_playing().playing:
+                sp.pause()
+                self.paused_spotify = True
+        except Exception:  # noqa: BLE001 - no Spotify: the show plays anyway
+            pass
+
+    def play_show(self, name: str) -> float:
+        length = float(self.show_length(name) or 0.0)
+        if self.via == "cast":
+            url, path = self.song(name)
+            self.cast.play(url, path, name, 0.0)
+        return length                                    # "pc" and "none": the studio page plays it
+
+    def stop_show(self) -> None:
+        if self.via == "cast":
+            try:
+                self.cast.stop()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def resume_music(self) -> None:
+        if self.engine is not None:
+            self.engine.release(restart=self.via == "cast")
+        elif self.paused_spotify:
+            try:
+                self.jam.spotify.resume()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 class CueRunner:
-    def __init__(self, load_config, save_config, show_length, clock=time.monotonic, sleep=time.sleep):
+    def __init__(self, load_config, save_config, show_length, clock=time.monotonic, sleep=time.sleep, live=None):
         self.load_config, self.save_config = load_config, save_config
         self.show_length = show_length
+        self.live = live                                 # () -> LiveHooks for the real thing; None: rehearsals only
         self.clock, self.sleep = clock, sleep
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
@@ -117,9 +190,11 @@ class CueRunner:
             raise ValueError(f"{cue['name']} has no show yet: pick one in Settings")
         if self.busy():
             raise RuntimeError(f"{self.state.get('name', 'A cue')} is still running")
-        self.hooks = hooks or Rehearsal(self.show_length)
+        self.hooks = hooks or (self.live() if self.live else Rehearsal(self.show_length))
         self.stop_flag.clear()
-        self.state = {"id": cue["id"], "name": cue["name"], "phase": "starting", "rehearsal": isinstance(self.hooks, Rehearsal), "steps": []}
+        self.state = {"id": cue["id"], "name": cue["name"], "phase": "starting", "rehearsal": isinstance(self.hooks, Rehearsal), "steps": [],
+                      "run": uuid.uuid4().hex[:8], "show": cue["show"], "via": getattr(self.hooks, "via", "none"),
+                      "device": getattr(self.hooks, "device", "")}
         self.thread = threading.Thread(target=self._run, args=(cue,), daemon=True)
         self.thread.start()
         return self.status()
@@ -144,15 +219,18 @@ class CueRunner:
 
     def _run(self, cue: dict) -> None:
         h = self.hooks
-        level = h.volume()
+        level = h.volume()                               # None: nothing to fade (this PC's output)
         try:
             fo, fi = cue["fade_out"], cue["fade_in"]
+            if level is None:
+                fo, fi = {**fo, "on": False}, {**fi, "on": False}
             if fo["on"] and fo["s"] > 0:
                 self._phase("fade_out", fo["s"])
                 self._ramp(level, 0.0, fo["s"], watch_stop=False)
             self._phase("pause")
             h.pause_music()
-            h.set_volume(level)                          # the show plays at the party's own level
+            if level is not None:
+                h.set_volume(level)                      # the show plays at the party's own level
             dur = h.play_show(cue["show"])
             self._phase("show", dur)
             end = self.clock() + dur
@@ -167,13 +245,15 @@ class CueRunner:
             if fi["on"] and fi["s"] > 0:
                 self._phase("fade_in", fi["s"])
                 self._ramp(0.0, level, fi["s"], watch_stop=False)
-            h.set_volume(level)
+            if level is not None:
+                h.set_volume(level)
             self._phase("done")
         except Exception as e:  # noqa: BLE001 - the music must come back whatever went wrong
             self.state["error"] = f"{type(e).__name__}: {e}"
             try:
                 h.resume_music()
-                h.set_volume(level)
+                if level is not None:
+                    h.set_volume(level)
             except Exception:  # noqa: BLE001
                 pass
             self._phase("done")

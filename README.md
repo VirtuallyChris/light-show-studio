@@ -442,10 +442,25 @@ and whether the music fades out and back in, and over how many seconds (up to
 30). Doorbell and Shot o'clock are there to start with; **+ Add cue** adds more.
 Cues are kept in config.json (`cues`).
 
-For now every cue is a **rehearsal**: each step runs on its real timing and the
-button follows along (marked *rehearsal*), but no speaker, light or Spotify is
-touched. Playing the show's sound on the jam's speakers and handing them back to
-the jam afterwards is still to be wired, and tried on the real speakers.
+Where the show plays:
+
+- **The jam is on Cast speakers** (or the studio is casting): the room stops at
+  once where it is, the show's song goes to the same speaker or group, and the
+  studio page plays its lights following that speaker's position (less its
+  measured delay). Afterwards the speakers get the jam's stream back from exactly
+  where the room stopped, and Spotify resumes. Fades are on the speaker's volume;
+  the show plays at the party's own level.
+- **The jam is on this PC** (or there is no jam and nothing is casting): the
+  studio page plays the song on this PC with its lights. The PC output has no
+  volume to fade, so the music just stops and starts.
+- **A silent preview jam**: the lights only.
+
+Without a jam, Spotify is paused only if something is playing, and resumed only
+if it was. Each cue's show is analysed ahead of time (when cues are saved and
+when the studio starts), and the page loads it while the music fades out, so its
+lights start with it. A test copy of the studio (`--no-lights`) only ever
+rehearses: every step on its real timing, marked *rehearsal* on the Party Hub,
+with nothing touched. Cues have not yet been tried on the real speakers.
 
 ## Rooms
 

@@ -708,3 +708,40 @@ class TestPartyHub(unittest.TestCase):
         self.assertTrue(ok("127.0.0.1"))
         self.assertFalse(ok("8.8.8.8"))
         self.assertFalse(ok(""))
+
+
+class TestCueHold(unittest.TestCase):
+    """A Party Hub cue holds the room where it is, and gives it back from exactly there."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_the_room_holds_through_a_cue_and_carries_on_from_there(self):
+        a, ta = song(120, 7)
+        sim = Sim(self.dir, target=10.0)
+        e = sim.engine
+        sim.play(a, ta)
+        sim.run(16, analyse=False)
+        self.assertTrue(e.streaming)
+        rc = e.room_capture_time()
+        self.assertEqual(e.hold(), rc)
+        self.assertTrue(e.gate.paused)
+        self.assertFalse(sim.spotify.playing)
+        sim.run(6, analyse=False)                              # the show plays: the room waits where it was
+        self.assertEqual(e.room_capture_time(), rc)
+        sim.spotify.playing = True                             # Spotify heard playing mid-cue must not let the room go
+        sim.run(1, analyse=False)
+        self.assertTrue(e.gate.paused)
+        sim.spotify.playing = False
+        starts = sim.out.starts
+        e.release(restart=True)                                # the speakers get the jam's stream back...
+        self.assertEqual(sim.out.starts, starts + 1)
+        sim.out.pump()                                         # the speaker pulls its first second
+        self.assertAlmostEqual(e.room_capture_time(), rc, delta=0.05)   # ...from where the room stopped
+        self.assertTrue(sim.spotify.playing)
+        sim.run(2, analyse=False)
+        self.assertFalse(e.gate.paused)
+        self.assertGreater(e.room_capture_time(), rc + 1.0)    # and the room runs on

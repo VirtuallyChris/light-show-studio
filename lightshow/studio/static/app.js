@@ -228,6 +228,7 @@
     S.audio.buffer = await S.audio.ctx.decodeAudioData(ab);
   }
   function pos() {
+    if (S.cue && S.cue.live) return clamp(S.cue.pos(), 0, duration());     // a Party Hub cue is playing one of your shows
     if (S.jam && S.jam.live) return clamp(S.jam.pos(), 0, duration());     // Spotify is driving: the room's place in the track
     if (S.cast.active) { const c = S.cast; const off = (parseFloat($('#castOffset').value) || 0) / 1000; const p = c.state === 'PLAYING' ? c.pos + (performance.now() - c.at) / 1000 : c.pos; return clamp(p - off, 0, duration()); }
     const a = S.audio; return a.playing ? clamp(a.startPos + (a.ctx.currentTime - a.startCtx), 0, duration()) : a.pos;
@@ -247,8 +248,8 @@
   function pause() { if (S.cast.active) { castPause(); return; } const a = S.audio; if (!a.playing) return; a.pos = pos(); a.playing = false; stopSource(); updateTransport(); }
   function stopSource() { const a = S.audio; if (a.source) { try { a.source.onended = null; a.source.stop(); } catch (e) { } a.source = null; } }
   function stopPlayback() { pause(); S.audio.pos = 0; }
-  function seek(t) { if (S.jam && S.jam.live) return; t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
-  function togglePlay() { if (S.jam && S.jam.live) return toast('Spotify is in charge during a jam: play and pause from the phone'); S.audio.playing ? pause() : play(); }
+  function seek(t) { if ((S.jam && S.jam.live) || (S.cue && S.cue.live)) return; t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
+  function togglePlay() { if (S.cue && S.cue.live) return toast('A cue is playing: tap it on the Party Hub to end it'); if (S.jam && S.jam.live) return toast('Spotify is in charge during a jam: play and pause from the phone'); S.audio.playing ? pause() : play(); }
   function updateTransport() { $('#btnPlay').textContent = S.audio.playing ? '❚❚' : '▶'; }
 
   // ------------------------------------------------------------------ Google Cast

@@ -333,7 +333,8 @@ class JamService:
                             "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
-                "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "party_level": self.party_level}
+                "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "party_level": self.party_level,
+                "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {}}
         if self.engine is None:
             return base
         st = self.engine.state()
