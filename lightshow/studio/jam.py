@@ -264,7 +264,10 @@ class FeatureTrack:
         db = 10.0 * np.log10(mel + 1e-10)
         self.bands = np.concatenate([self.bands, np.stack([np.interp(out_t, ft, db[k]) for k in range(N_BANDS)], axis=1).astype(np.float32)])
         body = y[lead:]
-        n_pk = int(round(n_new * step * WAVE_PPS))
+        # how many peaks reach exactly to t1, counted from the start: rounding each piece on its own
+        # (30 feature frames a second into 50 peaks a second) lost up to half a peak a time, and over a
+        # song the waveform came out about 8% short, drifting ever earlier than the music
+        n_pk = max(0, int(round((t1 - self.base) * WAVE_PPS)) - len(self.peaks))
         edges = np.linspace(0, len(body), n_pk + 1).astype(int)
         self.peaks = np.concatenate([self.peaks, np.array([np.abs(body[i:j]).max() if j > i else 0.0 for i, j in zip(edges[:-1], edges[1:])], dtype=np.float32)])
         self.done = t1

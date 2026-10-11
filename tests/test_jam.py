@@ -745,3 +745,20 @@ class TestCueHold(unittest.TestCase):
         sim.run(2, analyse=False)
         self.assertFalse(e.gate.paused)
         self.assertGreater(e.room_capture_time(), rc + 1.0)    # and the room runs on
+
+
+class TestLiveWaveform(unittest.TestCase):
+    def test_the_live_waveform_keeps_up_with_the_music(self):
+        """Fed in uneven pieces (as the capture arrives), the waveform still covers exactly the time
+        captured: it used to lose up to half a peak a piece and end about 8% short of the song."""
+        from lightshow.studio.jam import FeatureTrack
+        from lightshow.studio.analysis import WAVE_PPS
+        relay = Relay(sr=22050, channels=2, capacity_s=400)
+        ft = FeatureTrack(relay)
+        rng = np.random.default_rng(4)
+        for k in range(400):                                   # about 200 s, in pieces of 0.3 to 0.7 s
+            n = int(22050 * (0.3 + 0.4 * rng.random()))
+            relay.write((rng.normal(0, 3000, (n, 2))).astype(np.int16))
+            ft.update()
+        self.assertAlmostEqual(len(ft.peaks) / WAVE_PPS, ft.done - ft.base, delta=1.5 / WAVE_PPS)
+        self.assertGreater(ft.done, 150)
