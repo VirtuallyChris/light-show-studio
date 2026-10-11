@@ -122,6 +122,12 @@
       const follow = { drums: 'drums', snare: 'snare', beat: 'beat' }[(c.params || {}).follow] || 'drums';
       c.effect = 'buildhits'; c.params = { ...Effects.defaults('buildhits'), follow };
     }
+    // speeds once worked out as 2 / 1.3 (1.538… beats) snap to the nearest quarter beat
+    for (const lane of p.lanes) for (const c of lane.clips) {
+      const e = Effects.byId[c.effect]; if (!e || !c.params) continue;
+      for (const [k, d] of Object.entries(e.params)) if (d.type === 'beats' && typeof c.params[k] === 'number' && Math.abs(c.params[k] * 4 - Math.round(c.params[k] * 4)) > 1e-6)
+        c.params[k] = Math.max(0.25, Math.round(c.params[k] * 4) / 4);
+    }
     // lights are chosen once for the room, never by the song
     delete p.lights;
     for (const lane of p.lanes) for (const c of lane.clips) delete c.lights;
@@ -910,7 +916,7 @@
     const h = ROW.lane / 2 - 3;
     return c.target === 'long' ? [y + 3, h] : [y + ROW.lane / 2, h];
   }
-  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : 'lamps'); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${v}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
+  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : 'lamps'); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${+(+v).toFixed(2)}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
   function compose() {
     if (!S.analysis || !off.width || !off.height) return;   // nothing rendered yet (or a zero-size canvas)
     const w = TW(), h = TH(); const g = tctx;
@@ -1516,7 +1522,8 @@
       html += `<div class="panel"><h3>Parameters</h3>`;
       for (const [k, d] of Object.entries(e.params)) {
         const v = clip.params[k] ?? d.def;
-        if (d.type === 'beats') html += `<div class="row"><label>${d.label}</label><select data-p="${k}">${Effects.BEAT_OPTS.map(o => `<option value="${o}" ${o == v ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`;
+        // a value off the usual list (a drop's motion sped up to 1.5 beats) is offered too, so it shows as it is
+        if (d.type === 'beats') html += `<div class="row"><label>${d.label}</label><select data-p="${k}">${[...new Set([...Effects.BEAT_OPTS, +v])].sort((x, y) => x - y).map(o => `<option value="${o}" ${o == v ? 'selected' : ''}>${+o.toFixed(2)}</option>`).join('')}</select></div>`;
         else if (d.type === 'range') html += `<div class="row"><label>${d.label}</label><input data-p="${k}" type="range" min="${d.min}" max="${d.max}" step="${d.step}" value="${v}"><span class="val">${(+v).toFixed(d.step >= 1 ? 0 : 2)}</span></div>`;
         else if (d.type === 'select') html += `<div class="row"><label>${d.label}</label><select data-p="${k}">${Object.entries(d.options).map(([o, l]) => `<option value="${o}" ${o === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
         else if (d.type === 'bool') html += `<div class="row"><label>${d.label}</label><input data-p="${k}" type="checkbox" ${v ? 'checked' : ''}></div>`;
@@ -1836,7 +1843,7 @@
     const strobeLevel = { rave: 0.9, dance: 0.6, groove: 0.3 }[style] || 0;
     // the song's motion over a drop: pace 1 is a normal drop, below 1 slower
     const motion = (pace = 1, extra = {}) => {
-      const fam = (S.motionFams && s.type === 'drop' ? S.motionFams[variant % 2] : S.motionFam) || 'comets', sp = x => Math.max(0.5, x / pace);
+      const fam = (S.motionFams && s.type === 'drop' ? S.motionFams[variant % 2] : S.motionFam) || 'comets', sp = x => Math.max(0.5, Math.round(x / pace * 4) / 4);   // on quarter beats: 2 / 1.3 is 1.5, not 1.538…
       if (fam === 'sparkles') return clip(1, 'sparkle', b0, len, { density: 0.2 * pace + 0.05, life: 0.15 }, { opacity: 0.95, ...extra });
       if (fam === 'meteors') return clip(1, 'meteors', b0, len, { every: sp(1), chance: 0.6, travel: sp(2), tail: 0.3 }, { opacity: 0.95, ...extra });
       if (fam === 'orbit') return clip(1, 'orbit', b0, len, { speed: sp(2), count: 3 }, { opacity: 0.9, ...extra });
