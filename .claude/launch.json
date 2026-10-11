@@ -8,6 +8,12 @@
       "port": 8765
     },
     {
+      "name": "studio-hub",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "lightshow", "studio", "--no-browser", "--stay", "--port", "8765"],
+      "port": 8765
+    },
+    {
       "name": "studio-test",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "lightshow", "studio", "--no-browser", "--stay", "--port", "8799", "--no-lights", "--no-player"],
