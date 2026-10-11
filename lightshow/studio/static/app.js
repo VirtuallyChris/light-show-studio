@@ -571,6 +571,13 @@
     return d.g[clamp(Math.floor(t * fps), 0, d.g.length - 1)];
   }
 
+  /** The song's main color, as 0..1 RGB: the jam's primary for this song, else its chosen main color,
+   *  else the first color of its palette. */
+  function partyColor() {
+    const p = P(); const hx = (S.jamColors && S.jamColors[0]) || (p && p.settings && p.settings.mainColor)
+      || (p && (p.palettes[p.defaultPalette] || [])[0]) || '#ffffff';
+    return Effects.hex2rgb(Effects.solid(hx));
+  }
   function renderFrame(t) {
     const p = P(); const b = timeToBeat(t); const f = featureAt(t); const lanePal = currentPalette(b);
     const music = musicAt(t);
@@ -609,6 +616,10 @@
         if (clip.fadeOut > 0) alpha *= clamp((clip.len - clipBeat) / clip.fadeOut, 0, 1);
         Effects.composite(dst, src, n, alpha, clip.blend || 'normal');
       });
+      // The party level (set on the Party Hub): below 100% the song's main color is laid over the whole
+      // show, that much more opaque, so the room calms down into one color without going dark.
+      const cover = 1 - clamp(S.partyLevel ?? 1, 0, 1), pc = cover > 0 ? partyColor() : null;
+      if (pc) for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) dst[i * 4 + k] = clamp(dst[i * 4 + k], 0, 1) * (1 - cover) + pc[k] * cover;
       const flat = new Array(n * 3);
       for (let i = 0; i < n; i++) { flat[i * 3] = Math.round(clamp(dst[i * 4], 0, 1) * 255 * master); flat[i * 3 + 1] = Math.round(clamp(dst[i * 4 + 1], 0, 1) * 255 * master); flat[i * 3 + 2] = Math.round(clamp(dst[i * 4 + 2], 0, 1) * 255 * master); }
       out.push({ light: L, px: flat });

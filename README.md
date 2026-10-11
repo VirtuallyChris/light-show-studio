@@ -391,6 +391,26 @@ above that accelerates smoothly to its maximum (default 8 flashes a beat)
 right at the drop. Auto-build stacks them; use one without the other if you
 prefer.
 
+## Party Hub: the jam from your phone
+
+The studio also serves a phone app on the home network. On the iPhone, open
+`http://<this PC's address>:8765/party` in Safari (here `http://192.168.1.11:8765/party`)
+and choose **Share, Add to Home Screen**: it opens full screen like an app. It
+shows the song the room is hearing (with play/pause and skip, which steer Spotify
+the way the phone's own controls would), what comes next, and each song's two
+colors and its two "now and then" extras. Tap a color to change a song's pair
+ahead of time (it is kept for that track, as in the studio; ↺ goes back to the
+jam's). The **Party** slider sets how hard every show goes, live: at 100% the
+full show; lower, the song's main color is laid over the show, that much more
+opaque (at 10%, 90% of the light is the song's color), so the room calms down
+into one color without going dark. The level is remembered. The Party Hub
+answers only devices on the home network (private addresses) and this PC.
+
+The "now and then" extras are picked for each song from its own two colors: the
+two hues farthest from both, either side of the middle of the wider gap between
+them on the color wheel (purple and green get red and orange, red and blue get
+lime and green), so they can be seen ahead of time on the phone.
+
 ## Jam mode: someone else picks the music
 
 Somebody runs a Spotify Jam from their phone, adding and reordering songs all
@@ -595,7 +615,8 @@ noise.
   secondary, and overlays take the other color of the pair, so nothing else
   comes in, except the extras: tick **Now and then** and a few of the small
   accents (a hook strike, a spark, a sweep, a color slam, a meteor shower; about
-  a third of them) take two more colors instead, say orange and red. The base,
+  a third of them) take two more colors instead, picked from the song's own two
+  (see the Party Hub). The base,
   the comets and the drums stay in the two. A song with a show you made keeps
   that show's colors.
 - **Dual comets** are for drops only; the **strobe riser** for the rave style

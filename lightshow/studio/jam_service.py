@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import colorsys
 import html
+import ipaddress
 import os
 import re
 import threading
@@ -22,6 +24,29 @@ from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 LAST_KEYS = ("device", "speakers", "pc_device", "target_delay", "crossfade", "skip_jumps", "source")
 
 
+def extras_for(pair) -> list[str] | None:
+    """The two "now and then" colors for a pair: the hues farthest from both, evenly spread across the
+    wider gap between them on the color wheel, either side of its middle (purple and green get red and
+    orange). The studio's
+    jam.js does the same, so the phone shows what the lights will do."""
+    if not pair or len(pair) < 2:
+        return None
+    hues = []
+    for hx in pair[:2]:
+        r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        h, s_, v = colorsys.rgb_to_hsv(r, g, b)
+        if s_ < 0.2 or v < 0.2:
+            return ["#ff6000", "#ff0000"]               # a grey or black: no hue to steer by
+        hues.append(h * 360)
+    a = (hues[1] - hues[0]) % 360
+    start, span = (hues[0], a) if a >= 180 else (hues[1], 360 - a)
+    out = []
+    for k in (0.38, 0.62):                                  # either side of the point farthest from both
+        r, g, b = colorsys.hsv_to_rgb(((start + span * k) % 360) / 360, 1, 1)
+        out.append("#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255)))
+    return out
+
+
 class JamService:
     def __init__(self, studio, shows_dir: str, load_config, save_config, local_ip):
         self.studio, self.shows_dir = studio, shows_dir
@@ -29,6 +54,9 @@ class JamService:
         self.library = JamLibrary(shows_dir)
         self._assigned: dict[str, int] = {}                  # track id -> the pair it got in "mix"
         self._moods: dict[str, dict | None] = {}             # track id -> its learned mood (or None)
+        # Party level, 0..1: how much of the show comes through. Below 1 the studio lays the song's main
+        # color over every show, more and more opaque, so the room calms down without going dark.
+        self.party_level = float(load_config().get("party_level", 1.0))
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
@@ -76,6 +104,13 @@ class JamService:
             web.post("/api/jam/sdk_state", self.sdk_state),
             web.post("/api/jam/prefs", self.prefs),
             web.post("/api/jam/colors", self.colors),
+            # the Party Hub: a phone app on the home network (Jam mode)
+            web.get("/party", self.party_page),
+            web.get("/party/manifest.webmanifest", self.party_manifest),
+            web.get("/api/party/state", self.party_state),
+            web.post("/api/party/colors", self.party_colors),
+            web.post("/api/party/playback", self.party_playback),
+            web.post("/api/party/level", self.party_level_set),
             web.get("/api/jam/art", self.art),
             web.post("/api/jam/player/open", self.player_open),
             web.post("/api/jam/player/transfer", self.player_transfer),
@@ -296,7 +331,7 @@ class JamService:
                             "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
-                "jam_colors": self._jam_colors(), "track_colors": self.library.colors()}
+                "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "party_level": self.party_level}
         if self.engine is None:
             return base
         st = self.engine.state()
@@ -614,6 +649,102 @@ class JamService:
     def _jam_colors(self) -> dict:
         """The jam's own colors: every song in a primary and a secondary, or ("album") its cover's."""
         return {**self.DEFAULT_COLORS, **self.load_config().get("jam_colors", {})}
+
+    # -- the Party Hub ---------------------------------------------------------------------
+    @staticmethod
+    def _lan(request) -> bool:
+        """The Party Hub answers phones on the home network (and this computer), never the internet."""
+        try:
+            ip = ipaddress.ip_address((request.remote or "").split("%")[0])
+        except ValueError:
+            return False
+        return ip.is_private or ip.is_loopback
+
+    async def party_page(self, request):
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        resp = web.FileResponse(os.path.join(os.path.dirname(__file__), "static", "party", "index.html"))
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    async def party_manifest(self, request):
+        return web.json_response({
+            "name": "Party Hub", "short_name": "Party Hub", "start_url": "/party", "scope": "/party",
+            "display": "standalone", "background_color": "#0e0f14", "theme_color": "#0e0f14",
+            "icons": [{"src": "/static/party/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                      {"src": "/static/party/icon-512.png", "sizes": "512x512", "type": "image/png"}]},
+            content_type="application/manifest+json")
+
+    def _party(self) -> dict:
+        """What the Party Hub shows: the song in the room, what comes next, and each one's colors."""
+        st = self._state()
+        jc, own_all, assigned = st.get("jam_colors", {}), st.get("track_colors", {}), st.get("assigned_colors", {})
+
+        def colors(t):
+            if t.get("kind") == "custom":
+                return None, False                       # your own show: its colors are its own
+            own = own_all.get(t.get("id"))
+            if own:
+                return [own["primary"], own["secondary"]], True
+            if jc.get("mode") == "pick":
+                return [jc["primary"], jc["secondary"]], False
+            if jc.get("mode") == "mix":
+                return assigned.get(t.get("id")), False
+            return None, False                           # the album cover's colors: worked out in the studio
+
+        def item(t, extra=None):
+            if not t:
+                return None
+            pair, own = colors(t)
+            return {"id": t.get("id"), "label": t.get("label"), "name": t.get("name"), "artists": t.get("artists"),
+                    "image": t.get("image"), "kind": t.get("kind"), "duration": t.get("duration"), "colors": pair, "own": own,
+                    "extras": extras_for(pair) if (pair and jc.get("extras")) else None, **(extra or {})}
+        room, ahead = st.get("room"), st.get("ahead")
+        up = ([ahead] if ahead and (not room or ahead.get("key") != room.get("key")) else []) + list(st.get("queue") or [])
+        return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
+                "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
+                "color_mode": jc.get("mode"), "extras_on": bool(jc.get("extras")), "party_level": self.party_level,
+                "room": item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
+                "upcoming": [item(t) for t in up[:12]]}
+
+    async def party_state(self, request):
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
+
+    async def party_colors(self, request):
+        """A track's own two colors from the phone (kept for next time), or back to the jam's."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
+        if not body.get("track_id"):
+            return web.json_response({"error": "no track"}, status=400)
+        self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")))
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
+
+    async def party_playback(self, request):
+        """Play, pause or skip on Spotify, the way the phone's own controls would."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        action = (await request.json()).get("action")
+        if self.demo is not None:
+            {"next": self.demo.skip, "pause": self.demo.pause, "resume": self.demo.resume}.get(action, lambda: None)()
+            return web.json_response({"ok": True})
+        fn = {"pause": self.spotify.pause, "resume": self.spotify.resume, "next": self.spotify.next_track}.get(action)
+        if fn is None:
+            return web.json_response({"error": "unknown action"}, status=400)
+        ok = await asyncio.get_running_loop().run_in_executor(None, fn)
+        return web.json_response({"ok": bool(ok)})
+
+    async def party_level_set(self, request):
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        self.party_level = max(0.0, min(1.0, float((await request.json()).get("level", 1.0))))
+        cfg = self.load_config()
+        cfg["party_level"] = round(self.party_level, 3)
+        self.save_config(cfg)
+        return web.json_response({"party_level": self.party_level})
 
     async def colors(self, request):
         """Set the jam's colors ({mode, primary, secondary}), or one track's ({track_id, primary,

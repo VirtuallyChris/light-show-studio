@@ -662,3 +662,26 @@ class TestPairPerSong(unittest.TestCase):
         self.assertEqual(out["hard"], ["#ff0000", "#0040ff"])              # hard and dark: red/blue
         self.assertEqual(out["soft"], ["#8000ff", "#00ff00"])              # soft and dark: purple/green
         self.assertNotIn("mine", out)
+
+
+class TestPartyHub(unittest.TestCase):
+    def test_the_extras_are_picked_from_a_tracks_two_colors(self):
+        import colorsys
+        from lightshow.studio.jam_service import extras_for
+
+        hue = lambda hx: colorsys.rgb_to_hsv(*(int(hx[i:i + 2], 16) / 255 for i in (1, 3, 5)))[0] * 360
+        red, orange = extras_for(["#8000ff", "#00ff00"])           # purple and green: red and orange
+        self.assertTrue(hue(red) > 340 or hue(red) < 15)
+        self.assertTrue(20 < hue(orange) < 45)
+        self.assertEqual(extras_for(["#ffffff", "#000000"]), ["#ff6000", "#ff0000"])   # no hue to steer by
+        self.assertIsNone(extras_for(None))
+
+    def test_only_the_home_network_may_use_it(self):
+        from types import SimpleNamespace
+        from lightshow.studio.jam_service import JamService
+        ok = lambda ip: JamService._lan(SimpleNamespace(remote=ip))
+        self.assertTrue(ok("192.168.1.40"))
+        self.assertTrue(ok("10.0.0.7"))
+        self.assertTrue(ok("127.0.0.1"))
+        self.assertFalse(ok("8.8.8.8"))
+        self.assertFalse(ok(""))

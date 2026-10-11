@@ -220,6 +220,9 @@ class SpotifyClient:
     def resume(self) -> bool:
         return self._call("PUT", "/me/player/play")[0] in (200, 202, 204)
 
+    def next_track(self) -> bool:
+        return self._call("POST", "/me/player/next")[0] in (200, 202, 204)
+
 
 # ============================================================================ the studio player
 class PlayerState:
