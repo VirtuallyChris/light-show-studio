@@ -817,6 +817,21 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         if stems.get("sr", sr) != sr:
             bb = librosa.resample(bb, orig_sr=stems["sr"], target_sr=sr)
         bass_hits = find_bass_hits(bb, sr, beats)
+    # what makes this kind of song different: 808s, hat rolls, wobbles, a key change (see flavor.py)
+    from . import flavor
+    b808, hatrolls, wobbles = [], [], []
+    if stems and stems.get("bass") is not None:
+        b808 = flavor.find_808s(bb, sr, bass_hits)
+        wobbles = flavor.find_wobbles(bb, sr, beats)
+    if stems and stems.get("drums") is not None and (drum_cal or {}).get("has_drums", True) is not False:
+        dd = np.asarray(stems["drums"], dtype=np.float32)
+        if stems.get("sr", sr) != sr:
+            dd = librosa.resample(dd, orig_sr=stems["sr"], target_sr=sr)
+        hatrolls = flavor.find_hat_rolls(dd, sr, beats)
+    try:
+        key_change = flavor.find_key_change(mid, sr, duration)
+    except Exception:  # noqa: BLE001 - a key change is a nicety
+        key_change = None
     levels = (stems or {}).get("levels") or {}
     lfps = float((stems or {}).get("fps") or 30)
     regrid = lambda xs: [round(float(v), 3) for v in np.interp(out_times, np.arange(len(xs)) / lfps, xs / (np.percentile(xs, 95) + 1e-9)).clip(0, 1)] if len(xs) else []
@@ -834,7 +849,8 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
 
     return {
         "events": {**{k: pack(k) for k in ("lead", "bass", "ghost")}, "kick": pack_hits(kick), "snare": pack_hits(snare),
-                   "roll": pack_hits((drum_cal or {}).pop("roll_hits", [])), "basshit": pack_hits(bass_hits)},
+                   "roll": pack_hits((drum_cal or {}).pop("roll_hits", [])), "basshit": pack_hits(bass_hits),
+                   "b808": [[round(t, 3), round(v, 2), 0, h] for t, v, h in b808]},
         "rolls": (drum_cal or {}).get("rolls", []),
         "fills": fills,
         "hook": hook,
@@ -850,6 +866,9 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         "drum_calibration": drum_cal,                   # the bands this song's kick and snare were found in
         "cuts": cuts,                                   # the music drops out for a moment, then comes back
         "entries": entries,                             # the synths and guitars come in after being away
+        "hatrolls": hatrolls,                           # trap hi-hat rolls: [start, end, hits a beat]
+        "wobbles": wobbles,                             # the bass wobbling: [start, end, wobbles a beat]
+        "key_change": key_change,                       # {time, up}: the song moves up a key near the end
     }
 
 

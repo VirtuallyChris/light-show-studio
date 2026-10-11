@@ -143,6 +143,9 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "rolls": ev.get("rolls", []),
         "cuts": ev.get("cuts", []),
         "entries": ev.get("entries", []),
+        "hatrolls": ev.get("hatrolls", []),
+        "wobbles": ev.get("wobbles", []),
+        "key_change": ev.get("key_change"),
         "hook": ev["hook"],
         "curves": ev["curves"],
         "bpm": round(bpm, 3),
@@ -276,7 +279,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 25         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 26         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup

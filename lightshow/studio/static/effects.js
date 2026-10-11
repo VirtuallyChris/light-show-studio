@@ -163,6 +163,96 @@ const Effects = (() => {
       }
     } });
 
+  // ---- Effects that belong to one kind of song or one kind of moment, placed only where they fit ----
+  def({ id: 'spotlight', name: 'Vocal spotlight', cat: 'slow', desc: 'A soft warm glow in the middle of every strip that swells with the singer\'s voice (the separated vocal track), like a spotlight on a singer alone on stage.', swatch: ['#ffd9a0', '#000000'],
+    params: { width: P.size(0.35, 'Width at full voice'), tint: { type: 'select', def: 'warm', options: { warm: 'warm white', white: 'white', palette: 'the palette' }, label: 'Color' } },
+    render(c) {
+      clear(c.out); const m = c.music || {}, v = clamp(m.vocalLevel ?? 0.5); if (v < 0.02) return;
+      const w = Math.max(0.08, c.p.width * (0.45 + 0.55 * v)), col = c.p.tint === 'palette' ? c.pal[0] : c.p.tint === 'white' ? [1, 1, 1] : [1, 0.78, 0.5];
+      for (let i = 0; i < c.n; i++) { const x = c.n <= 1 ? 0 : (i / (c.n - 1)) - 0.5, g = Math.exp(-((x / w) ** 2) * 2.2) * (0.25 + 0.75 * v); if (g > 0.01) set(c.out, i, col[0] * g, col[1] * g, col[2] * g, g); }
+    } });
+
+  def({ id: 'wobble', name: 'Wobble', cat: 'fast', desc: 'Pulses at the bass wobble\'s own speed (found on the separated bass track), not the beat\'s: the light opens out from the middle and closes again with every wobble.', swatch: ['#7c3aed', '#000000'],
+    params: { per: { type: 'select', def: '2', options: { '1.5': '1.5 a beat', '2': '2 a beat', '3': '3 a beat (triplets)', '4': '4 a beat', '6': '6 a beat', '8': '8 a beat' }, label: 'Wobbles (when not found)' }, color: P.color() },
+    render(c) {
+      clear(c.out); const m = c.music || {}, per = (m.wobble && m.wobble.per) || parseFloat(c.p.per) || 2;
+      const u = c.beat * per, env = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * u), 1.4) * (0.45 + 0.55 * clamp((m.bassLevel ?? 0.7) * 1.2));
+      const col = colorFor(c, 0.5, Math.floor(u)), half = 0.12 + 0.38 * env;
+      for (let i = 0; i < c.n; i++) { const x = Math.abs((i + 0.5) / c.n - 0.5); if (x <= half) { const v = env * (1 - 0.5 * x / Math.max(1e-3, half)); set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } }
+    } });
+
+  def({ id: 'deep808', name: '808 glow', cat: 'medium', desc: 'On every 808 (a bass hit that holds, low and long) the whole room sinks into one deep color that dies away as slowly as the 808 does.', swatch: ['#7a0000', '#000000'],
+    params: { color: P.color(), depth: { type: 'range', def: 0.75, min: 0.2, max: 1, step: 0.01, label: 'Brightness' } },
+    render(c) {
+      clear(c.out); const h = (c.music || {}).b808; if (!h || h.index < 0) return;
+      const hold = Math.max(0.4, h.hold || 0.8), v = c.p.depth * (h.age < 0.04 ? h.age / 0.04 : Math.exp(-(h.age - 0.04) / (hold * 0.9))) * (0.6 + 0.4 * h.strength);
+      if (v < 0.01) return; const col = colorFor(c, 0.5, h.index);
+      for (let i = 0; i < c.n; i++) { const x = Math.abs((i + 0.5) / c.n - 0.5) * 2, g = v * (1 - 0.35 * x); set(c.out, i, col[0] * g, col[1] * g, col[2] * g, g); }
+    } });
+
+  def({ id: 'ticks', name: 'Hat ticks', cat: 'fast', desc: 'Tiny white ticks racing along the strip through a trap hi-hat roll, as fast as the roll.', swatch: ['#ffffff', '#000000'],
+    params: { rate: { type: 'range', def: 6, min: 2, max: 12, step: 1, label: 'Ticks a beat (when not found)' }, travel: { type: 'range', def: 0.5, min: 0.1, max: 2, step: 0.05, label: 'Crossing (beats)' } },
+    render(c) {
+      clear(c.out); const m = c.music || {}, rate = (m.hatroll && m.hatroll.rate) || c.p.rate;
+      const u = c.beat * rate, k0 = Math.floor(u), back = Math.ceil(c.p.travel * rate) + 1;
+      for (let k = k0; k > k0 - back; k--) {
+        const age = (c.beat - k / rate) / c.p.travel; if (age < 0 || age > 1) continue;
+        const dir = hash(k * 13) < 0.5, x = dir ? age : 1 - age, i = Math.min(c.n - 1, Math.floor(x * c.n)), v = 1 - age * 0.6;
+        set(c.out, i, v, v, v, v); if (c.n > 20) { const j = dir ? i - 1 : i + 1; if (j >= 0 && j < c.n) set(c.out, j, v * 0.35, v * 0.35, v * 0.35, v * 0.35); }
+      }
+    } });
+
+  def({ id: 'candle', name: 'Candlelight', cat: 'slow', desc: 'A warm, low, uneven flicker, segment by segment, like a room lit by candles. For acoustic and folk songs.', swatch: ['#ff9a3c', '#3a1500'],
+    params: { level: { type: 'range', def: 0.45, min: 0.1, max: 1, step: 0.01, label: 'Brightness' } },
+    render(c) {
+      for (let i = 0; i < c.n; i++) {
+        // two slow random drifts and a quicker shiver, on seconds (a flame does not keep time)
+        const t = c.t, n1 = Math.sin(t * 1.3 + hash(i * 7) * 6.28) * 0.5 + 0.5, n2 = Math.sin(t * 3.7 + hash(i * 11) * 6.28) * 0.5 + 0.5;
+        const shiver = hash(Math.floor(t * 12) * 131 + i) * 0.15, dip = hash(Math.floor(t * 1.5) * 977 + i) < 0.06 ? 0.55 : 1;
+        const v = c.p.level * (0.55 + 0.3 * n1 + 0.15 * n2 - shiver) * dip;
+        set(c.out, i, v, v * 0.55, v * 0.16);
+      }
+    } });
+
+  def({ id: 'thunder', name: 'Thunder', cat: 'accent', desc: 'A double white flicker, then black to the end of the clip before the colors come back: lightning and its thunder, for the darkest songs\' biggest hits.', swatch: ['#ffffff', '#000000'],
+    params: {},
+    render(c) {
+      const s = c.t - c.clipT0; let v = 0;
+      if (s < 0.06) v = 1; else if (s >= 0.13 && s < 0.2) v = 0.85; else if (s >= 0.2 && s < 0.45) v = 0.85 * Math.exp(-(s - 0.2) / 0.08);
+      fillAll(c.out, c.n, v, v, v, 1);
+    } });
+
+  def({ id: 'heartbeat', name: 'Heartbeat', cat: 'medium', desc: 'On every kick, a strong pulse and a softer one just after (lub-dub), in a deep color: for a quiet stretch where only a kick plays.', swatch: ['#b00020', '#000000'],
+    params: { color: P.color() },
+    render(c) {
+      clear(c.out); const h = (c.music || {}).kick; if (!h || h.index < 0) return;
+      const a = h.age, v = Math.exp(-a / 0.11) + (a > 0.2 ? 0.55 * Math.exp(-(a - 0.2) / 0.13) : 0); if (v < 0.01) return;
+      const col = colorFor(c, 0.5, 0), g = Math.min(1, v);
+      for (let i = 0; i < c.n; i++) { const x = Math.abs((i + 0.5) / c.n - 0.5) * 2, w = g * (1 - 0.5 * x); set(c.out, i, col[0] * w, col[1] * w, col[2] * w, w); }
+    } });
+
+  def({ id: 'fireworks', name: 'Fireworks', cat: 'room', desc: 'Rockets climb the strip and burst into falling sparks of the palette\'s colors, a few a bar. For the last drop of a song that goes all out.', swatch: ['#ff3b3b', '#ffd23b'],
+    params: { every: P.speed(2, 'A rocket every (beats)'), life: { type: 'range', def: 3, min: 1, max: 8, step: 0.5, label: 'Each lasts (beats)' } },
+    render(c) {
+      clear(c.out);
+      const k0 = Math.floor(c.beat / c.p.every), back = Math.ceil(c.p.life / c.p.every);
+      for (let k = k0; k > k0 - back - 1; k--) {
+        const age = (c.beat - k * c.p.every) / c.p.life; if (age < 0 || age > 1) continue;
+        const x0 = 0.25 + 0.5 * hash(k * 37 + 3), from = hash(k * 11) < 0.5 ? 0 : 1, col = palIdx(c.pal, Math.floor(hash(k * 53) * 8));
+        if (age < 0.18) {                                             // the rocket: a white point climbing to where it bursts
+          const x = from + (x0 - from) * (age / 0.18), i = Math.min(c.n - 1, Math.floor(x * c.n)); add(c.out, i, 1, 0.9, 0.7, 1);
+        } else {                                                      // the burst: sparks flying out and fading, twinkling as they go
+          const b = (age - 0.18) / 0.82, r = 0.04 + 0.22 * Math.sqrt(b), fade = Math.pow(1 - b, 1.6);
+          for (let i = 0; i < c.n; i++) {
+            const d = Math.abs((i + 0.5) / c.n - x0); if (d > r + 0.03) continue;
+            const ring = Math.exp(-(((d - r * 0.85) / 0.05) ** 2)) + (b < 0.15 ? Math.max(0, 1 - d / 0.05) : 0);
+            const tw = 0.6 + 0.4 * hash(Math.floor(c.beat * 16) * 7 + i * 3 + k), v = Math.min(1, ring) * fade * tw, w = 0.3 * v * (1 - b);
+            if (v > 0.02) add(c.out, i, col[0] * v + w, col[1] * v + w, col[2] * v + w, v);
+          }
+        }
+      }
+    } });
+
   def({ id: 'twinkle', name: 'Twinkle', cat: 'slow', desc: 'Soft random sparkles fading in and out over the base color.', swatch: ['#e0f7ff', '#1b2a4a'],
     params: { density: { type: 'range', def: 0.3, min: 0.02, max: 1, step: 0.01, label: 'Density' }, speed: P.speed(2, 'Twinkle life (beats)'), base: { type: 'range', def: 0.15, min: 0, max: 1, step: 0.01, label: 'Base level' } },
     render(c) { const base = c.pal[0]; for (let i = 0; i < c.n; i++) { let v = 0; for (let k = 0; k < 3; k++) { const life = c.p.speed; const slot = Math.floor(c.beat / life + hash(i * 7 + k * 131) ); const on = hash(slot * 977 + i * 13 + k * 3) < c.p.density; if (on) { const ph = frac(c.beat / life + hash(i * 7 + k * 131)); v = Math.max(v, Math.sin(ph * Math.PI)); } } const col = palIdx(c.pal, 1 + i % (c.pal.length - 1 || 1)); set(c.out, i, base[0] * c.p.base + col[0] * v, base[1] * c.p.base + col[1] * v, base[2] * c.p.base + col[2] * v); } } });

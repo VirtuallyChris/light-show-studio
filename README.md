@@ -716,6 +716,44 @@ noise.
   is next to them (a quiet verse about half, a near-chorus up to 85%), never
   outshining the drop it leads to. A section brighter than its share is turned
   down; risers and fades are left alone.
+- **Each song's own flavor.** A few effects only appear where a song has the
+  thing they are made for, so a night of songs does not look the same all
+  through (the separated tracks are what hear them; see `flavor.py`):
+  - *Vocal spotlight*: where the singer is nearly alone (the voice loud, the
+    instruments low, no drums), a soft warm glow in the middle of every strip
+    swells with the voice; the four longest such moments of a song at most.
+  - *Wobble*: where the bass track's level pulses steadily faster than the beat
+    (1.5 to 8 wobbles a beat, found four bars at a time) and swells into each
+    wobble rather than striking it (a bass playing separate notes at that speed
+    is not a wobble), the drop's light opens out from the middle and closes again
+    at the wobble's own speed. Over 20 songs: the EDM tracks' drops, and none of
+    the indie, rock or grunge songs.
+  - *808 glow*: a bass hit that holds, low (under about 110 Hz) and long (still
+    at half its peak 0.35 s later), is an 808. In a hip-hop or trap song, where
+    they are the song's sound, the room sinks into the song's main color on each
+    one and it dies away as slowly as the 808 does (elsewhere a held bass note is
+    just a held bass note).
+  - *Hat ticks*: through a trap hi-hat roll (the drum track's top band at five
+    or more hits a beat for half a beat or more) in a hip-hop, trap or
+    electronic song, tiny white ticks race along the strip as fast as the roll
+    (in a rock song the same thing is a drummer's fill).
+  - *Candlelight*: an acoustic or folk song's quiet parts flicker warm and low,
+    segment by segment, like a room lit by candles.
+  - *Thunder* and *Heartbeat*, for the darkest looks (Haunted, Storm): the three
+    biggest hits inside the drops get a double white flicker and a beat of
+    black; an intro or breakdown where only a kick plays beats deep red on it, a
+    strong pulse and a softer one just after.
+  - *A key change*: when the song moves up a semitone or two in its last part
+    and stays there (the key of every 8 s, by the Krumhansl profiles), the
+    colors lift with it from there on (in two jam colors, the pair swaps), with
+    a white sweep where it happens.
+  - *The finale*: the last drop gets a sweep in and everything a little
+    brighter, and in a song that goes all out, *Fireworks*: rockets climb the
+    strip and burst into falling sparks. Then the song's last hit holds in its
+    main color and fades away slowly over the last bars.
+  - *Glitch*: in an electronic song, the stutter edits (the music cut for under
+    0.4 s mid-phrase, which the cut-to-black moment leaves alone) break the
+    strip into jittering slices.
 - **Drum rolls.** In the drum track, a stretch where the hits above the kick come
   three or more to a beat, and twice as thick as the song's own groove, for a bar
   or more, is a roll. Its hits (as close as 46 ms) count as steps for a buildup's

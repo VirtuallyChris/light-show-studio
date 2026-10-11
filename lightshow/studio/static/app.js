@@ -599,6 +599,10 @@
       },
       hook, fill,
       leadLevel: (cur.lead || [])[i] || 0, bassLevel: (cur.bass || [])[i] || 0, drumLevel: (cur.drum || [])[i] || 0,
+      vocalLevel: (cur.vocals || [])[i] ?? 0.5,
+      b808: (() => { const h = hitAt('b808', t); if (h.index >= 0) h.hold = ((a.events.b808 || [])[h.index] || [])[3] || 0.8; return h; })(),
+      hatroll: (() => { for (const [r0, r1, rate] of a.hatrolls || []) if (t >= r0 && t < r1) return { active: true, rate, progress: (t - r0) / Math.max(0.05, r1 - r0) }; return null; })(),
+      wobble: (() => { for (const [w0, w1, per] of a.wobbles || []) if (t >= w0 && t < w1) return { per }; return null; })(),
     };
   }
   /** How bright the whole show may be at time t, from how loud the music is there.
@@ -1719,6 +1723,7 @@
     // drop markers that are not section starts still get a blast (a chill song never flashes, so it gets none)
     if (showStyle() !== 'chill') for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
     addMoments();
+    addFlavor();
     balance();
     S.view.sel = null; inspector(); changed();
     if (quiet) return;
@@ -1964,6 +1969,134 @@
     S.sectionClips = null;
   }
   const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
+
+  /** The genre words the listening model heard in the song, lowercased. */
+  const genreWords = () => (((S.analysis && S.analysis.genre && S.analysis.genre.genres) || []).join(' ') + ' ' + ((S.analysis && S.analysis.genre && S.analysis.genre.spotify) || []).join(' ')).toLowerCase();
+  /** A palette moved round the color wheel (a key change lifts the colors with it). */
+  function turnPalette(cols, deg) {
+    return Effects.solidPalette((cols || []).map(hx => {
+      const [r, g, b] = Effects.hex2rgb(hx), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      if (!mx || d / mx < 0.2) return hx;
+      let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h = ((h / 6) + 1 + deg / 360) % 1;
+      return '#' + Effects.hsv(h, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+    }));
+  }
+
+  /** What makes this song unlike the others, each only where it belongs (see flavor.py for how they are heard):
+   *  - the singer nearly alone (the voice loud, the instruments low, no drums): a soft spotlight in the
+   *    middle of every strip, swelling with the voice;
+   *  - the bass wobbling (bass music): the light pulses at the wobble's own speed;
+   *  - 808s (a bass hit that holds, low and long): the room sinks into a deep glow that dies away with it;
+   *  - a trap hi-hat roll: tiny white ticks racing along the strip;
+   *  - an acoustic or folk song: candlelight in its quiet parts;
+   *  - the darkest looks: thunder on the biggest hits, and a heartbeat where only a kick plays;
+   *  - a key change near the end: the colors lift with it, from there on;
+   *  - the finale: the last drop gets everything (fireworks in a song that goes all out), and the
+   *    song's last hit holds in its main color and fades away slowly;
+   *  - an electronic song's stutter edits (the music cut for a moment, mid-phrase): a glitch. */
+  function addFlavor() {
+    const p = P(), a = S.analysis || {}, ev = a.events || {}, style = showStyle(), chill = style === 'chill', hard = style === 'dance' || style === 'rave';
+    const fps = a.feature_fps || 30, cur = a.curves || {}, g = genreWords(), lt = S.mixedLights ? { target: 'long' } : {};
+    const beatOf = t => timeToBeat(t), lastB = Math.floor(beatOf(duration()));
+    const drop = s => s.type === 'drop', drops = p.sections.filter(drop);
+
+    // the singer nearly alone: two-beat windows where the voice is loud and the rest is quiet, joined
+    if (cur.vocals && cur.other) {
+      const present = cur.drums_present || [], runs = [];
+      for (let b = 0; b < lastB - 2; b += 2) {
+        const i0 = Math.floor(beatToTime(b) * fps), i1 = Math.floor(beatToTime(b + 2) * fps); let v = 0, o = 0, d = 0, n = 0;
+        for (let i = i0; i < Math.min(i1, cur.vocals.length); i++) { v += cur.vocals[i]; o += cur.other[i]; d += (present[i] || 0) >= 0.3; n++; }
+        const alone = n && v / n >= 0.5 && o / n <= 0.35 && d / n < 0.2;
+        if (alone && runs.length && runs[runs.length - 1][1] === b) runs[runs.length - 1][1] = b + 2;
+        else if (alone) runs.push([b, b + 2]);
+      }
+      // the four longest, so it stays the singer's moment
+      for (const [b0, b1] of runs.filter(r => r[1] - r[0] >= 4).sort((x, y) => (y[1] - y[0]) - (x[1] - x[0])).slice(0, 4)) clip(4, 'spotlight', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, fadeIn: Math.min(2, (b1 - b0) / 4), fadeOut: Math.min(2, (b1 - b0) / 4) });
+    }
+
+    // the bass wobbling, inside the drops
+    if (!chill) for (const [w0, w1] of a.wobbles || []) for (const s of drops) {
+      const t0 = Math.max(w0, s.start), t1 = Math.min(w1, s.end); if (t1 - t0 < 2) continue;
+      const b0 = Math.round(beatOf(t0)), b1 = Math.round(beatOf(t1));
+      clip(5, 'wobble', b0, b1 - b0, {}, { blend: 'add', opacity: hard ? 0.85 : 0.6, ...lt });
+    }
+
+    // 808s: in hip-hop and trap, where they come often enough to be the song's sound (a held bass note
+    // in any other song is just a held bass note)
+    const b808 = ev.b808 || [], hiphop = /hip hop|hip-hop|trap|rap|drill|grime/.test(g);
+    if (!chill && hiphop && b808.length >= 6) for (const s of p.sections) {
+      if (!['drop', 'verse', 'buildup'].includes(s.type)) continue;
+      const n = b808.filter(e => e[0] >= s.start && e[0] < s.end).length, b0 = Math.round(beatOf(s.start)), b1 = Math.round(beatOf(s.end));
+      if (n >= Math.max(3, (b1 - b0) / 16)) clip(2, 'deep808', b0, b1 - b0, { color: 'first' }, { blend: 'add', opacity: s.type === 'drop' ? 0.9 : 0.6, palette: S.songPal });
+    }
+
+    // trap hi-hat rolls (in hip-hop, trap and electronic songs: elsewhere a roll is a drummer's fill)
+    if (!chill && (hiphop || /electronic|edm|dubstep|bass music/.test(g))) for (const [r0, r1] of a.hatrolls || []) {
+      const b0 = beatOf(r0), b1 = beatOf(r1); if (b1 - b0 < 0.4) continue;
+      clip(6, 'ticks', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, ...lt });
+    }
+
+    // candlelight: an acoustic or folk song's quiet parts
+    if (/folk|acoustic|singer-songwriter|country|bluegrass/.test(g) && style !== 'dance' && style !== 'rave') {
+      for (const s of p.sections) if (['intro', 'verse', 'breakdown', 'outro'].includes(s.type) && energyIn(s.start, s.end) < 0.5) {
+        const b0 = Math.round(beatOf(s.start)), b1 = Math.round(beatOf(s.end));
+        clip(0, 'candle', b0, b1 - b0, { level: 0.45 }, { opacity: 0.9 });
+      }
+    }
+
+    // the darkest looks: thunder on the three biggest hits inside the drops, a heartbeat where only a kick plays
+    if (S.look === 'haunted' || S.look === 'storm') {
+      if (!chill) {
+        const hits = [...(ev.kick || []), ...(ev.basshit || [])].filter(e => drops.some(s => e[0] >= s.start + 2 && e[0] < s.end - 1));
+        const used = [];
+        for (const e of hits.sort((x, y) => y[1] - x[1])) {
+          if (used.length >= 3) break;
+          if (used.some(u => Math.abs(u - e[0]) < 20) || (a.cuts || []).some(([c0, c1]) => Math.abs(c1 - e[0]) < 2)) continue;
+          used.push(e[0]); clip(9, 'thunder', beatOf(e[0]), 1);
+        }
+      }
+      for (const s of p.sections) {
+        if (!['intro', 'breakdown'].includes(s.type)) continue;
+        const k = (ev.kick || []).filter(e => e[0] >= s.start && e[0] < s.end).length, sn = (ev.snare || []).filter(e => e[0] >= s.start && e[0] < s.end).length;
+        const b0 = Math.round(beatOf(s.start)), b1 = Math.round(beatOf(s.end));
+        if (k >= Math.max(4, (b1 - b0) / 4) && sn <= 0.15 * k) clip(6, 'heartbeat', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, palette: ['#c00018'], ...(S.mixedLights ? { target: 'short' } : {}) });
+      }
+    }
+
+    // a key change near the end: the colors lift from there on, with a sweep where it happens
+    const kc = a.key_change;
+    if (kc && kc.time) {
+      const kb = Math.round(beatOf(kc.time));
+      for (const lane of p.lanes) for (const c of lane.clips) if (c.start >= kb - 0.5 && Array.isArray(c.palette) && c.palette.length)
+        c.palette = S.pairMode ? c.palette.slice().reverse() : turnPalette(c.palette, 25 * (kc.up || 1));
+      clip(8, 'sweepout', kb, 2, {}, { opacity: 0.95, palette: ['#ffffff'] });
+    }
+
+    // the finale: the last drop gets everything, and the last hit holds and fades away
+    const last = drops[drops.length - 1];
+    if (last && !chill) {
+      const b0 = Math.round(beatOf(last.start)), b1 = Math.round(beatOf(last.end));
+      if (S.epic || style === 'rave') clip(4, 'fireworks', b0, b1 - b0, { every: 2, life: 3 }, { blend: 'add', opacity: 0.9, ...lt });
+      clip(8, 'sweepout', b0, 2, {}, { opacity: 0.9 });
+      for (const lane of p.lanes) for (const c of lane.clips) if (c.start >= b0 - 0.5 && c.start < b1 && !HIT.has(c.effect) && !FREE.has(c.effect)) c.opacity = Math.min(1, (c.opacity ?? 1) * 1.15);
+      const end = Math.min(lastB, b1), hold = Math.max(4, Math.min(16, lastB - end));
+      if (lastB - end >= 2) {
+        const main = (S.jamColors && S.jamColors[0]) || (p.palettes[S.songPal] || [])[0] || '#ffffff';
+        clip(8, 'solid', end, hold, {}, { palette: [main], fadeOut: hold, opacity: 1 });
+      }
+    }
+
+    // stutter edits in electronic songs: the short cuts left out of the song's moments
+    if (/electronic|edm|house|dubstep|trance|techno|bass music/.test(g) && !chill) {
+      for (const [t0, t1] of a.cuts || []) {
+        if (t1 - t0 >= 0.4 || t1 - t0 < 0.08) continue;
+        const period = 60 / (p.bpm || 120);                              // a cut into a new section is the song's moment, not a glitch
+        if (p.sections.some(sc => Math.abs(sc.start - t1) < 1.5 * period) || (p.drops || []).some(d => Math.abs(d - t1) < 1.5 * period)) continue;
+        const b0 = beatOf(t0), b1 = beatOf(t1);
+        clip(9, 'glitch', b0, Math.max(0.25, b1 - b0), { rate: 16, density: 0.7, overlay: false }, { opacity: 1 });
+      }
+    }
+  }
 
   /** The last word on brightness: the show is looked at as the room would see it (twice a second),
    *  and no other section may outshine the drops. Each gets a share of the drops' light by how loud it
