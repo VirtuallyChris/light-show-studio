@@ -36,6 +36,11 @@
     if (jc.mode === 'pick') return [jc.primary, jc.secondary];
     return null;
   }
+  /** The extras (a few small accents in two more colors), with the jam's two colors only. */
+  function extrasFor() {
+    const jc = (J.state || {}).jam_colors || {};
+    return jc.extras ? [jc.accent1, jc.accent2] : null;
+  }
   function shownColors(t) {
     const cols = colorsFor(t) || ((J.art || {})[t.image] || []).slice(0, 2);
     if (!colorsFor(t) && t.image && J.art && J.art[t.image] === undefined) fetchArt(t);
@@ -54,12 +59,13 @@
   function colorsSection(st) {
     const jc = st.jam_colors || {};
     return `<div class="jam-sec"><h4>Colors</h4>
-        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="album" ${jc.mode !== 'pick' ? 'selected' : ''}>Its album cover's colors</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div></div>`;
+        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="album" ${jc.mode !== 'pick' ? 'selected' : ''}>Its album cover's colors</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
+        ${jc.mode === 'pick' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take these instead, now and then">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}><input type="color" id="jamAccent1" value="${esc(jc.accent1 || '#ff6000')}" title="Extra color"><input type="color" id="jamAccent2" value="${esc(jc.accent2 || '#ff0000')}" title="Extra color"></span></div>` : ''}</div>`;
   }
   /** The song in the room got new colors: build its show again in them. */
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
-    S.jamColors = colorsFor(J.doc.track);
+    S.jamColors = colorsFor(J.doc.track); S.jamExtras = S.jamColors ? extrasFor() : null;
     try { St.autoBuild(true); J.built = sectionKeys(); } catch (e) { console.error(e); }
     St.draw();
   }
@@ -168,7 +174,7 @@
     // colors: the jam's pair, and any track's own (saved for the next time it plays)
     const saveJam = async body => {
       J.state = await api('jam/colors', body);
-      if (!(J.state.track_colors || {})[roomTrackId()]) recolor();
+      recolor();
       if (document.activeElement && el2.contains(document.activeElement)) document.activeElement.blur();
       J.shown = null; render();
     };
@@ -176,6 +182,7 @@
     const mode = $('#jamColorMode');
     if (mode) mode.onchange = () => saveJam({ mode: mode.value }).catch(e => toast(e.message, true));
     for (const id of ['jamPrimary', 'jamSecondary']) { const e = $('#' + id); if (e) e.onchange = () => saveJam({ primary: $('#jamPrimary').value, secondary: $('#jamSecondary').value }).catch(err => toast(err.message, true)); }
+    for (const id of ['jamExtras', 'jamAccent1', 'jamAccent2']) { const e = $('#' + id); if (e) e.onchange = () => saveJam({ extras: $('#jamExtras').checked, accent1: $('#jamAccent1').value, accent2: $('#jamAccent2').value }).catch(err => toast(err.message, true)); }
     for (const box of el2.querySelectorAll('.jam-pair[data-id]')) {
       const id = box.dataset.id, a = box.querySelector('.jp-a'), b = box.querySelector('.jp-b'), reset = box.querySelector('.jp-reset');
       const save = async body => {
@@ -295,6 +302,7 @@
     J.live = true; J.doc = doc;
     S.albumPalette = await albumPalette(doc.track);
     S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
+    S.jamExtras = S.jamColors ? extrasFor() : null;
     if (doc.kind === 'custom' && doc.project) {
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
@@ -412,7 +420,7 @@
   }
 
   function leave() {
-    S.albumPalette = null; S.jamColors = null; J.doc = null;
+    S.albumPalette = null; S.jamColors = null; S.jamExtras = null; J.doc = null;
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;
     St.updateTransport(); St.stopOutput(); St.draw();

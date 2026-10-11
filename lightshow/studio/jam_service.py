@@ -570,7 +570,8 @@ class JamService:
     def _last(self) -> dict:
         return {"source": "studio", "speakers": "pc", "target_delay": 45.0, **self.load_config().get("jam_last", {})}
 
-    DEFAULT_COLORS = {"mode": "album", "primary": "#8000ff", "secondary": "#00ff00"}
+    # extras: two more colors a few of the small accents take now and then (orange and red at Halloween)
+    DEFAULT_COLORS = {"mode": "album", "primary": "#8000ff", "secondary": "#00ff00", "extras": False, "accent1": "#ff6000", "accent2": "#ff0000"}
 
     def _jam_colors(self) -> dict:
         """The jam's own colors: every song in a primary and a secondary, or ("album") its cover's."""
@@ -590,9 +591,11 @@ class JamService:
             cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
             if body.get("mode") in ("pick", "album"):
                 cur["mode"] = body["mode"]
-            for k in ("primary", "secondary"):
+            for k in ("primary", "secondary", "accent1", "accent2"):
                 if hexcolor(body.get(k)):
                     cur[k] = hexcolor(body[k])
+            if "extras" in body:
+                cur["extras"] = bool(body["extras"])
             cfg["jam_colors"] = cur
             self.save_config(cfg)
         return web.json_response(self._state())

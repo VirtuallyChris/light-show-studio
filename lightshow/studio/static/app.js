@@ -1541,7 +1541,11 @@
       return '#' + Effects.hsv(h, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
     }));
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
+  // In the jam's two colors, a few of these small accents now and then take the jam's extra colors
+  // (orange and red at Halloween): little extras, never the base, the comets or the drums.
+  const EXTRAS = new Set(['hookstrike', 'sweepout', 'colorslam', 'ghostspark', 'fillrush', 'sparkle', 'meteors', 'ripple', 'whiteflash']);
+  const extraHere = (effect, start) => S.pairMode && S.jamExtras && EXTRAS.has(effect) && Effects.hash(Math.round(start * 4) * 7919 + effect.length * 104729) < 0.35;
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; tier(c); P().lanes[freeLaneFor(start, len, lane)].clips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }

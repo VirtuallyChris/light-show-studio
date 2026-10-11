@@ -503,7 +503,11 @@ noise.
   those colors whenever it plays again (↺ puts it back to the jam's). In two
   colors the primary leads verses and drops, buildups and breakdowns swap to the
   secondary, and overlays take the other color of the pair, so nothing else
-  comes in. A song with a show you made keeps that show's colors.
+  comes in, except the extras: tick **Now and then** and a few of the small
+  accents (a hook strike, a spark, a sweep, a color slam, a meteor shower; about
+  a third of them) take two more colors instead, say orange and red. The base,
+  the comets and the drums stay in the two. A song with a show you made keeps
+  that show's colors.
 - **Dual comets** are for drops only; the **strobe riser** for the rave style
   only.
 - **Concert-style layers.** The bed (gradients, aurora, breathe) sets color and
