@@ -1719,7 +1719,7 @@
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
   const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
-  const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout']);
+  const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight']);   // set as placed: never tiered or balanced (a star is one bright segment)
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
     // a color battle at full motion brightness made a verse outshine its drop
@@ -1832,16 +1832,20 @@
     S.bedBase = null;
     S.bedSectionNow = ['intro', 'verse', 'breakdown', 'outro'].includes(s.type);
     const top = (spec, extra = {}) => spec && clip(1, spec[0], b0, len, spec[1], { opacity: 0.85, ...(spec[2] || {}), ...extra });
+    // under a calm song's stars, a soft color rather than colored twinkles of its own
+    const starBed = spec => chill && spec[0] === 'twinkle' ? ['colorwash', { speed: 16, intensity: 0.3 }] : spec;
     switch (s.type) {
       case 'intro':
-        clip(0, look.intro[0], b0, len, look.intro[1]);
-        clip(1, 'meteors', b0, len, { every: 4, chance: 0.35, travel: 4 });
+        clip(0, starBed(look.intro)[0], b0, len, starBed(look.intro)[1]);
+        if (chill) clip(1, 'starlight', b0, len, { density: 0.08, life: 8 }, { blend: 'add' });   // a calm song: the stars come out
+        else clip(1, 'meteors', b0, len, { every: 4, chance: 0.35, travel: 4 });
         drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
         if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
         else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
-        top(look.verseTop[v]);                                          // drop material (dual comets, strobes) stays out of verses
+        if (chill) clip(1, 'starlight', b0, len, { density: 0.12, life: 6 }, { blend: 'add' });   // single white stars, slowly, here and there
+        else top(look.verseTop[v]);                                     // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
         if (!chill && drumsHere && longStrips && snaresHere >= len / 8)   // the snare lands on a quarter of the ceiling, in turn
           clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'quarters', decay: 0.3 }, { opacity: 0.4, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
@@ -1880,6 +1884,7 @@
           if (r.top === 'motion') motion(chill ? 0.5 : hard ? 1.3 : 1);
           else top(r.top);
         }
+        if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 4 }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
         drums(chill ? 0.8 : 1, 0.85);
         // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
         const pump = chill ? 0 : hard ? 0.5 : 0.3;
@@ -1899,13 +1904,15 @@
         break;
       }
       case 'breakdown':
-        clip(0, look.breakdown[0], b0, len, look.breakdown[1]);
-        clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 }, { opacity: 0.85 });
+        clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
+        if (chill) clip(1, 'starlight', b0, len, { density: 0.1, life: 8 }, { blend: 'add' });
+        else clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 }, { opacity: 0.85 });
         drums(0.5, 0.5);
         break;
       case 'outro':
         clip(0, look.outro[0], b0, len, look.outro[1]);
-        clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
+        if (chill) clip(1, 'starlight', b0, len, { density: 0.06, life: 10 }, { blend: 'add' });   // and go out again, one by one
+        else clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
         drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }

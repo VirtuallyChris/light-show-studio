@@ -140,6 +140,29 @@ const Effects = (() => {
     params: { speed: P.speed(4), direction: P.direction(), waves: { type: 'range', def: 1.5, min: 0.25, max: 6, step: 0.25, label: 'Waves' }, floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
     render(c) { const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const v = c.p.floor + (1 - c.p.floor) * (0.5 + 0.5 * Math.sin((x * c.p.waves - s) * 2 * Math.PI)); const col = palAt(c.pal, x * 0.5 - s * 0.25); set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
+  // Single lights coming on and going out, slowly, here and there along the strip: white stars over
+  // whatever is below. For calm songs, where anything quicker would break the spell.
+  def({ id: 'starlight', name: 'Starlight', cat: 'slow', desc: 'Single segments glow up and fade away slowly at random spots along the strip, in white (or warm white, or the palette), like stars coming out. Made for calm songs: put it over a dim bed.', swatch: ['#ffffff', '#0b1020'],
+    params: { density: { type: 'range', def: 0.12, min: 0.01, max: 0.6, step: 0.01, label: 'How many stars' },
+      life: { type: 'range', def: 6, min: 1, max: 32, step: 0.5, label: 'Each star lasts (beats)' },
+      tint: { type: 'select', def: 'white', options: { white: 'white', warm: 'warm white', palette: 'the palette' }, label: 'Color' } },
+    render(c) {
+      clear(c.out);
+      for (let i = 0; i < c.n; i++) {
+        let v = 0, k = 0;
+        // two overlapping cycles per segment, each with its own length and start, so stars never pulse together
+        for (let j = 0; j < 2; j++) {
+          const life = c.p.life * (0.7 + 0.6 * hash(i * 31 + j * 7)), u = c.beat / life + hash(i * 7 + j * 131), cyc = Math.floor(u);
+          if (hash(cyc * 977 + i * 13 + j * 3) >= c.p.density) continue;
+          const s = Math.sin(frac(u) * Math.PI), e = s * s * (0.55 + 0.45 * hash(cyc * 53 + i));      // a slow glow, each star its own brightness
+          if (e > v) { v = e; k = cyc + i; }
+        }
+        if (v < 0.01) continue;
+        const col = c.p.tint === 'palette' ? colorFor(c, i / c.n, k) : c.p.tint === 'warm' ? [1, 0.8, 0.55] : [1, 1, 1];
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
+      }
+    } });
+
   def({ id: 'twinkle', name: 'Twinkle', cat: 'slow', desc: 'Soft random sparkles fading in and out over the base color.', swatch: ['#e0f7ff', '#1b2a4a'],
     params: { density: { type: 'range', def: 0.3, min: 0.02, max: 1, step: 0.01, label: 'Density' }, speed: P.speed(2, 'Twinkle life (beats)'), base: { type: 'range', def: 0.15, min: 0, max: 1, step: 0.01, label: 'Base level' } },
     render(c) { const base = c.pal[0]; for (let i = 0; i < c.n; i++) { let v = 0; for (let k = 0; k < 3; k++) { const life = c.p.speed; const slot = Math.floor(c.beat / life + hash(i * 7 + k * 131) ); const on = hash(slot * 977 + i * 13 + k * 3) < c.p.density; if (on) { const ph = frac(c.beat / life + hash(i * 7 + k * 131)); v = Math.max(v, Math.sin(ph * Math.PI)); } } const col = palIdx(c.pal, 1 + i % (c.pal.length - 1 || 1)); set(c.out, i, base[0] * c.p.base + col[0] * v, base[1] * c.p.base + col[1] * v, base[2] * c.p.base + col[2] * v); } } });

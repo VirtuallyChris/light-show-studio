@@ -606,7 +606,12 @@ noise.
   groove song, with the bass keeping time (drops flash with the bass line, the
   small lamps pulse with it) and its look chosen by its vibe like any other song.
   The Wldlfe's *Heaven is a place* (choruses twice as loud as its verses) swells;
-  *If I Became Friends With The Aliens* stays calm. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
+  *If I Became Friends With The Aliens* stays calm. A calm song's sparkle is
+  **Starlight**: single segments glow up to white and fade away slowly, a few at
+  a time at random spots along every strip and lamp, like stars coming out, over
+  a soft color wash (a handful per 50 segments, each lasting a few seconds; more
+  and a little quicker in its louder parts, fewer and slower as it ends). Stars
+  keep their full brightness however the rest of a section is dimmed. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
   ones at 1-2%. Without the model environment the drums come from the mix alone.
   The drum pattern is learned per song, in the song's own meter: four beats or
   three, in sixteenths or triplets (a shuffle, 6/8), decided from how tightly all
