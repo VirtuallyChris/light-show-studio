@@ -1825,9 +1825,11 @@
    *  - an audio cut (the music drops out for a moment): the lights fade to black over the gap and come
    *    back on a white flash as the music does;
    *  - an entrance (the synths or guitars come in after being away, away from a section's start): a
-   *    slam, and the colors flip from there on, so the room feels the band arrive. */
-  function addMoments() {
+   *    slam, and the colors flip from there on, so the room feels the band arrive.
+   *  Only from fromBeat on, and never twice: a jam's first listen adds them as each pass hears them. */
+  function addMoments(fromBeat = -Infinity) {
     const p = P(), a = S.analysis || {};
+    const has = (fx, b) => p.lanes.some(l => l.clips.some(c => c.effect === fx && Math.abs(c.start - b) < 0.5));
     if (showStyle() === 'chill') return;                               // a calm song stays calm
     const period = 60 / (p.bpm || 120);
     for (const [t0, t1] of a.cuts || []) {
@@ -1837,7 +1839,7 @@
       const intoChange = p.sections.some(sc => Math.abs(sc.start - t1) < 1.5 * period) || (p.drops || []).some(d => Math.abs(d - t1) < 1.5 * period);
       if (t1 - t0 < 0.4 && !intoChange) continue;
       const b0 = timeToBeat(t0), b1 = timeToBeat(t1);
-      if (b1 - b0 < 0.25) continue;
+      if (b1 - b0 < 0.25 || b0 < fromBeat || has('dark', b0)) continue;
       clip(9, 'dark', b0, b1 - b0, {}, { fadeIn: Math.min(0.5, (b1 - b0) / 2) });
       clip(9, 'whiteflash', b1, 1.5, {}, { palette: ['#ffffff'], opacity: 0.9 });
     }
@@ -1845,6 +1847,7 @@
     for (const te of a.entries || []) {
       if (starts.some(st => Math.abs(st - te) < 8 * period)) continue; // at a section change it already shows
       const be = Math.round(timeToBeat(te));
+      if (be < fromBeat || has('colorslam', be)) continue;
       for (const li of [0, 1]) for (const c of [...(p.lanes[li] ? p.lanes[li].clips : [])]) {
         if (c.start < be - 0.5 && c.start + c.len > be + 1) {         // split, and flip the colors after the entrance
           const cols = clipPaletteHex(c), flipped = S.pairMode ? cols.slice().reverse() : contrastPalette(cols);
@@ -2011,6 +2014,6 @@
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {};
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
-  window.Studio = { S, P, $, addClip, autoBuild, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
+  window.Studio = { S, P, $, addClip, autoBuild, addMoments, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
     draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook };
 })();
