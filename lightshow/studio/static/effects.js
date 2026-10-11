@@ -332,6 +332,14 @@ const Effects = (() => {
     params: { every: { type: 'beats', def: 0.5, label: 'Flash every (beats)' }, duty: { type: 'range', def: 0.25, min: 0.05, max: 0.9, step: 0.01, label: 'Flash length' }, white: P.bool('White', false), color: P.color(), overlay: P.bool('Transparent between flashes', true) },
     render(c) { clear(c.out); const u = c.beat / c.p.every; const on = frac(u) < c.p.duty; if (!on) { if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); return; } const col = c.p.white ? [1, 1, 1] : colorFor(c, 0.5, Math.floor(u)); fillAll(c.out, c.n, col[0], col[1], col[2], 1); } });
 
+  def({ id: 'basshits', name: 'Bass hits', cat: 'signature', desc: 'The whole strip flashes on every hit of the bass line, on the beat grid, found on the separated bass track. Made for drops built on a big, clear bass.', swatch: ['#ff0000', '#000000'],
+    params: { decay: P.decay(0.3), color: P.color() },
+    render(c) {
+      clear(c.out); const h = c.music && c.music.basshit; if (!h || h.index < 0) return;
+      const v = Math.exp(-h.age / (c.p.decay * 0.35 + 0.03)) * (0.6 + 0.4 * h.strength); if (v < 0.01) return;
+      const col = colorFor(c, 0.5, h.index); fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);
+    } });
+
   def({ id: 'drumhits', name: 'Drum hits', cat: 'medium', desc: 'The whole light blooms on the drums: the first color on every kick, the second on every snare, and fades between. Made for small lamps, which play the drums while the long strips move.', swatch: ['#8000ff', '#00ff00'],
     params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only' }, label: 'Follows' }, decay: P.decay(0.35),
       floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
@@ -471,7 +479,7 @@ const Effects = (() => {
     render(c) {
       // The steps: the kick hits inside the clip when the song's drums are known (so every step
       // lands on a kick you hear), otherwise the beat grid, starting on the first whole beat.
-      let steps, n, pop;
+      let steps, n, pop, fill = null;
       // a snare build steps on every snare hit, so it speeds up exactly as the roll does
       const stream = c.p.follow === 'snare' ? 'snare' : 'kick';
       let kicks = c.p.follow !== 'beat' && c.music && c.music.hasDrums && c.clipT1 > c.clipT0
@@ -486,6 +494,10 @@ const Effects = (() => {
       if (kicks && kicks.length >= 4 && kicks[0] - c.clipT0 < 0.35 * (c.clipT1 - c.clipT0)) {
         steps = kicks.length; n = 0; while (n < steps && kicks[n] <= c.t + 1e-3) n++;
         pop = n ? Math.exp(-(c.t - kicks[n - 1]) / 0.12) : 0;
+        // Drums often stop before the end of a build (the last bar is a sweep): then the hits fill the
+        // strip up to where the last one falls, and the rest fills smoothly to full on the drop.
+        const span = Math.max(1e-3, c.clipT1 - c.clipT0), last = kicks[steps - 1], fLast = clamp((last - c.clipT0) / span, 0, 1);
+        fill = n < steps ? (n / steps) * fLast : fLast + (1 - fLast) * clamp((c.t - last) / Math.max(1e-3, c.clipT1 - last), 0, 1);
       } else {
         const offset = (1 - frac(c.beat - c.clipBeat)) % 1;
         const grid = riserGrid(c.clipBeats, offset, Number(c.p.step) || 1, !!c.p.accel, dropAt(c));
@@ -498,7 +510,7 @@ const Effects = (() => {
       // the whole buildup and the last step fills the center exactly on the drop. (Whole sections
       // per step, counted back from the drop, left a long strip dark for most of a busy buildup.)
       const half = Math.ceil(c.n / 2);
-      const litSide = steps ? clamp(Math.ceil(half * n / steps), 0, half) : Math.round(half * p);
+      const litSide = fill !== null ? clamp(Math.ceil(half * fill), 0, half) : steps ? clamp(Math.ceil(half * n / steps), 0, half) : Math.round(half * p);
       const col = c.p.color === 'cycle' ? palAt(c.pal, p * 0.5) : colorFor(c, p, 0);
       for (let i = 0; i < c.n; i++) {
         const fromEdge = Math.min(i, c.n - 1 - i);

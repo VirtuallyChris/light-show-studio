@@ -812,7 +812,7 @@ class JamEngine:
         a = self.analyse_fn(y, SR_ANALYSIS, stereo=stereo, use_model=False, events=events, bpm_hint=jt.bpm_lock,
                             segment_fn=self.segment_fn)
         if not events and jt.analysis:                      # keep the last instrument pass until the next one
-            for k in ("events", "fills", "hook", "curves", "drum_calibration", "rolls"):
+            for k in ("events", "fills", "hook", "curves", "drum_calibration", "rolls", "cuts", "entries"):
                 a[k] = jt.analysis.get(k, a.get(k))
         if jt.genre:
             a["genre"] = jt.genre                          # what was decided about the genre carries across passes
@@ -923,7 +923,8 @@ class JamEngine:
                         "drops": drops, "mood": a.get("mood", {}), "events": a.get("events", {}), "fills": a.get("fills", []),
                         "hook": a.get("hook"), "curves": a.get("curves", {}), "provisional": jt.horizon < dur - 1.0,
                         # what the drum track says: whether the song has drums at all, and its rolls
-                        "drum_calibration": a.get("drum_calibration"), "rolls": a.get("rolls", [])})
+                        "drum_calibration": a.get("drum_calibration"), "rolls": a.get("rolls", []),
+                        "cuts": a.get("cuts", []), "entries": a.get("entries", [])})
         return {**base, "analysis": out, "analysed_to": round(head, 2)}
 
 

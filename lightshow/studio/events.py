@@ -650,6 +650,86 @@ def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
     return kicks, snares, cal, present
 
 
+def find_cuts(mid, sr, hop=512):
+    """Audio cuts: the whole mix drops to almost nothing for a moment (0.2 to 4 s) and then comes
+    back, like the gap before a drop or a stop-time break. Compared with the level around it, so a
+    quiet song's quiet parts are not cuts. Returns [start, end] in seconds."""
+    m = len(mid) // hop
+    if m < 10:
+        return []
+    rms = np.sqrt((mid[: m * hop].reshape(m, hop) ** 2).mean(axis=1))
+    fps = sr / hop
+    k = max(1, int(0.05 * fps))
+    rms = np.convolve(rms, np.ones(k) / k, mode="same")
+    w = int(4 * fps)
+    ref = np.array([np.median(rms[max(0, i - w):i + w]) for i in range(0, m, max(1, int(fps / 4)))])
+    ref = np.repeat(ref, max(1, int(fps / 4)))[:m]
+    low = rms < 0.12 * (ref + 1e-9)
+    cuts, i = [], 0
+    while i < m:
+        if low[i]:
+            j = i
+            while j < m and low[j]:
+                j += 1
+            d = (j - i) / fps
+            back = j < m and rms[j:j + int(0.3 * fps)].max(initial=0) > 0.5 * ref[min(j, m - 1)]
+            if 0.2 <= d <= 4.0 and back and i > 0:
+                cuts.append([round(i / fps, 3), round(j / fps, 3)])
+            i = j
+        else:
+            i += 1
+    return cuts
+
+
+def find_bass_hits(b, sr, beats):
+    """The bass line's hits, for lights that flash with it: on the separated bass track, every eighth
+    note of the beat grid where the bass clearly attacks (a jump in its level within 60 ms of the
+    slot, at least a quarter of the song's strong ones, while the bass is actually sounding). On the
+    grid, as a person would mark them: in Someone Else's first drop this matched 20 of the 27 flashes
+    placed by hand, with 6 more. Returns (time, strength 0..1)."""
+    import librosa
+    beats = np.asarray(beats, dtype=float)
+    if len(beats) < 8 or b is None or not len(b):
+        return []
+    hop = 256
+    S = np.abs(librosa.stft(np.asarray(b, dtype=np.float32), n_fft=2048, hop_length=hop))
+    f = librosa.fft_frequencies(sr=sr, n_fft=2048)
+    env = S[(f >= 30) & (f <= 400)].sum(axis=0)
+    e = np.log1p(env / (np.percentile(env, 99) + 1e-9) * 100)
+    flux = np.maximum(0.0, np.diff(e, prepend=e[:1]))
+    ft = librosa.frames_to_time(np.arange(len(flux)), sr=sr, hop_length=hop)
+    level = env / (np.percentile(env, 80) + 1e-9)
+    slots = np.sort(np.concatenate([beats[:-1], (beats[:-1] + beats[1:]) / 2]))
+    i0 = np.searchsorted(ft, slots - 0.06)
+    i1 = np.searchsorted(ft, slots + 0.06)
+    strength = np.array([flux[a:b_].max() if b_ > a else 0.0 for a, b_ in zip(i0, i1)])
+    sounding = np.array([level[a:b_ + 4].max() if b_ + 4 > a else 0.0 for a, b_ in zip(i0, i1)]) >= 0.2
+    if not (strength > 0).any():
+        return []
+    ref = float(np.percentile(strength[strength > 0], 90)) + 1e-9
+    keep = (strength >= 0.25 * ref) & sounding
+    return [(float(t), float(min(1.0, v / ref))) for t, v in zip(slots[keep], strength[keep])]
+
+
+def find_entries(level, fps, beats, phase):
+    """Where an instrument comes in: its level (0..1 per frame) sits near nothing for two bars and
+    then plays for the next two, on a bar line. Returns the times."""
+    beats = np.asarray(beats, dtype=float)
+    bars = beats[int(phase)::4]
+    if len(bars) < 6 or not len(level):
+        return []
+    lv = np.asarray(level, dtype=float)
+    ref = float(np.percentile(lv, 80)) + 1e-9
+    bar_lv = [float(lv[int(bars[i] * fps):int(bars[i + 1] * fps)].mean()) if int(bars[i + 1] * fps) > int(bars[i] * fps) else 0.0 for i in range(len(bars) - 1)]
+    out = []
+    for i in range(2, len(bar_lv) - 1):
+        before = max(bar_lv[i - 2], bar_lv[i - 1])
+        after = (bar_lv[i] + bar_lv[i + 1]) / 2
+        if before < 0.25 * ref and after > 0.6 * ref and (not out or bars[i] - out[-1] > 8 * (bars[1] - bars[0])):
+            out.append(round(float(bars[i]), 3))
+    return out
+
+
 def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None, stems=None) -> dict:
     """`audio` is (array, sr) already in memory, mono or (2, n); otherwise `path` is loaded."""
     import librosa
@@ -679,7 +759,16 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     # wide instruments (synth lead, horns, stabs) - vocals and kick are centre and mostly gone
     # Deliberately sparse: a light that marks every note is a strobe, one that marks
     # the notable notes reads as following the instrument.
-    env_lead, idx_lead, _ = _band_onsets(S_side, freqs, 300, 5000, sr, hop, 0.35, 3.2)
+    # The lead: the separated "other" track (synths, guitars, keys: no drums, no vocals) when there is
+    # one, which is where a lead synth or a guitar line actually is; else the stereo side channel.
+    S_lead = S_side
+    if stems and stems.get("other") is not None:
+        o = np.asarray(stems["other"], dtype=np.float32)
+        if stems.get("sr", sr) != sr:
+            o = librosa.resample(o, orig_sr=stems["sr"], target_sr=sr)
+        o = np.pad(o, (0, max(0, len(mid) - len(o))))[: len(mid)]
+        S_lead = np.abs(librosa.stft(o, hop_length=hop))
+    env_lead, idx_lead, _ = _band_onsets(S_lead, freqs, 300, 5000, sr, hop, 0.35, 3.2)
     # the bass line: from the separated bass track when there is one (nothing else in it), else the
     # harmonic part of the mix below 250 Hz
     S_b, bass_smooth = S_h, 0.25
@@ -698,7 +787,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         kick, snare, drum_cal = find_drums(S_p, freqs, sr, hop, duration, beats, phase)
 
     streams = {}
-    for name, env, idx, S, lo, hi in (("lead", env_lead, idx_lead, S_side, 300, 5000),
+    for name, env, idx, S, lo, hi in (("lead", env_lead, idx_lead, S_lead, 300, 5000),
                                       ("bass", env_bass, idx_bass, S_b, 35, 250),
                                       ("drum", env_drum, idx_drum, S_p, 1200, 9000)):
         times = librosa.frames_to_time(idx, sr=sr, hop_length=hop)
@@ -721,6 +810,19 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         streams["ghost"] = (np.array([]), np.array([]), np.array([], dtype=int))
 
     hook = find_hook(side, sr, beats, phase, hop)
+    cuts = find_cuts(mid, sr, hop)
+    bass_hits = []
+    if stems and stems.get("bass") is not None:
+        bb = np.asarray(stems["bass"], dtype=np.float32)
+        if stems.get("sr", sr) != sr:
+            bb = librosa.resample(bb, orig_sr=stems["sr"], target_sr=sr)
+        bass_hits = find_bass_hits(bb, sr, beats)
+    levels = (stems or {}).get("levels") or {}
+    lfps = float((stems or {}).get("fps") or 30)
+    regrid = lambda xs: [round(float(v), 3) for v in np.interp(out_times, np.arange(len(xs)) / lfps, xs / (np.percentile(xs, 95) + 1e-9)).clip(0, 1)] if len(xs) else []
+    vocals = regrid(np.asarray(levels.get("vocals") or [], dtype=float))
+    other = regrid(np.asarray(levels.get("other") or [], dtype=float))
+    entries = find_entries(other, feature_fps, beats, phase) if other else []
     fills = find_fills(streams["drum"][0], duration, beats)
 
     def pack(name):
@@ -732,19 +834,22 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
 
     return {
         "events": {**{k: pack(k) for k in ("lead", "bass", "ghost")}, "kick": pack_hits(kick), "snare": pack_hits(snare),
-                   "roll": pack_hits((drum_cal or {}).pop("roll_hits", []))},
+                   "roll": pack_hits((drum_cal or {}).pop("roll_hits", [])), "basshit": pack_hits(bass_hits)},
         "rolls": (drum_cal or {}).get("rolls", []),
         "fills": fills,
         "hook": hook,
         "curves": {
-            "lead": [round(float(v), 3) for v in _level(S_side, freqs, 300, 5000, sr, hop, out_times)],
+            "lead": [round(float(v), 3) for v in _level(S_lead, freqs, 300, 5000, sr, hop, out_times)],
             "bass": [round(float(v), 3) for v in _level(S_b, freqs, 35, 250, sr, hop, out_times, bass_smooth)],
             "drum": [round(float(v), 3) for v in _level(S_p, freqs, 1200, 9000, sr, hop, out_times, 0.15)],
             **({"drums_present": [round(float(v), 3) for v in np.interp(out_times, librosa.frames_to_time(np.arange(len(present)), sr=sr, hop_length=hop), present)]}
                if present is not None else {}),
+            **({"vocals": vocals} if vocals else {}), **({"other": other} if other else {}),
         },
         "stereo": bool(wide),
         "drum_calibration": drum_cal,                   # the bands this song's kick and snare were found in
+        "cuts": cuts,                                   # the music drops out for a moment, then comes back
+        "entries": entries,                             # the synths and guitars come in after being away
     }
 
 

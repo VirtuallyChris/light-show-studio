@@ -526,7 +526,7 @@
     for (const [f0, f1] of a.fills || []) if (t >= f0 && t < f1) { fill = { active: true, progress: (t - f0) / Math.max(0.1, f1 - f0) }; break; }
     return {
       lead: hitAt('lead', t), ghost: hitAt('ghost', t), bass: hitAt('bass', t),
-      kick: hitAt('kick', t), snare: hitAt('snare', t), roll: hitAt('roll', t), hasDrums: (((a.events || {}).kick) || []).length > 0,
+      kick: hitAt('kick', t), snare: hitAt('snare', t), roll: hitAt('roll', t), basshit: hitAt('basshit', t), hasDrums: (((a.events || {}).kick) || []).length > 0,
       hitsBetween: (stream, t0, t1) => {                          // the times of one instrument's hits in [t0, t1)
         const arr = (a.events || {})[stream] || []; const out = [];
         for (let i = Math.max(0, lastBefore(arr, t0)); i < arr.length && arr[i][0] < t1; i++) if (arr[i][0] >= t0) out.push(arr[i][0]);
@@ -1610,6 +1610,7 @@
     p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
     // drop markers that are not section starts still get a blast (a chill song never flashes, so it gets none)
     if (showStyle() !== 'chill') for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
+    addMoments();
     S.view.sel = null; inspector(); changed();
     if (quiet) return;
     const a = S.analysis, hooks = (a.hook && a.hook.times || []).length, fills = (a.fills || []).length;
@@ -1628,7 +1629,7 @@
   // Concert lighting in three tiers. The bed sets the color and the mood and stays low; motion keeps
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
-  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning']);
+  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits']);
   const FREE = new Set(['riser', 'strobeRiser', 'fadein', 'fadeout', 'dark', 'blackout']);
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
@@ -1781,7 +1782,13 @@
         // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
         const pump = chill ? 0 : hard ? 0.5 : 0.3;
         if (pump) for (const c of first) if (BED.has(c.effect) || c === first[0]) c.bassPump = pump;
-        if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
+        // A drop built on a clear, rhythmic bass line (most beats have a bass hit, but not every eighth:
+        // a constant eighth-note bass would be a steady strobe) flashes with the bass, like a hand-made
+        // show would; then it leaves the kick strobe out, so the two do not fight.
+        const bassHits = ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end)).length / Math.max(1, len);
+        const bassy = !chill && bassHits >= 0.6 && bassHits <= 1.7;
+        if (bassy) clip(5, 'basshits', b0, len, { decay: 0.3 }, { opacity: hard ? 0.8 : 0.45, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
+        else if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
         break;
       }
@@ -1814,6 +1821,40 @@
   }
   const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
 
+  /** The song's moments, from what the separated tracks heard:
+   *  - an audio cut (the music drops out for a moment): the lights fade to black over the gap and come
+   *    back on a white flash as the music does;
+   *  - an entrance (the synths or guitars come in after being away, away from a section's start): a
+   *    slam, and the colors flip from there on, so the room feels the band arrive. */
+  function addMoments() {
+    const p = P(), a = S.analysis || {};
+    if (showStyle() === 'chill') return;                               // a calm song stays calm
+    const period = 60 / (p.bpm || 120);
+    for (const [t0, t1] of a.cuts || []) {
+      if (t0 < 2 || t1 > duration() - 1) continue;
+      // a real cut is a held breath: long enough to notice, or the gap right before a drop or a new
+      // section. Short stops inside a section are the song's own stutter, already in its rhythm.
+      const intoChange = p.sections.some(sc => Math.abs(sc.start - t1) < 1.5 * period) || (p.drops || []).some(d => Math.abs(d - t1) < 1.5 * period);
+      if (t1 - t0 < 0.4 && !intoChange) continue;
+      const b0 = timeToBeat(t0), b1 = timeToBeat(t1);
+      if (b1 - b0 < 0.25) continue;
+      clip(9, 'dark', b0, b1 - b0, {}, { fadeIn: Math.min(0.5, (b1 - b0) / 2) });
+      clip(9, 'whiteflash', b1, 1.5, {}, { palette: ['#ffffff'], opacity: 0.9 });
+    }
+    const starts = p.sections.map(s => s.start);
+    for (const te of a.entries || []) {
+      if (starts.some(st => Math.abs(st - te) < 8 * period)) continue; // at a section change it already shows
+      const be = Math.round(timeToBeat(te));
+      for (const li of [0, 1]) for (const c of [...(p.lanes[li] ? p.lanes[li].clips : [])]) {
+        if (c.start < be - 0.5 && c.start + c.len > be + 1) {         // split, and flip the colors after the entrance
+          const cols = clipPaletteHex(c), flipped = S.pairMode ? cols.slice().reverse() : contrastPalette(cols);
+          p.lanes[li].clips.push({ ...c, id: uid(), start: be, len: c.start + c.len - be, palette: flipped });
+          c.len = be - c.start;
+        }
+      }
+      clip(6, 'colorslam', be, 2, {}, { opacity: 0.9 });
+    }
+  }
   /** The flair that belongs to *this* song: its riff, its lead line, its fills.
    *
    *  Two principles. Punctuation beats blanket: a one-shot fired at the moment

@@ -356,11 +356,14 @@ own layer, only where the song actually has it:
 | **Ghost sparks** | drum hits landing *between* the beats: fills, ghost notes, shakers |
 | **Fill rush** | drum fills and breaks only, speeding up as the fill builds |
 | **Bass note** | color follows the bass note, swelling on each new one |
+| **Bass hits** | the whole strip flashes on every hit of the bass line, on the beat grid, from the separated bass track |
 
-The lead is taken from the stereo side channel (left minus right), which
-cancels anything panned dead center, so lead vocals and kick largely drop out
-and the wide instruments remain. That is why it follows the synth rather than
-the singer.
+The lead is taken from the separated "other" track (synths, guitars, keys,
+with no drums and no vocals) when the model environment is installed, which is
+where a lead synth or a guitar line actually is. Without it, the lead comes from
+the stereo side channel (left minus right), which cancels anything panned dead
+center, so lead vocals and kick largely drop out and the wide instruments
+remain. Either way it follows the synth rather than the singer.
 
 **Energy ramps with the song.** Intros, breakdowns and outros get slow fades
 and drifting comets and never flash. Buildups may strobe, because that is what
@@ -569,7 +572,9 @@ noise.
   the ends. It goes only where there are drums (at least 4 hits, one every 4
   beats); a drumless breakdown gets none. The **buildup riser** steps on the
   snare when the build is a snare build (one section of lights per hit, so it
-  speeds up exactly as the roll does, full on the drop), else on the kick. The
+  speeds up exactly as the roll does), else on the kick. It is full exactly on
+  the drop: if the hits stop early, the last stretch fills smoothly the rest of
+  the way, and if they start late, the beat grid steps it until they do. The
   **Drum strobe** flashes on the hits themselves and nothing else: on the kicks
   in drops, and on the snares in buildups, growing toward the drop. How hard
   depends on the style: subtle for groove, clear for dance, full for rave, none
@@ -613,6 +618,24 @@ noise.
   riser and flashes for the snare strobe, so the buildup speeds up exactly with
   the roll, and a roll that runs straight into a drop with no buildup marked
   becomes that drop's buildup. Steady sixteenth-note grooves are not rolls.
+- **The song's moments.** The separated tracks also mark the moments a
+  person would light by hand:
+  - *Bass hits.* A drop built on a big, clear bass line (a bass hit on most
+    beats, but not a steady eighth-note pulse) flashes with the bass instead of
+    the kick: the bass track's attacks, on the eighth notes of the beat grid,
+    where the bass is sounding. In REZZ and Grabbitz's *Someone Else*, the first
+    drop's hand-placed red flashes were 27; this found 20 of them, plus 6 more.
+    With strips and lamps both ticked, the strips take the bass and the lamps keep
+    the drums.
+  - *Audio cuts.* Where the whole mix drops to almost nothing for 0.2 to 4 s and
+    comes back (against the level around it, so a quiet song's quiet parts do not
+    count), the lights fade to black over the gap and return on a white flash with
+    the music. A short stutter in the middle of a section is left alone; a cut of
+    0.4 s or more, or one that runs into a new section, gets it.
+  - *Entrances.* Where the synths and guitars come back after two bars away, on
+    a bar line and away from a section change, a color slam marks it and the
+    colors flip from there on.
+  None of this goes into a calm song.
 - **Tempo tops out at 135 bpm.** Anything faster is counted in half time, on the
   half of the beats the kick lands on.
 - **Solid colors.** Every palette color is full saturation and brightness; greys

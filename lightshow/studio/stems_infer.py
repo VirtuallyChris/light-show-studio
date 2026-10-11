@@ -14,9 +14,10 @@ loads once, one request at a time over stdin/stdout:
                                                                   samples, interleaved (Jam mode:
                                                                   audio from memory, never a file)
     reply    one JSON line
-               {"stems": {"n": n, "sr": 22050, "order": ["drums", "bass"]},
+               {"stems": {"n": n, "sr": 22050, "order": ["drums", "bass", "other"]},
                 "levels": {"vocals": [...], "other": [...]}, "fps": 30, "seconds": 3.2}
-             followed by the drum track then the bass track, each n float32 samples (mono, 22050 Hz),
+             followed by the drum, bass and "other" (synths, guitars, keys) tracks, each n float32
+             samples (mono, 22050 Hz),
              or {"error": "..."} with nothing after it.
 
 The first line printed is {"ready": true, "device": "cuda:0"} once the model is loaded.
@@ -129,9 +130,9 @@ def main() -> int:
                     raise ValueError(f"a full path is needed, got {path!r}")
                 y, sr = load(path)
             stems, levels = separate(model, device, np.asarray(y, dtype=np.float32), sr)
-            d, b = stems["drums"], stems["bass"]
-            reply({"stems": {"n": len(d), "sr": OUT_SR, "order": ["drums", "bass"]}, "levels": {k: levels[k] for k in ("vocals", "other")},
-                   "fps": FPS, "seconds": round(time.time() - t0, 2)}, d.tobytes() + b.tobytes())
+            d, b, o = stems["drums"], stems["bass"], stems["other"]
+            reply({"stems": {"n": len(d), "sr": OUT_SR, "order": ["drums", "bass", "other"]}, "levels": {k: levels[k] for k in ("vocals", "other")},
+                   "fps": FPS, "seconds": round(time.time() - t0, 2)}, d.tobytes() + b.tobytes() + o.tobytes())
         except Exception as e:  # noqa: BLE001 - one bad request must not end the worker
             reply({"error": f"{type(e).__name__}: {e}"})
 

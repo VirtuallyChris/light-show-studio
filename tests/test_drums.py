@@ -196,3 +196,40 @@ class TestFourOnTheFloor(unittest.TestCase):
         self.assertLess(extra, len(Sn) * 0.15)
         k_recall, _ = score(out["events"]["kick"], K)
         self.assertGreater(k_recall, 0.9)
+
+
+class TestMoments(unittest.TestCase):
+    """The song's moments: audio cuts, the bass line's hits, and instruments coming in."""
+
+    def test_cut_is_found(self):
+        from lightshow.studio.events import find_cuts
+        sr = 22050
+        rng = np.random.default_rng(1)
+        mid = rng.normal(0, 0.3, sr * 12).astype(np.float32)
+        mid[int(6.0 * sr):int(6.8 * sr)] *= 0.01                   # the music stops for 0.8 s
+        cuts = find_cuts(mid, sr)
+        self.assertEqual(len(cuts), 1)
+        self.assertAlmostEqual(cuts[0][0], 6.0, delta=0.1)
+        self.assertAlmostEqual(cuts[0][1], 6.8, delta=0.1)
+
+    def test_bass_hits_follow_the_notes(self):
+        from lightshow.studio.events import find_bass_hits
+        sr, bpm = 22050, 120.0
+        beats = np.arange(0, 16, 60 / bpm)
+        b = np.zeros(sr * 16, dtype=np.float32)
+        notes = [t for i, t in enumerate(beats[:-1]) if i % 4 in (0, 3)] + [t + 0.25 for i, t in enumerate(beats[:-1]) if i % 4 == 1]
+        for t in notes:                                             # short, plucked 55 Hz notes
+            n = int(0.2 * sr); k = np.arange(n)
+            b[int(t * sr):int(t * sr) + n] += np.sin(2 * np.pi * 55 * k / sr) * np.exp(-k / (0.08 * sr))
+        hits = [t for t, _ in find_bass_hits(b, sr, beats)]
+        found = sum(1 for t in notes if min(abs(t - h) for h in hits) < 0.07)
+        extra = sum(1 for h in hits if min(abs(t - h) for t in notes) >= 0.07)
+        self.assertGreater(found, len(notes) * 0.9)
+        self.assertLess(extra, len(notes) * 0.15)
+
+    def test_entry_on_a_bar_line(self):
+        from lightshow.studio.events import find_entries
+        fps, beats = 30.0, np.arange(0, 64, 0.5)                  # 120 bpm, 32 bars
+        level = np.zeros(int(64 * fps))
+        level[int(32 * fps):] = 1.0                                 # the synths come in at bar 16
+        self.assertEqual(find_entries(level, fps, beats, 0), [32.0])

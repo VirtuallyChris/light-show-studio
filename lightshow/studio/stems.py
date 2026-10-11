@@ -1,6 +1,6 @@
 """The song split into drums and bass, by the Demucs worker in the model environment.
 
-`separate_file` and `separate_audio` return {"drums": array, "bass": array, "sr": 22050,
+`separate_file` and `separate_audio` return {"drums": array, "bass": array, "other": array, "sr": 22050,
 "levels": {"vocals": [...], "other": [...]}, "fps": 30}, or None when the model environment is
 missing or the separation failed (the analysis then works from the full mix, as before).
 Nothing is written to disk: the stems come back over the worker's pipe.
@@ -29,14 +29,14 @@ class StemsWorker(ModelWorker):
                     self.proc.stdin.flush()
                     r = self._read(self.request_timeout)
                     if r is not None and "stems" in r:
-                        n = int(r["stems"]["n"])
-                        raw = _read_exactly(self.proc.stdout, n * 4 * 2)
+                        n, order = int(r["stems"]["n"]), r["stems"].get("order", ["drums", "bass"])
+                        raw = _read_exactly(self.proc.stdout, n * 4 * len(order))
                         if raw is None:
                             r = None
                         else:
                             arr = np.frombuffer(raw, dtype=np.float32)
                             self.last_error = ""
-                            return {"drums": arr[:n].copy(), "bass": arr[n:].copy(), "sr": int(r["stems"]["sr"]),
+                            return {**{k: arr[i * n:(i + 1) * n].copy() for i, k in enumerate(order)}, "sr": int(r["stems"]["sr"]),
                                     "levels": r.get("levels", {}), "fps": r.get("fps", 30), "seconds": r.get("seconds")}
                 except OSError:
                     r = None
