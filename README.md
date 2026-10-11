@@ -754,6 +754,10 @@ noise.
   - *Glitch*: in an electronic song, the stutter edits (the music cut for under
     0.4 s mid-phrase, which the cut-to-black moment leaves alone) break the
     strip into jittering slices.
+  A jam's first listen gets all of these too: every pass adds what it has
+  heard that is still ahead of the room, never twice, and the finale and a key
+  change, which need the whole song, come once the jam has heard its end (about
+  a minute and a half before the room does).
 - **Drum rolls.** In the drum track, a stretch where the hits above the kick come
   three or more to a beat, and twice as thick as the song's own groove, for a bar
   or more, is a roll. Its hits (as close as 46 ms) count as steps for a buildup's

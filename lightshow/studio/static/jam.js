@@ -426,7 +426,7 @@
     if (!doc.analysis || room.key !== J.key) return;
     const a = doc.analysis, p = St.P();
     S.analysis = a; J.lastFeat = performance.now();
-    if (featuresOnly && doc.version === J.version) { St.addMoments(Math.ceil(St.timeToBeat(J.pos()) + 0.1)); St.draw(); return; }
+    if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); St.draw(); return; }
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
     p.sections = St.tidySections(a.sections);
     $('#bpm').value = p.bpm.toFixed(2);
@@ -438,6 +438,7 @@
     const nowBeat = Math.ceil(St.timeToBeat(J.pos()) + 0.1);
     const keys = reconcile(J.built, nowBeat, restyled);
     St.addMoments(nowBeat);                                        // cuts and entrances this pass heard, still ahead of the room
+    St.addFlavor(nowBeat);                                         // and the song's own flavor: spotlights, wobbles, the finale once it is all heard
     J.built = keys; J.version = doc.version; J.style = style; J.drums = drumsNow;
     St.draw();
   }

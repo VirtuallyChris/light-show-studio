@@ -1994,8 +1994,14 @@
    *  - the finale: the last drop gets everything (fireworks in a song that goes all out), and the
    *    song's last hit holds in its main color and fades away slowly;
    *  - an electronic song's stutter edits (the music cut for a moment, mid-phrase): a glitch. */
-  function addFlavor() {
+  function addFlavor(fromBeat = -Infinity) {
     const p = P(), a = S.analysis || {}, ev = a.events || {}, style = showStyle(), chill = style === 'chill', hard = style === 'dance' || style === 'rave';
+    // A jam's first listen calls this after every pass: only what is still ahead of the room is added,
+    // nothing twice, and what needs the whole song (the finale, a key change) waits until it is heard.
+    const whole = !a.provisional;
+    const has = (fx, b) => p.lanes.some(l => l.clips.some(c => c.effect === fx && Math.abs(c.start - b) < 0.5));
+    const count = fx => p.lanes.reduce((k, l) => k + l.clips.filter(c => c.effect === fx).length, 0);
+    const put = (lane, fx, b0, len, params = {}, extra = {}) => b0 >= fromBeat - 0.01 && len > 0 && !has(fx, b0) ? clip(lane, fx, b0, len, params, extra) : null;
     const fps = a.feature_fps || 30, cur = a.curves || {}, g = genreWords(), lt = S.mixedLights ? { target: 'long' } : {};
     const beatOf = t => timeToBeat(t), lastB = Math.floor(beatOf(duration()));
     const drop = s => s.type === 'drop', drops = p.sections.filter(drop);
@@ -2011,14 +2017,15 @@
         else if (alone) runs.push([b, b + 2]);
       }
       // the four longest, so it stays the singer's moment
-      for (const [b0, b1] of runs.filter(r => r[1] - r[0] >= 4).sort((x, y) => (y[1] - y[0]) - (x[1] - x[0])).slice(0, 4)) clip(4, 'spotlight', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, fadeIn: Math.min(2, (b1 - b0) / 4), fadeOut: Math.min(2, (b1 - b0) / 4) });
+      let left = 4 - count('spotlight');
+      for (const [b0, b1] of runs.filter(r => r[1] - r[0] >= 4).sort((x, y) => (y[1] - y[0]) - (x[1] - x[0]))) if (left > 0 && put(4, 'spotlight', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, fadeIn: Math.min(2, (b1 - b0) / 4), fadeOut: Math.min(2, (b1 - b0) / 4) })) left--;
     }
 
     // the bass wobbling, inside the drops
     if (!chill) for (const [w0, w1] of a.wobbles || []) for (const s of drops) {
       const t0 = Math.max(w0, s.start), t1 = Math.min(w1, s.end); if (t1 - t0 < 2) continue;
       const b0 = Math.round(beatOf(t0)), b1 = Math.round(beatOf(t1));
-      clip(5, 'wobble', b0, b1 - b0, {}, { blend: 'add', opacity: hard ? 0.85 : 0.6, ...lt });
+      put(5, 'wobble', b0, b1 - b0, {}, { blend: 'add', opacity: hard ? 0.85 : 0.6, ...lt });
     }
 
     // 808s: in hip-hop and trap, where they come often enough to be the song's sound (a held bass note
@@ -2027,20 +2034,20 @@
     if (!chill && hiphop && b808.length >= 6) for (const s of p.sections) {
       if (!['drop', 'verse', 'buildup'].includes(s.type)) continue;
       const n = b808.filter(e => e[0] >= s.start && e[0] < s.end).length, b0 = Math.round(beatOf(s.start)), b1 = Math.round(beatOf(s.end));
-      if (n >= Math.max(3, (b1 - b0) / 16)) clip(2, 'deep808', b0, b1 - b0, { color: 'first' }, { blend: 'add', opacity: s.type === 'drop' ? 0.9 : 0.6, palette: S.songPal });
+      if (n >= Math.max(3, (b1 - b0) / 16)) put(2, 'deep808', b0, b1 - b0, { color: 'first' }, { blend: 'add', opacity: s.type === 'drop' ? 0.9 : 0.6, palette: S.songPal });
     }
 
     // trap hi-hat rolls (in hip-hop, trap and electronic songs: elsewhere a roll is a drummer's fill)
     if (!chill && (hiphop || /electronic|edm|dubstep|bass music/.test(g))) for (const [r0, r1] of a.hatrolls || []) {
       const b0 = beatOf(r0), b1 = beatOf(r1); if (b1 - b0 < 0.4) continue;
-      clip(6, 'ticks', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, ...lt });
+      put(6, 'ticks', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, ...lt });
     }
 
     // candlelight: an acoustic or folk song's quiet parts
     if (/folk|acoustic|singer-songwriter|country|bluegrass/.test(g) && style !== 'dance' && style !== 'rave') {
       for (const s of p.sections) if (['intro', 'verse', 'breakdown', 'outro'].includes(s.type) && energyIn(s.start, s.end) < 0.5) {
         const b0 = Math.round(beatOf(s.start)), b1 = Math.round(beatOf(s.end));
-        clip(0, 'candle', b0, b1 - b0, { level: 0.45 }, { opacity: 0.9 });
+        put(0, 'candle', b0, b1 - b0, { level: 0.45 }, { opacity: 0.9 });
       }
     }
 
@@ -2048,41 +2055,34 @@
     if (S.look === 'haunted' || S.look === 'storm') {
       if (!chill) {
         const hits = [...(ev.kick || []), ...(ev.basshit || [])].filter(e => drops.some(s => e[0] >= s.start + 2 && e[0] < s.end - 1));
-        const used = [];
+        const used = p.lanes.flatMap(l => l.clips.filter(c => c.effect === 'thunder').map(c => beatToTime(c.start)));   // three in all
         for (const e of hits.sort((x, y) => y[1] - x[1])) {
           if (used.length >= 3) break;
           if (used.some(u => Math.abs(u - e[0]) < 20) || (a.cuts || []).some(([c0, c1]) => Math.abs(c1 - e[0]) < 2)) continue;
-          used.push(e[0]); clip(9, 'thunder', beatOf(e[0]), 1);
+          if (put(9, 'thunder', beatOf(e[0]), 1)) used.push(e[0]);
         }
       }
       for (const s of p.sections) {
         if (!['intro', 'breakdown'].includes(s.type)) continue;
         const k = (ev.kick || []).filter(e => e[0] >= s.start && e[0] < s.end).length, sn = (ev.snare || []).filter(e => e[0] >= s.start && e[0] < s.end).length;
         const b0 = Math.round(beatOf(s.start)), b1 = Math.round(beatOf(s.end));
-        if (k >= Math.max(4, (b1 - b0) / 4) && sn <= 0.15 * k) clip(6, 'heartbeat', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, palette: ['#c00018'], ...(S.mixedLights ? { target: 'short' } : {}) });
+        if (k >= Math.max(4, (b1 - b0) / 4) && sn <= 0.15 * k) put(6, 'heartbeat', b0, b1 - b0, {}, { blend: 'add', opacity: 0.9, palette: ['#c00018'], ...(S.mixedLights ? { target: 'short' } : {}) });
       }
-    }
-
-    // a key change near the end: the colors lift from there on, with a sweep where it happens
-    const kc = a.key_change;
-    if (kc && kc.time) {
-      const kb = Math.round(beatOf(kc.time));
-      for (const lane of p.lanes) for (const c of lane.clips) if (c.start >= kb - 0.5 && Array.isArray(c.palette) && c.palette.length)
-        c.palette = S.pairMode ? c.palette.slice().reverse() : turnPalette(c.palette, 25 * (kc.up || 1));
-      clip(8, 'sweepout', kb, 2, {}, { opacity: 0.95, palette: ['#ffffff'] });
     }
 
     // the finale: the last drop gets everything, and the last hit holds and fades away
     const last = drops[drops.length - 1];
-    if (last && !chill) {
+    if (whole && last && !chill) {
       const b0 = Math.round(beatOf(last.start)), b1 = Math.round(beatOf(last.end));
-      if (S.epic || style === 'rave') clip(4, 'fireworks', b0, b1 - b0, { every: 2, life: 3 }, { blend: 'add', opacity: 0.9, ...lt });
-      clip(8, 'sweepout', b0, 2, {}, { opacity: 0.9 });
-      for (const lane of p.lanes) for (const c of lane.clips) if (c.start >= b0 - 0.5 && c.start < b1 && !HIT.has(c.effect) && !FREE.has(c.effect)) c.opacity = Math.min(1, (c.opacity ?? 1) * 1.15);
+      if (S.epic || style === 'rave') put(4, 'fireworks', Math.max(b0, Math.ceil(fromBeat)), b1 - Math.max(b0, Math.ceil(fromBeat)), { every: 2, life: 3 }, { blend: 'add', opacity: 0.9, ...lt });
+      put(8, 'sweepout', b0, 2, {}, { opacity: 0.9 });
+      for (const lane of p.lanes) for (const c of lane.clips) if (!c.finale && c.start >= Math.max(b0, fromBeat) - 0.5 && c.start < b1 && !HIT.has(c.effect) && !FREE.has(c.effect)) {
+        c.opacity = Math.min(1, (c.opacity ?? 1) * 1.15); c.finale = true;
+      }
       const end = Math.min(lastB, b1), hold = Math.max(4, Math.min(16, lastB - end));
       if (lastB - end >= 2) {
         const main = (S.jamColors && S.jamColors[0]) || (p.palettes[S.songPal] || [])[0] || '#ffffff';
-        clip(8, 'solid', end, hold, {}, { palette: [main], fadeOut: hold, opacity: 1 });
+        put(8, 'solid', end, hold, {}, { palette: [main], fadeOut: hold, opacity: 1 });
       }
     }
 
@@ -2093,8 +2093,19 @@
         const period = 60 / (p.bpm || 120);                              // a cut into a new section is the song's moment, not a glitch
         if (p.sections.some(sc => Math.abs(sc.start - t1) < 1.5 * period) || (p.drops || []).some(d => Math.abs(d - t1) < 1.5 * period)) continue;
         const b0 = beatOf(t0), b1 = beatOf(t1);
-        clip(9, 'glitch', b0, Math.max(0.25, b1 - b0), { rate: 16, density: 0.7, overlay: false }, { opacity: 1 });
+        put(9, 'glitch', b0, Math.max(0.25, b1 - b0), { rate: 16, density: 0.7, overlay: false }, { opacity: 1 });
       }
+    }
+    // a key change near the end: the colors lift from there on, with a sweep where it happens (last,
+    // so everything placed above is lifted with the rest, and only once)
+    const kc = a.key_change;
+    if (whole && kc && kc.time) {
+      const kb = Math.round(beatOf(kc.time));
+      for (const lane of p.lanes) for (const c of lane.clips) if (!c.keyLift && c.start >= Math.max(kb, fromBeat) - 0.5 && Array.isArray(c.palette) && c.palette.length) {
+        c.palette = S.pairMode ? c.palette.slice().reverse() : turnPalette(c.palette, 25 * (kc.up || 1));
+        c.keyLift = true;                                              // lifted once, however often this runs
+      }
+      put(8, 'sweepout', kb, 2, {}, { opacity: 0.95, palette: ['#ffffff'], keyLift: true });
     }
   }
 
@@ -2326,6 +2337,6 @@
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {};
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
-  window.Studio = { S, P, $, addClip, autoBuild, addMoments, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
+  window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
     draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook };
 })();
