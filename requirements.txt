@@ -6,3 +6,4 @@ scipy>=1.11
 aiohttp>=3.9
 pychromecast>=14
 soundcard>=0.4.3
+reolink_aio>=0.21

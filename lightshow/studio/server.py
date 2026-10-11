@@ -28,6 +28,7 @@ from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
 from .jam_service import JamService
 from .rooms import Rooms, FADE_S
 from .cues import CueRunner, LiveHooks
+from .doorbell import Doorbell
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -458,6 +459,9 @@ class Studio:
         # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
         self.cues = CueRunner(load_config, save_config, self._show_length,
                               live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length)) if lights else None)
+        # the Reolink doorbell rings a cue; a test copy (no lights) never connects to it
+        self.doorbell = Doorbell(load_config, save_config, on_ring=lambda cid: self.cues.run(cid))
+        self.doorbell_live = lights
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
         self.jam.player_enabled = player
@@ -478,6 +482,8 @@ class Studio:
             web.post("/api/cues", self.cues_set),
             web.post("/api/cues/run", self.cues_run),
             web.post("/api/cues/stop", self.cues_stop),
+            web.get("/api/doorbell", self.doorbell_get),
+            web.post("/api/doorbell", self.doorbell_set),
             web.post("/api/song", self.upload_song),
             web.post("/api/open", self.open_path),
             web.get("/api/audio/{project}", self.audio),
@@ -506,6 +512,7 @@ class Studio:
         if self.quit_when_closed:
             self.app.on_startup.append(self._start_quit_watchdog)
         self.app.on_startup.append(self._rooms_at_start)
+        self.app.on_startup.append(self._doorbell_at_start)
         self.app.on_shutdown.append(self._close_player)
 
     async def _close_player(self, app):
@@ -517,6 +524,10 @@ class Studio:
             pass
         try:
             await asyncio.get_running_loop().run_in_executor(None, self.rooms.unmute_all)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await self.doorbell.close()
         except Exception:  # noqa: BLE001
             pass
 
@@ -595,6 +606,25 @@ class Studio:
         if not JamService._lan(request):
             raise web.HTTPForbidden()
         return web.json_response(self.cues.stop())
+
+    # -- the doorbell --------------------------------------------------------------------
+    async def _doorbell_at_start(self, app):
+        if self.doorbell_live:
+            self.doorbell.start()
+
+    async def doorbell_get(self, request):
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        return web.json_response({**self.doorbell.status(), "live": self.doorbell_live})
+
+    async def doorbell_set(self, request):
+        """The doorbell's address, user, password (kept if left empty), which cue it rings, on or off."""
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        self.doorbell.save(await request.json())
+        if self.doorbell_live:
+            self.doorbell.start()
+        return web.json_response({**self.doorbell.status(), "live": self.doorbell_live})
 
     def _off_ips(self) -> set[str]:
         off = self.rooms.off_light_keys()

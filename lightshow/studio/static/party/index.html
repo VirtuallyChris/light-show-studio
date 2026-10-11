@@ -72,6 +72,10 @@
   .fade-row .secs { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
   .fade-row input[type=number] { width: 64px; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; text-align: center; }
   .fade-row input[type=number]:disabled { opacity: .4; }
+  /* doorbell */
+  .bell input[type=text], .bell input[type=password], .bell select { width: 100%; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 8px; }
+  .bell .state { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .bell .state.ok { color: var(--ok); }
   .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
   .theme-chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .theme-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -139,6 +143,15 @@
   <section class="card">
     <div class="label">Cues</div>
     <div id="cueEdit"><div class="empty">…</div></div>
+  </section>
+  <section class="card bell">
+    <div class="theme-row"><div class="label" style="margin:0">Doorbell</div>
+      <label class="switch"><input type="checkbox" id="bellOn" aria-label="Doorbell rings a cue"><span></span></label></div>
+    <input type="text" id="bellHost" placeholder="Doorbell address (like 192.168.1.50)" autocomplete="off" inputmode="decimal" aria-label="Doorbell address">
+    <input type="text" id="bellUser" placeholder="Username" autocomplete="off" aria-label="Doorbell username">
+    <input type="password" id="bellPass" placeholder="Password" autocomplete="new-password" aria-label="Doorbell password">
+    <select id="bellCue" aria-label="Cue the doorbell rings"></select>
+    <div class="state" id="bellState"></div>
   </section>
   <section class="card">
     <div class="label">Rooms</div>
@@ -335,6 +348,35 @@
     }
   }
 
+  // ---- the doorbell: a Reolink doorbell's press runs one of the cues
+  let bell = null;
+  const ago = t => { const s = Math.round(Date.now() / 1000 - t); return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+  function showBell() {
+    if (!bell) return;
+    const busy = document.activeElement && document.activeElement.closest && document.activeElement.closest('.bell');
+    if (!busy) {
+      $('#bellOn').checked = bell.on; $('#bellHost').value = bell.host || ''; $('#bellUser').value = bell.username || '';
+      $('#bellPass').value = ''; $('#bellPass').placeholder = bell.has_password ? 'Password (saved)' : 'Password';
+      const cues = (cueDoc && cueDoc.cues) || (state && state.cues) || [];
+      $('#bellCue').innerHTML = cues.map(c => `<option value="${esc(c.id)}" ${c.id === bell.cue ? 'selected' : ''}>Rings ${esc(c.name)}</option>`).join('');
+    }
+    const st = $('#bellState');
+    st.className = 'state' + (bell.connected ? ' ok' : '');
+    st.textContent = !bell.host ? 'Enter the doorbell’s address, user and password.' : !bell.on ? 'Off.'
+      : !bell.has_password ? 'Add the doorbell’s password.' : bell.live === false ? 'This copy of the studio does not connect to the doorbell.'
+      : bell.connected ? `Listening${bell.name ? ' to ' + bell.name : ''}.` + (bell.last_ring ? ` Last rang ${ago(bell.last_ring)}.` : '') + (bell.note ? ` (${bell.note})` : '')
+      : bell.error ? `Can’t reach it: ${bell.error}` : 'Connecting…';
+  }
+  async function loadBell() { try { bell = await (await fetch('/api/doorbell')).json(); } catch (e) { return; } showBell(); }
+  async function saveBell(extra = {}) {
+    const body = { on: $('#bellOn').checked, host: $('#bellHost').value.trim(), username: $('#bellUser').value.trim(), cue: $('#bellCue').value, ...extra };
+    const pw = $('#bellPass').value; if (pw) body.password = pw;
+    try { bell = await (await fetch('/api/doorbell', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json(); } catch (e) { /* shown next time */ }
+    $('#bellPass').value = ''; document.activeElement && document.activeElement.blur(); showBell();
+  }
+  for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
+  setInterval(() => { if (settingsOpen && !document.hidden) loadBell(); }, 3000);
+
   // ---- the party's colors, on or off for every song (off: each song in its cover's)
   const themeSw = $('#themeOn');
   themeSw.onchange = async () => {
@@ -530,7 +572,7 @@
     $('#settings').hidden = !settingsOpen; $('#home').hidden = settingsOpen;
     $('#gear').innerHTML = settingsOpen ? '&#10005;' : '&#9881;'; $('#gear').setAttribute('aria-label', settingsOpen ? 'Close settings' : 'Settings');
     $('#title').textContent = settingsOpen ? 'Settings' : 'Party Hub';
-    if (settingsOpen) { loadCueEdit(); loadRoomEdit(); loadVolumes(); }
+    if (settingsOpen) { loadCueEdit(); loadBell(); loadRoomEdit(); loadVolumes(); }
   };
   document.addEventListener('visibilitychange', poll);
   poll();

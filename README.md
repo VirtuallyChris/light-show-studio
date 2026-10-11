@@ -465,6 +465,21 @@ lights start with it. A test copy of the studio (`--no-lights`) only ever
 rehearses: every step on its real timing, marked *rehearsal* on the Party Hub,
 with nothing touched. Cues have not yet been tried on the real speakers.
 
+## The doorbell rings a cue
+
+A Reolink doorbell can ring a cue by itself: in the Party Hub's **Settings**,
+**Doorbell**, enter its address on the home network, its username and password
+(the ones its Reolink app uses) and which cue it rings (Doorbell to start), and
+switch it on. The studio logs in to the doorbell and listens to its own event
+push over the home network (reolink_aio, the library Home Assistant's Reolink
+integration uses; nothing goes through the cloud). A press runs the cue exactly
+as tapping it would; a second press within 10 s is the same visitor, and a press
+while a cue is running is noted, not run. The connection is checked every minute
+and made again if the doorbell drops off the Wi-Fi; the card shows whether it is
+listening, when it last rang, or why it cannot reach it. The settings are kept
+in config.json (`doorbell`), the password included (it is never sent back to a
+page). A test copy of the studio (`--no-lights`) never connects to the doorbell.
+
 ## Rooms
 
 Lights and speakers can be put in rooms (the studio's ⚙ menu, **Rooms…**, or the
