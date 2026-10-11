@@ -250,7 +250,10 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
     cal = {"kick_band": list(best_k[1]), "kick_score": round(best_k[0], 2), "kick_pos": kick_pos.tolist()}
     if best_s is not None:
         prof = best_s[2]
-        snare_pos = free[prof[free] >= 0.6 * prof[free].max()]
+        snare_pos = free[prof[free] >= 0.5 * prof[free].max()]
+        # a backbeat comes in twos, half a bar apart (2 and 4): a quieter twin is still the pattern
+        twins = [(q + 8) % 16 for q in snare_pos if (q + 8) % 16 in set(free)]
+        snare_pos = np.array(sorted(set(snare_pos.tolist()) | set(twins)), dtype=int)
         ratio = lambda where: float(prof[where].mean()) / (float(kprof[where].mean()) + 0.05)
         others = np.array([q for q in free if q not in set(snare_pos)])
         cal.update({"snare_band": list(best_s[1]), "snare_score": round(best_s[3], 2), "snare_selectivity": round(best_s[4], 2),
@@ -262,6 +265,23 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
                     # this band's jump over the kick band's, where a snare lands and where only a kick does
                     "ratio_snare": round(ratio(snare_pos), 3), "ratio_kick": round(ratio(kick_pos), 3)})
     return cal
+
+
+def _pattern_share(times, beats, phase, places):
+    """The share of these hits that land on the given sixteenths of the bar."""
+    beats = np.asarray(beats, dtype=float)
+    places, n, on = set(places), 0, 0
+    for t in times:
+        i = int(np.searchsorted(beats, t)) - 1
+        if i < phase:
+            continue
+        bar = (i - int(phase)) // 4 * 4 + int(phase)
+        if bar + 4 >= len(beats):
+            continue
+        q = int(round((t - beats[bar]) / (beats[bar + 4] - beats[bar]) * 16)) % 16
+        n += 1
+        on += q in places
+    return on / n if n else 0.0
 
 
 def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
@@ -330,7 +350,14 @@ def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
             if hat_check and float(body[max(0, i - 1):i + 3].max()) < 0.35 * ref:
                 continue                                 # no body: a hat or a shaker
             snare.append((t, float(np.clip(v / (lvl * 1.6 + 1e-9), 0, 1))))
-        return list(zip(t_k, s_k)), snare, cal
+        # The check: a drummer repeats the pattern, so most real snares land on the places the
+        # calibration found. If they are scattered all over the bar, the band was hearing
+        # something else (a synth, a vocal), and the fixed bands are safer.
+        share = _pattern_share([t for t, _ in snare], beats, phase, cal["snare_pos"])
+        cal["snare_on_pattern"] = round(share, 2)
+        if share >= 0.6:
+            return list(zip(t_k, s_k)), snare, cal
+        cal["snare_rejected"] = True
 
     env_c, idx_c, _ = _band_onsets(S_p, freqs, 1500, 5000, sr, hop, 0.10, 1.6)
     idx_c, t_c, s_c = hits(env_c, idx_c)
