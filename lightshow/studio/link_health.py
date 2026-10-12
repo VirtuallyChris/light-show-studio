@@ -3,9 +3,11 @@
 The lights never say whether a frame arrived (real-time frames are one-way UDP), but the Wi-Fi they
 share shows its state in a ping: replies come back slow, or not at all, when the air is busy or a
 light is struggling, and that is exactly when frames arrive late and the lights stutter. So while a
-show plays, the studio pings the lights it drives, one small ping every half second in turn, and a
-governor sets the frame rate from the replies: down at once when a reply is lost or slow, back up
-step by step after a stretch of clean, quick replies. Between 15 and 60 frames a second.
+show plays, the studio pings the lights it drives in turn (a small ping every quarter second, so each
+of five lights about every 1.25 s), and each light has a governor of its own that sets that light's
+frame rate from its replies: down at once when a reply is lost or slow, back up step by step after
+a stretch of clean, quick replies. Between 15 and 60 frames a second, light by light: a pole at the
+edge of the Wi-Fi never holds back a strip right next to the router.
 
 Pings use Windows' own ICMP API (no extra process, no admin rights); elsewhere, the ping command.
 """
@@ -142,32 +144,47 @@ def make_pinger():
 
 
 class LinkMonitor:
-    """While the lights are being driven, pings them in turn and keeps their frame rate where the
-    Wi-Fi can carry it (the output's max_fps)."""
+    """While the lights are being driven, pings them in turn and keeps each one's frame rate where its
+    Wi-Fi can carry it (the output's fps_by_ip; max_fps is the fastest of them, for show)."""
 
-    def __init__(self, output, lo: int = 15, hi: int = 60, every_s: float = 0.5, log=print):
+    def __init__(self, output, lo: int = 15, hi: int = 60, every_s: float = 0.25, log=print, clock=time.monotonic):
         self.output, self.every_s, self.log = output, every_s, log
-        self.governor = FpsGovernor(lo, hi)
+        self.lo, self.hi, self.clock = lo, hi, clock
+        self.governors: dict[str, FpsGovernor] = {}
+        self.governor = FpsGovernor(lo, hi, clock=clock)      # the starting rate, before a light is heard from
         self.ping = make_pinger()
         self.stop = threading.Event()
         self.k = 0
+
+    def _governor(self, ip: str) -> FpsGovernor:
+        g = self.governors.get(ip)
+        if g is None:
+            g = self.governors[ip] = FpsGovernor(self.lo, self.hi, clock=self.clock)
+        return g
+
+    def tick(self) -> None:
+        """Ping the next light and set its frame rate from its own replies."""
+        out = self.output
+        if not (out.enabled and out.active and out.devices):
+            return
+        ip = out.devices[self.k % len(out.devices)].ip
+        self.k += 1
+        g = self._governor(ip)
+        g.report(self.ping(ip, 300))
+        before = out.fps_by_ip.get(ip, g.fps)
+        fps = g.decide()
+        out.fps_by_ip[ip] = fps
+        out.max_fps = max(out.fps_by_ip.get(d.ip, g.fps) for d in out.devices)
+        if fps != before:
+            self.log(f"[lights] {ip}: {before:.0f} -> {fps} fps: {g.reason}")
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="link-monitor", daemon=True).start()
 
     def _run(self) -> None:
         while not self.stop.wait(self.every_s):
-            out = self.output
-            if not (out.enabled and out.active and out.devices):
-                continue
-            ip = out.devices[self.k % len(out.devices)].ip
-            self.k += 1
-            self.governor.report(self.ping(ip, 300))
-            before = out.max_fps
-            fps = self.governor.decide()
-            if fps != before:
-                out.max_fps = fps
-                self.log(f"[lights] {before:.0f} -> {fps} fps: {self.governor.reason}")
+            self.tick()
 
     def to_json(self) -> dict:
-        return {"fps": self.governor.fps, "reason": self.governor.reason}
+        lights = {ip: {"fps": g.fps, "reason": g.reason} for ip, g in self.governors.items()}
+        return {"fps": max([v["fps"] for v in lights.values()] or [self.governor.fps]), "lights": lights}

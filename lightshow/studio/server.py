@@ -122,8 +122,13 @@ class LightOutput:
         self.last_enable = 0.0
         self.last_frame = 0.0
         self.frames = 0
-        self.sent = 0                                   # frames actually sent to the lights (after the cap)
+        self.sent = 0                                   # frames sent to at least one light (after the caps)
         self.last_sent = 0.0
+        # Each light's own frame rate (set from its own Wi-Fi by link_health), and when it last got one;
+        # a light with none yet uses max_fps.
+        self.fps_by_ip: dict[str, float] = {}
+        self.last_sent_ip: dict[str, float] = {}
+        self.sent_by_ip: dict[str, int] = {}
         # Most frames a second sent to the lights. The page draws about 60; Govee lights listen over
         # 2.4 GHz Wi-Fi, where fewer packets can mean less waiting in the air. 0 means no cap.
         self.max_fps = float(load_config().get("light_max_fps", 0) or 0)
@@ -405,14 +410,14 @@ class LightOutput:
             self.dark_since = None
         self.last_frame = now
         self.frames += 1
-        if self.max_fps > 0 and now - self.last_sent < 0.9 / self.max_fps:
-            return                                      # over the cap: this one is skipped, the next goes
-        self.last_sent = now
-        self.sent += 1
+        def due(ip: str) -> bool:
+            """Is this light ready for another frame at its own rate? (Over it, this one is skipped.)"""
+            cap = self.fps_by_ip.get(ip) or self.max_fps
+            return not (cap and cap > 0 and now - self.last_sent_ip.get(ip, 0.0) < 0.9 / cap)
         out = []
         for d in self.devices:
             flat = by_ip.get(d.ip)
-            if flat is None:
+            if flat is None or not due(d.ip):
                 continue
             a = self.arriving.get(d.ip)
             if a:
@@ -423,10 +428,17 @@ class LightOutput:
                     flat = _mix_toward(flat, a["target"], 1 - _ease(k))
             out.append((d, flat))
         for ip, f in list(self.leaving.items()):
+            if not due(ip):
+                continue
             flat = by_ip.get(ip) or self.last_px.get(ip) or [0, 0, 0]
             out.append((f["dev"], _mix_toward(flat, f["target"], _ease(self._progress(f, now)))))
+        if out:
+            self.last_sent = now
+            self.sent += 1
         for d, flat in out:
             self.last_px[d.ip] = flat
+            self.last_sent_ip[d.ip] = now
+            self.sent_by_ip[d.ip] = self.sent_by_ip.get(d.ip, 0) + 1
             try:
                 cols = [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat) - 2, 3)]
                 if cols:
@@ -451,7 +463,8 @@ class Studio:
         self.link = None
         if lights and load_config().get("light_fps_auto", True):
             from .link_health import LinkMonitor
-            self.link = LinkMonitor(self.output, 15, 60)
+            # each light between 15 and light_fps_ceiling frames a second (60 unless set in config.json)
+            self.link = LinkMonitor(self.output, 15, int(load_config().get("light_fps_ceiling", 60)))
             self.output.max_fps = self.link.governor.fps
             self.link.start()
         self.cast = CastManager(govee_lan.local_ip())
@@ -841,7 +854,7 @@ class Studio:
     async def output_status(self, request):
         o = self.output
         return web.json_response({"active": o.active, "devices": [d.ip for d in o.devices], "frames": o.frames,
-                                  "sent": o.sent, "max_fps": o.max_fps, "fps_auto": self.link.to_json() if self.link else None,
+                                  "sent": o.sent, "sent_by_light": o.sent_by_ip, "max_fps": o.max_fps, "fps_auto": self.link.to_json() if self.link else None,
                                   "wifi_priority": await asyncio.get_running_loop().run_in_executor(None, light_priority_policy),
                                   "errors": o.errors, "last_error": o.last_error,
                                   "seconds_since_last_frame": round(time.monotonic() - o.last_frame, 2) if o.last_frame else None})

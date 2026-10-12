@@ -74,3 +74,46 @@ class TestOneLoss(unittest.TestCase):
         g.report(None); c.t += 0.5; g.decide()
         seen = run(g, c, 5, 10.0)
         self.assertEqual(min(seen), 50)
+
+
+class TestEachLightItsOwnRate(unittest.TestCase):
+    """A pole at the edge of the Wi-Fi never holds back a strip next to the router."""
+
+    def test_each_light_settles_at_its_own_rate(self):
+        from types import SimpleNamespace
+        from lightshow.studio.link_health import LinkMonitor
+        clock = Clock()
+        out = SimpleNamespace(enabled=True, active=True, devices=[SimpleNamespace(ip="pole"), SimpleNamespace(ip="strip")],
+                              fps_by_ip={}, max_fps=24)
+        mon = LinkMonitor(out, 15, 60, log=lambda m: None, clock=clock)
+        mon.ping = lambda ip, timeout: 120.0 if ip == "pole" else 9.0          # the pole answers slowly, the strip fast
+        for _ in range(int(120 / 0.25)):
+            clock.t += 0.25
+            mon.tick()
+        self.assertEqual(out.fps_by_ip["pole"], 15)
+        self.assertEqual(out.fps_by_ip["strip"], 60)
+        self.assertEqual(out.max_fps, 60)
+        self.assertEqual(set(mon.to_json()["lights"]), {"pole", "strip"})
+
+    def test_frames_reach_each_light_at_its_own_rate(self):
+        from unittest import mock
+        from lightshow.studio import server
+
+        class Light:
+            def __init__(self, ip):
+                self.ip, self.mac, self.device_id, self.got = ip, "", "", 0
+
+            def razer_leds(self, cols, gradient=False):
+                self.got += 1
+
+        clock = Clock()
+        pole, strip = Light("pole"), Light("strip")
+        with mock.patch.object(server, "load_config", lambda: {}), mock.patch.object(server.time, "monotonic", clock):
+            o = server.LightOutput(enabled=False)
+            o.devices, o.active, o.max_fps = [pole, strip], True, 24
+            o.fps_by_ip = {"pole": 15, "strip": 60}
+            for _ in range(600):                                           # the page's 60 frames a second, for 10 s
+                clock.t += 1 / 60
+                o.frame([[200, 0, 0], [0, 0, 200]], ["pole", "strip"])
+        self.assertAlmostEqual(pole.got / 10, 15, delta=1.5)
+        self.assertAlmostEqual(strip.got / 10, 60, delta=6)

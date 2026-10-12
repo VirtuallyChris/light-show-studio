@@ -402,14 +402,26 @@ layer above that steps up into the drop, if you want one.
 Real-time frames to the lights are one-way UDP: a light never says whether a
 frame arrived. But the Wi-Fi they share shows its state in a ping, slow or lost
 exactly when frames arrive late and the lights stutter. So while a show plays,
-the studio pings the lights it drives (one small ping every half second, in
-turn, through Windows' own ICMP API) and sets the frame rate from the replies,
-between 15 and 60 frames a second: a step down at once when a ping is lost or
-the replies turn slow (90th percentile over 90 ms; two steps when a third are
-lost or they pass 200 ms), and a step back up after 15 s of clean, quick replies
-(none lost, under 45 ms), never sooner than 30 s after a step down. Steps: 15,
-20, 24, 30, 40, 50, 60; it starts at 24. Changes go to studio.log. Set
-`"light_fps_auto": false` in config.json to keep a fixed `light_max_fps`.
+the studio pings the lights it drives (a small ping every quarter second, in
+turn, through Windows' own ICMP API), and **each light has a frame rate of its
+own**, set from its own replies, between 15 and 60 frames a second: a step down
+at once when a ping is lost or the replies turn slow (90th percentile over
+90 ms; two steps when a third are lost or they pass 200 ms), and a step back up
+after 15 s of clean, quick replies (none lost, under 45 ms), never sooner than
+30 s after a step down. Steps: 15, 20, 24, 30, 40, 50, 60; each starts at 24.
+Frames go to each light at its own rate, so a light at the edge of the Wi-Fi
+never holds back one next to the router. Changes go to studio.log, light by
+light. Set `"light_fps_ceiling"` in config.json for a lower top rate (60 if not
+set), or `"light_fps_auto": false` to keep a fixed `light_max_fps` for all.
+
+Stress test, casting to Everywhere (the whole house) with all five lights:
+3 minutes of a saved show, then 3 minutes of the jam's live stream. The two
+7-segment poles answered pings slowly (41-60 ms on average, up to 160 ms) and
+stayed at 15 frames a second; the three strips (7-11 ms) ran at 40-54. No
+errors, and frames never more than 0.18 s apart. One thing seen: while taking
+30 frames a second or more, the strips skip about a quarter of status questions
+(at 15 every one was answered); whether they also drop frames then cannot be
+seen from here.
 
 ## Party Hub: the jam from your phone
 
