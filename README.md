@@ -491,9 +491,10 @@ beer pong goes on in the game room) and over 5 seconds:
 - its lights fade from the show to how they were before the show took them (their
   own color and brightness), and are then handed back, exactly as when the studio
   closes;
-- its speakers fade out and go muted. Their volume is not changed: each is muted
-  at the level it was set to, so the Party Hub still shows that level (marked
-  *muted*) and its slider still sets it, for when the room is back.
+- its speakers fade out and go muted. Each one's own level is kept: the Party
+  Hub still shows it (marked *muted*) and its slider still sets it, for when the
+  room is back, when the speaker fades up to it. (While muted the speaker itself
+  sits at nothing: setting a level on a Google speaker unmutes it.)
 
 Switch it on again and both fade back in: the lights from how they were into the
 show, the speakers from silence to their level. Chases and other effects that run

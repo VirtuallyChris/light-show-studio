@@ -4,9 +4,9 @@ A room switched off (karaoke in the living room while beer pong goes on in the g
 the show: its lights fade back to how they were before the show took them, and its speakers fade
 out and go muted. Switched on again, both fade back in. Each fade takes FADE_S seconds.
 
-A speaker's volume is never changed by this: it fades to nothing, goes muted, and its level is put
-back where it was, so the Party Hub's slider still shows (and still sets) the level it plays at
-once the room is back. The levels of the speakers a room muted are kept in config.json
+A speaker's own level is kept: it fades to nothing and goes muted (it is not set back to its level
+while muted, because setting a level unmutes a Google speaker), and the Party Hub's slider still
+shows, and still sets, the level it plays at once the room is back, when it fades up to it. The levels of the speakers a room muted are kept in config.json
 (room_muted), so only those are ever unmuted, and a studio that quits unmutes them on the way out.
 """
 
@@ -101,15 +101,11 @@ class Rooms:
             self.save_config(cfg)
 
     def set_saved_volume(self, name: str, level: float) -> bool:
-        """A volume set for a speaker its room has muted: kept for when the room is back, and set on the
-        speaker too (it stays muted). False if no room has it muted."""
+        """A volume set for a speaker its room has muted: kept for when the room is back. Not sent to the
+        speaker now: setting a level unmutes a Google speaker. False if no room has it muted."""
         if name not in self.muted():
             return False
-        self._store(name, level)
-        if self.touch and self.cast is not None:
-            c = self.cast._device(name)
-            if c is not None:
-                c.set_volume(max(0.0, min(1.0, float(level))))
+        self._store(name, max(0.0, min(1.0, float(level))))
         return True
 
     def sync_speakers(self, wait: bool = False) -> list[threading.Thread]:
@@ -153,27 +149,33 @@ class Rooms:
                     raise ConnectionError("not answering")
                 self._store(name, level)                 # kept first: the Party Hub shows it from now on
                 start = live if live is not None else level
-                steps = max(1, int(self.fade_s * STEPS_PER_S))
-                for i in range(1, steps + 1):
+                t0 = time.monotonic()                    # by the clock: each change takes the speaker a moment
+                while True:
                     if not self._current(name, g):
                         return
-                    c.set_volume(start * (1 - _ease(i / steps)))
-                    time.sleep(self.fade_s / steps)
+                    k = min(1.0, (time.monotonic() - t0) / max(1e-3, self.fade_s))
+                    c.set_volume(start * (1 - _ease(k)))
+                    if k >= 1.0:
+                        break
+                    time.sleep(1.0 / STEPS_PER_S)
+                # Muted at nothing. (Setting the level again would unmute a Google speaker: tried.) Its own
+                # level is kept here, shown on the Party Hub and set again when the room is back.
                 c.set_volume_muted(True)
-                time.sleep(0.2)
-                c.set_volume(level)                      # muted, at the level it plays at once back
             else:
                 if saved is None:
                     return
                 c.set_volume(0.0)
                 time.sleep(0.2)
                 c.set_volume_muted(False)
-                steps = max(1, int(self.fade_s * STEPS_PER_S))
-                for i in range(1, steps + 1):
+                t0 = time.monotonic()
+                while True:
                     if not self._current(name, g):
                         return
-                    c.set_volume(saved * _ease(i / steps))
-                    time.sleep(self.fade_s / steps)
+                    k = min(1.0, (time.monotonic() - t0) / max(1e-3, self.fade_s))
+                    c.set_volume(saved * _ease(k))
+                    if k >= 1.0:
+                        break
+                    time.sleep(1.0 / STEPS_PER_S)
                 c.set_volume(saved)
                 self._store(name, None)
             self.errors.pop(name, None)

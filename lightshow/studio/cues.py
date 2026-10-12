@@ -209,13 +209,17 @@ class CueRunner:
         self.state["steps"] = self.state.get("steps", []) + [name]
 
     def _ramp(self, a: float, b: float, secs: float, watch_stop: bool) -> None:
-        n = max(1, int(secs * STEPS_PER_S))
-        for i in range(1, n + 1):
+        """Move the volume from a to b over secs, by the clock: a speaker takes a moment to take each
+        change, so every step sets where the fade should be by now (it lasts secs whatever the speaker)."""
+        t0 = self.clock()
+        while True:
             if watch_stop and self.stop_flag.is_set():
                 return
-            k = i / n
+            k = min(1.0, (self.clock() - t0) / max(1e-3, secs))
             self.hooks.set_volume(a + (b - a) * k * k * (3 - 2 * k))
-            self.sleep(secs / n)
+            if k >= 1.0:
+                return
+            self.sleep(1.0 / STEPS_PER_S)
 
     def _run(self, cue: dict) -> None:
         h = self.hooks

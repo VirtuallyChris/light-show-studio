@@ -147,12 +147,13 @@ class LightOutput:
         light that did not answer when asked this time."""
         return dict(load_config().get("light_states", {}).get(self._key(d)) or {})
 
-    def _remember(self, states: dict) -> None:
+    def _remember(self, states: list) -> None:
+        """Keep (light, state) pairs on disk: a light object cannot be a dictionary key."""
         if not states:
             return
         cfg = load_config()
         keep = cfg.setdefault("light_states", {})
-        for d, st in states.items():
+        for d, st in states:
             keep[self._key(d)] = {k: st[k] for k in ("onOff", "brightness", "color", "colorTemInKelvin") if k in st}
         try:
             save_config(cfg)
@@ -261,7 +262,7 @@ class LightOutput:
                     self.saved[d.ip] = self.handed_back[d.ip][0]
                 elif self.remembered(d):                      # or how it was the last time a show took it
                     self.saved[d.ip] = self.remembered(d)
-            self._remember({d: got[d.ip] for d in ask if d.ip in got})
+            self._remember([(d, got[d.ip]) for d in ask if d.ip in got])
         for _ in range(3):
             for d in devices:
                 d.turn(True)

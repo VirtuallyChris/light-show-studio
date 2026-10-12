@@ -78,9 +78,8 @@ class TestSpeakers(unittest.TestCase):
         self.r.set_on(self.rid, False)
         self.r.sync_speakers(wait=True)
         self.assertTrue(self.home.muted)
-        self.assertEqual(self.home.status.volume_level, 0.4)          # muted at its own level
-        self.assertLess(min(self.home.levels), 0.05)                  # it faded down on the way
-        self.assertEqual(self.r.muted(), {"Living Home": 0.4})
+        self.assertLess(self.home.status.volume_level, 0.05)          # faded down, and muted
+        self.assertEqual(self.r.muted(), {"Living Home": 0.4})        # its own level kept for the page and for later
 
     def test_on_again_fades_back_to_its_level(self):
         self.r.set_on(self.rid, False)
@@ -97,7 +96,7 @@ class TestSpeakers(unittest.TestCase):
         self.r.set_on(self.rid, False)
         self.r.sync_speakers(wait=True)
         self.assertTrue(self.r.set_saved_volume("Living Home", 0.6))
-        self.assertTrue(self.home.muted)
+        self.assertTrue(self.home.muted)                               # still muted: nothing was sent to it
         self.r.set_on(self.rid, True)
         self.r.sync_speakers(wait=True)
         self.assertEqual(self.home.status.volume_level, 0.6)
@@ -119,6 +118,8 @@ class TestSpeakers(unittest.TestCase):
 
 
 class FakeLight:
+    __hash__ = None                                    # like GoveeDevice (a dataclass): cannot be a dictionary key
+
     def __init__(self, ip, mac=""):
         self.ip, self.mac, self.device_id, self.sku = ip, mac, "", "H6076"
         self.calls, self.frames = [], []
