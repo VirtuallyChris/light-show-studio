@@ -896,14 +896,25 @@ noise.
   changes its kind (a buildup that turns out to be a verse), that section is
   rebuilt, the one playing included, from the next beat.
 
-**Starting a night.** A buffer only fills while the room listens to something
-else, so there are two ways in:
+**Starting a night: the opening song.** A buffer only fills while the room
+listens to something else, so every jam opens with one of your saved shows
+(**Open with**, *If You're Too Shy (Let Me Know)* unless you pick another).
+Press **Start jam**: the opener plays in the room with its full show while
+Spotify plays, unheard, from the start of the jam's first song. As the opener
+ends, the speakers switch to the jam, a whole opener behind, and stay that far
+behind all night. So the lights hear each song about a song ahead of the room:
+songs up to the opener's length are heard to their end before the room gets to
+them, and get their full show from the first beat. A longer opener gives a
+longer lead.
 
-- **Start jam** waits in silence until the buffer is full, then the speakers join.
-- **Start behind this song** is the good one. Cast one of your own shows and
-  press play, then press this. Spotify is held paused, released when your song
-  has exactly the delay left to run, and the speakers switch to the jam as it
-  ends. The room hears one song follow another.
+- If Spotify starts late (nothing was up yet), the jam simply stays as far behind
+  as it got; it never adds silence later to make up the difference.
+- A cue during the opener (the doorbell) has the speakers as usual; the jam
+  joins once it is over.
+- Set **Open with** to *Nothing* to start the old way: the room waits in
+  silence until the **Stay behind by** delay (90 s) has filled, then joins.
+- A jam that starts by itself (music started on Light Show Studio) opens the
+  same way. A pre-listen never does: it plays nothing in the room.
 
 **What the phone does and how the room reacts.**
 

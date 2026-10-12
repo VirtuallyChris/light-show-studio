@@ -559,8 +559,13 @@ class Studio:
         song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
         if not song:
             return 0.0
+        path = os.path.join(pdir, song[0])
         try:
-            return float(audiotrim.total_duration(os.path.join(pdir, song[0])))
+            key = (path, os.path.getmtime(path))
+            cache = self.__dict__.setdefault("_lengths", {})   # asked every second by the Jam panel: read each song once
+            if key not in cache:
+                cache[key] = float(audiotrim.total_duration(path))
+            return cache[key]
         except Exception:  # noqa: BLE001
             return 0.0
 

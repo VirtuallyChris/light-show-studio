@@ -22,6 +22,7 @@ from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 
 # the start settings remembered for next time (and for a jam that starts itself)
 LAST_KEYS = ("device", "speakers", "pc_device", "target_delay", "crossfade", "skip_jumps", "source")
+DEFAULT_OPENER = "If Youre Too Shy (Let Me Know)"     # a jam opens with this saved show, if it is there
 
 
 def extras_for(pair) -> list[str] | None:
@@ -133,6 +134,11 @@ class JamService:
 
     def _file_status(self):
         """How much of a song from disk the speakers still have to play (for the opening-song hand-over)."""
+        o = getattr(self, "opener", None)
+        if o and not o.get("cut"):
+            gone = time.monotonic() - o["t0"]
+            if o["via"] != "cast" or gone < 10:               # this PC's page plays it, or the speaker is still loading it
+                return max(0.0, o["dur"] - gone), gone < o["dur"]
         c = self.studio.cast
         if c.cast is None or not c.media_path:
             return None, False
@@ -161,6 +167,13 @@ class JamService:
             where = "none"
         use_cast = where == "cast"
         output = self._output_for(where, hidden_name, check=not demo)
+        # A jam opens with one of your saved shows (If You're Too Shy, unless another is chosen): it plays
+        # in the room with its lights while Spotify plays, unheard, behind it, and the room joins the jam as
+        # it ends, a whole song behind. So the jam is always a song ahead: each song is heard to its end
+        # before the room gets to it, and gets its full show from the first beat.
+        opener = None if demo or body.get("prelisten") or where not in ("cast", "pc") else self._opener_plan(body)
+        if opener:
+            cfg.target_delay = max(20.0, opener[1] - 2.0)
         if demo:
             from .jam_demo import DemoSpotify
             self.demo = DemoSpotify(relay, gate)
@@ -187,11 +200,12 @@ class JamService:
         self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
         self.runner = JamRunner(self.engine, file_status=self._file_status)
         self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") and use_cast or where == "pc" else ", preview only (no speakers)")
-        if body.get("opener") and use_cast and not demo:
-            self.engine.arm_handover()
         self.runner.start()
         if demo:
             self.demo.start()
+        self.opener = None
+        if opener:
+            self._begin_opener(*opener, via=where)
         self.engine.say(f"jam started: {self.mode}, aiming {cfg.target_delay:.0f}s behind")
         self.source = "demo" if demo else body.get("source", "app")
         self.auto_started = bool(body.get("auto"))
@@ -202,6 +216,53 @@ class JamService:
             cfg_all["jam_last"] = {k: body[k] for k in LAST_KEYS if k in body}
             self.save_config(cfg_all)
         return self._state()
+
+    # -- the opening song --------------------------------------------------------------------------------
+    def _opener_choice(self) -> str:
+        """The saved show a jam opens with ("" for none: the jam starts 90 s behind instead)."""
+        cfg = self.load_config()
+        name = cfg.get("jam_opener", DEFAULT_OPENER)
+        return name if name and self._length(name) >= 60 else ""
+
+    def _length(self, name: str) -> float:
+        length_of = getattr(self.studio, "_show_length", None)
+        return float(length_of(name)) if length_of else 0.0
+
+    def _opener_plan(self, body: dict) -> tuple[str, float] | None:
+        name = body["opener_show"] if "opener_show" in body else self._opener_choice()
+        length = self._length(name) if name else 0.0
+        return (name, length) if name and length >= 60 else None
+
+    def _begin_opener(self, name: str, length: float, via: str) -> None:
+        """Play the opening show in the room (its song on the jam's speakers, or this page on this PC, and
+        its lights) while Spotify fills the buffer behind it."""
+        import uuid
+        self.engine.open_with_song()                          # the room joins the jam as the opener ends
+        if via == "cast" and self.studio.cast.cast is not None:
+            url, path = self.studio._show_song(name)
+            self.studio.cast.play(url, path, name, 0.0)
+        else:
+            via = "pc"                                        # this page plays it on this PC
+        self.opener = {"id": "opener", "name": "Opening song", "show": name, "via": via, "device": self.studio.cast.name if via == "cast" else "",
+                       "run": uuid.uuid4().hex[:8], "t0": time.monotonic(), "dur": length, "rehearsal": False}
+        try:                                                  # Spotify starts now, unheard, filling the buffer
+            np = self.engine.spotify.now_playing()
+            if np is not None and not np.playing:
+                self.engine.spotify.resume()
+        except Exception:  # noqa: BLE001 - nothing to resume yet: the jam fills as soon as music plays
+            pass
+        self.engine.say(f"opening with {name}: the room joins the jam as it ends, a song behind")
+
+    def opener_status(self) -> dict:
+        """The opening song as the page plays it (shaped like a cue): over once the jam has the speakers."""
+        o = getattr(self, "opener", None)
+        if not o:
+            return {}
+        done = self.engine is None or self.engine.streaming or o.get("cut") or time.monotonic() - o["t0"] > o["dur"] + 10
+        st = {k: v for k, v in o.items() if k not in ("t0", "cut")}
+        st["phase"] = "done" if done else "show"
+        st["progress"] = round(min(1.0, (time.monotonic() - o["t0"]) / max(1.0, o["dur"])), 3)
+        return st
 
     def _output_for(self, where: str, hidden_name: str | None = None, check: bool = True):
         """The room's output: the Cast speaker, this PC's default output, or nothing (preview)."""
@@ -343,8 +404,8 @@ class JamService:
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
                 "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "party_level": self.party_level,
-                "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
-                "prelisten": self.prelisten.status()}
+                "cue": self._room_cue(),
+                "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice()}
         if self.engine is None:
             return base
         st = self.engine.state()
@@ -636,6 +697,15 @@ class JamService:
         except Exception as e:  # noqa: BLE001 - shown in the Jam panel
             self.auto_error = f"{type(e).__name__}: {e}"
 
+    def _room_cue(self) -> dict:
+        """What the room is playing instead of the jam: a cue, else the opening song."""
+        cue = self.studio.cues.status() if getattr(self.studio, "cues", None) else {}
+        if cue.get("phase") and cue.get("phase") != "done":
+            if getattr(self, "opener", None):                 # a cue cut the opening song short: the jam follows the cue
+                self.opener["cut"] = True
+            return cue
+        return self.opener_status() or cue
+
     def _last(self) -> dict:
         return {"source": "studio", "speakers": "pc", "target_delay": 90.0, **self.load_config().get("jam_last", {})}
 
@@ -924,6 +994,8 @@ class JamService:
             self.auto_armed = True
         if body.get("source") in ("studio", "app"):
             cfg["jam_last"] = {**cfg.get("jam_last", {}), "source": body["source"]}
+        if "opener" in body:                                  # the saved show every jam opens with ("" for none)
+            cfg["jam_opener"] = str(body["opener"] or "")
         self.save_config(cfg)
         return web.json_response(self._state())
 

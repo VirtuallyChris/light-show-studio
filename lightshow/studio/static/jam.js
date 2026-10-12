@@ -125,7 +125,10 @@
           <option value="pc">This PC</option>
           <option value="none">Nowhere (preview only)</option></select></div>
         <div class="hint" id="jamPcHint">This PC plays on Windows' default output.</div>
-        <div class="jam-row"><label>Stay behind by</label><span><input id="jamDelay" type="number" min="10" max="180" step="5" value="90" class="num"> s</span></div>
+        <div class="jam-row"><label title="One of your saved shows plays in the room first, with its lights, while Spotify plays unheard behind it. The room joins the jam as it ends, a whole song behind, so each song is heard to its end before the room gets to it.">Open with</label><select id="jamOpenWith">
+          <option value="">Nothing (start ${esc(String(Math.round(((st.last || {}).target_delay) || 90)))} s behind)</option>
+          ${(J.openerShows || []).filter(s => s.length >= 60 || s.name === st.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === st.opener_choice ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
+        <div class="jam-row" ${st.opener_choice ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="10" max="180" step="5" value="90" class="num"> s</span></div>
         <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
         <div class="jam-row"><label>On a skip</label><select id="jamOnSkip">
           <option value="keep">Keep the delay</option>
@@ -134,7 +137,6 @@
       ${colorsSection(st)}
       <div class="jam-actions">
         <button id="jamStart" class="accent" ${sp.signed_in ? '' : 'disabled'}>Start jam</button>
-        <button id="jamOpener" ${sp.signed_in && st.speaker_connected ? '' : 'disabled'} title="Play one of your shows from disk first. Spotify is released as it ends, so the jam begins with the buffer already full.">Start behind this song</button>
         <button id="jamDemo" title="Synthetic songs and a pretend Spotify. No sound, no speakers, no sign-in.">Silent demo</button></div>`;
     } else {
       const room = st.room, ahead = st.ahead; const pct = Math.max(0, Math.min(100, 100 * (st.delay || 0) / (st.target_delay || 90)));
@@ -177,6 +179,12 @@
     if (p.running) return 'Starting the hidden player…';
     if (!((J.state || {}).spotify || {}).can_stream) return 'Sign in to Spotify to use the studio as a speaker';
     return 'Connecting to Spotify…';
+  }
+
+  // the saved shows a jam can open with (a minute or longer)
+  function loadOpenerShows() {
+    if (J.loadingShows) return; J.loadingShows = true;
+    fetch('/api/cues').then(r => r.json()).then(d => { J.openerShows = d.shows || []; render(); }).catch(() => { J.openerShows = J.openerShows || []; }).finally(() => { J.loadingShows = false; });
   }
 
   function wire(keep) {
@@ -233,8 +241,13 @@
     on('jamSignIn', async () => { if (cid && cid.value.trim() !== ((J.state.spotify || {}).client_id || '')) await api('spotify/client', { client_id: cid.value.trim() }); window.open('/api/spotify/login', 'spotify', 'width=520,height=760'); });
     on('jamSignOut', async () => { J.state = await api('spotify/signout', {}); render(); });
     const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 90, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, skip_jumps: (($('#jamOnSkip') || {}).value) === 'jump', source: (source && source.value) || 'studio', speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });
-    on('jamStart', async () => { J.state = await start({}); render(); toast({ cast: 'Jam started. The speakers join once the buffer is full.', pc: 'Jam started. This PC starts playing once the buffer is full.' }[J.state.output_kind] || 'Jam started as a preview: nothing plays.'); });
-    on('jamOpener', async () => { if (!S.cast.active || !S.audio.playing) return toast('Cast one of your shows and press play first, then press this', true); J.state = await start({ opener: true, speakers: 'cast' }); render(); toast('Armed. Spotify will be released as this song ends.'); });
+    on('jamStart', async () => { J.state = await start({}); render(); const op = (J.state.cue || {}).id === 'opener' ? J.state.cue : null; if (op) return toast(`Jam started: ${op.show} plays first, and the room joins the jam as it ends.`); toast({ cast: 'Jam started. The speakers join once the buffer is full.', pc: 'Jam started. This PC starts playing once the buffer is full.' }[J.state.output_kind] || 'Jam started as a preview: nothing plays.'); });
+    const openWith = $('#jamOpenWith');
+    if (openWith) {
+      if (J.openerShows === undefined) loadOpenerShows();
+      openWith.onfocus = loadOpenerShows;                        // a show saved since shows up
+      openWith.onchange = () => api('jam/prefs', { opener: openWith.value }).then(st => { J.state = st; render(); }).catch(e => toast(e.message, true));
+    }
     on('jamDemo', async () => { J.state = await start({ demo: true, speakers: 'none', target_delay: 20 }); render(); toast('Silent demo running: synthetic songs, no sound.'); });
     on('jamStop', async () => { J.state = await api('jam/stop', {}); leave(); render(); });
     on('jamSkip', () => api('jam/demo/skip', {}));

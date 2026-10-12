@@ -500,6 +500,7 @@ class JamEngine:
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
         self.handover: str | None = None  # None | 'armed' | 'filling': opening with a song from disk
+        self.opening = False              # the opening song started with Spotify: the delay is whatever it buffered
         # A Party Hub cue holds the room: where it stopped (a capture time), kept while the speakers play
         # something else, so the room picks up exactly there afterwards.
         self.held_at: float | None = None
@@ -746,9 +747,17 @@ class JamEngine:
                 pass
             self.say("armed: Spotify is held until the opening song is nearly over")
 
+    def open_with_song(self) -> None:
+        """The opening song plays from its start while Spotify plays, unheard, from the start too: the
+        buffer fills for a whole song, and the room joins the jam as the opener ends, a song behind."""
+        with self.lock:
+            self.handover, self.auto_start, self.opening = "filling", False, True
+
     def handover_tick(self, remaining: float | None, playing: bool) -> None:
         """Call about once a second with how much of the opening song is left."""
         with self.lock:
+            if self.cue_hold:                                # a cue has the speakers: the jam joins once it is over
+                return
             if self.handover == "armed" and remaining is not None and remaining <= self.cfg.target_delay:
                 ok = False
                 try:
@@ -760,6 +769,11 @@ class JamEngine:
                          else "press play in Spotify now: the opening song is nearly over")
             elif self.handover == "filling" and (not playing or (remaining is not None and remaining <= 0.4)):
                 self.handover, self.auto_start = None, True
+                if self.opening:
+                    # the jam stays as far behind as the opener let it get (Spotify may have started a little
+                    # late): aiming further back would only add silence between the next songs
+                    self.opening = False
+                    self.cfg.target_delay = max(20.0, min(self.cfg.target_delay, self.buffered()))
                 if self.buffered() > 1.0:
                     self.start_streaming()
                 else:

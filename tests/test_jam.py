@@ -98,7 +98,7 @@ class Sim:
             self.ticks += 1
             if self.ticks % 2 == 0:
                 self.engine.poll()
-                if not self.engine.streaming and self.engine.buffered() >= self.engine.cfg.target_delay:
+                if not self.engine.streaming and self.engine.auto_start and self.engine.buffered() >= self.engine.cfg.target_delay:
                     self.engine.start_streaming()
             self.out.pump()
             if analyse and self.ticks % 2 == 0:
@@ -508,6 +508,113 @@ class TestHandover(unittest.TestCase):
             self.assertIsNone(e.handover)
         finally:
             shutil.rmtree(d, ignore_errors=True)
+
+
+class TestOpeningSong(unittest.TestCase):
+    """A jam opens with a saved show: Spotify plays unheard from the start, the room joins as the opener
+    ends, a whole song behind. Virtual only: no speaker, no lights."""
+
+    def run_opener(self, sim, opener_s, spotify_late=0.0, cue_at=None):
+        e = sim.engine
+        e.open_with_song()
+        t = 0.0
+        while t < opener_s + 30:
+            if spotify_late and t >= spotify_late and not sim.spotify.playing:
+                sim.spotify.resume()
+            if cue_at is not None and t == cue_at[0]:
+                e.hold()
+            if cue_at is not None and t == cue_at[1]:
+                e.release(restart=True)
+            sim.run(1.0, analyse=False)
+            t += 1.0
+            e.handover_tick(max(0.0, opener_s - t), t < opener_s)
+            if e.streaming:
+                break
+        return t
+
+    def test_the_room_joins_a_whole_song_behind(self):
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=98.0)                 # the jam service aims at the opener's length, less a little
+            sim.play(a, ta)                           # Spotify plays from the start, unheard
+            t = self.run_opener(sim, 100.0)
+            self.assertTrue(sim.engine.streaming)
+            self.assertAlmostEqual(t, 100.0, delta=1.0)                     # as the opener ended, not before
+            self.assertAlmostEqual(sim.engine.delay(), 100.0, delta=1.5)    # a whole opener behind
+            self.assertIsNone(sim.engine.handover)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_spotify_starting_late_never_adds_silence_later(self):
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=98.0)
+            sim.play(a, ta)
+            sim.spotify.pause()
+            self.run_opener(sim, 100.0, spotify_late=15.0)
+            self.assertTrue(sim.engine.streaming)
+            self.assertAlmostEqual(sim.engine.delay(), 85.0, delta=1.5)
+            self.assertAlmostEqual(sim.engine.cfg.target_delay, 85.0, delta=1.5)   # settles on what it has
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_a_cue_during_the_opener_holds_the_hand_over(self):
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=98.0)
+            sim.play(a, ta)
+            t = self.run_opener(sim, 100.0, cue_at=(95.0, 110.0))
+            self.assertGreaterEqual(t, 110.0)         # not while the cue had the speakers
+            self.assertTrue(sim.engine.streaming)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class TestOpenerService(unittest.TestCase):
+    """The service side: which show opens, how far behind the jam aims, and what the page plays."""
+
+    def service(self, lengths, cfg=None):
+        from lightshow.studio.jam_service import JamService
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = None, "", ""
+            _show_length = staticmethod(lambda name: lengths.get(name, 0.0))
+        self.cfg = dict(cfg or {})
+        return JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
+
+    def test_if_youre_too_shy_opens_unless_another_is_chosen(self):
+        shy = "If Youre Too Shy (Let Me Know)"
+        svc = self.service({shy: 245.0, "Cheerleader": 180.0, "Jingle": 20.0})
+        self.assertEqual(svc._opener_choice(), shy)
+        self.assertEqual(svc._opener_plan({}), (shy, 245.0))
+        self.cfg["jam_opener"] = "Cheerleader"
+        self.assertEqual(svc._opener_plan({}), ("Cheerleader", 180.0))
+        self.cfg["jam_opener"] = "Jingle"                   # too short to fill a buffer: no opener
+        self.assertEqual(svc._opener_choice(), "")
+        self.assertIsNone(svc._opener_plan({}))
+        self.cfg["jam_opener"] = ""                         # none: the jam starts 90 s behind as before
+        self.assertIsNone(svc._opener_plan({}))
+        self.assertIsNone(self.service({})._opener_plan({}))   # Too Shy not saved here: nothing to open with
+
+    def test_the_page_plays_the_opener_until_the_jam_has_the_room(self):
+        import time as _time
+        svc = self.service({})
+        svc.engine = type("E", (), {"streaming": False})()
+        svc.opener = {"id": "opener", "name": "Opening song", "show": "Cheerleader", "via": "pc", "device": "",
+                      "run": "r1", "t0": _time.monotonic() - 30.0, "dur": 180.0, "rehearsal": False}
+        st = svc._room_cue()
+        self.assertEqual((st["phase"], st["show"], st["via"]), ("show", "Cheerleader", "pc"))
+        self.assertAlmostEqual(st["progress"], 30 / 180, delta=0.02)
+        left, playing = svc._file_status()                  # this PC's page plays it: its own clock says how much is left
+        self.assertAlmostEqual(left, 150.0, delta=1.0)
+        self.assertTrue(playing)
+        svc.engine.streaming = True                         # the jam has the speakers: the opener is over
+        self.assertEqual(svc._room_cue()["phase"], "done")
 
 
 # ========================================================================== sync check
