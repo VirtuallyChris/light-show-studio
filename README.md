@@ -724,6 +724,14 @@ noise.
   between the whole-strip strobe and the ceiling split in halves (the kick on one
   half, the snare on the other); groove drops flash a fifth of each strip on the
   snare; verses land each snare on a quarter of the ceiling, going round.
+- **A drop starts where its bass comes in.** Loudness puts a drop on the bar line
+  where the drums hit, but you hear the drop when the bass lands, which in many
+  songs is a beat or a few later (Great Good Fine Ok's last drop: drums on the bar
+  line, bass one beat after). So a drop whose bass is silent going in moves to the
+  first beat of its first bar where the separated bass plays; one whose bass is
+  already playing stays. Over 24 songs that moved 10 of 64 drops, by 1 to 3 beats.
+  **Re-detect** analyses the song again from scratch with the newest analysis:
+  everything saved for it is thrown away first.
 - **A buildup where the snares build.** A drop with no buildup marked before it,
   where the snares do build into it (at least 8 in its last 4 bars, rolls
   counting, the last 2 bars as busy as the 2 before; or at least 4 in its last

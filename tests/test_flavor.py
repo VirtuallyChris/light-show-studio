@@ -92,3 +92,32 @@ class TestFlavor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDropTiming(unittest.TestCase):
+    """A drop starts where its bass comes in, as it is heard (Great Good Fine Ok's last drop)."""
+
+    def song(self, bass_from):
+        beats = np.arange(0, 40, 0.5)                                  # 120 bpm
+        t = np.arange(int(40 * SR)) / SR
+        drums = (np.sin(2 * np.pi * 60 * t) * (np.mod(t, 0.5) < 0.1)).astype(np.float32)
+        bass = (np.sin(2 * np.pi * 55 * t) * (t >= bass_from)).astype(np.float32)
+        return beats, {"drums": drums, "bass": bass, "sr": SR}
+
+    def sections(self, drop_at):
+        return [{"start": 0.0, "end": drop_at, "type": "verse"}, {"start": drop_at, "end": 40.0, "type": "drop"}]
+
+    def test_a_drop_moves_to_the_beat_its_bass_comes_in(self):
+        from lightshow.studio.analysis import refine_drops
+        beats, stems = self.song(bass_from=16.5)                       # the bass lands one beat after the bar line
+        secs, drops, moves = refine_drops(self.sections(16.0), [16.0], beats, stems)
+        self.assertEqual(secs[1]["start"], 16.5)
+        self.assertEqual(secs[0]["end"], 16.5)
+        self.assertEqual(drops, [16.5])
+        self.assertEqual(moves[0][2], 1)
+
+    def test_a_drop_whose_bass_is_already_playing_stays(self):
+        from lightshow.studio.analysis import refine_drops
+        beats, stems = self.song(bass_from=8.0)
+        secs, drops, moves = refine_drops(self.sections(16.0), [16.0], beats, stems)
+        self.assertEqual((secs[1]["start"], drops, moves), (16.0, [16.0], []))

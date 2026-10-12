@@ -128,6 +128,13 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                                audio=(stereo if stereo is not None else y, sr) if path is None else None, stems=stems)
         except Exception as e:  # noqa: BLE001 - a show without flair is better than no show
             print(f"[events] skipped: {type(e).__name__}: {e}")
+    if stems:                                                # a drop starts where its bass comes in
+        try:
+            sections, drops, moved = refine_drops(sections, drops, beats, stems)
+            if moved:
+                print(f"[structure] drops moved to where the bass comes in: {moved}")
+        except Exception as e:  # noqa: BLE001 - the found drops stand
+            print(f"[structure] drop timing skipped: {type(e).__name__}: {e}")
     if ev.get("rolls"):
         sections, _ = buildups_from_rolls(sections, ev["rolls"], beats, phase)
 
@@ -215,6 +222,71 @@ def song_mood(y, sr, energy, centroid_hz) -> dict:
             "drive": round(drive, 3), "palette": family[0], "palettes": family}
 
 
+def stem_beats(stems: dict, beats) -> np.ndarray | None:
+    """Each beat's level of the separated drums, bass, other instruments and vocals (each 0..1 against its
+    own loud level), for telling one part of a song from the next by what is playing."""
+    beats = np.asarray(beats, dtype=float)
+    if not stems or len(beats) < 8:
+        return None
+    sr = float(stems.get("sr") or SR)
+    cols = []
+    for k in ("drums", "bass"):
+        x = stems.get(k)
+        if x is None:
+            return None
+        x = np.asarray(x, dtype=np.float32)
+        hop = max(1, int(sr / 50))
+        m = len(x) // hop
+        env, fps = np.sqrt((x[: m * hop].astype(np.float64).reshape(m, hop) ** 2).mean(axis=1)), 50.0
+        cols.append((env, fps))
+    lv, lfps = stems.get("levels") or {}, float(stems.get("fps") or 30)
+    for k in ("other", "vocals"):
+        if lv.get(k) is not None:
+            cols.append((np.asarray(lv[k], dtype=float), lfps))
+    out = np.zeros((len(beats) - 1, len(cols)))
+    for j, (env, fps) in enumerate(cols):
+        ref = float(np.percentile(env, 95)) + 1e-9
+        for b in range(len(beats) - 1):
+            i0, i1 = int(beats[b] * fps), max(int(beats[b] * fps) + 1, int(beats[b + 1] * fps))
+            out[b, j] = float(env[i0:i1].mean()) / ref if i0 < len(env) else 0.0
+    return np.clip(out, 0, 1.5)
+
+
+def refine_drops(sections: list[dict], drops: list, beats, stems: dict) -> tuple[list[dict], list, list]:
+    """Start each drop on the beat its bass comes in, as it is heard.
+
+    Loudness puts a drop on the bar line where the drums hit, but you hear the drop when the bass
+    lands, and in many songs that is a beat or a few later (Great Good Fine Ok's last drop: the drums
+    on the bar line, the bass one beat after, which is where it is heard). So, on the separated bass:
+    a drop whose bass is silent going in (under 0.15 of its loud level over the bar before) moves to
+    the first beat of its first bar where the bass plays (0.3 and up for two beats running). A drop
+    whose bass is already playing, or never clearly comes in, stays where it is. Over 24 songs this
+    moved 10 of 64 drops, each by 1 to 3 beats. Returns (sections, drops, moves)."""
+    F = stem_beats(stems, beats)
+    sections = [dict(x) for x in sections]
+    drops = list(drops)
+    moves = []
+    if F is None:
+        return sections, drops, moves
+    beats = np.asarray(beats, dtype=float)
+    bass = F[:, 1]
+    for i, sec in enumerate(sections):
+        if sec["type"] != "drop" or i == 0:
+            continue
+        b = int(np.argmin(np.abs(beats - sec["start"])))
+        if b < 4 or b + 5 >= len(bass) or bass[b - 4:b].mean() >= 0.15:
+            continue
+        for c in range(b, b + 4):
+            if bass[c] >= 0.3 and bass[c + 1] >= 0.3:
+                if c != b and beats[c] < sec["end"] - 1.0:
+                    t_old, t_new = float(sec["start"]), round(float(beats[c]), 4)
+                    sec["start"] = sections[i - 1]["end"] = t_new
+                    drops = [t_new if abs(dp - t_old) < 0.6 else dp for dp in drops]
+                    moves.append((round(t_old, 2), round(t_new, 2), c - b))
+                break
+    return sections, sorted(set(drops)), moves
+
+
 def buildups_from_rolls(sections: list[dict], rolls: list, beats, phase: int) -> tuple[list[dict], int]:
     """A drum roll that runs straight into a drop is that drop's buildup. Where the sections have no
     buildup there, the bars the roll covers (from the bar line it starts in, two bars at least, sixteen
@@ -279,7 +351,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 26         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 27         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup

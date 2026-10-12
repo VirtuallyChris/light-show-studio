@@ -2326,11 +2326,11 @@
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
   $('#btnRedetect').onclick = async () => {
     if (!S.analysis) return;
-    // ask the server again rather than reusing what was loaded: if SongFormer could not run
-    // before, this is where it gets another go
+    // a fresh analysis from scratch: the server throws away everything it saved for this song and
+    // runs the newest analysis (so nothing old, cached or half-done, can come back)
     if (S.name) {
-      busy('Analysing…');
-      try { const d = await (await fetch(`/api/projects/${encodeURIComponent(S.name)}`)).json(); if (d.analysis) S.analysis = d.analysis; }
+      busy('Analysing from scratch…');
+      try { const d = await (await fetch(`/api/projects/${encodeURIComponent(S.name)}?fresh=1`)).json(); if (d.analysis) S.analysis = d.analysis; }
       catch (e) { /* keep what was loaded */ } finally { busy(null); }
     }
     if (S.analysis.structure_source === 'loudness') toast(`Section timing not refined: ${S.analysis.structure_error || 'SongFormer did not run'}`, true);
