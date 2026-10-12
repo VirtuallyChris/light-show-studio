@@ -740,7 +740,7 @@ class JamService:
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
                 "cues": self.studio.cues.list() if getattr(self.studio, "cues", None) else [],
-                "prelisten": self.prelisten.status(),
+                "prelisten": self.prelisten.status() if getattr(self, "prelisten", None) else {},
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
                 "room": item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
                 "upcoming": [item(t) for t in up[:12]]}
