@@ -60,6 +60,11 @@ class JamService:
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
+        # pre-listen: the studio's own player hears a party playlist ahead of time, through a silent jam
+        from .prelisten import PreListen
+        self.prelisten = PreListen(self.spotify, self.library,
+                                   start_jam=lambda: self._start({"source": "studio", "speakers": "none", "target_delay": 20, "prelisten": True}),
+                                   stop_jam=self._stop, device_id=lambda: self.player.device_id)
         self.player_browser = "Microsoft Edge, hidden"
         self.player_enabled = True                      # False: a test copy that must not register a Spotify speaker
         from .player_browser import HiddenPlayer
@@ -113,6 +118,8 @@ class JamService:
             web.post("/api/party/level", self.party_level_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
+            web.post("/api/prelisten", self.prelisten_start),
+            web.post("/api/prelisten/stop", self.prelisten_stop),
             web.get("/api/jam/art", self.art),
             web.post("/api/jam/player/open", self.player_open),
             web.post("/api/jam/player/transfer", self.player_transfer),
@@ -188,7 +195,9 @@ class JamService:
         self.engine.say(f"jam started: {self.mode}, aiming {cfg.target_delay:.0f}s behind")
         self.source = "demo" if demo else body.get("source", "app")
         self.auto_started = bool(body.get("auto"))
-        if not demo:
+        if body.get("prelisten"):
+            self.mode = "pre-listen: learning songs, nothing plays in the room"
+        if not demo and not body.get("prelisten"):             # a pre-listen never becomes the jam you start next
             cfg_all = self.load_config()
             cfg_all["jam_last"] = {k: body[k] for k in LAST_KEYS if k in body}
             self.save_config(cfg_all)
@@ -334,7 +343,8 @@ class JamService:
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
                 "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "party_level": self.party_level,
-                "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {}}
+                "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
+                "prelisten": self.prelisten.status()}
         if self.engine is None:
             return base
         st = self.engine.state()
@@ -367,7 +377,25 @@ class JamService:
         return await self._run(loopback.list_outputs)
 
     async def start(self, request):
-        return await self._run(self._start, await request.json())
+        body = await request.json()
+        if self.prelisten.busy():                           # a real jam always wins: pre-listen steps aside
+            await asyncio.get_running_loop().run_in_executor(None, self.prelisten.stop, "a jam was started")
+        return await self._run(self._start, body)
+
+    # -- pre-listen ------------------------------------------------------------------------------
+    async def prelisten_start(self, request):
+        """Learn a playlist's songs (or the queue's) ahead of the party: {source: a playlist link, or "queue"}."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        if self.engine is not None and not self.prelisten.busy():
+            return web.json_response({"error": "stop the jam first: Spotify can only play one thing at a time"}, status=400)
+        source = str((await request.json()).get("source") or "").strip()
+        return await self._run(self.prelisten.start, source)
+
+    async def prelisten_stop(self, request):
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        return await self._run(self.prelisten.stop)
 
     async def stop(self, request):
         return await self._run(lambda: (self._stop(), self._state())[1])
@@ -712,6 +740,7 @@ class JamService:
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
                 "cues": self.studio.cues.list() if getattr(self.studio, "cues", None) else [],
+                "prelisten": self.prelisten.status(),
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
                 "room": item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
                 "upcoming": [item(t) for t in up[:12]]}

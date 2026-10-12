@@ -28,8 +28,9 @@ TOKEN_URL = "https://accounts.spotify.com/api/token"
 API = "https://api.spotify.com/v1"
 # `streaming` (with the two profile scopes it requires) lets the studio run its own Spotify
 # player, which appears in Spotify Connect as "Light Show Studio"
+# (the two playlist scopes let pre-listen read a party playlist, private ones included)
 SCOPES = ("user-read-playback-state user-read-currently-playing user-modify-playback-state "
-          "streaming user-read-email user-read-private")
+          "streaming user-read-email user-read-private playlist-read-private playlist-read-collaborative")
 
 
 @dataclass
@@ -199,6 +200,28 @@ class SpotifyClient:
         if status != 200:
             return []
         return [t for t in (parse_track(i) for i in data.get("queue", [])) if t]
+
+    def playlist_tracks(self, playlist_id: str, most: int = 500) -> list[Track]:
+        """A playlist's songs, in order (podcast episodes and local files left out)."""
+        out, offset = [], 0
+        while offset < most:
+            status, data = self._call("GET", f"/playlists/{playlist_id}/tracks?limit=100&offset={offset}")
+            if status == 401 or status == 403:
+                raise PermissionError("sign in to Spotify again so the studio may read your playlists")
+            if status == 404:
+                raise LookupError("Spotify does not know that playlist")
+            if status != 200:
+                raise ConnectionError(self.last_error or f"Spotify answered {status}")
+            items = data.get("items") or []
+            out += [t for t in (parse_track((i or {}).get("track")) for i in items) if t and t.uri.startswith("spotify:track:")]
+            if not data.get("next") or not items:
+                break
+            offset += 100
+        return out
+
+    def play_uris(self, device_id: str, uris: list[str]) -> bool:
+        """Play these songs, in order, on one device (the studio's own player)."""
+        return self._call("PUT", f"/me/player/play?device_id={device_id}", {"uris": list(uris)})[0] in (200, 202, 204)
 
     def artist_genres(self, track: Track) -> list[str]:
         """Genres Spotify lists for the track's artists (per artist, not per song; often empty)."""

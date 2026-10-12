@@ -423,6 +423,26 @@ errors, and frames never more than 0.18 s apart. One thing seen: while taking
 (at 15 every one was answered); whether they also drop frames then cannot be
 seen from here.
 
+## Pre-listen: a party playlist learned ahead of time
+
+A jam learns each song the first time it plays (about a minute and a half
+ahead of the room, which stays the default for every jam), and a learned song
+gets its full show from the first beat the next time. Spotify's audio only
+plays in real time, so songs cannot be learned any faster than they play; but
+they can be learned before the party. In the Party Hub's **Settings**,
+**Pre-listen**, paste a Spotify playlist link and press **Learn this playlist**
+(or **Learn the queue**): the studio's own hidden Spotify player plays every song
+of it that is not learned yet (songs you made shows for are skipped), into the
+output nobody hears, through a silent jam (no speaker or light is touched). Each
+song is learned as it ends, exactly as at a party, and only what is learned is
+kept, never the audio. The card shows how many are learned and how long is left;
+when all are learned, Spotify pauses. It takes as long as the songs do, so a
+three-hour playlist is something to start the night before. One Spotify account
+plays one thing at a time: if Spotify starts playing anywhere else (a phone
+taking over) or a jam is started, pre-listen steps aside. Reading playlists
+needs one more Spotify permission: sign in to Spotify again once in the Jam
+panel.
+
 ## Party Hub: the jam from your phone
 
 The studio also serves a phone app on the home network. On the iPhone, open

@@ -76,6 +76,11 @@
   .bell input[type=text], .bell input[type=password], .bell select { width: 100%; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 8px; }
   .bell .state { font-size: 13px; color: var(--muted); margin-top: 10px; }
   .bell .state.ok { color: var(--ok); }
+  .pre input[type=text] { width: 100%; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 10px; }
+  .pre-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .pre .state { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .pre .bar { height: 4px; border-radius: 2px; background: var(--card2); margin-top: 8px; overflow: hidden; }
+  .pre .bar > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
   .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
   .theme-chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .theme-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -143,6 +148,13 @@
   <section class="card">
     <div class="label">Cues</div>
     <div id="cueEdit"><div class="empty">…</div></div>
+  </section>
+  <section class="card pre">
+    <div class="label">Pre-listen</div>
+    <div class="hint">Learns a playlist's songs ahead of the party, silently, so each gets its full show from the first beat. It takes as long as the songs do.</div>
+    <input type="text" id="preLink" placeholder="Spotify playlist link" autocomplete="off" aria-label="Spotify playlist link">
+    <div class="pre-buttons"><button class="chip" id="preGo">Learn this playlist</button><button class="chip" id="preQueue">Learn the queue</button><button class="chip" id="preStop" hidden>Stop</button></div>
+    <div class="state" id="preState"></div>
   </section>
   <section class="card bell">
     <div class="theme-row"><div class="label" style="margin:0">Doorbell</div>
@@ -348,6 +360,25 @@
     }
   }
 
+  // ---- pre-listen: a playlist learned ahead of the party
+  const hm = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} h ${m} min` : `${m} min`; };
+  let preMsg = '';                                                 // the last thing the studio said, kept on screen
+  function showPre(p) {
+    p = p || {}; const run = !!p.running;
+    $('#preGo').hidden = run; $('#preQueue').hidden = run; $('#preStop').hidden = !run; $('#preLink').disabled = run;
+    $('#preState').innerHTML = run
+      ? `Learning ${esc(p.source)}: ${p.learned} of ${p.total} learned, about ${hm(p.remaining_s)} to go.${p.current ? `<br>Now: ${esc(p.current)}` : ''}<div class="bar"><div style="width:${p.total ? 100 * p.learned / p.total : 0}%"></div></div>`
+      : esc(p.note || preMsg);
+  }
+  async function preCall(path, body) {
+    try { const r = await (await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })).json();
+      preMsg = r.error ? r.error.replace(/^\w+(Error|Exception): /, '') : ''; showPre(r.error ? {} : r);
+    } catch (e) { preMsg = 'Couldn’t reach the studio.'; showPre({}); }
+  }
+  $('#preGo').onclick = () => { const v = $('#preLink').value.trim(); if (!v) return $('#preLink').focus(); preCall('/api/prelisten', { source: v }); };
+  $('#preQueue').onclick = () => preCall('/api/prelisten', { source: 'queue' });
+  $('#preStop').onclick = () => preCall('/api/prelisten/stop');
+
   // ---- the doorbell: a Reolink doorbell's press runs one of the cues
   let bell = null;
   const ago = t => { const s = Math.round(Date.now() / 1000 - t); return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
@@ -427,6 +458,7 @@
       if (next) next.onclick = () => api('playback', { action: 'next' }).then(poll).catch(() => {});
     }
     renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
+    if (settingsOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
   }
