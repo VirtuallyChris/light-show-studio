@@ -5,9 +5,16 @@ speakers, its lights in the room), then resumes Spotify and fades the music back
 jam the room is behind Spotify; pausing Spotify pauses the room at once and holds the buffer, so the
 room picks up exactly where it stopped.
 
-The fades are in the jam's audio itself, never on the speakers' volume: a Google speaker chimes at
-every volume change, so a fade on the volume was a run of beeps. The speakers' volume is never
-touched. Without a jam there is no audio of ours to fade, and the music just stops and starts.
+In a jam on the speakers (or this PC), the show's song is played inside the jam's own stream: the
+speakers get one fresh stream, as for a skip, that crossfades from the room's music into the song
+(over the fade-out time; none is a straight cut) and, as the song ends, back into the music (over
+the fade-in time), so the two overlap instead of one stopping before the other starts. The speakers
+are never paused, and never load the show's song, so nothing waits in between. The songs are
+decoded ahead of time and kept in memory.
+
+The fades are in the audio itself, never on the speakers' volume: a Google speaker chimes at every
+volume change, so a fade on the volume was a run of beeps. Without a jam there is no audio of ours
+to fade, and the music just stops and starts.
 
 Where the show plays:
 - the jam is on Cast speakers (or the studio is casting): the show's song goes to the same speaker
@@ -95,10 +102,11 @@ class Rehearsal:
 class LiveHooks:
     """The real thing: the jam (or the studio's cast), Spotify and the speakers."""
 
-    def __init__(self, cast, jam, song, show_length):
+    def __init__(self, cast, jam, song, show_length, pcm=None):
         self.cast, self.jam = cast, jam                  # CastManager, JamService
         self.song = song                                 # show name -> (audio URL for the speaker, file path)
         self.show_length = show_length
+        self.pcm = pcm                                   # show name -> (int16 frames, rate) at the jam's rate, or None
         self.engine = jam.engine if jam is not None else None
         kind = jam._output_kind(self.engine.output) if self.engine is not None else None
         if kind == "cast" or (kind is None and cast.cast is not None):
@@ -109,6 +117,31 @@ class LiveHooks:
             self.via = "pc"
         self.device = cast.name if self.via == "cast" else ""
         self.paused_spotify = False
+
+    # -- a cue played inside the jam's stream ---------------------------------------------------
+    def stream_cue(self, name: str, lead: float, tail: float) -> float | None:
+        """Put the show's song into the jam's stream, crossfading in over lead and out over tail.
+        Returns its length, or None when it cannot be (no jam on speakers, or the song is not ready)."""
+        if self.engine is None or self.via not in ("cast", "pc") or not getattr(self.engine, "streaming", False) or self.pcm is None:
+            return None
+        got = self.pcm(name)
+        if got is None:
+            return None
+        frames, rate = got
+        if not self.engine.cue_insert(frames, lead, tail):
+            return None
+        return len(frames) / float(rate)
+
+    def cue_position(self) -> float | None:
+        return self.engine.cue_position() if self.engine is not None else None
+
+    def music_back(self) -> None:
+        """The song is crossfading back into the music (already in the stream)."""
+        self.engine.cue_over()
+
+    def cut_short(self, fade_in: float) -> None:
+        """Ended early: the music comes back from where it held, fading in."""
+        self.engine.release(restart=True, fade_in=fade_in)
 
     def fade_out(self, seconds: float) -> float | None:
         """The jam's audio fades out on its speakers (or this PC): how long until the room is silent."""
@@ -225,6 +258,10 @@ class CueRunner:
     def _run(self, cue: dict) -> None:
         h = self.hooks
         fo, fi = cue["fade_out"], cue["fade_in"]
+        lead, tail = (fo["s"] if fo["on"] else 0.0), (fi["s"] if fi["on"] else 0.0)
+        dur = h.stream_cue(cue["show"], lead, tail) if hasattr(h, "stream_cue") else None
+        if dur:
+            return self._run_in_stream(h, dur, tail)
         try:
             wait = h.fade_out(fo["s"]) if fo["on"] and fo["s"] > 0 else None
             if wait:
@@ -249,6 +286,39 @@ class CueRunner:
             self.state["error"] = f"{type(e).__name__}: {e}"
             try:
                 h.resume_music()
+            except Exception:  # noqa: BLE001
+                pass
+            self._phase("done")
+
+    def _run_in_stream(self, h, dur: float, tail: float) -> None:
+        """The song is in the jam's stream already: follow it by the speakers' own position (they take a
+        moment to start a fresh stream), and hand the room back as it crossfades into the music."""
+        self.state["stream"] = True                      # the page plays only its lights, never its sound
+        self._phase("show", dur)
+        t0, stopped = self.clock(), False
+        try:
+            while True:
+                if self.stop_flag.is_set():
+                    stopped = True
+                    break
+                p = h.cue_position()
+                at = p if p is not None else self.clock() - t0
+                left = (dur - tail) - at
+                if left <= 0 or self.clock() - t0 > dur + 10:
+                    break
+                self.sleep(min(0.1, max(0.01, left)))
+            if stopped:
+                h.cut_short(tail)
+            else:
+                h.music_back()
+            if tail > 0:
+                self._phase("fade_in", tail)
+                self._wait(tail)
+            self._phase("done")
+        except Exception as e:  # noqa: BLE001 - the music must come back whatever went wrong
+            self.state["error"] = f"{type(e).__name__}: {e}"
+            try:
+                h.cut_short(0.0)
             except Exception:  # noqa: BLE001
                 pass
             self._phase("done")

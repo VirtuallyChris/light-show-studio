@@ -276,25 +276,47 @@
   }
 
   // ------------------------------------------------------------------ cues
-  // A Party Hub cue (the doorbell, shot o'clock) stops the party for one of your saved shows. The
-  // server pauses the jam and plays the show's song on the speakers (or leaves it to this page on this
-  // PC); this page plays the show's lights, following the speaker, then hands the room back to the jam.
-  const C = { run: null };
+  // A Party Hub cue (the doorbell, shot o'clock) stops the party for one of your saved shows. In a jam
+  // the server plays the show's song inside the room's own stream (otherwise on the speakers, or leaves
+  // it to this page on this PC); this page plays the show's lights, following the speaker, then hands
+  // the room back to the jam. Every cue's show is kept loaded here, and the running cue is asked for
+  // five times a second, so its lights start with its song instead of a second or two after.
+  const C = { run: null, shows: {} };
+  function showData(name) {
+    if (!C.shows[name]) C.shows[name] = fetch('/api/projects/' + encodeURIComponent(name)).then(r => r.json())
+      .then(d => { if (d.error) delete C.shows[name]; return d; }).catch(e => { delete C.shows[name]; return { error: String(e) }; });
+    return C.shows[name];
+  }
+  async function preloadCues() {
+    try {
+      const d = await (await fetch('/api/cues')).json(), want = new Set((d.cues || []).map(c => c.show).filter(Boolean));
+      for (const n of Object.keys(C.shows)) if (!want.has(n)) delete C.shows[n];
+      for (const n of want) showData(n);
+    } catch (e) { /* the studio is away: next time */ }
+  }
+  preloadCues(); setInterval(preloadCues, 60000);
   async function cueTick(cue) {
     const active = !!(cue && cue.phase && cue.phase !== 'done' && cue.show), showing = active && cue.phase === 'show';
-    // the show is fetched while the music fades out, so its lights are ready when it starts
-    if (active && C.fetchRun !== cue.run) { C.fetchRun = cue.run; C.data = fetch('/api/projects/' + encodeURIComponent(cue.show)).then(r => r.json()).catch(e => ({ error: String(e) })); }
-    if (showing && C.run !== cue.run) await cueStart(cue);
+    if (active) showData(cue.show);
+    if (showing && C.run !== cue.run && C.ended !== cue.run) await cueStart(cue);   // (a slower answer may still say it shows)
     else if (!showing && C.run) cueEnd();
   }
+  setInterval(async () => {
+    if (C.asking || !J.state || !J.state.running) return;
+    C.asking = true;
+    try { await cueTick(await (await fetch('/api/cues/now')).json()); } catch (e) { } finally { C.asking = false; }
+  }, 200);
   async function cueStart(cue) {
     if (C.run) cueEnd();
     C.run = cue.run; C.via = cue.via;
-    C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing };
+    // the jam's show is kept as it is, to take up again the moment the cue is over (not loaded again)
+    C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing,
+               key: J.key, doc: J.doc, version: J.version, built: J.built, style: J.style, drums: J.drums,
+               palette: S.albumPalette, colors: S.jamColors, extras: S.jamExtras, rainbow: S.jamRainbow };
     J.live = false; J.key = null;                                   // the jam steps aside; the room is held
     // how far into the show the server already is (the page looks once a second), kept up to date below
     const asked = performance.now(), into = (cue.progress || 0) * (cue.dur || 0);
-    const data = await (C.fetchRun === cue.run && C.data ? C.data : fetch('/api/projects/' + encodeURIComponent(cue.show)).then(r => r.json()).catch(e => ({ error: String(e) })));
+    const data = await showData(cue.show);
     if (C.run !== cue.run) return;
     if (data.error) { toast(`${cue.name}: ${data.error}`, true); return; }
     // the show itself, without touching playback (opening a song the usual way would pause the speaker)
@@ -307,6 +329,8 @@
       C.cast = { pos: 0, at: performance.now(), state: 'BUFFERING' };
       C.poll = setInterval(async () => { try { const s = await (await fetch('/api/cast/status')).json(); C.cast = { pos: s.position || 0, at: performance.now(), state: s.state }; } catch (e) { } }, 400);
       C.pos = () => Math.max(0, (C.cast.state === 'PLAYING' ? C.cast.pos + (performance.now() - C.cast.at) / 1000 : C.cast.pos) - off);
+    } else if (cue.via === 'pc' && cue.stream) {
+      C.pos = () => (performance.now() - started) / 1000;          // in the jam's stream on this PC: lights only
     } else if (cue.via === 'pc') {
       // this PC plays the song itself
       try {
@@ -329,9 +353,15 @@
     clearInterval(C.poll); C.poll = null;
     if (C.src) { try { C.src.stop(); } catch (e) { } C.src = null; }
     S.cue = null;
-    const p = C.prev || {}; C.run = null; C.prev = null;
+    const p = C.prev || {}; C.ended = C.run; C.run = null; C.prev = null;
     S.analysis = p.analysis; S.project = p.project; S.name = p.name || ''; S.audio.buffer = p.buffer;
-    if (p.jam) { J.key = null; S.forceSend = true; }               // the next tick finds the room and takes it up again
+    if (p.jam) {
+      // the jam's show again, as it was: the next tick anchors it to the room, nothing is loaded
+      J.live = true; J.key = p.key; J.doc = p.doc; J.version = p.version; J.built = p.built; J.style = p.style; J.drums = p.drums;
+      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamExtras = p.extras; S.jamRainbow = p.rainbow;
+      S.forceSend = true;
+      setTimeout(tick, 0);                                           // where the room is now, not a second from now
+    }
     else { S.audio.playing = false; S.audio.pos = 0; St.updateTransport(); }
     if (S.project) { St.zoomFit(); St.draw(); }
   }

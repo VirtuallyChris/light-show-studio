@@ -505,6 +505,7 @@ class JamEngine:
         # something else, so the room picks up exactly there afterwards.
         self.held_at: float | None = None
         self.cue_hold = False             # while a cue runs, nothing but the cue lets the room go
+        self.cue_in_stream = False        # the cue's song is played inside the stream: the speakers are never paused
         if analyse_fn is None:
             from .analysis import analyze_audio
             analyse_fn = analyze_audio
@@ -579,8 +580,9 @@ class JamEngine:
             if self.gate.paused and not self.cue_hold:
                 self.gate.paused = False
                 self.say("resumed")
-                if self.streaming:
+                if self.streaming and not self.cue_in_stream:
                     self.output.resume()
+                self.cue_in_stream = False
                 head = self.relay.capture_time
 
             est_start = head - np_.progress - self.cfg.capture_latency
@@ -713,6 +715,50 @@ class JamEngine:
             pass
         return rc
 
+    def cue_insert(self, pcm: np.ndarray, lead_s: float, tail_s: float) -> bool:
+        """A cue's song, played inside the room's own stream: the speakers get one fresh stream (as for a
+        skip, they drop what they held) that crossfades from where the room is into the song over lead_s,
+        and at the song's end back into the music over tail_s. Nothing is paused or loaded on the speakers
+        in between, so the song starts at once and the music comes back without a gap. Spotify is paused
+        meanwhile (the buffer is held). False when there is no stream to put it in."""
+        with self.lock:
+            if not self.streaming or self.output.stream is None:
+                return False
+            at = self.room_capture_time()
+            if at is None:
+                return False
+            sr = self.relay.sr
+            fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
+            fresh.insert(pcm, int(lead_s * sr), int(tail_s * sr))
+            self.gate.paused = True                       # Spotify's pause is not the room's: nothing to pause
+            self.cue_hold, self.cue_in_stream = True, True
+            self.held_at = at + min(lead_s, len(pcm) / sr / 2)    # where the music picks up after the song
+            self.output.start_stream(fresh)
+            self.say("a cue: its song plays in the room's stream, the music holds where it is")
+        try:
+            self.spotify.pause()
+        except Exception:  # noqa: BLE001 - nothing playing, or not Premium: the buffer is held regardless
+            pass
+        return True
+
+    def cue_position(self) -> float | None:
+        """How far the room is into a cue's song played in the stream (the speakers' own position)."""
+        with self.lock:
+            if not (self.cue_hold and self.cue_in_stream and self.output.stream is not None):
+                return None
+            return max(0.0, self.output.position() - self.output.offset)
+
+    def cue_over(self) -> None:
+        """The cue's song is crossfading back into the music, already in the stream: the room is the jam's
+        again, and Spotify resumes behind it."""
+        with self.lock:
+            self.held_at, self.cue_hold = None, False
+            self.say("the cue is over: the music crossfades back in")
+        try:
+            self.spotify.resume()
+        except Exception:  # noqa: BLE001
+            pass
+
     def fade_out(self, seconds: float) -> float | None:
         """A cue fades the room out first, in the audio itself (a speaker's volume would chime at every
         step). Where the speakers hold little ahead (this PC: about a second) the stream simply fades
@@ -745,6 +791,8 @@ class JamEngine:
         paused room run again)."""
         with self.lock:
             at, self.held_at, self.cue_hold = self.held_at, None, False
+            if self.cue_in_stream:
+                restart = True                            # cut short: the song is still in the stream
             if restart and self.streaming and at is not None:
                 # it plays from there at once: the buffer already holds what comes next
                 fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))

@@ -472,7 +472,7 @@ class Studio:
         self.rooms = Rooms(load_config, save_config, self.cast, touch=lights)   # a test copy never touches a speaker
         # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
         self.cues = CueRunner(load_config, save_config, self._show_length,
-                              live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length)) if lights else None)
+                              live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length, pcm=self._cue_pcm)) if lights else None)
         # the Reolink doorbell rings a cue; a test copy (no lights) never connects to it
         self.doorbell = Doorbell(load_config, save_config, on_ring=lambda cid: self.cues.run(cid))
         self.doorbell_live = lights
@@ -496,6 +496,7 @@ class Studio:
             web.post("/api/cues", self.cues_set),
             web.post("/api/cues/run", self.cues_run),
             web.post("/api/cues/stop", self.cues_stop),
+            web.get("/api/cues/now", self.cues_now),
             web.get("/api/doorbell", self.doorbell_get),
             web.post("/api/doorbell", self.doorbell_set),
             web.post("/api/song", self.upload_song),
@@ -589,15 +590,42 @@ class Studio:
         return out
 
     def _warm_cues(self) -> None:
-        """Analyse each cue's show ahead of time (cached), so a tapped cue's lights start at once."""
+        """Analyse each cue's show ahead of time (cached), and decode its song into memory, so a tapped
+        cue's song and lights start at once."""
         for c in self.cues.list():
             if not c["show"]:
                 continue
             try:
                 _, path = self._show_song(c["show"])
                 analyze_cached(path, os.path.join(os.path.dirname(path), "cache"))
+                self._cue_pcm(c["show"])
             except Exception:  # noqa: BLE001 - a missing show is shown on the Party Hub, not here
                 pass
+
+    CUE_PCM_MAX_S = 600                                   # a longer song is not kept in memory: it plays the old way
+    CUE_SR = 44100                                        # the jam's own rate (its relay)
+
+    def _cue_pcm(self, name: str):
+        """A cue's song decoded to the jam's rate, as int16 frames, kept in memory (by file and date) so a
+        cue plays it inside the jam's stream at once. None if it cannot be (missing, too long)."""
+        try:
+            _, path = self._show_song(name)
+            key = (path, os.path.getmtime(path))
+        except Exception:  # noqa: BLE001
+            return None
+        cache = self.__dict__.setdefault("_pcm", {})
+        if key not in cache:
+            if self._show_length(name) > self.CUE_PCM_MAX_S:
+                return None
+            import librosa
+            import numpy as np
+            y, _ = librosa.load(path, sr=self.CUE_SR, mono=False)
+            y = np.atleast_2d(y)
+            y = np.vstack([y, y]) if y.shape[0] == 1 else y[:2]
+            cache[key] = (np.ascontiguousarray((np.clip(y.T, -1.0, 1.0) * 32767).astype(np.int16)), self.CUE_SR)
+            for k in [k for k in cache if k[0] == path and k != key]:
+                cache.pop(k)                              # an older copy of the same file
+        return cache[key]
 
     async def cues_get(self, request):
         if not JamService._lan(request):
@@ -620,6 +648,12 @@ class Studio:
             return web.json_response(self.cues.run(str((await request.json()).get("id", ""))))
         except (LookupError, ValueError, RuntimeError) as e:
             return web.json_response({"error": str(e)}, status=400)
+
+    async def cues_now(self, request):
+        """The cue running now (asked often by the studio page, so a cue's lights start with its song)."""
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        return web.json_response(self.jam._room_cue())
 
     async def cues_stop(self, request):
         if not JamService._lan(request):

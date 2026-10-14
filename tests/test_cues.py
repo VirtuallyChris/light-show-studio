@@ -185,6 +185,31 @@ class TestLiveCues(unittest.TestCase):
         self.run_cue(self.hooks(FakeCast(connected=False), quiet))
         self.assertEqual(quiet.spotify.calls, [])
 
+    def test_in_a_jam_the_song_plays_in_the_stream_and_crossfades_back(self):
+        import numpy as np
+        from types import SimpleNamespace
+        cast, jam = FakeCast(), FakeJam("cast")
+        pos = {"t": 0.0}
+        jam.engine.streaming = True
+        jam.engine.cue_insert = lambda pcm, lead, tail: (jam.calls.append(("insert", len(pcm), lead, tail)), True)[1]
+        jam.engine.cue_position = lambda: (pos.__setitem__("t", pos["t"] + 0.05), pos["t"])[1]
+        jam.engine.cue_over = lambda: jam.calls.append("over")
+        from lightshow.studio.cues import LiveHooks
+        hooks = LiveHooks(cast, jam, lambda name: ("u", "p"), lambda n: 0.5, pcm=lambda name: (np.zeros((500, 2), dtype=np.int16), 1000))
+        first, last = self.run_cue(hooks)
+        self.assertEqual(jam.calls, [("insert", 500, 0.2, 0.2), "over"])   # no pause, no hold: the song was in the stream
+        self.assertEqual(cast.calls, [])                                   # the speakers never loaded the show's song
+        self.assertTrue(last["stream"])
+        self.assertEqual(last["steps"], ["show", "fade_in", "done"])
+
+    def test_a_song_not_ready_plays_the_old_way(self):
+        cast, jam = FakeCast(), FakeJam("cast")
+        jam.engine.streaming = True
+        from lightshow.studio.cues import LiveHooks
+        hooks = LiveHooks(cast, jam, lambda name: ("u", "p"), lambda n: 0.2, pcm=lambda name: None)
+        _, last = self.run_cue(hooks)
+        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
+
     def test_a_silent_preview_jam_shows_only_the_lights(self):
         cast, jam = FakeCast(), FakeJam("none")
         first, last = self.run_cue(self.hooks(cast, jam))

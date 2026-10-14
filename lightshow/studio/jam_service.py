@@ -697,6 +697,15 @@ class JamService:
         except Exception as e:  # noqa: BLE001 - shown in the Jam panel
             self.auto_error = f"{type(e).__name__}: {e}"
 
+    def _opener_room(self) -> dict | None:
+        """The opening song as the Party Hub shows it in the room (one of your saved shows, from disk)."""
+        o = self.opener_status()
+        if o.get("phase") != "show":
+            return None
+        return {"id": None, "label": o["show"], "name": o["show"], "artists": [], "image": None, "kind": "custom", "opener": True,
+                "duration": o["dur"], "position": round(o["progress"] * o["dur"], 1), "playing": True, "colors": None, "own": False,
+                "theme_off": False}
+
     def _room_cue(self) -> dict:
         """What the room is playing instead of the jam: a cue, else the opening song."""
         cue = self.studio.cues.status() if getattr(self.studio, "cues", None) else {}
@@ -812,7 +821,7 @@ class JamService:
                 "cues": self.studio.cues.list() if getattr(self.studio, "cues", None) else [],
                 "prelisten": self.prelisten.status() if getattr(self, "prelisten", None) else {},
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
-                "room": item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
+                "room": (self._opener_room() if hasattr(self, "_opener_room") else None) or item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
                 "upcoming": [item(t) for t in up[:12]]}
 
     async def party_state(self, request):

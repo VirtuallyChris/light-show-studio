@@ -158,6 +158,7 @@ class RelayStream:
         self.segments: list[list[int]] = []             # [stream_frame, capture_frame or -1 for silence, length]
         self.gaps: list[list[int]] = []                 # [at_capture_frame, silence_frames_left]
         self.gain: tuple | None = None                  # (from stream frame, frames, gain from, gain to): a fade
+        self.cut: dict | None = None                    # a cue's song played into the stream first (see insert)
         self.started_at = relay.clock()
         self.closed = False
 
@@ -180,6 +181,48 @@ class RelayStream:
         with self.relay.cond:
             g0 = self._gain_at(self.sent) if start is None else float(start)
             self.gain = (self.sent, max(1, int(seconds * self.relay.sr)), g0, float(to))
+
+    def insert(self, pcm: np.ndarray, lead: int, tail: int) -> None:
+        """Play other audio (a cue's song, int16 frames) before the stream's own: crossfading into it
+        from the music over `lead` frames, and back out of it into the music over `tail` frames, so the
+        song and the music overlap instead of one stopping before the other starts. The music carries on
+        from where the crossfade into the song began, plus what the crossfades themselves used."""
+        with self.relay.cond:
+            n = len(pcm)
+            self.cut = {"pcm": pcm, "pos": 0, "lead": max(0, min(int(lead), n // 2)), "tail": max(0, min(int(tail), n // 2))}
+
+    def _read_cut(self, max_frames: int) -> bytes:
+        r, c = self.relay, self.cut
+        pcm, pos, total = c["pcm"], c["pos"], len(c["pcm"])
+        if pos < c["lead"]:
+            end, mix, base, span = c["lead"], "out", 0, c["lead"]        # the music fading out, the song in
+        elif pos < total - c["tail"]:
+            end, mix, base, span = total - c["tail"], None, 0, 1        # the song alone
+        else:
+            end, mix, base, span = total, "in", total - c["tail"], c["tail"]   # the song fading out, the music in
+        n = max(1, min(max_frames, end - pos))
+        out = pcm[pos:pos + n].astype(np.float32)
+        if mix is None:
+            self._note(-1, n)
+        else:
+            if self.cursor < r.written - r.capacity:
+                self.cursor = r.written - r.capacity
+            m = max(0, min(n, r.written - self.cursor))
+            music = np.zeros_like(out)
+            if m:
+                music[:m] = r._slice(self.cursor, self.cursor + m)[:, :out.shape[1]]
+            k = np.clip((pos - base + np.arange(n)) / max(1, span), 0.0, 1.0)[:, None]
+            g_in, g_out = np.sin(k * np.pi / 2), np.cos(k * np.pi / 2)  # equal power: no dip in the middle
+            out = out * g_out + music * g_in if mix == "in" else out * g_in + music * g_out
+            if m:
+                self._note(self.cursor, m)
+                self.cursor += m
+            if n > m:
+                self._note(-1, n - m)
+        c["pos"] = pos + n
+        if c["pos"] >= total:
+            self.cut = None
+        return np.clip(out, -32768, 32767).astype(np.int16).tobytes()
 
     def _gain_at(self, f: int) -> float:
         if self.gain is None:
@@ -223,6 +266,8 @@ class RelayStream:
                 return None
             max_frames = min(max_frames, allowed)
         with r.cond:
+            if self.cut is not None:                        # a cue's song plays first
+                return self._read_cut(max_frames)
             # a gap that falls at the cursor goes out first
             if self.gaps and self.gaps[0][0] <= self.cursor:
                 n = min(max_frames, self.gaps[0][1])

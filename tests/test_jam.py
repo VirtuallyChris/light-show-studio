@@ -616,6 +616,18 @@ class TestOpenerService(unittest.TestCase):
         svc.engine.streaming = True                         # the jam has the speakers: the opener is over
         self.assertEqual(svc._room_cue()["phase"], "done")
 
+    def test_the_phone_shows_the_opening_song_in_the_room(self):
+        import time as _time
+        svc = self.service({})
+        svc.engine = type("E", (), {"streaming": False})()
+        svc.opener = {"id": "opener", "name": "Opening song", "show": "If Youre Too Shy (Let Me Know)", "via": "cast", "device": "",
+                      "run": "r1", "t0": _time.monotonic() - 60.0, "dur": 319.0, "rehearsal": False}
+        room = svc._opener_room()
+        self.assertEqual((room["label"], room["kind"], room["opener"]), ("If Youre Too Shy (Let Me Know)", "custom", True))
+        self.assertAlmostEqual(room["position"], 60.0, delta=1.0)
+        svc.engine.streaming = True                         # the jam has the room: Spotify's songs from here
+        self.assertIsNone(svc._opener_room())
+
 
 class TestCueFades(unittest.TestCase):
     """A cue's fades are made in the jam's own audio, never on a speaker's volume. Fakes only."""
@@ -683,6 +695,57 @@ class TestCueFades(unittest.TestCase):
             self.assertAlmostEqual(out.stream.cursor / e.relay.sr, room, delta=0.05)  # from where the room is
             self.assertEqual(out.stream.gain[2:], (1.0, 0.0))
             self.assertGreaterEqual(wait, 2.0)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class TestCueInTheStream(unittest.TestCase):
+    """A cue's song played inside the jam's own stream, crossfading in and out. Fakes only."""
+
+    def test_the_stream_crossfades_into_the_song_and_back_into_the_music(self):
+        clock = Clock()
+        relay = Relay(sr=1000, channels=2, capacity_s=60, clock=clock)
+        relay.write(np.full((10000, 2), 1000, dtype=np.int16))          # the music
+        s = relay.open_stream(2.0, pace=False)
+        s.insert(np.full((3000, 2), 8000, dtype=np.int16), lead=500, tail=1000)
+        x = np.frombuffer(s.read(10000, timeout=0), dtype=np.int16).reshape(-1, 2)[:, 0]
+        while len(x) < 5000:
+            x = np.concatenate([x, np.frombuffer(s.read(10000, timeout=0), dtype=np.int16).reshape(-1, 2)[:, 0]])
+        self.assertEqual(x[0], 1000)                                     # from the music...
+        self.assertTrue(np.all(x[600:1900] == 8000))                     # ...to the song alone...
+        self.assertGreater(x[2500], 1000)                                # ...the two together at its end...
+        self.assertLess(x[2500], 8000)
+        self.assertTrue(np.all(x[3000:5000] == 1000))                    # ...and the music carries on
+        self.assertIsNone(s.cut)
+        # the music picks up after what the two crossfades used: 0.5 s at the start, 1 s at the end
+        self.assertAlmostEqual(s.capture_time_at(3.0), 2.0 + 0.5 + 1.0, delta=0.01)
+        self.assertIsNone(s.capture_time_at(1.0))                         # the song alone: none of the music
+
+    def test_the_engine_holds_the_music_while_the_song_plays_in_its_stream(self):
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=10.0)
+            sim.play(a, ta)
+            sim.run(14.0, analyse=False)
+            e = sim.engine
+            starts, room = sim.out.starts, e.room_capture_time()
+            pcm = np.zeros((SR * 6, 2), dtype=np.int16)
+            self.assertTrue(e.cue_insert(pcm, 1.0, 2.0))
+            self.assertEqual(sim.out.starts, starts + 1)                 # one fresh stream, as for a skip
+            self.assertFalse(sim.spotify.playing)                        # the buffer is held
+            self.assertAlmostEqual(e.held_at, room + 1.0, delta=0.05)
+            paused_at = sim.out.paused_at
+            sim.run(3.0, analyse=False)
+            self.assertEqual(sim.out.paused_at, paused_at)               # the speakers never paused
+            self.assertAlmostEqual(e.cue_position(), 3.0, delta=0.6)    # the room is 3 s into the song
+            sim.run(1.0, analyse=False)
+            e.cue_over()                                                 # the song crossfades back into the music
+            self.assertTrue(sim.spotify.playing)
+            sim.run(4.0, analyse=False)
+            self.assertFalse(e.gate.paused)
+            self.assertEqual(sim.out.starts, starts + 1)                 # no other stream: the music was in this one
+            self.assertIsNotNone(e.room_capture_time())
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
