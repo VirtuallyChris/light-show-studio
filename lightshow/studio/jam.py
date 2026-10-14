@@ -535,6 +535,7 @@ class JamTrack:
     tried_at: float = -1e9              # capture time it was last tried for lining up by ear
     verified_at: float = 0.0            # capture time its copy was last checked against what plays
     narrow_failed: bool = False         # its copy did not line up near Spotify's start: searched further
+    genre_problem: str = ""             # why its genre could not be heard (kept with what is learned of it)
     heard_from: float | None = None     # after a seek: the capture time this stretch of the song begins at (its
                                         # start is still where 0:00 would have been; nothing before is this)
     genre: dict | None = None           # show style and the genres behind it
@@ -1134,6 +1135,11 @@ class JamEngine:
                 labels = self.genre_fn(self.relay.audio(max(jt.start, self.relay.oldest_time), jt.start + have, 16000, mono=True), 16000)
             except Exception as e:  # noqa: BLE001
                 self.say(f"genre model unavailable: {e}")
+        if labels is None:                                 # noted with what is learned of it: the song shows "error"
+            from .genre import WORKER
+            jt.genre_problem = f"the genre could not be heard ({WORKER.failed or WORKER.last_error or ('no genre model' if self.genre_fn is None else 'no answer')})"
+            if jt.analysis is not None:
+                jt.analysis["problems"] = [*(jt.analysis.get("problems") or []), jt.genre_problem]
         drive = float(((jt.analysis or {}).get("mood") or {}).get("drive", 0.6))
         g = style_from(labels, drive, jt.spotify_genres)
         with self.lock:
@@ -1153,6 +1159,8 @@ class JamEngine:
                 a[k] = jt.analysis.get(k, a.get(k))
         if jt.genre:
             a["genre"] = jt.genre                          # what was decided about the genre carries across passes
+        if jt.genre_problem:
+            a["problems"] = [*(a.get("problems") or []), jt.genre_problem]
         with self.lock:
             jt.passes += 1
             if jt.passes >= 2 and jt.bpm_lock is None:

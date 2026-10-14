@@ -113,14 +113,20 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     # found in a track that has nothing else in it. Only where the models are in use anyway (a song
     # file; Jam mode with SongFormer), and always in memory: a jam's audio never touches the disk.
     stems = None
+    problems = []                                            # whatever failed along the way (the show is made regardless)
+    if structure_error and structure_error != "SongFormer was not asked":
+        problems.append(structure_error)
     if separate is None:
         separate = bool(use_model or segment_fn is not None)
     if events and separate:
         try:
             from . import stems as stems_mod
             stems = stems_mod.separate_file(path) if path else stems_mod.separate_audio(stereo if stereo is not None else y, sr)
+            if stems is None:
+                problems.append(f"the stems could not be separated ({stems_mod.WORKER.failed or stems_mod.WORKER.last_error or 'no answer'})")
         except Exception as e:  # noqa: BLE001 - without stems the drums come from the mix, as before
             print(f"[stems] skipped: {type(e).__name__}: {e}")
+            problems.append(f"the stems could not be separated ({type(e).__name__}: {e})")
     if events:
         try:
             from .events import detect_events
@@ -128,6 +134,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                                audio=(stereo if stereo is not None else y, sr) if path is None else None, stems=stems)
         except Exception as e:  # noqa: BLE001 - a show without flair is better than no show
             print(f"[events] skipped: {type(e).__name__}: {e}")
+            problems.append(f"the drums and instruments could not be found ({type(e).__name__}: {e})")
     if stems:                                                # a drop starts where its bass comes in
         try:
             sections, drops, moved = refine_drops(sections, drops, beats, stems)
@@ -170,6 +177,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "drops": drops,
         "structure_source": structure_source,
         "structure_error": structure_error,
+        "problems": problems,
         "builtin_sections": builtin_sections,
         "builtin_drops": builtin_drops,
     }

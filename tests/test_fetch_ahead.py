@@ -166,6 +166,29 @@ class TestFindingTheRecording(unittest.TestCase):
         self.assertIn("t1", lib.learned)
 
 
+class TestErrorsAreShown(unittest.TestCase):
+    """A song whose analysis had anything fail says so: "error" where it would say "analyzed"."""
+
+    def test_a_genre_model_that_does_not_answer_is_noted(self):
+        from unittest import mock
+
+        from lightshow.studio import genre
+        a = {"mood": {"drive": 0.6}, "problems": []}
+        with mock.patch.object(genre.WORKER, "classify_file", lambda p: None), mock.patch.object(genre.WORKER, "available", lambda: True),                 mock.patch.object(genre.WORKER, "failed", "CUDA out of memory"):
+            genre.add_genre(a, "C:/x/song.flac")
+        self.assertEqual(a["genre"]["source"], "energy")
+        self.assertEqual(a["problems"], ["the genre could not be heard (CUDA out of memory)"])
+
+    def test_a_song_heard_as_no_music_is_not_an_error(self):
+        from unittest import mock
+
+        from lightshow.studio import genre
+        a = {"mood": {"drive": 0.6}, "problems": []}
+        with mock.patch.object(genre.WORKER, "classify_file", lambda p: {"Laughter": 0.9}), mock.patch.object(genre.WORKER, "available", lambda: True):
+            genre.add_genre(a, "C:/x/song.flac")
+        self.assertEqual(a["problems"], [])                               # it answered: a laugh simply has no genre
+
+
 class TestLearnedWhilePlaying(unittest.TestCase):
     """The jam hands its queue over, and a first listen learned ahead meanwhile takes the full show."""
 

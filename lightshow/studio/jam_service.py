@@ -461,6 +461,8 @@ class JamService:
                 got = self.fetch.state_of(t["id"])
                 if got:
                     t["learning"], t["learning_why"] = got
+            elif t and t.get("kind") == "learned" and self._found(t).get("problems"):
+                t["learning"], t["learning_why"] = "failed", "; ".join(self._found(t)["problems"])     # analysed, but not all of it
         return {**base, **st, "now": time.monotonic(), "assigned_colors": self._assign_colors(played)}
 
     async def _run(self, fn, *args):
@@ -774,7 +776,8 @@ class JamService:
             return {}
         found = self.__dict__.setdefault("_found_genre", {})
         if tid not in found:
-            found[tid] = (((self.library.learned(tid) or {}).get("analysis") or {}).get("genre") or {})
+            a = (self.library.learned(tid) or {}).get("analysis") or {}
+            found[tid] = {**(a.get("genre") or {}), "problems": list(a.get("problems") or [])}
         return found[tid]
 
     def _found_style(self, t: dict) -> str | None:

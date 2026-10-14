@@ -26,10 +26,11 @@
   // what each song's show is built from: your own show, an analysis made ahead (or the last time it played),
   // or a first listen; learning ahead, a first listen says where it stands: being analyzed, or next in line
   const KIND = { custom: ['your show', 'k-custom'], learned: ['analyzed', 'k-learned'], live: ['first listen', 'k-live'],
-                 analyzing: ['analyzing…', 'k-learning'], queued: ['queued', 'k-live'] };
+                 analyzing: ['analyzing…', 'k-learning'], queued: ['queued', 'k-live'], failed: ['error', 'k-error'] };
+  // anything that went wrong analyzing a song (no copy found, a model that failed) says so: error, and why
   const badge = (k, t) => {
-    const s = t && t.learning && t.learning !== 'failed' ? t.learning : k, [label, cls] = KIND[s] || KIND.live;
-    const why = t && t.learning === 'failed' ? ` title="${esc('Not learned ahead: ' + (t.learning_why || 'no copy found'))}"` : '';
+    const s = t && t.learning ? t.learning : k, [label, cls] = KIND[s] || KIND.live;
+    const why = t && t.learning === 'failed' ? ` title="${esc(t.learning_why || 'something failed')}"` : '';
     return `<span class="jam-kind ${cls}"${why}>${label}</span>`;
   };
   const styleTag = t => t && t.style ? ` <span class="jam-style">${esc(t.style)}</span>` : '';

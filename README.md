@@ -628,7 +628,12 @@ song playing that was not learned ahead (tapped directly, or one Spotify chose a
 the queue) is a first listen; if its copy is learned while it plays, the full show
 takes over from there.
 
-**Learn ahead** in the Jam panel turns it on or off (on wherever spotDL is
+In the Jam panel each song's badge says where it stands: *analyzed*, *analyzing…*,
+*queued*, *first listen*, or *error* when anything failed along the way (no copy
+found, the stems, the section model or the genre model failing), with what failed
+when the pointer rests on it; the show is made regardless, from what did work. Why a
+model would not start goes to `studio.log` and `models.log`, and it is tried again
+every 2 minutes. **Learn ahead** in the Jam panel turns it on or off (on wherever spotDL is
 installed); with it on, the room stays **Stay behind by** (5 s to start with, at
 least 3) behind, and no opening song is needed. Less is livelier, at a cost: the
 studio hears of a new song about a second late (Spotify is asked once a second), a

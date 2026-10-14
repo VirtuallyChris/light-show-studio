@@ -165,6 +165,7 @@ main { display: grid; grid-template-columns: 19.38rem 1fr 20.92rem; grid-templat
 .jam-kind.k-learned { color: #4fd18b; border-color: rgba(79,209,139,.45); background: rgba(79,209,139,.10); }
 .jam-kind.k-live { color: #8fb0ff; border-color: rgba(143,176,255,.45); background: rgba(143,176,255,.10); }
 .jam-kind.k-learning { color: #c3a2ff; border-color: rgba(195,162,255,.45); background: rgba(195,162,255,.10); }
+.jam-kind.k-error { color: #ff7b7b; border-color: rgba(255,123,123,.5); background: rgba(255,123,123,.10); cursor: help; }
 .jam-meter { position: relative; height: 1.538rem; border-radius: 0.4615rem; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
 .jam-meter div { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(108,140,255,.55), rgba(255,94,168,.55)); transition: width .6s ease; }
 .jam-meter span { position: relative; display: block; text-align: center; font-size: 0.8462rem; line-height: 1.462rem; font-variant-numeric: tabular-nums; }

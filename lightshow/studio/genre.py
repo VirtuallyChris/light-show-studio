@@ -115,11 +115,14 @@ def add_genre(analysis: dict, path: str) -> bool:
         return False
     drive = float((analysis.get("mood") or {}).get("drive", 0.6))
     labels = WORKER.classify_file(path) if WORKER.available() and not WORKER.failed else None
+    problems = [p for p in analysis.get("problems") or [] if not p.startswith("the genre")]
     if labels is None:                                   # said where it can be read, even from a studio with no console
         from .model_worker import note
-        note(f"[genre] no genre for {os.path.basename(os.path.dirname(path))}: available={WORKER.available()} "
-             f"failed={WORKER.failed!r} last_error={WORKER.last_error!r}")
+        why = WORKER.failed or WORKER.last_error or ("the model environment is not installed" if not WORKER.available() else "no answer")
+        note(f"[genre] no genre for {os.path.basename(os.path.dirname(path))}: {why}")
+        problems.append(f"the genre could not be heard ({why})")
+    analysis["problems"] = problems
     if labels is None and analysis.get("genre"):
-        return False                                     # still nothing better than the energy guess
+        return True                                      # still the energy guess, but what failed is noted
     analysis["genre"] = style_from(labels, drive)
     return True
