@@ -69,6 +69,8 @@ class JamLibrary:
         self._links: dict | None = None
         self.colors_path = os.path.join(self.dir, "colors.json")
         self._colors: dict | None = None
+        self.styles_path = os.path.join(self.dir, "styles.json")
+        self._styles: dict | None = None
         self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
         self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
 
@@ -157,6 +159,32 @@ class JamLibrary:
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(colors, fh, indent=1)
         os.replace(tmp, self.colors_path)
+
+    # -- a song's vibe, chosen by hand ---------------------------------------------------------
+    STYLES = ("chill", "groove", "dance", "rave")
+
+    def styles(self) -> dict:
+        """track id -> the show style picked for it by hand (a song taken for a rager that is chill),
+        kept for the next time it plays; a song not here gets the style its analysis finds."""
+        if self._styles is None:
+            try:
+                with open(self.styles_path, encoding="utf-8") as fh:
+                    self._styles = {k: v for k, v in json.load(fh).items() if v in self.STYLES}
+            except (OSError, ValueError):
+                self._styles = {}
+        return self._styles
+
+    def set_style(self, track_id: str, style: str | None) -> None:
+        styles = self.styles()
+        if style in self.STYLES:
+            styles[track_id] = style
+        else:
+            styles.pop(track_id, None)                   # back to the style the analysis finds
+        os.makedirs(self.dir, exist_ok=True)
+        tmp = self.styles_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(styles, fh, indent=1)
+        os.replace(tmp, self.styles_path)
 
     def match_project(self, track: Track) -> str | None:
         linked = self.links().get(track.id)

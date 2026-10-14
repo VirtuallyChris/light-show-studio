@@ -137,10 +137,19 @@
         ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take two more colors now and then, picked for each song from its own two (purple and green get red and orange)">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}></span></div>` : ''}</div>`;
   }
   /** The song in the room got new colors (here, or on the Party Hub): build its show again in them. */
-  const colorSig = () => { const t = J.doc && J.doc.track; return JSON.stringify([colorsFor(t), extrasFor(colorsFor(t), t), rainbowOn(t)]); };
+  const trackStyle = t => (t && ((J.state || {}).track_styles || {})[t.id]) || null;     // a vibe picked by hand
+  const colorSig = () => { const t = J.doc && J.doc.track; return JSON.stringify([colorsFor(t), extrasFor(colorsFor(t), t), rainbowOn(t), trackStyle(t)]); };
+  function applyStyle(t) {
+    const p = St.P(); if (!p) return;
+    p.settings = { ...(p.settings || {}) };
+    if (trackStyle(t)) p.settings.style = trackStyle(t); else delete p.settings.style;
+  }
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
     S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); J.colorSig = colorSig();
+    const restyle = (St.P().settings || {}).style !== (trackStyle(J.doc.track) || undefined);
+    applyStyle(J.doc.track);
+    if (restyle) { St.pickLook(); J.style = St.showStyle(); }
     try { St.autoBuild(true); J.built = sectionKeys(); } catch (e) { console.error(e); }
     St.draw();
   }
@@ -530,6 +539,7 @@
       if (J.failedKey !== room.key) toast(`${room.label}: playing your show`);
     } else {
       adopt(doc.analysis, room.label, null);
+      applyStyle(doc.track);                                          // a vibe picked for it by hand
       try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
       J.built = sectionKeys();
       if (J.failedKey !== room.key) toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);

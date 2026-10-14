@@ -926,6 +926,16 @@ class TestTrackColors(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def test_a_songs_vibe_can_be_picked_by_hand(self):
+        d = tempfile.mkdtemp()
+        try:
+            JamLibrary(d).set_style("abc", "chill")                       # taken for a rager, but it is chill
+            self.assertEqual(JamLibrary(d).styles(), {"abc": "chill"})     # kept on disk
+            JamLibrary(d).set_style("abc", "banger")                      # not a style: back to the one found
+            self.assertEqual(JamLibrary(d).styles(), {})
+        finally:
+            shutil.rmtree(d)
+
     def test_a_song_can_keep_to_just_its_two_colors(self):
         d = tempfile.mkdtemp()
         try:
@@ -988,7 +998,7 @@ class TestPartyHub(unittest.TestCase):
             room = {"id": "a", "label": "A", "kind": "live"}
             st = {"running": True, "room": room, "queue": [{"id": "b", "label": "B", "kind": "live"}],
                   "jam_colors": {**JamService.DEFAULT_COLORS, **jam_colors}, "track_colors": track_colors, "assigned_colors": {}}
-            fake = SimpleNamespace(_state=lambda: st, party_level=1.0, studio=SimpleNamespace(rooms=None))
+            fake = SimpleNamespace(_state=lambda: st, party_level=1.0, studio=SimpleNamespace(rooms=None), _found_style=lambda t: None)
             return JamService._party(fake)
         pick = {"mode": "pick", "primary": "#8000ff", "secondary": "#00ff00"}
         on = hub(pick, {})

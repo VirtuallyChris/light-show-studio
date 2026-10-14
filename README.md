@@ -455,7 +455,11 @@ each song's two colors. Tap a color to change a song's pair ahead of time from
 sixteen solid colors (it is kept for that track, as in the studio; ↺ goes back to
 the jam's). **Just these two colors** in the same sheet keeps a song to its own two
 and nothing else: no accents in other colors and no rainbow drops (a red and
-orange song stays red and orange); such a song shows a small *2*. **Party colors** switches the
+orange song stays red and orange); such a song shows a small *2*. A tap anywhere on a song brings up its colors on one sheet, with its **Vibe**:
+*Auto* (the style its analysis found, shown beside it) or Chill, Groove, Dance or
+Rave picked by hand, for a song the analysis gets wrong (a chill song taken for a
+rager). The vibe is kept for that track (`shows/_jam/styles.json`), and the song
+playing is rebuilt in it at once. **Party colors** switches the
 party's colors (purple and green, or the pairs) on or off for every song: off,
 each song plays in its album cover's two colors. Each song's **party** / **cover**
 chip does the same for that song alone (kept for the track). A change of colors

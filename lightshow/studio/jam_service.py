@@ -119,6 +119,8 @@ class JamService:
             web.get("/party/manifest.webmanifest", self.party_manifest),
             web.get("/api/party/state", self.party_state),
             web.post("/api/party/colors", self.party_colors),
+            web.post("/api/party/style", self.party_style),
+            web.post("/api/jam/style", self.track_style),
             web.post("/api/party/playback", self.party_playback),
             web.post("/api/party/level", self.party_level_set),
             web.get("/api/party/volumes", self.party_volumes),
@@ -431,7 +433,8 @@ class JamService:
                             "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
-                "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "party_level": self.party_level,
+                "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "track_styles": self.library.styles(),
+                "party_level": self.party_level,
                 "cue": self._room_cue(),
                 "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice(),
                 "fetch": {**self.fetch.status(), "on": self._fetch_on(),
@@ -761,6 +764,16 @@ class JamService:
                       "pairs": [["#8000ff", "#00ff00"], ["#8000ff", "#ff6000"], ["#00ff00", "#ff6000"], ["#ff0000", "#0040ff"]],
                       "rainbow": True}                     # in "mix", a song that goes all out gets rainbow drops
 
+    def _found_style(self, t: dict) -> str | None:
+        """The show style a learned song's analysis found (read once: a learned file is megabytes)."""
+        tid = t.get("id")
+        if not tid or t.get("kind") != "learned":
+            return None
+        found = self.__dict__.setdefault("_found_styles", {})
+        if tid not in found:
+            found[tid] = (((self.library.learned(tid) or {}).get("analysis") or {}).get("genre") or {}).get("style")
+        return found[tid]
+
     def _vibe_order(self, track_id: str, n: int) -> list[int]:
         """Which pairs suit a track, best first, from what was learned about it the last time it played
         (unknown tracks take turns). The order follows the default pairs: purple/green spooky, purple/orange
@@ -826,6 +839,7 @@ class JamService:
         """What the Party Hub shows: the song in the room, what comes next, and each one's colors."""
         st = self._state()
         jc, own_all, assigned = st.get("jam_colors", {}), st.get("track_colors", {}), st.get("assigned_colors", {})
+        styles = st.get("track_styles", {})
 
         def colors(t):
             if t.get("kind") == "custom":
@@ -848,7 +862,8 @@ class JamService:
             return {"id": t.get("id"), "label": t.get("label"), "name": t.get("name"), "artists": t.get("artists"),
                     "image": t.get("image"), "art": t.get("art") or t.get("image"), "kind": t.get("kind"), "duration": t.get("duration"), "colors": pair, "own": own,
                     "theme_off": bool((own_all.get(t.get("id")) or {}).get("off")),
-                    "only": bool((own_all.get(t.get("id")) or {}).get("only")), **(extra or {})}
+                    "only": bool((own_all.get(t.get("id")) or {}).get("only")),
+                    "style": t.get("style") or self._found_style(t), "vibe": styles.get(t.get("id")), **(extra or {})}
         room, ahead = st.get("room"), st.get("ahead")
         up = ([ahead] if ahead and (not room or ahead.get("key") != room.get("key")) else []) + list(st.get("queue") or [])
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
@@ -882,6 +897,26 @@ class JamService:
             self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
                                     off=body.get("theme") is False, only=bool(body.get("only")))
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
+
+    def _set_style(self, body: dict) -> None:
+        tid = str(body.get("track_id") or "")
+        if not tid:
+            raise web.HTTPBadRequest(text="no track")
+        self.library.set_style(tid, body.get("style"))
+
+    async def party_style(self, request):
+        """From the phone: a song's vibe ({track_id, style: chill | groove | dance | rave}, or none for the
+        one its analysis finds), kept for that track; the song playing is rebuilt in it at once."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        self._set_style(await request.json())
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
+
+    async def track_style(self, request):
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        self._set_style(await request.json())
+        return await self._run(self._state)
 
     async def party_playback(self, request):
         """Play, pause or skip on Spotify, the way the phone's own controls would."""

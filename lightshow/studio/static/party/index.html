@@ -127,6 +127,10 @@
   .sixteen .sx-reset { display: block; width: 100%; margin-top: 16px; font: inherit; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
   .sixteen .sx-reset[hidden] { display: none; }
   .tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .sixteen .sx-vibes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sixteen .sx-vibes button { font: inherit; font-size: 13px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; }
+  .sixteen .sheet { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+  .sixteen .sx-vibes button.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .sixteen .sx-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
   .sixteen .sx-grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
   .sixteen .sx-grid button.on { border-color: var(--text); }
@@ -380,7 +384,7 @@
     const chip = themed || t.theme_off ? `<button class="theme-chip ${t.theme_off ? '' : 'on'}" aria-label="${t.theme_off ? 'Plays in its album cover’s colors: tap for the party’s' : 'Plays in the party’s colors: tap for its album cover’s'}">${t.theme_off ? 'cover' : 'party'}</button>` : '';
     // its own two, the jam's, or its cover's as they will play: a tap on either picks from the sixteen
     const [a, b] = t.colors || coverPair(t.image) || ['#808080', '#808080'];
-    return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}" data-own="${t.own ? 1 : ''}" data-name="${esc(t.name || t.label || '')}">
+    return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}" data-own="${t.own ? 1 : ''}" data-name="${esc(t.name || t.label || '')}" data-style="${esc(t.style || '')}" data-vibe="${esc(t.vibe || '')}">
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="a" style="background:${esc(a)}" aria-label="Primary color"></button>
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Secondary color"></button>
       ${t.only ? '<span class="only-tag" title="Just these two colors">2</span>' : ''}
@@ -391,6 +395,7 @@
   // effect at once; the sheet stays until it is swiped down or something outside it is tapped.
   const SIXTEEN = ['#ff0000', '#ff4000', '#ff8000', '#ffbf00', '#ffff00', '#80ff00', '#00ff00', '#00ff80',
                    '#00ffff', '#0080ff', '#0000ff', '#4000ff', '#8000ff', '#ff00ff', '#ff0080', '#ffffff'];
+  const VIBES = { chill: 'Chill', groove: 'Groove', dance: 'Dance', rave: 'Rave' };
   let sheetOpen = false;
   document.addEventListener('click', e => { if (sheetOpen && e.target === $('#sixteen')) closeSixteen(); });
   document.addEventListener('keydown', e => { if (sheetOpen && e.key === 'Escape') closeSixteen(); });
@@ -411,6 +416,17 @@
     }
     const only = sheet.querySelector('#sxOnly'); only.checked = !!box.dataset.only;
     only.onchange = () => { box.dataset.only = only.checked ? '1' : ''; save({ primary: cur.a, secondary: cur.b, only: only.checked }); };
+    // the vibe: what the analysis found (Auto), or one picked by hand for a song it gets wrong
+    const vibes = sheet.querySelector('.sx-vibes'), found = box.dataset.style;
+    const showVibes = () => {
+      vibes.innerHTML = [['', found ? `Auto · ${VIBES[found] || found}` : 'Auto'], ...Object.entries(VIBES)]
+        .map(([v, label]) => `<button data-v="${v}" class="${(box.dataset.vibe || '') === v ? 'on' : ''}">${esc(label)}</button>`).join('');
+      for (const btn of vibes.querySelectorAll('[data-v]')) btn.onclick = async () => {
+        box.dataset.vibe = btn.dataset.v; showVibes();
+        try { state = await api('style', { track_id: box.dataset.id, style: btn.dataset.v || null }); } catch (e) { /* the next poll shows the truth */ }
+      };
+    };
+    showVibes();
     const back = sheet.querySelector('.sx-reset'); back.hidden = !box.dataset.own;
     back.onclick = () => { save({}); closeSixteen(); };
     sheet.hidden = false; sheetOpen = true;
@@ -425,7 +441,10 @@
   // after this script in the page, so this waits for it.)
   document.addEventListener('DOMContentLoaded', () => {
     const panel = $('#sixteen .sheet'); let y0 = null, t0 = 0, dy = 0;
-    panel.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; t0 = performance.now(); dy = 0; panel.style.transition = 'none'; }, { passive: true });
+    panel.addEventListener('touchstart', e => {
+      if (panel.scrollTop > 0) { y0 = null; return; }                  // scrolled down inside it (a short phone): that is a scroll
+      y0 = e.touches[0].clientY; t0 = performance.now(); dy = 0; panel.style.transition = 'none';
+    }, { passive: true });
     panel.addEventListener('touchmove', e => {
       if (y0 === null) return;
       dy = Math.max(0, e.touches[0].clientY - y0);
@@ -808,6 +827,8 @@
     <div class="sx-grid" data-k="a"></div>
     <div class="sx-label">Secondary</div>
     <div class="sx-grid" data-k="b"></div>
+    <div class="sx-label">Vibe</div>
+    <div class="sx-vibes" role="group" aria-label="Vibe"></div>
     <div class="sx-only"><span>Just these two colors</span><label class="switch"><input type="checkbox" id="sxOnly" aria-label="Just these two colors: no accents in other colors and no rainbow drops"><span></span></label></div>
     <button class="sx-reset" hidden>Back to the jam’s colors</button>
   </div>
