@@ -59,6 +59,128 @@ def _download(track, folder: str) -> str:
     return got[0]
 
 
+def _spotdl_python() -> str:
+    return os.path.join(os.path.dirname(SPOTDL), "python" + (".exe" if os.name == "nt" else ""))
+
+
+def _words(text: str) -> str:
+    import re
+    return " ".join(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+NOT_THE_RECORDING = ("live", "cover", "remix", "karaoke", "instrumental", "sped up", "slowed", "nightcore", "8d", "reverb",
+                     "acoustic", "demo", "mashup", "concert", "tour", "session", "reaction")
+
+
+def pick_alternative(track, results: list[dict]) -> str | None:
+    """Among YouTube search results ({id, duration, channel, title}), the one most likely to be the very
+    recording Spotify plays: within 3 s of its length, its name in the title, from the artist's own channel
+    (best of all their "Artist - Topic" channel, which carries the album audio itself), and not a live
+    take, a cover or a remix (unless the Spotify title says so). None if nothing is trustworthy."""
+    name, artist = _words(track.name), _words(track.artists[0] if track.artists else "")
+    best = None
+    for r in results:
+        title, channel = _words(r.get("title")), _words(r.get("channel"))
+        try:
+            dur = float(r.get("duration") or 0)
+        except (TypeError, ValueError):
+            continue
+        if abs(dur - float(track.duration)) > 3.0 or not name or name.split("(")[0].strip() not in title:
+            continue
+        if any(f" {w} " in f" {title} " and f" {w} " not in f" {name} " for w in NOT_THE_RECORDING):
+            continue
+        score = 3 if channel == f"{artist} topic" else 2 if artist and (artist in channel or channel.replace("vevo", "").strip() in artist.replace(" ", "")) else 0
+        if score == 0:
+            continue
+        key = (score, -abs(dur - float(track.duration)))
+        if best is None or key > best[0]:
+            best = (key, r["id"])
+    return f"https://www.youtube.com/watch?v={best[1]}" if best else None
+
+
+YTMUSIC_SEARCH = r"""
+import json, sys
+from ytmusicapi import YTMusic
+out = []
+for r in YTMusic().search(sys.argv[1], filter="songs", limit=10):
+    if r.get("videoId"):
+        out.append({"id": r["videoId"], "duration": r.get("duration_seconds"), "title": r.get("title") or "",
+                    "artists": [a.get("name") or "" for a in r.get("artists") or []]})
+print(json.dumps(out))
+"""
+
+
+def _search_ytmusic(track) -> list[dict]:
+    """YouTube Music's songs for it (the album recordings, with their artists and lengths; nothing is
+    downloaded). spotDL's own YouTube Music search came back empty for songs plainly there, and then
+    fell back to whatever video YouTube had (a music video, a lyric video with an intro)."""
+    import json
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    q = f"{track.artists[0] if track.artists else ''} {track.name}".strip()
+    r = subprocess.run([_spotdl_python(), "-c", YTMUSIC_SEARCH, q], capture_output=True, text=True, timeout=60, creationflags=flags)
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return []
+
+
+def pick_ytmusic(track, results: list[dict]) -> str | None:
+    """The YouTube Music song that is the recording Spotify plays: one of its artists, its name, within 3 s
+    of its length, and not another take (live, remix...) unless the Spotify title says so."""
+    name = _words(track.name)
+    artists = {_words(a) for a in track.artists if a}
+    best = None
+    for r in results:
+        title = _words(r.get("title"))
+        try:
+            dur = float(r.get("duration") or 0)
+        except (TypeError, ValueError):
+            continue
+        if abs(dur - float(track.duration)) > 3.0 or not ({_words(a) for a in r.get("artists") or []} & artists):
+            continue
+        base = name.split(" feat ")[0].split(" ft ")[0]
+        if base not in title and title not in name:
+            continue
+        if any(f" {w} " in f" {title} " and f" {w} " not in f" {name} " for w in NOT_THE_RECORDING):
+            continue
+        key = (title == name, -abs(dur - float(track.duration)))
+        if best is None or key > best[0]:
+            best = (key, r["id"])
+    return f"https://music.youtube.com/watch?v={best[1]}" if best else None
+
+
+def _search_youtube(track) -> list[dict]:
+    """YouTube's results for the song (titles, channels and lengths only: nothing is downloaded)."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
+    q = f"{track.artists[0] if track.artists else ''} {track.name}".strip()
+    r = subprocess.run([_spotdl_python(), "-m", "yt_dlp", "--flat-playlist", "--no-warnings", "--print",
+                        "%(id)s\t%(duration)s\t%(channel)s\t%(title)s", f"ytsearch12:{q}"],
+                       capture_output=True, text=True, timeout=90, creationflags=flags, env=env)
+    out = []
+    for line in r.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 4:
+            out.append({"id": parts[0], "duration": parts[1], "channel": parts[2], "title": parts[3]})
+    return out
+
+
+def _download_from(track, folder: str, url: str) -> str:
+    """spotDL with the YouTube video chosen here instead of its own pick ("youtube url|spotify url")."""
+    for p in glob.glob(os.path.join(folder, track.id + ".*")):
+        os.remove(p)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
+    r = subprocess.run([SPOTDL, "download", f"{url}|https://open.spotify.com/track/{track.id}", "--output",
+                        os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
+                        "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
+    got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
+    if not got:
+        tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or ["the chosen copy did not download"]
+        raise LookupError(tail[0][:160])
+    return got[0]
+
+
 def _to_flac(src: str) -> str:
     """The analysis reads FLAC (not m4a): converted losslessly, in well under a second."""
     out = os.path.splitext(src)[0] + ".flac"
@@ -94,9 +216,11 @@ class FetchAhead:
     """One song downloads while the one before it is analysed: two workers, a song at a time each."""
 
     def __init__(self, library, download=_download, to_flac=_to_flac, length=_length, analyze=_analyze,
-                 is_available=available, clock=time.monotonic, log=print):
+                 is_available=available, clock=time.monotonic, log=print, search=_search_youtube, download_from=_download_from,
+                 search_music=_search_ytmusic):
         self.library = library
         self.download, self.to_flac, self.length, self.analyze = download, to_flac, length, analyze
+        self.search, self.download_from, self.search_music = search, download_from, search_music
         self.is_available, self.clock, self.log = is_available, clock, log
         self.retry_pause = 4.0
         self.lock = threading.Condition()
@@ -198,18 +322,37 @@ class FetchAhead:
                 self.busy["download"] = track
             folder = tempfile.mkdtemp(prefix="lss-ahead-")
             try:
-                for attempt in range(DOWNLOAD_TRIES):          # YouTube refuses a download now and then (HTTP 403)
+                path, why = None, ""
+                # YouTube Music's own song first (the album recording, matched by artist, name and length),
+                # then spotDL's pick, then a search of YouTube itself
+                music = pick_ytmusic(track, self.search_music(track))
+                if music:
                     try:
-                        got = self.download(track, folder)
-                        break
+                        path = self.to_flac(self._fetch(lambda: self.download_from(track, folder, music)))
+                        n = self.length(path)
+                        if abs(n - float(track.duration)) > LENGTH_SLACK_S:
+                            why, path = f"YouTube Music's copy is {n:.0f} s long, Spotify's {track.duration:.0f} s", None
                     except LookupError as e:
-                        if "download" not in str(e).lower() or attempt == DOWNLOAD_TRIES - 1:
-                            raise
-                        time.sleep(self.retry_pause)
-                path = self.to_flac(got)
-                n = self.length(path)
-                if abs(n - float(track.duration)) > LENGTH_SLACK_S:
-                    raise ValueError(f"the copy found is {n:.0f} s long, Spotify's {track.duration:.0f} s: another version")
+                        why = str(e)
+                if path is None:
+                    try:
+                        path = self.to_flac(self._fetch(lambda: self.download(track, folder)))
+                        n = self.length(path)
+                        if abs(n - float(track.duration)) > LENGTH_SLACK_S:
+                            why, path = f"the copy found is {n:.0f} s long, Spotify's {track.duration:.0f} s: another version", None
+                    except LookupError as e:
+                        why = str(e)
+                if path is None:
+                    # spotDL's pick is missing or another version (a music video, a lyric video with an intro):
+                    # YouTube is searched for the very recording, by its length, its title and its channel
+                    url = pick_alternative(track, self.search(track))
+                    if url is None:
+                        raise ValueError(why or "no copy found")
+                    path = self.to_flac(self._fetch(lambda: self.download_from(track, folder, url)))
+                    n = self.length(path)
+                    if abs(n - float(track.duration)) > LENGTH_SLACK_S:
+                        raise ValueError(f"no copy of Spotify's length ({track.duration:.0f} s) found")
+                    self.log(f"[learn ahead] {track.label}: spotDL's pick was not it; using {url}")
                 with self.lock:
                     self.ready.append((track, folder, path))
                     self.lock.notify_all()
@@ -220,6 +363,16 @@ class FetchAhead:
                 with self.lock:
                     self.busy["download"] = None
                     self.lock.notify_all()
+
+    def _fetch(self, get):
+        """A download, tried again at once (a few seconds apart) when YouTube refuses it (HTTP 403)."""
+        for attempt in range(DOWNLOAD_TRIES):
+            try:
+                return get()
+            except LookupError as e:
+                if "download" not in str(e).lower() or attempt == DOWNLOAD_TRIES - 1:
+                    raise
+                time.sleep(self.retry_pause)
 
     def _wanted_now(self, track) -> bool:
         return not self.library.has_learned(track.id) and not self.library.match_project(track)

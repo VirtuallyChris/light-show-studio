@@ -596,9 +596,13 @@ no audio is written to disk: it exists only in a rolling memory buffer.
 **Learn ahead: the room only seconds behind.** With spotDL installed (below),
 the studio learns every queued song before it plays, so the room needs to be only
 seconds behind Spotify instead of a whole song. For each song in the Spotify queue
-(up to 12, the next to play first), spotDL takes its details from Spotify (title,
-artists, length), finds the same recording on YouTube Music (or YouTube) and
-downloads it; the full analysis runs on it (about 45 s for a 3-minute song, while
+(up to 12, the next to play first), the studio looks it up on YouTube Music by its
+Spotify details (an album recording by one of its artists, its name, within 3 s of
+its length) and has spotDL download that one. (spotDL's own YouTube Music search came
+back empty for songs plainly there, and fell back to music videos.) Failing that,
+spotDL's own pick, and then a search of YouTube that only takes the artist's own
+channel (their "Topic" channel first, which carries the album audio), never a live
+take, a cover or a remix; the full analysis runs on it (about 45 s for a 3-minute song, while
 the next one downloads), and the copy is deleted the moment it is done: only the
 analysis is kept, with the songs the jam learned by listening (`shows/_jam/learned`).
 A copy whose length is not within 4 seconds of Spotify's is another version and is

@@ -44,7 +44,8 @@ class TestFetchAhead(unittest.TestCase):
             return path
 
         f = FetchAhead(lib, download=download, to_flac=lambda p: p, length=lambda p: lengths.get(os.path.basename(p)[:-4], 180.0),
-                       analyze=lambda p, cache: {"bpm": 120.0, "from": os.path.basename(p)}, is_available=lambda: True, log=lambda m: None)
+                       analyze=lambda p, cache: {"bpm": 120.0, "from": os.path.basename(p)}, is_available=lambda: True, log=lambda m: None,
+                       search=lambda t: [], search_music=lambda t: [])
         return f, lib, folders, order
 
     def wait(self, cond, secs=5.0):
@@ -123,6 +124,46 @@ class TestFetchAhead(unittest.TestCase):
         f = FetchAhead(FakeLibrary(), is_available=lambda: False)
         self.assertEqual(f.submit([track(1)]), 0)
         self.assertFalse(f.status()["available"])
+
+
+class TestFindingTheRecording(unittest.TestCase):
+    """Which copy is the recording Spotify plays: YouTube Music's song first, then a careful YouTube search."""
+
+    def test_youtube_musics_own_song_is_taken_by_artist_name_and_length(self):
+        from lightshow.studio.fetch_ahead import pick_ytmusic
+        t = Track(id="x", name="Just Friends", artists=["The Strike"], duration=206.0)
+        res = [{"id": "other", "duration": 160, "title": "Just Friends", "artists": ["SMSHNG HRTS"]},
+               {"id": "live", "duration": 205, "title": "Just Friends (Live)", "artists": ["The Strike"]},
+               {"id": "right", "duration": 207, "title": "Just Friends", "artists": ["The Strike"]}]
+        self.assertEqual(pick_ytmusic(t, res), "https://music.youtube.com/watch?v=right")
+        self.assertIsNone(pick_ytmusic(t, res[:2]))                       # another artist, or a live take: no
+
+    def test_youtube_only_from_the_artists_own_channel_and_never_a_live_take(self):
+        from lightshow.studio.fetch_ahead import pick_alternative
+        t = Track(id="x", name="Voices Carry", artists=["'Til Tuesday"], duration=264.0)
+        res = [{"id": "video", "duration": 259, "channel": "TilTuesdayVEVO", "title": "'Til Tuesday - Voices Carry (Official Video)"},
+               {"id": "fan", "duration": 264, "channel": "Infinite Music", "title": "'Til Tuesday - Voices Carry (Lyrics)"},
+               {"id": "topic", "duration": 264, "channel": "'Til Tuesday - Topic", "title": "Voices Carry"},
+               {"id": "live", "duration": 263, "channel": "Til Tuesday", "title": "Voices Carry (Live at The Ritz)"}]
+        self.assertEqual(pick_alternative(t, res), "https://www.youtube.com/watch?v=topic")
+
+    def test_youtube_music_goes_first_and_spotdls_pick_is_the_fallback(self):
+        lib, got = FakeLibrary(), []
+        def download_from(t, folder, url):
+            got.append(url)
+            path = os.path.join(folder, t.id + ".m4a"); open(path, "wb").close(); return path
+        f = FetchAhead(lib, download=lambda t, folder: self.fail("spotDL's own pick was not needed"), to_flac=lambda p: p,
+                       length=lambda p: 180.0, analyze=lambda p, c: {"bpm": 1.0}, is_available=lambda: True, log=lambda m: None,
+                       search=lambda t: [], download_from=download_from,
+                       search_music=lambda t: [{"id": "abc", "duration": 180, "title": t.name, "artists": t.artists}])
+        f.submit([track(1)])
+        ev = threading.Event()
+        for _ in range(250):
+            if f.idle() and "t1" in lib.learned:
+                break
+            ev.wait(0.02)
+        self.assertEqual(got, ["https://music.youtube.com/watch?v=abc"])
+        self.assertIn("t1", lib.learned)
 
 
 class TestLearnedWhilePlaying(unittest.TestCase):
