@@ -149,7 +149,10 @@ class JamService:
         st = c.status()
         return max(0.0, float(st.get("duration") or 0.0) - float(st.get("position") or 0.0)), st.get("state") in ("PLAYING", "BUFFERING")
 
-    FETCH_DELAY_S = 10.0          # how far behind the room is when songs are learned ahead (a few seconds to line up)
+    # How far behind the room is when songs are learned ahead. Less is livelier, at a cost: the studio hears of
+    # a new song about a second late, a speaker holds only this much against a Wi-Fi hiccup, and a song is
+    # lined up by ear 7 s in, so below that each song starts on Spotify's clock and may shift a little then.
+    FETCH_DELAY_S = 3.0
 
     def _fetch_on(self) -> bool:
         """Learn ahead is on (the default where spotDL is installed): songs are learned before they play,

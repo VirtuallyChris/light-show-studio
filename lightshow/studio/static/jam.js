@@ -179,7 +179,7 @@
         <div class="jam-row" ${(st.fetch || {}).on ? 'hidden' : ''}><label title="One of your saved shows plays in the room first, with its lights, while Spotify plays unheard behind it. The room joins the jam as it ends, a whole song behind, so each song is heard to its end before the room gets to it.">Open with</label><select id="jamOpenWith">
           <option value="">Nothing (start ${esc(String(Math.round(((st.last || {}).target_delay) || 90)))} s behind)</option>
           ${(J.openerShows || []).filter(s => s.length >= 60 || s.name === st.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === st.opener_choice ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
-        <div class="jam-row" ${st.opener_choice && !(st.fetch || {}).on ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="${(st.fetch || {}).on ? 5 : 10}" max="180" step="5" value="${(st.fetch || {}).on ? Math.round(st.fetch.delay || 10) : 90}" class="num"> s</span></div>
+        <div class="jam-row" ${st.opener_choice && !(st.fetch || {}).on ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="${(st.fetch || {}).on ? 3 : 10}" max="180" step="${(st.fetch || {}).on ? 1 : 5}" value="${(st.fetch || {}).on ? Math.round(st.fetch.delay || 3) : 90}" class="num"> s</span></div>
         <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
         <div class="jam-row"><label>On a skip</label><select id="jamOnSkip">
           <option value="keep">Keep the delay</option>
@@ -249,7 +249,7 @@
     const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = () => fn().catch(err => toast('Jam: ' + err.message, true)); };
     // the form starts from the settings last used, then keeps whatever is being changed
     const last = (J.state && J.state.last) || {};
-    const fromLast = { jamDelay: ((J.state || {}).fetch || {}).on ? (J.state.fetch.delay || 10) : last.target_delay, jamXfade: last.crossfade, jamOnSkip: last.skip_jumps === undefined ? undefined : (last.skip_jumps ? 'jump' : 'keep'),
+    const fromLast = { jamDelay: ((J.state || {}).fetch || {}).on ? (J.state.fetch.delay || 3) : last.target_delay, jamXfade: last.crossfade, jamOnSkip: last.skip_jumps === undefined ? undefined : (last.skip_jumps ? 'jump' : 'keep'),
       jamSource: last.source, jamWhere: last.speakers, jamDevice: last.device, jamPcDevice: last.pc_device };
     for (const [id, v] of Object.entries(fromLast)) if (keep[id] === undefined && v !== undefined && v !== null) keep[id] = String(v);
     for (const [id, v] of Object.entries(keep)) { const e = $('#' + id); if (e && v !== undefined && id !== 'jamDevice' && id !== 'jamPcDevice') e.value = v; }
