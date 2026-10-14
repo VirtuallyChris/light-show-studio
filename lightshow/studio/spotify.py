@@ -252,6 +252,10 @@ class SpotifyClient:
     def next_track(self) -> bool:
         return self._call("POST", "/me/player/next")[0] in (200, 202, 204)
 
+    def previous_track(self) -> bool:
+        """As Spotify's own back button: the song starts over, or (near its start) the one before plays."""
+        return self._call("POST", "/me/player/previous")[0] in (200, 202, 204)
+
 
 # ============================================================================ the studio player
 class PlayerState:

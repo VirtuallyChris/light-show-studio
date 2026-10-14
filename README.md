@@ -448,9 +448,10 @@ panel.
 The studio also serves a phone app on the home network. On the iPhone, open
 `http://<this PC's address>:8765/party` in Safari (here `http://192.168.1.11:8765/party`)
 and choose **Share, Add to Home Screen**: it opens full screen like an app. It
-shows the song the room is hearing (with play/pause, which steers Spotify the way
-the phone's own controls would; there is no skip, as in a jam it jumps Spotify far
-ahead of the room and nothing shows it until minutes later), what comes next, and
+shows the song the room is hearing (with previous, play/pause and next, which steer
+Spotify the way the phone's own controls would: the room hears a skip within the few
+seconds it is behind, and a song gone back to was heard or learned ahead already, so it
+gets its full show), what comes next, and
 each song's two colors. Tap a color to change a song's pair ahead of time from
 sixteen solid colors (it is kept for that track, as in the studio; ↺ goes back to
 the jam's). **Just these two colors** in the same sheet keeps a song to its own two

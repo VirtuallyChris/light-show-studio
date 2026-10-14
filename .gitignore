@@ -9,6 +9,7 @@ __pycache__/
 # Copy config.example.json to config.json to start; the studio fills in the rest.
 config.json
 studio.log
+models.log
 
 # Songs and the shows built on them are yours: kept on this computer, not in git.
 # (That covers Jam mode's learned tracks in shows/_jam/ and the scratch test project too.)

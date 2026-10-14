@@ -669,7 +669,9 @@
           ${colorBox(r, true)}
           <div class="bar"><div id="prog"></div></div><div class="times"><span id="pos">0:00</span><span>${fmt(r.duration)}</span></div>
           <div class="controls">
-          <button class="btn big" id="bPlay" aria-label="${r.playing ? 'Pause' : 'Play'}">${r.playing ? '&#10074;&#10074;' : '&#9654;'}</button></div></div>`;
+          <button class="btn" id="bPrev" aria-label="Previous song">&#9198;</button>
+          <button class="btn big" id="bPlay" aria-label="${r.playing ? 'Pause' : 'Play'}">${r.playing ? '&#10074;&#10074;' : '&#9654;'}</button>
+          <button class="btn" id="bNext" aria-label="Next song">&#9197;</button></div></div>`;
     const up = st.upcoming || [];
     const nextHtml = !st.running ? `<div class="empty">—</div>` : up.length ? up.map(t => `<div class="row">${artBox(t)}
         <div style="min-width:0"><div class="title">${esc(t.name || t.label)}</div><div class="artist">${esc((t.artists || []).join(', '))}</div>${colorBox(t)}</div></div>`).join('')
@@ -682,6 +684,7 @@
       wireColors($('#now')); wireColors($('#next'));
       const play = $('#bPlay');
       if (play) play.onclick = () => api('playback', { action: r.playing ? 'pause' : 'resume' }).then(poll).catch(() => {});
+      for (const [id, action] of [['#bPrev', 'previous'], ['#bNext', 'next']]) { const b = $(id); if (b) b.onclick = () => api('playback', { action }).then(poll).catch(() => {}); }
     }
     renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
     if (settingsOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);

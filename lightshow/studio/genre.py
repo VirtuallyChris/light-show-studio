@@ -19,6 +19,8 @@ loud rock song is still a rock song.
 
 from __future__ import annotations
 
+import os
+
 
 import numpy as np
 
@@ -113,6 +115,10 @@ def add_genre(analysis: dict, path: str) -> bool:
         return False
     drive = float((analysis.get("mood") or {}).get("drive", 0.6))
     labels = WORKER.classify_file(path) if WORKER.available() and not WORKER.failed else None
+    if labels is None:                                   # said where it can be read, even from a studio with no console
+        from .model_worker import note
+        note(f"[genre] no genre for {os.path.basename(os.path.dirname(path))}: available={WORKER.available()} "
+             f"failed={WORKER.failed!r} last_error={WORKER.last_error!r}")
     if labels is None and analysis.get("genre"):
         return False                                     # still nothing better than the energy guess
     analysis["genre"] = style_from(labels, drive)

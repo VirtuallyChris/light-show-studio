@@ -953,14 +953,16 @@ class JamService:
         return await self._run(self._state)
 
     async def party_playback(self, request):
-        """Play, pause or skip on Spotify, the way the phone's own controls would."""
+        """Play, pause, skip or go back on Spotify, the way the phone's own controls would. (A song gone back
+        to was heard or learned ahead already: it gets its full show.)"""
         if not self._lan(request):
             raise web.HTTPForbidden()
         action = (await request.json()).get("action")
         if self.demo is not None:
             {"next": self.demo.skip, "pause": self.demo.pause, "resume": self.demo.resume}.get(action, lambda: None)()
             return web.json_response({"ok": True})
-        fn = {"pause": self.spotify.pause, "resume": self.spotify.resume, "next": self.spotify.next_track}.get(action)
+        fn = {"pause": self.spotify.pause, "resume": self.spotify.resume, "next": self.spotify.next_track,
+              "previous": self.spotify.previous_track}.get(action)
         if fn is None:
             return web.json_response({"error": "unknown action"}, status=400)
         ok = await asyncio.get_running_loop().run_in_executor(None, fn)
