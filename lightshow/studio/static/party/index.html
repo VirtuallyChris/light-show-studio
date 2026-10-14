@@ -121,7 +121,12 @@
   .sixteen.up .sheet { transform: none; }
   .sixteen .sx-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
   .sixteen .sx-title { font-weight: 650; }
-  .sixteen .sx-close { border: none; background: none; color: var(--muted); font-size: 24px; padding: 0 4px; }
+  .sixteen .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: -4px auto 12px; }
+  .sixteen .sx-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sixteen .sx-label { font-size: 13px; color: var(--muted); margin: 14px 0 8px; }
+  .sixteen .sx-reset { display: block; width: 100%; margin-top: 16px; font: inherit; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+  .sixteen .sx-reset[hidden] { display: none; }
+  .tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .sixteen .sx-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
   .sixteen .sx-grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
   .sixteen .sx-grid button.on { border-color: var(--text); }
@@ -375,35 +380,72 @@
     const chip = themed || t.theme_off ? `<button class="theme-chip ${t.theme_off ? '' : 'on'}" aria-label="${t.theme_off ? 'Plays in its album cover’s colors: tap for the party’s' : 'Plays in the party’s colors: tap for its album cover’s'}">${t.theme_off ? 'cover' : 'party'}</button>` : '';
     // its own two, the jam's, or its cover's as they will play: a tap on either picks from the sixteen
     const [a, b] = t.colors || coverPair(t.image) || ['#808080', '#808080'];
-    return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}">
+    return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}" data-own="${t.own ? 1 : ''}" data-name="${esc(t.name || t.label || '')}">
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="a" style="background:${esc(a)}" aria-label="Primary color"></button>
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Secondary color"></button>
       ${t.only ? '<span class="only-tag" title="Just these two colors">2</span>' : ''}
       ${st.theme_on !== false || t.colors ? chip : ''}${t.own ? '<button class="reset" title="Back to the jam’s colors" aria-label="Back to the jam’s colors">&#8634;</button>' : ''}</div>`;
   }
-  // the sixteen colors: solid colors the lights show well, one tap each, in a sheet from the bottom
+  // A song's colors, all on one sheet: tap anywhere on the song and its primary and secondary (sixteen solid
+  // colors each, the ones the lights show well) and "just these two" come up together. Every tap takes
+  // effect at once; the sheet stays until it is swiped down or something outside it is tapped.
   const SIXTEEN = ['#ff0000', '#ff4000', '#ff8000', '#ffbf00', '#ffff00', '#80ff00', '#00ff00', '#00ff80',
                    '#00ffff', '#0080ff', '#0000ff', '#4000ff', '#8000ff', '#ff00ff', '#ff0080', '#ffffff'];
   let sheetOpen = false;
-  document.addEventListener('click', e => { const sh = $('#sixteen'); if (sheetOpen && (e.target === sh || e.target.closest('.sx-close'))) closeSixteen(); });
-  function openSixteen(box, k, save) {
-    const sheet = $('#sixteen'), cur = box.dataset[k];
-    sheet.querySelector('.sx-title').textContent = k === 'a' ? 'Primary color' : 'Secondary color';
-    sheet.querySelector('.sx-grid').innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur ? 'on' : ''}" aria-label="${c}"></button>`).join('');
+  document.addEventListener('click', e => { if (sheetOpen && e.target === $('#sixteen')) closeSixteen(); });
+  document.addEventListener('keydown', e => { if (sheetOpen && e.key === 'Escape') closeSixteen(); });
+  function openSixteen(box, save) {
+    const sheet = $('#sixteen'), cur = { a: box.dataset.a, b: box.dataset.b };
+    sheet.querySelector('.sx-title').textContent = box.dataset.name || 'Colors';
+    for (const grid of sheet.querySelectorAll('.sx-grid')) {
+      const k = grid.dataset.k;
+      grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'a' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
+      for (const btn of grid.querySelectorAll('[data-c]')) btn.onclick = () => {
+        cur[k] = btn.dataset.c;
+        for (const o of grid.querySelectorAll('.on')) o.classList.remove('on');
+        btn.classList.add('on');
+        box.dataset[k] = cur[k];
+        const sw = box.querySelector(`.sw[data-k="${k}"]`); if (sw) { sw.style.background = cur[k]; sw.classList.remove('fixed'); }
+        save({ primary: cur.a, secondary: cur.b, only: only.checked });
+      };
+    }
     const only = sheet.querySelector('#sxOnly'); only.checked = !!box.dataset.only;
-    const pick = (a, b, o) => { closeSixteen(); save({ primary: a, secondary: b, only: o }); };
-    for (const btn of sheet.querySelectorAll('[data-c]')) btn.onclick = () =>
-      pick(k === 'a' ? btn.dataset.c : box.dataset.a, k === 'b' ? btn.dataset.c : box.dataset.b, only.checked);
-    only.onchange = () => pick(box.dataset.a, box.dataset.b, only.checked);
+    only.onchange = () => { box.dataset.only = only.checked ? '1' : ''; save({ primary: cur.a, secondary: cur.b, only: only.checked }); };
+    const back = sheet.querySelector('.sx-reset'); back.hidden = !box.dataset.own;
+    back.onclick = () => { save({}); closeSixteen(); };
     sheet.hidden = false; sheetOpen = true;
     requestAnimationFrame(() => sheet.classList.add('up'));
   }
-  function closeSixteen() { const sheet = $('#sixteen'); sheet.classList.remove('up'); sheet.hidden = true; sheetOpen = false; }
+  function closeSixteen() {
+    const sheet = $('#sixteen'), panel = sheet.querySelector('.sheet');
+    sheet.classList.remove('up'); panel.style.transform = ''; sheet.hidden = true;
+    if (sheetOpen) { sheetOpen = false; shown = ''; render(); }        // the song rows catch up with what was picked
+  }
+  // swiped down: it follows the finger, and goes once pulled far enough (or flicked). (The sheet comes
+  // after this script in the page, so this waits for it.)
+  document.addEventListener('DOMContentLoaded', () => {
+    const panel = $('#sixteen .sheet'); let y0 = null, t0 = 0, dy = 0;
+    panel.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; t0 = performance.now(); dy = 0; panel.style.transition = 'none'; }, { passive: true });
+    panel.addEventListener('touchmove', e => {
+      if (y0 === null) return;
+      dy = Math.max(0, e.touches[0].clientY - y0);
+      panel.style.transform = dy ? `translateY(${dy}px)` : '';
+    }, { passive: true });
+    panel.addEventListener('touchend', () => {
+      if (y0 === null) return;
+      const fast = dy > 30 && dy / Math.max(1, performance.now() - t0) > 0.6;
+      panel.style.transition = ''; y0 = null;
+      if (dy > 90 || fast) closeSixteen(); else panel.style.transform = '';
+    });
+  });
   function wireColors(root) {
     for (const box of root.querySelectorAll('.colors[data-id]')) {
       const id = box.dataset.id, reset = box.querySelector('.reset');
       const save = async body => { try { state = await api('colors', { track_id: id, ...body }); } catch (e) { /* next poll shows the truth */ } shown = ''; render(); };
-      for (const sw of box.querySelectorAll('.sw[data-k]')) sw.onclick = () => openSixteen(box, sw.dataset.k, save);
+      // anywhere on the song opens its colors (its own buttons, the party chip and ↺, keep their jobs)
+      const song = box.closest('.row, .np') || box;
+      song.classList.add('tappable');
+      song.onclick = e => { if (e.target.closest('button:not(.sw), a, input, label')) return; openSixteen(box, save); };
       if (reset) reset.onclick = () => save({});
       const chip = box.querySelector('.theme-chip');
       if (chip) chip.onclick = () => save(chip.classList.contains('on') ? { theme: false } : {});
@@ -758,10 +800,15 @@
 })();
 </script>
 <div class="sixteen" id="sixteen" hidden>
-  <div class="sheet" role="dialog" aria-label="Colors">
-    <div class="sx-head"><span class="sx-title">Color</span><button class="sx-close" aria-label="Close">&times;</button></div>
-    <div class="sx-grid"></div>
+  <div class="sheet" role="dialog" aria-label="Song colors">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="sx-head"><span class="sx-title">Colors</span></div>
+    <div class="sx-label">Primary</div>
+    <div class="sx-grid" data-k="a"></div>
+    <div class="sx-label">Secondary</div>
+    <div class="sx-grid" data-k="b"></div>
     <div class="sx-only"><span>Just these two colors</span><label class="switch"><input type="checkbox" id="sxOnly" aria-label="Just these two colors: no accents in other colors and no rainbow drops"><span></span></label></div>
+    <button class="sx-reset" hidden>Back to the jam’s colors</button>
   </div>
 </div>
 </body>
