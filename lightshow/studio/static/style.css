@@ -313,6 +313,11 @@ h3.with-switch { align-items: center; }
 h3.with-switch .toggle { text-transform: none; letter-spacing: 0; }
 /* Jam mode: a song's two colors */
 .jam-pair { display: inline-flex; align-items: center; gap: .3rem; margin-left: .4rem; }
+.sixteen { position: fixed; z-index: 60; background: var(--bg2); border: 1px solid var(--line2); border-radius: .6rem; padding: .5rem; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.sixteen .sx-grid { display: grid; grid-template-columns: repeat(8, 1.6rem); gap: .3rem; }
+.sixteen .sx-grid button { width: 1.6rem; height: 1.6rem; min-height: 0; padding: 0; border-radius: .35rem; border: 1px solid rgba(255, 255, 255, .18); cursor: pointer; }
+.sixteen .sx-grid button.on { outline: 2px solid #fff; outline-offset: 1px; }
+.sixteen .sx-only { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; font-size: .8rem; color: var(--muted); cursor: pointer; }
 .jam-pair input[type=color] { width: 1.7rem; height: 1.5rem; min-height: 0; padding: 0; border: 1px solid var(--line2); border-radius: .35rem; background: none; cursor: pointer; }
 .jam-pair input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
 .jam-pair input[type=color]::-webkit-color-swatch { border: none; border-radius: .2rem; }

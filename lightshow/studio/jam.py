@@ -131,7 +131,7 @@ class JamLibrary:
 
     # -- colors picked for a track in the jam queue ------------------------------------------
     def colors(self) -> dict:
-        """track id -> {"primary": hex, "secondary": hex}, or {"off": True} for a track that keeps out of
+        """track id -> {"primary": hex, "secondary": hex, "only"?: True}, or {"off": True} for a track that keeps out of
         the party's colors (it plays in its album cover's): kept for the next time the track plays."""
         if self._colors is None:
             try:
@@ -141,14 +141,15 @@ class JamLibrary:
                 self._colors = {}
         return self._colors
 
-    def set_colors(self, track_id: str, primary: str | None, secondary: str | None, off: bool = False) -> None:
-        """Give a track its own two colors, take it out of the party's colors (off: its cover's instead),
-        or (with None) send it back to the jam's colors."""
+    def set_colors(self, track_id: str, primary: str | None, secondary: str | None, off: bool = False, only: bool = False) -> None:
+        """Give a track its own two colors (only: those two and nothing else, no accents in other colors
+        and no rainbow drops), take it out of the party's colors (off: its cover's instead), or (with
+        None) send it back to the jam's colors."""
         colors = self.colors()
         if off:
             colors[track_id] = {"off": True}
         elif primary and secondary:
-            colors[track_id] = {"primary": primary, "secondary": secondary}
+            colors[track_id] = {"primary": primary, "secondary": secondary, **({"only": True} if only else {})}
         else:
             colors.pop(track_id, None)
         os.makedirs(self.dir, exist_ok=True)

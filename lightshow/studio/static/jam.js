@@ -43,9 +43,10 @@
   /** The extras (a few small accents in two more colors), picked from the track's own two colors: the
    *  hues farthest from both, either side of the middle of the wider gap between them on the color
    *  wheel (purple and green get red and orange). The server's extras_for does the same for the phone. */
-  function extrasFor(pair) {
+  const onlyTwo = track => !!(track && ((J.state || {}).track_colors || {})[track.id] || {}).only;
+  function extrasFor(pair, track) {
     const jc = (J.state || {}).jam_colors || {};
-    if (!jc.extras || !themeOn() || !pair || pair.length < 2) return null;
+    if (!jc.extras || !themeOn() || !pair || pair.length < 2 || onlyTwo(track)) return null;
     const hue = hx => { const r = parseInt(hx.slice(1, 3), 16) / 255, g = parseInt(hx.slice(3, 5), 16) / 255, b = parseInt(hx.slice(5, 7), 16) / 255;
       const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!mx || d / mx < 0.2 || mx < 0.2) return null;
       let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return ((h * 60) + 360) % 360; };
@@ -57,7 +58,7 @@
     return [hex((start + span * 0.38) % 360), hex((start + span * 0.62) % 360)];
   }
   /** rainbow drops for the songs that go all out, in "a different pair each song" */
-  const rainbowOn = () => { const jc = (J.state || {}).jam_colors || {}; return themeOn() && jc.mode === 'mix' && !!jc.rainbow; };
+  const rainbowOn = track => { const jc = (J.state || {}).jam_colors || {}; return themeOn() && jc.mode === 'mix' && !!jc.rainbow && !onlyTwo(track); };
   function shownColors(t) {
     const cols = colorsFor(t) || ((J.art || {})[t.image] || []).slice(0, 2);
     if (!colorsFor(t) && t.image && J.art && J.art[t.image] === undefined) fetchArt(t);
@@ -72,6 +73,44 @@
       J.shown = null; render();
     });
   }
+  // ------------------------------------------------------------------ the 16 colors
+  // Every color box in this panel opens these sixteen instead of the system picker: solid colors the
+  // lights show well, a click each. A song's own pair can also be kept to just its two colors.
+  const SIXTEEN = ['#ff0000', '#ff4000', '#ff8000', '#ffbf00', '#ffff00', '#80ff00', '#00ff00', '#00ff80',
+                   '#00ffff', '#0080ff', '#0000ff', '#4000ff', '#8000ff', '#ff00ff', '#ff0080', '#ffffff'];
+  function openSixteen(input) {
+    closeSixteen();
+    const pair = input.closest('.jam-pair[data-id]'), id = pair && pair.dataset.id;
+    const pop = document.createElement('div'); pop.className = 'sixteen'; pop.id = 'sixteen';
+    const cur = (input.value || '').toLowerCase();
+    pop.innerHTML = `<div class="sx-grid">${SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur ? 'on' : ''}" title="${c}"></button>`).join('')}</div>`
+      + (id ? `<label class="sx-only" title="No accents in other colors and no rainbow drops: only this song's two colors"><input type="checkbox" ${onlyTwo({ id }) ? 'checked' : ''}> Just these two colors</label>` : '');
+    document.body.appendChild(pop);
+    const r = input.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left)) + 'px';
+    pop.style.top = (r.bottom + h + 8 > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6) + 'px';
+    for (const b of pop.querySelectorAll('[data-c]')) b.onclick = () => {
+      closeSixteen(); input.value = b.dataset.c;
+      input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const only = pop.querySelector('.sx-only input');
+    if (only) only.onchange = async () => {
+      const a = pair.querySelector('.jp-a'), b = pair.querySelector('.jp-b');
+      try {
+        J.state = await api('jam/colors', { track_id: id, primary: a.value, secondary: b.value, only: only.checked });
+        if (id === roomTrackId()) recolor();
+        J.shown = null; render();
+      } catch (e) { toast(e.message, true); }
+    };
+  }
+  function closeSixteen() { const p = $('#sixteen'); if (p) p.remove(); }
+  document.addEventListener('click', e => {
+    const input = e.target.closest && e.target.closest('#jamBody input[type=color]');
+    if (input) { e.preventDefault(); openSixteen(input); return; }
+    if (!e.target.closest || !e.target.closest('#sixteen')) closeSixteen();
+  }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSixteen(); });
+
   function pairPicker(t) {
     if (!t || !t.id || t.kind === 'custom') return '';
     const [a, b] = shownColors(t), own = (J.state.track_colors || {})[t.id];
@@ -91,10 +130,10 @@
         ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take two more colors now and then, picked for each song from its own two (purple and green get red and orange)">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}></span></div>` : ''}</div>`;
   }
   /** The song in the room got new colors (here, or on the Party Hub): build its show again in them. */
-  const colorSig = () => JSON.stringify([colorsFor(J.doc && J.doc.track), extrasFor(colorsFor(J.doc && J.doc.track)), rainbowOn()]);
+  const colorSig = () => { const t = J.doc && J.doc.track; return JSON.stringify([colorsFor(t), extrasFor(colorsFor(t), t), rainbowOn(t)]); };
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
-    S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors); S.jamRainbow = rainbowOn(); J.colorSig = colorSig();
+    S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); J.colorSig = colorSig();
     try { St.autoBuild(true); J.built = sectionKeys(); } catch (e) { console.error(e); }
     St.draw();
   }
@@ -234,7 +273,7 @@
         if (document.activeElement) document.activeElement.blur();
         J.shown = null; render();
       };
-      a.onchange = b.onchange = () => save({ primary: a.value, secondary: b.value }).catch(e => toast(e.message, true));
+      a.onchange = b.onchange = () => save({ primary: a.value, secondary: b.value, only: onlyTwo({ id }) }).catch(e => toast(e.message, true));
       if (reset) reset.onclick = () => save({}).catch(e => toast(e.message, true));
       if (theme) theme.onclick = () => save(theme.classList.contains('on') ? { theme: false } : {}).catch(e => toast(e.message, true));
     }
@@ -465,7 +504,7 @@
     J.live = true; J.doc = doc;
     S.albumPalette = await albumPalette(doc.track);
     S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
-    S.jamExtras = extrasFor(S.jamColors); S.jamRainbow = rainbowOn(); J.colorSig = colorSig();
+    S.jamExtras = extrasFor(S.jamColors, doc.track); S.jamRainbow = rainbowOn(doc.track); J.colorSig = colorSig();
     if (doc.kind === 'custom' && doc.project) {
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);

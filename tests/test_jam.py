@@ -872,6 +872,16 @@ class TestTrackColors(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def test_a_song_can_keep_to_just_its_two_colors(self):
+        d = tempfile.mkdtemp()
+        try:
+            JamLibrary(d).set_colors("abc", "#ff0000", "#ff8000", only=True)     # a red and orange song
+            self.assertEqual(JamLibrary(d).colors(), {"abc": {"primary": "#ff0000", "secondary": "#ff8000", "only": True}})
+            JamLibrary(d).set_colors("abc", "#ff0000", "#ff8000")                # accents allowed again
+            self.assertNotIn("only", JamLibrary(d).colors()["abc"])
+        finally:
+            shutil.rmtree(d)
+
 
 class TestPairPerSong(unittest.TestCase):
     """'A different pair each song': stable per track, and never the same pair twice in a row."""

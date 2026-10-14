@@ -810,7 +810,8 @@ class JamService:
             pair, own = colors(t)
             return {"id": t.get("id"), "label": t.get("label"), "name": t.get("name"), "artists": t.get("artists"),
                     "image": t.get("image"), "kind": t.get("kind"), "duration": t.get("duration"), "colors": pair, "own": own,
-                    "theme_off": bool((own_all.get(t.get("id")) or {}).get("off")), **(extra or {})}
+                    "theme_off": bool((own_all.get(t.get("id")) or {}).get("off")),
+                    "only": bool((own_all.get(t.get("id")) or {}).get("only")), **(extra or {})}
         room, ahead = st.get("room"), st.get("ahead")
         up = ([ahead] if ahead and (not room or ahead.get("key") != room.get("key")) else []) + list(st.get("queue") or [])
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
@@ -842,7 +843,7 @@ class JamService:
             return web.json_response({"error": "no track"}, status=400)
         else:
             self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
-                                    off=body.get("theme") is False)
+                                    off=body.get("theme") is False, only=bool(body.get("only")))
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
 
     async def party_playback(self, request):
@@ -937,7 +938,7 @@ class JamService:
         hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
         if body.get("track_id"):
             self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
-                                    off=body.get("theme") is False)
+                                    off=body.get("theme") is False, only=bool(body.get("only")))
         else:
             cfg = self.load_config()
             cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}

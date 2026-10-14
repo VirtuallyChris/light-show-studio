@@ -448,10 +448,14 @@ panel.
 The studio also serves a phone app on the home network. On the iPhone, open
 `http://<this PC's address>:8765/party` in Safari (here `http://192.168.1.11:8765/party`)
 and choose **Share, Add to Home Screen**: it opens full screen like an app. It
-shows the song the room is hearing (with play/pause and skip, which steer Spotify
-the way the phone's own controls would), what comes next, and each song's two
-colors. Tap a color to change a song's pair ahead of time (it is kept for that
-track, as in the studio; ↺ goes back to the jam's). **Party colors** switches the
+shows the song the room is hearing (with play/pause, which steers Spotify the way
+the phone's own controls would; there is no skip, as in a jam it jumps Spotify far
+ahead of the room and nothing shows it until minutes later), what comes next, and
+each song's two colors. Tap a color to change a song's pair ahead of time from
+sixteen solid colors (it is kept for that track, as in the studio; ↺ goes back to
+the jam's). **Just these two colors** in the same sheet keeps a song to its own two
+and nothing else: no accents in other colors and no rainbow drops (a red and
+orange song stays red and orange); such a song shows a small *2*. **Party colors** switches the
 party's colors (purple and green, or the pairs) on or off for every song: off,
 each song plays in its album cover's two colors. Each song's **party** / **cover**
 chip does the same for that song alone (kept for the track). A change of colors
@@ -881,7 +885,10 @@ noise.
   comes in, except the extras: tick **Now and then** and a few of the small
   accents (a hook strike, a spark, a sweep, a color slam, a meteor shower; about
   a third of them) take two more colors instead, picked from the song's own two
-  (they are not shown: a song shows its two colors). The base,
+  (they are not shown: a song shows its two colors), unless the song is kept
+  to **Just these two colors** (in its color popover), which also keeps it out
+  of rainbow drops. Every color box in the Jam panel opens sixteen solid colors
+  instead of the system picker. The base,
   the comets and the drums stay in the two. A song with a show you made keeps
   that show's colors.
 - **Dual comets** are for drops only.

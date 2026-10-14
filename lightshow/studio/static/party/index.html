@@ -111,8 +111,21 @@
   /* colors */
   .colors { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
   .sw { position: relative; width: 34px; height: 34px; border-radius: 10px; border: 2px solid var(--sw-line); overflow: hidden; flex: none; }
-  .sw input { position: absolute; inset: -8px; width: calc(100% + 16px); height: calc(100% + 16px); opacity: 0; }
+  button.sw { padding: 0; cursor: pointer; }
   .sw.fixed { border-style: dashed; }
+  .only-tag { font-size: 11px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; }
+  .sixteen { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 0.35); display: flex; align-items: flex-end; }
+  .sixteen[hidden] { display: none; }
+  .sixteen .sheet { width: 100%; background: var(--card); border-radius: 20px 20px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow: var(--shadow);
+    transform: translateY(100%); transition: transform .2s ease; }
+  .sixteen.up .sheet { transform: none; }
+  .sixteen .sx-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .sixteen .sx-title { font-weight: 650; }
+  .sixteen .sx-close { border: none; background: none; color: var(--muted); font-size: 24px; padding: 0 4px; }
+  .sixteen .sx-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+  .sixteen .sx-grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
+  .sixteen .sx-grid button.on { border-color: var(--text); }
+  .sixteen .sx-only { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
   /* cues */
   .cues { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .cue { position: relative; overflow: hidden; font: inherit; font-size: 17px; font-weight: 650; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 16px; padding: 18px 10px; min-height: 76px; }
@@ -360,25 +373,37 @@
     if (t.kind === 'custom') return `<div class="colors"><span class="tag">your show</span></div>`;
     const st = state || {}, themed = st.theme_on !== false && ['pick', 'mix'].includes(st.color_mode);
     const chip = themed || t.theme_off ? `<button class="theme-chip ${t.theme_off ? '' : 'on'}" aria-label="${t.theme_off ? 'Plays in its album cover’s colors: tap for the party’s' : 'Plays in the party’s colors: tap for its album cover’s'}">${t.theme_off ? 'cover' : 'party'}</button>` : '';
-    if (!t.colors) {                                                    // its cover's two colors, as they will play
-      const [a, b] = coverPair(t.image) || ['#808080', '#808080'];
-      return `<div class="colors" data-id="${esc(t.id)}"><span class="sw fixed" style="background:${esc(a)}"></span><span class="sw fixed" style="background:${esc(b)}"></span>${st.theme_on !== false ? chip : ''}</div>`;
-    }
-    const [a, b] = t.colors;
-    return `<div class="colors" data-id="${esc(t.id)}">
-      <label class="sw" style="background:${esc(a)}"><input type="color" class="ca" value="${esc(a)}" aria-label="Primary color"></label>
-      <label class="sw" style="background:${esc(b)}"><input type="color" class="cb" value="${esc(b)}" aria-label="Secondary color"></label>
-      ${chip}${t.own ? '<button class="reset" title="Back to the jam’s colors" aria-label="Back to the jam’s colors">&#8634;</button>' : ''}</div>`;
+    // its own two, the jam's, or its cover's as they will play: a tap on either picks from the sixteen
+    const [a, b] = t.colors || coverPair(t.image) || ['#808080', '#808080'];
+    return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}">
+      <button class="sw ${t.colors ? '' : 'fixed'}" data-k="a" style="background:${esc(a)}" aria-label="Primary color"></button>
+      <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Secondary color"></button>
+      ${t.only ? '<span class="only-tag" title="Just these two colors">2</span>' : ''}
+      ${st.theme_on !== false || t.colors ? chip : ''}${t.own ? '<button class="reset" title="Back to the jam’s colors" aria-label="Back to the jam’s colors">&#8634;</button>' : ''}</div>`;
   }
+  // the sixteen colors: solid colors the lights show well, one tap each, in a sheet from the bottom
+  const SIXTEEN = ['#ff0000', '#ff4000', '#ff8000', '#ffbf00', '#ffff00', '#80ff00', '#00ff00', '#00ff80',
+                   '#00ffff', '#0080ff', '#0000ff', '#4000ff', '#8000ff', '#ff00ff', '#ff0080', '#ffffff'];
+  let sheetOpen = false;
+  document.addEventListener('click', e => { const sh = $('#sixteen'); if (sheetOpen && (e.target === sh || e.target.closest('.sx-close'))) closeSixteen(); });
+  function openSixteen(box, k, save) {
+    const sheet = $('#sixteen'), cur = box.dataset[k];
+    sheet.querySelector('.sx-title').textContent = k === 'a' ? 'Primary color' : 'Secondary color';
+    sheet.querySelector('.sx-grid').innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur ? 'on' : ''}" aria-label="${c}"></button>`).join('');
+    const only = sheet.querySelector('#sxOnly'); only.checked = !!box.dataset.only;
+    const pick = (a, b, o) => { closeSixteen(); save({ primary: a, secondary: b, only: o }); };
+    for (const btn of sheet.querySelectorAll('[data-c]')) btn.onclick = () =>
+      pick(k === 'a' ? btn.dataset.c : box.dataset.a, k === 'b' ? btn.dataset.c : box.dataset.b, only.checked);
+    only.onchange = () => pick(box.dataset.a, box.dataset.b, only.checked);
+    sheet.hidden = false; sheetOpen = true;
+    requestAnimationFrame(() => sheet.classList.add('up'));
+  }
+  function closeSixteen() { const sheet = $('#sixteen'); sheet.classList.remove('up'); sheet.hidden = true; sheetOpen = false; }
   function wireColors(root) {
     for (const box of root.querySelectorAll('.colors[data-id]')) {
-      const id = box.dataset.id, a = box.querySelector('.ca'), b = box.querySelector('.cb'), reset = box.querySelector('.reset');
+      const id = box.dataset.id, reset = box.querySelector('.reset');
       const save = async body => { try { state = await api('colors', { track_id: id, ...body }); } catch (e) { /* next poll shows the truth */ } shown = ''; render(); };
-      if (a && b) {
-        const live = () => { a.parentElement.style.background = a.value; b.parentElement.style.background = b.value; };
-        a.oninput = b.oninput = live;
-        a.onchange = b.onchange = () => { document.activeElement && document.activeElement.blur(); save({ primary: a.value, secondary: b.value }); };
-      }
+      for (const sw of box.querySelectorAll('.sw[data-k]')) sw.onclick = () => openSixteen(box, sw.dataset.k, save);
       if (reset) reset.onclick = () => save({});
       const chip = box.querySelector('.theme-chip');
       if (chip) chip.onclick = () => save(chip.classList.contains('on') ? { theme: false } : {});
@@ -544,22 +569,20 @@
           <div class="title">${esc(r.name || r.label)}</div>${(r.artists || []).length ? `<div class="artist">${esc(r.artists.join(', '))}</div>` : ''}
           ${colorBox(r, true)}
           <div class="bar"><div id="prog"></div></div><div class="times"><span id="pos">0:00</span><span>${fmt(r.duration)}</span></div>
-          <div class="controls"><span class="spacer"></span>
-          <button class="btn big" id="bPlay" aria-label="${r.playing ? 'Pause' : 'Play'}">${r.playing ? '&#10074;&#10074;' : '&#9654;'}</button>
-          <button class="btn" id="bNext" aria-label="Next song">&#9197;</button></div></div>`;
+          <div class="controls">
+          <button class="btn big" id="bPlay" aria-label="${r.playing ? 'Pause' : 'Play'}">${r.playing ? '&#10074;&#10074;' : '&#9654;'}</button></div></div>`;
     const up = st.upcoming || [];
     const nextHtml = !st.running ? `<div class="empty">—</div>` : up.length ? up.map(t => `<div class="row">${artBox(t)}
         <div style="min-width:0"><div class="title">${esc(t.name || t.label)}</div><div class="artist">${esc((t.artists || []).join(', '))}</div>${colorBox(t)}</div></div>`).join('')
       : `<div class="empty">Nothing queued.</div>`;
     const html = nowHtml + '|' + nextHtml;
     // never rebuild under an open color picker (rebuilding would close it)
-    const busy = document.activeElement && document.activeElement.type === 'color';
+    const busy = sheetOpen;
     if (html !== shown && !busy) {
       $('#now').innerHTML = nowHtml; $('#next').innerHTML = nextHtml; shown = html;
       wireColors($('#now')); wireColors($('#next'));
-      const play = $('#bPlay'), next = $('#bNext');
+      const play = $('#bPlay');
       if (play) play.onclick = () => api('playback', { action: r.playing ? 'pause' : 'resume' }).then(poll).catch(() => {});
-      if (next) next.onclick = () => api('playback', { action: 'next' }).then(poll).catch(() => {});
     }
     renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
     if (settingsOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
@@ -734,5 +757,12 @@
   poll();
 })();
 </script>
+<div class="sixteen" id="sixteen" hidden>
+  <div class="sheet" role="dialog" aria-label="Colors">
+    <div class="sx-head"><span class="sx-title">Color</span><button class="sx-close" aria-label="Close">&times;</button></div>
+    <div class="sx-grid"></div>
+    <div class="sx-only"><span>Just these two colors</span><label class="switch"><input type="checkbox" id="sxOnly" aria-label="Just these two colors: no accents in other colors and no rainbow drops"><span></span></label></div>
+  </div>
+</div>
 </body>
 </html>
