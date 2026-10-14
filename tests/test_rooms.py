@@ -1,4 +1,4 @@
-"""Rooms: lights and speakers by room, and a room switched off or on fading out or in.
+"""Rooms: lights and speakers by room, and a room switched off or on (lights fade, speakers mute).
 
 Everything here is fake: no light and no speaker is ever touched."""
 
@@ -25,17 +25,24 @@ class Store:
 
 
 class FakeSpeaker:
+    """Like a Google speaker: every change chimes, and setting a level unmutes it."""
+
     def __init__(self, level):
-        self.status = mock.Mock(volume_level=level)
-        self.muted = False
-        self.levels = []
+        self.status = mock.Mock(volume_level=level, volume_muted=False)
+        self.levels, self.chimes = [], 0
+
+    @property
+    def muted(self):
+        return self.status.volume_muted
 
     def set_volume(self, v):
-        self.status.volume_level = v
+        self.status.volume_level, self.status.volume_muted = v, False
         self.levels.append(round(v, 3))
+        self.chimes += 1
 
     def set_volume_muted(self, m):
-        self.muted = m
+        self.status.volume_muted = m
+        self.chimes += 1
 
 
 class FakeCast:
@@ -71,25 +78,26 @@ class TestSpeakers(unittest.TestCase):
     def setUp(self):
         self.st = Store()
         self.home = FakeSpeaker(0.4)
-        self.r = Rooms(self.st.load, self.st.save, FakeCast({"Living Home": self.home}), fade_s=0.2)
+        self.r = Rooms(self.st.load, self.st.save, FakeCast({"Living Home": self.home}))
         self.rid = self.r.replace([{"name": "Living room", "speakers": ["Living Home"]}])[0]["id"]
 
-    def test_off_fades_out_then_mutes_and_keeps_its_level(self):
+    def test_off_mutes_at_once_and_keeps_its_level(self):
         self.r.set_on(self.rid, False)
         self.r.sync_speakers(wait=True)
         self.assertTrue(self.home.muted)
-        self.assertLess(self.home.status.volume_level, 0.05)          # faded down, and muted
-        self.assertEqual(self.r.muted(), {"Living Home": 0.4})        # its own level kept for the page and for later
+        self.assertEqual(self.home.chimes, 1)                          # one change, not a fade of beeps
+        self.assertEqual(self.home.status.volume_level, 0.4)          # its level untouched
+        self.assertEqual(self.r.muted(), {"Living Home": 0.4})        # and kept for the page and for later
 
-    def test_on_again_fades_back_to_its_level(self):
+    def test_on_again_unmutes_at_its_level(self):
         self.r.set_on(self.rid, False)
         self.r.sync_speakers(wait=True)
-        self.home.levels.clear()
         self.r.set_on(self.rid, True)
         self.r.sync_speakers(wait=True)
         self.assertFalse(self.home.muted)
-        self.assertEqual(self.home.levels[0], 0.0)
-        self.assertEqual(self.home.levels[-1], 0.4)
+        self.assertEqual(self.home.levels, [])                         # never a volume step
+        self.assertEqual(self.home.chimes, 2)
+        self.assertEqual(self.home.status.volume_level, 0.4)
         self.assertEqual(self.r.muted(), {})
 
     def test_a_volume_set_while_muted_is_kept_for_later(self):
@@ -100,6 +108,8 @@ class TestSpeakers(unittest.TestCase):
         self.r.set_on(self.rid, True)
         self.r.sync_speakers(wait=True)
         self.assertEqual(self.home.status.volume_level, 0.6)
+        self.assertFalse(self.home.muted)
+        self.assertEqual(self.home.chimes, 2)                          # muted, then the new level (which unmutes)
 
     def test_quitting_unmutes(self):
         self.r.set_on(self.rid, False)
@@ -110,7 +120,7 @@ class TestSpeakers(unittest.TestCase):
         self.assertEqual(self.r.muted(), {})
 
     def test_a_test_copy_never_touches_a_speaker(self):
-        r = Rooms(self.st.load, self.st.save, FakeCast({"Living Home": self.home}), touch=False, fade_s=0.2)
+        r = Rooms(self.st.load, self.st.save, FakeCast({"Living Home": self.home}), touch=False)
         r.set_on(self.rid, False)
         self.assertEqual(r.sync_speakers(wait=True), [])
         self.assertFalse(self.home.muted)

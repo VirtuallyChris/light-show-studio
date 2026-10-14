@@ -1,16 +1,19 @@
 """Cues: buttons on the Party Hub that stop the party for a moment (a doorbell, shot o'clock).
 
-A cue fades the music out (if set), pauses Spotify, plays one of your saved shows (its sound on the
-speakers, its lights in the room), then resumes Spotify and fades the music back in (if set). In a
-jam the room is about 90 s behind Spotify; pausing Spotify pauses the room at once and holds the
-buffer, so the room picks up exactly where it stopped.
+A cue stops the music at once, plays one of your saved shows (its sound on the speakers, its lights
+in the room), then brings the music straight back. In a jam the room is behind Spotify; pausing
+Spotify pauses the room at once and holds the buffer, so the room picks up exactly where it stopped.
+
+The music is never faded: a Google speaker chimes at every volume change, so a fade on the speakers
+was a run of beeps, and a fade in the audio itself would reach the room late (a speaker buffers up
+to 20 s ahead). The speakers' volume is never touched.
 
 Where the show plays:
 - the jam is on Cast speakers (or the studio is casting): the show's song goes to the same speaker
   or group, and the studio page plays its lights following that speaker; afterwards the speakers get
   the jam's stream back from exactly where the room stopped;
 - the jam is on this PC (or there is no jam and no cast): the studio page plays the song on this PC
-  and its lights (fades are skipped: the PC output has no volume to fade);
+  and its lights;
 - a silent preview jam: the lights only.
 Without a jam, Spotify is paused only if something is playing, and resumed only if it was.
 
@@ -25,21 +28,10 @@ import threading
 import time
 import uuid
 
-STEPS_PER_S = 10                                   # volume steps a second during a fade
-
 DEFAULT_CUES = [
-    {"id": "doorbell", "name": "Doorbell", "show": "", "fade_out": {"on": True, "s": 1.5}, "fade_in": {"on": True, "s": 3.0}},
-    {"id": "shot", "name": "Shot o'clock", "show": "", "fade_out": {"on": True, "s": 2.0}, "fade_in": {"on": True, "s": 4.0}},
+    {"id": "doorbell", "name": "Doorbell", "show": ""},
+    {"id": "shot", "name": "Shot o'clock", "show": ""},
 ]
-
-
-def _fade(v) -> dict:
-    v = v if isinstance(v, dict) else {}
-    try:
-        s = float(v.get("s", 2.0))
-    except (TypeError, ValueError):
-        s = 2.0
-    return {"on": bool(v.get("on", True)), "s": round(max(0.0, min(30.0, s)), 2)}
 
 
 def clean(cues) -> list[dict]:
@@ -52,7 +44,7 @@ def clean(cues) -> list[dict]:
             cid = uuid.uuid4().hex[:10]
         ids.add(cid)
         out.append({"id": cid, "name": str(c.get("name") or "").strip()[:30] or f"Cue {len(out) + 1}",
-                    "show": str(c.get("show") or "")[:120], "fade_out": _fade(c.get("fade_out")), "fade_in": _fade(c.get("fade_in"))})
+                    "show": str(c.get("show") or "")[:120]})
     return out[:12]
 
 
@@ -61,14 +53,7 @@ class Rehearsal:
 
     def __init__(self, show_length):
         self.show_length = show_length                  # show name -> seconds
-        self.level = 0.4
         self.calls: list = []
-
-    def volume(self) -> float:
-        return self.level
-
-    def set_volume(self, v: float) -> None:
-        self.level = v
 
     def pause_music(self) -> None:
         self.calls.append("pause")
@@ -101,16 +86,6 @@ class LiveHooks:
             self.via = "pc"
         self.device = cast.name if self.via == "cast" else ""
         self.paused_spotify = False
-
-    def volume(self):
-        if self.via != "cast":
-            return None                                  # nothing to fade
-        v = self.cast.status().get("volume")
-        return float(v) if v is not None else None
-
-    def set_volume(self, v: float) -> None:
-        if self.via == "cast":
-            self.cast.set_volume(v)
 
     def pause_music(self) -> None:
         if self.engine is not None:
@@ -208,33 +183,11 @@ class CueRunner:
         self.state.update(phase=name, t0=self.clock(), dur=dur)
         self.state["steps"] = self.state.get("steps", []) + [name]
 
-    def _ramp(self, a: float, b: float, secs: float, watch_stop: bool) -> None:
-        """Move the volume from a to b over secs, by the clock: a speaker takes a moment to take each
-        change, so every step sets where the fade should be by now (it lasts secs whatever the speaker)."""
-        t0 = self.clock()
-        while True:
-            if watch_stop and self.stop_flag.is_set():
-                return
-            k = min(1.0, (self.clock() - t0) / max(1e-3, secs))
-            self.hooks.set_volume(a + (b - a) * k * k * (3 - 2 * k))
-            if k >= 1.0:
-                return
-            self.sleep(1.0 / STEPS_PER_S)
-
     def _run(self, cue: dict) -> None:
         h = self.hooks
-        level = h.volume()                               # None: nothing to fade (this PC's output)
         try:
-            fo, fi = cue["fade_out"], cue["fade_in"]
-            if level is None:
-                fo, fi = {**fo, "on": False}, {**fi, "on": False}
-            if fo["on"] and fo["s"] > 0:
-                self._phase("fade_out", fo["s"])
-                self._ramp(level, 0.0, fo["s"], watch_stop=False)
             self._phase("pause")
             h.pause_music()
-            if level is not None:
-                h.set_volume(level)                      # the show plays at the party's own level
             dur = h.play_show(cue["show"])
             self._phase("show", dur)
             end = self.clock() + dur
@@ -242,22 +195,13 @@ class CueRunner:
                 self.sleep(min(0.1, max(0.0, end - self.clock())))
             if self.stop_flag.is_set():
                 h.stop_show()
-            if fi["on"] and fi["s"] > 0:
-                h.set_volume(0.0)
             self._phase("resume")
             h.resume_music()
-            if fi["on"] and fi["s"] > 0:
-                self._phase("fade_in", fi["s"])
-                self._ramp(0.0, level, fi["s"], watch_stop=False)
-            if level is not None:
-                h.set_volume(level)
             self._phase("done")
         except Exception as e:  # noqa: BLE001 - the music must come back whatever went wrong
             self.state["error"] = f"{type(e).__name__}: {e}"
             try:
                 h.resume_music()
-                if level is not None:
-                    h.set_volume(level)
             except Exception:  # noqa: BLE001
                 pass
             self._phase("done")

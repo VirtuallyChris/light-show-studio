@@ -1,13 +1,15 @@
 """Rooms: which lights and speakers stand where, and which rooms the party is in right now.
 
 A room switched off (karaoke in the living room while beer pong goes on in the game room) leaves
-the show: its lights fade back to how they were before the show took them, and its speakers fade
-out and go muted. Switched on again, both fade back in. Each fade takes FADE_S seconds.
+the show: its lights fade back over FADE_S seconds to how they were before the show took them, and
+its speakers go muted at once. Switched on again, the lights fade back in and the speakers unmute.
 
-A speaker's own level is kept: it fades to nothing and goes muted (it is not set back to its level
-while muted, because setting a level unmutes a Google speaker), and the Party Hub's slider still
-shows, and still sets, the level it plays at once the room is back, when it fades up to it. The levels of the speakers a room muted are kept in config.json
-(room_muted), so only those are ever unmuted, and a studio that quits unmutes them on the way out.
+The speakers are never faded: a Google speaker chimes at every volume change, so a fade was a run of
+beeps. Muting and unmuting is one change each. A speaker's own level is kept as it is: the Party
+Hub's slider still shows, and still sets, the level it plays at once the room is back (a level set
+while muted is only kept, as setting a level unmutes a Google speaker). The levels of the speakers a
+room muted are kept in config.json (room_muted), so only those are ever unmuted, and a studio that
+quits unmutes them on the way out.
 """
 
 from __future__ import annotations
@@ -17,8 +19,7 @@ import threading
 import time
 import uuid
 
-FADE_S = 5.0
-STEPS_PER_S = 5                                     # volume steps a second during a fade
+FADE_S = 5.0                                        # the lights' fade; speakers mute and unmute at once
 
 
 def clean(rooms) -> list[dict]:
@@ -41,19 +42,13 @@ def clean(rooms) -> list[dict]:
     return out
 
 
-def _ease(k: float) -> float:
-    k = max(0.0, min(1.0, k))
-    return k * k * (3 - 2 * k)
-
-
 class Rooms:
-    def __init__(self, load_config, save_config, cast=None, touch: bool = True, fade_s: float = FADE_S):
+    def __init__(self, load_config, save_config, cast=None, touch: bool = True):
         self.load_config, self.save_config = load_config, save_config
         self.cast = cast                                 # the CastManager: finds speakers by name
         self.touch = touch                               # False on a test copy: never touches a speaker
-        self.fade_s = fade_s
         self.lock = threading.Lock()
-        self.gen: dict[str, int] = {}                    # speaker -> the fade it is on (a newer one ends an older)
+        self.gen: dict[str, int] = {}                    # speaker -> the change it is on (a newer one ends an older)
         self.errors: dict[str, str] = {}
 
     # -- the rooms --------------------------------------------------------------------------------
@@ -109,14 +104,14 @@ class Rooms:
         return True
 
     def sync_speakers(self, wait: bool = False) -> list[threading.Thread]:
-        """Fade out the speakers of rooms that are off, and back in those of rooms that are on again."""
+        """Mute the speakers of rooms that are off, and unmute those of rooms that are on again."""
         if not self.touch or self.cast is None:
             return []
         want = {s for r in self.list() if not r["on"] for s in r["speakers"]}
         have = set(self.muted())
         threads = []
         for name in sorted(want | have):
-            g = self.gen.get(name, 0)                    # > 0 fading out, < 0 fading in, 0 resting
+            g = self.gen.get(name, 0)                    # > 0 muting, < 0 unmuting, 0 resting
             if name in want and not (g > 0 or (g == 0 and name in have)):
                 threads.append(self._start(name, out=True))
             elif name not in want and name in have and not g < 0:
@@ -128,15 +123,15 @@ class Rooms:
 
     def _start(self, name: str, out: bool) -> threading.Thread:
         g = abs(self.gen.get(name, 0)) + 1
-        self.gen[name] = g if out else -g                # the sign says which way it is fading
-        t = threading.Thread(target=self._fade, args=(name, out, g), daemon=True)
+        self.gen[name] = g if out else -g                # the sign says which way it is going
+        t = threading.Thread(target=self._switch, args=(name, out, g), daemon=True)
         t.start()
         return t
 
     def _current(self, name: str, g: int) -> bool:
         return abs(self.gen.get(name, 0)) == g
 
-    def _fade(self, name: str, out: bool, g: int) -> None:
+    def _switch(self, name: str, out: bool, g: int) -> None:
         try:
             c = self.cast._device(name)
             if c is None:
@@ -148,35 +143,19 @@ class Rooms:
                 if level is None:
                     raise ConnectionError("not answering")
                 self._store(name, level)                 # kept first: the Party Hub shows it from now on
-                start = live if live is not None else level
-                t0 = time.monotonic()                    # by the clock: each change takes the speaker a moment
-                while True:
-                    if not self._current(name, g):
-                        return
-                    k = min(1.0, (time.monotonic() - t0) / max(1e-3, self.fade_s))
-                    c.set_volume(start * (1 - _ease(k)))
-                    if k >= 1.0:
-                        break
-                    time.sleep(1.0 / STEPS_PER_S)
-                # Muted at nothing. (Setting the level again would unmute a Google speaker: tried.) Its own
-                # level is kept here, shown on the Party Hub and set again when the room is back.
-                c.set_volume_muted(True)
+                if self._current(name, g):
+                    c.set_volume_muted(True)             # one change: one chime at most, its level untouched
             else:
                 if saved is None:
                     return
-                c.set_volume(0.0)
-                time.sleep(0.2)
-                c.set_volume_muted(False)
-                t0 = time.monotonic()
-                while True:
-                    if not self._current(name, g):
-                        return
-                    k = min(1.0, (time.monotonic() - t0) / max(1e-3, self.fade_s))
-                    c.set_volume(saved * _ease(k))
-                    if k >= 1.0:
-                        break
-                    time.sleep(1.0 / STEPS_PER_S)
-                c.set_volume(saved)
+                live = float(c.status.volume_level) if c.status is not None else None
+                if live is not None and abs(live - saved) < 0.005:
+                    c.set_volume_muted(False)            # its level is still the one it plays at
+                else:
+                    c.set_volume(saved)                  # a level set while muted: setting it unmutes it too
+                    time.sleep(0.3)
+                    if c.status is not None and c.status.volume_muted:
+                        c.set_volume_muted(False)
                 self._store(name, None)
             self.errors.pop(name, None)
         except Exception as e:  # noqa: BLE001 - one speaker that does not answer must not stop the rest
@@ -192,7 +171,7 @@ class Rooms:
         if not self.touch or self.cast is None:
             return
         for name, level in self.muted().items():
-            self.gen[name] = abs(self.gen.get(name, 0)) + 1          # ends any fade still running
+            self.gen[name] = abs(self.gen.get(name, 0)) + 1          # ends any change still on its way
             try:
                 c = self.cast._device(name)
                 if c is not None:

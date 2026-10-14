@@ -613,7 +613,7 @@ class Studio:
         return web.json_response({"cues": cues})
 
     async def cues_run(self, request):
-        """Run a cue: the music fades out, a saved show plays, the music comes back."""
+        """Run a cue: the music stops, a saved show plays, the music comes back."""
         if not JamService._lan(request):
             raise web.HTTPForbidden()
         try:
@@ -651,7 +651,7 @@ class Studio:
 
     async def apply_rooms(self) -> None:
         """Bring the show in line with the rooms: lights of a room switched off fade back to how they were,
-        lights of a room switched on fade into the show, speakers fade out or in."""
+        lights of a room switched on fade into the show, speakers mute or unmute."""
         loop = asyncio.get_running_loop()
         off = self._off_ips()
         dropped, added = self.output.select([ip for ip in self.requested if ip not in off], self.known)

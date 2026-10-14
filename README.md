@@ -469,13 +469,17 @@ devices on the home network (private addresses) and this PC.
 ## Cues: the doorbell, shot o'clock
 
 The Party Hub's **Cues** are big buttons for the moments the party stops for: tap
-one and the music fades out, Spotify pauses (in a jam the room pauses with it and
-keeps its buffer), one of your saved shows plays, then Spotify resumes and the
-music fades back in where it left off. Tap the running cue to end its show early.
-In **Settings**, each cue has a name, its show (any saved show, with its length),
-and whether the music fades out and back in, and over how many seconds (up to
-30). Doorbell and Shot o'clock are there to start with; **+ Add cue** adds more.
-Cues are kept in config.json (`cues`).
+one and the music stops at once, Spotify pauses (in a jam the room pauses with it
+and keeps its buffer), one of your saved shows plays, then Spotify resumes and the
+music comes straight back where it left off. Tap the running cue to end its show
+early. In **Settings**, each cue has a name and its show (any saved show, with its
+length). Doorbell and Shot o'clock are there to start with; **+ Add cue** adds
+more. Cues are kept in config.json (`cues`).
+
+The music is never faded. A Google speaker chimes at every volume change, so a
+fade on the speakers was a string of beeps; a fade in the audio itself would reach
+the room late, as a speaker buffers up to 20 seconds ahead. The speakers' volume
+is never touched by a cue.
 
 Where the show plays:
 
@@ -483,17 +487,16 @@ Where the show plays:
   once where it is, the show's song goes to the same speaker or group, and the
   studio page plays its lights following that speaker's position (less its
   measured delay). Afterwards the speakers get the jam's stream back from exactly
-  where the room stopped, and Spotify resumes. Fades are on the speaker's volume;
-  the show plays at the party's own level.
+  where the room stopped, and Spotify resumes. The show plays at the party's own
+  level.
 - **The jam is on this PC** (or there is no jam and nothing is casting): the
-  studio page plays the song on this PC with its lights. The PC output has no
-  volume to fade, so the music just stops and starts.
+  studio page plays the song on this PC with its lights.
 - **A silent preview jam**: the lights only.
 
 Without a jam, Spotify is paused only if something is playing, and resumed only
 if it was. Each cue's show is analysed ahead of time (when cues are saved and
-when the studio starts), and the page loads it while the music fades out, so its
-lights start with it. A test copy of the studio (`--no-lights`) only ever
+when the studio starts), and the page loads it as the cue starts, so its lights
+start with it. A test copy of the studio (`--no-lights`) only ever
 rehearses: every step on its real timing, marked *rehearsal* on the Party Hub,
 with nothing touched. Cues have not yet been tried on the real speakers.
 
@@ -518,18 +521,19 @@ Lights and speakers can be put in rooms (the studio's ⚙ menu, **Rooms…**, or
 Party Hub's Settings): name a room, then tap the lights and speakers that stand
 in it (each stands in one room). Every room has a switch, in both places and on
 the Party Hub's home screen. Switch a room off (karaoke in the living room while
-beer pong goes on in the game room) and over 5 seconds:
+beer pong goes on in the game room) and:
 
-- its lights fade from the show to how they were before the show took them (their
-  own color and brightness), and are then handed back, exactly as when the studio
-  closes;
-- its speakers fade out and go muted. Each one's own level is kept: the Party
-  Hub still shows it (marked *muted*) and its slider still sets it, for when the
-  room is back, when the speaker fades up to it. (While muted the speaker itself
-  sits at nothing: setting a level on a Google speaker unmutes it.)
+- its lights fade over 5 seconds from the show to how they were before the show
+  took them (their own color and brightness), and are then handed back, exactly
+  as when the studio closes;
+- its speakers mute at once. They are not faded: a Google speaker chimes at every
+  volume change, so a fade was a string of beeps; muting is one change. Each
+  one's own level is kept as it is: the Party Hub still shows it (marked *muted*)
+  and its slider still sets it, for when the room is back. (A level set while
+  muted is only kept, as setting a level on a Google speaker unmutes it.)
 
-Switch it on again and both fade back in: the lights from how they were into the
-show, the speakers from silence to their level. Chases and other effects that run
+Switch it on again and the lights fade back into the show over 5 seconds while
+the speakers unmute at their level. Chases and other effects that run
 around the room skip the rooms that are off. A room left off stays off when the
 studio starts again; when the studio quits, every speaker a room muted plays
 again. The levels of muted speakers are kept in config.json (`room_muted`), so

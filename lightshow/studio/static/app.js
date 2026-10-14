@@ -530,7 +530,7 @@
   // ------------------------------------------------------------------ rooms
   // Which lights and speakers stand in which room, and which rooms the party is in. A room switched
   // off (here or on the Party Hub) leaves the show: the studio fades its lights back to how they
-  // were and its speakers out. The page only needs to know so the room order skips it.
+  // were and mutes its speakers. The page only needs to know so the room order skips it.
   S.rooms = S.rooms || [];
   function keysOf(l) { return [l.mac, l.device_id, l.ip].filter(Boolean); }
   function roomOf(l) { return (S.rooms || []).find(r => r.lights.some(k => keysOf(l).includes(k))) || null; }
@@ -569,7 +569,7 @@
       (rooms.length ? '' : '<div class="hint">No rooms yet: every light and speaker plays.</div>') +
       rooms.map((r, i) => `<div class="room ${r.on ? '' : 'off'}" data-i="${i}">
         <div class="room-top"><input class="room-name" value="${esc(r.name)}" maxlength="40" spellcheck="false" title="Room name">
-          <label class="toggle" title="${r.on ? 'In the party. Off: its lights go back to how they were and its speakers fade out' : 'Out of the party. On: its lights and speakers fade back in'}"><input type="checkbox" data-act="on" ${r.on ? 'checked' : ''}></label>
+          <label class="toggle" title="${r.on ? 'In the party. Off: its lights go back to how they were and its speakers mute' : 'Out of the party. On: its lights fade back in and its speakers unmute'}"><input type="checkbox" data-act="on" ${r.on ? 'checked' : ''}></label>
           <button class="icon small" data-act="del" title="Delete this room">&times;</button></div>
         <div class="chips"><span class="kind">Lights</span>${(d.lights || []).map(l => `<button class="chip ${r.lights.includes(l.key) ? 'on' : ''}" data-light="${esc(l.key)}">${esc(lightName(l))}</button>`).join('') || '<span class="hint">none found</span>'}</div>
         <div class="chips"><span class="kind">Speakers</span>${(d.speakers || []).map(sp => `<button class="chip ${r.speakers.includes(sp) ? 'on' : ''}" data-speaker="${esc(sp)}">${esc(sp)}</button>`).join('') || '<span class="hint">none found</span>'}</div>

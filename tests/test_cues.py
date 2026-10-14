@@ -1,4 +1,4 @@
-"""Cues: a button that fades the music out, plays a saved show, and brings the music back.
+"""Cues: a button that stops the music, plays a saved show, and brings the music back.
 
 Rehearsals only: nothing here touches a speaker, a light or Spotify."""
 
@@ -19,31 +19,16 @@ class Store:
 
 
 class Watch(Rehearsal):
-    """A rehearsal that also keeps every volume it was set to, in order, with the steps between."""
-
     def __init__(self, length):
         super().__init__(lambda name: length)
-        self.trace = []
-
-    def set_volume(self, v):
-        super().set_volume(v)
-        self.trace.append(round(v, 3))
-
-    def pause_music(self):
-        super().pause_music()
-        self.trace.append("pause")
-
-    def resume_music(self):
-        super().resume_music()
-        self.trace.append("resume")
 
 
 class TestCues(unittest.TestCase):
     def runner(self):
         st = Store()
         r = CueRunner(st.load, st.save, lambda name: 0.3)
-        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding", "fade_out": {"on": True, "s": 0.2}, "fade_in": {"on": True, "s": 0.3}},
-                   {"id": "shot", "name": "Shot o'clock", "show": "Shots", "fade_out": {"on": False, "s": 2}, "fade_in": {"on": False, "s": 2}},
+        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding"},
+                   {"id": "shot", "name": "Shot o'clock", "show": "Shots"},
                    {"id": "empty", "name": "Nothing yet", "show": ""}])
         return r
 
@@ -52,27 +37,13 @@ class TestCues(unittest.TestCase):
         names = [c["name"] for c in CueRunner(st.load, st.save, lambda n: 0).list()]
         self.assertEqual(names, ["Doorbell", "Shot o'clock"])
 
-    def test_fades_out_plays_the_show_then_fades_back_in(self):
+    def test_the_music_stops_the_show_plays_and_the_music_comes_back(self):
         r, h = self.runner(), Watch(0.3)
         r.run("door", h)
         r.thread.join(5)
         self.assertEqual(h.calls, ["pause", ("show", "Ding"), "resume"])
-        i_pause, i_resume = h.trace.index("pause"), h.trace.index("resume")
-        down = h.trace[:i_pause]
-        self.assertEqual(down[-1], 0.0)                                   # faded all the way out first
-        self.assertTrue(all(a >= b for a, b in zip(down, down[1:])))
-        self.assertEqual(h.trace[i_pause + 1], 0.4)                       # the show plays at the party's level
-        self.assertEqual(h.trace[i_resume - 1], 0.0)                      # silent when the music comes back...
-        self.assertEqual(h.trace[-1], 0.4)                                # ...and faded back to where it was
         self.assertEqual(r.status()["phase"], "done")
-        self.assertEqual(r.status()["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
-
-    def test_without_fades_the_music_just_stops_and_starts(self):
-        r, h = self.runner(), Watch(0.2)
-        r.run("shot", h)
-        r.thread.join(5)
         self.assertEqual(r.status()["steps"], ["pause", "show", "resume", "done"])
-        self.assertNotIn(0.0, h.trace)
 
     def test_ending_early_brings_the_music_back(self):
         r, h = self.runner(), Watch(30)
@@ -86,7 +57,6 @@ class TestCues(unittest.TestCase):
         r.thread.join(5)
         self.assertIn("stop show", h.calls)
         self.assertEqual(h.calls[-1], "resume")
-        self.assertEqual(h.trace[-1], 0.4)
 
     def test_a_cue_needs_a_show_and_one_at_a_time(self):
         r = self.runner()
@@ -105,10 +75,9 @@ class TestCues(unittest.TestCase):
         r.thread.join(5)
 
     def test_settings_are_kept_in_range(self):
-        c = clean([{"name": "x" * 50, "fade_out": {"on": True, "s": 99}, "fade_in": {"s": "soon"}}])[0]
+        c = clean([{"name": "x" * 50, "fade_out": {"on": True, "s": 99}}])[0]   # an old cue's fade settings are dropped
         self.assertEqual(len(c["name"]), 30)
-        self.assertEqual(c["fade_out"]["s"], 30.0)
-        self.assertEqual(c["fade_in"], {"on": True, "s": 2.0})
+        self.assertEqual(set(c), {"id", "name", "show"})
 
 
 
@@ -116,13 +85,13 @@ class FakeCast:
     def __init__(self, connected=True):
         self.cast = object() if connected else None
         self.name = "Everywhere" if connected else ""
-        self.level, self.calls = 0.5, []
+        self.levels, self.calls = [], []
 
     def status(self):
-        return {"volume": self.level if self.cast else None}
+        return {"volume": 0.5 if self.cast else None}
 
     def set_volume(self, v):
-        self.level = v
+        self.levels.append(v)
 
     def play(self, url, path, title, start=0.0):
         self.calls.append(("play", url, path, title, start))
@@ -161,10 +130,10 @@ class FakeJam:
 class TestLiveCues(unittest.TestCase):
     """The real hooks, against fake speakers, a fake jam and a fake Spotify: nothing plays."""
 
-    def run_cue(self, hooks, fade=True):
+    def run_cue(self, hooks):
         st = Store()
         r = CueRunner(st.load, st.save, lambda n: 0.2, live=lambda: hooks)
-        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding", "fade_out": {"on": fade, "s": 0.2}, "fade_in": {"on": fade, "s": 0.2}}])
+        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding"}])
         st_ = r.run("door")
         r.thread.join(5)
         return st_, r.status()
@@ -180,16 +149,16 @@ class TestLiveCues(unittest.TestCase):
         self.assertEqual((first["via"], first["device"]), ("cast", "Everywhere"))
         self.assertEqual(jam.calls, ["hold", ("release", True)])             # the speakers get the jam back
         self.assertEqual(cast.calls, [("play", "http://pc/api/audio/Ding", "C:/shows/Ding/song.mp3", "Ding", 0.0)])
-        self.assertEqual(cast.level, 0.5)                                    # faded back to where it was
-        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
+        self.assertEqual(cast.levels, [])                                    # the speakers' volume never touched: no chimes
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])
 
-    def test_a_jam_on_this_pc_leaves_the_song_to_the_page_and_does_not_fade(self):
+    def test_a_jam_on_this_pc_leaves_the_song_to_the_page(self):
         cast, jam = FakeCast(connected=False), FakeJam("pc")
         first, last = self.run_cue(self.hooks(cast, jam))
         self.assertEqual(first["via"], "pc")
         self.assertEqual(cast.calls, [])
         self.assertEqual(jam.calls, ["hold", ("release", False)])
-        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])  # no volume to fade on this PC
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])
 
     def test_without_a_jam_spotify_is_paused_only_if_it_was_playing(self):
         jam = FakeJam(None, playing=True)

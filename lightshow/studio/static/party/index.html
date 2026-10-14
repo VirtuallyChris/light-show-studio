@@ -68,10 +68,6 @@
   .cue-edit input[type=text], .cue-edit select { font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
   .cue-edit .top input[type=text] { flex: 1; min-width: 0; font-weight: 600; }
   .cue-edit select { width: 100%; margin-top: 10px; }
-  .fade-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
-  .fade-row .secs { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
-  .fade-row input[type=number] { width: 64px; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; text-align: center; }
-  .fade-row input[type=number]:disabled { opacity: .4; }
   /* doorbell */
   .bell input[type=text], .bell input[type=password], .bell select { width: 100%; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 8px; }
   .bell .state { font-size: 13px; color: var(--muted); margin-top: 10px; }
@@ -296,8 +292,8 @@
     }
   }
 
-  // ---- cues: tap one and the music fades out, a saved show plays, and the music fades back in
-  const PHASE = { starting: 'Starting…', fade_out: 'Fading out…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…', fade_in: 'Fading in…' };
+  // ---- cues: tap one and the music stops, a saved show plays, and the music comes straight back
+  const PHASE = { starting: 'Starting…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…' };
   let cuesShown = '', cueTick = null;
   function renderCues(st) {
     const cues = st.cues || [], run = st.cue || {}, live = run.phase && run.phase !== 'done';
@@ -326,7 +322,7 @@
     }
   }
 
-  // settings: each cue's show, and whether the music fades out and back in, and over how long
+  // settings: each cue's name and show
   let cueDoc = null;
   async function loadCueEdit() {
     try { cueDoc = await (await fetch('/api/cues')).json(); } catch (e) { $('#cueEdit').innerHTML = '<div class="empty">Couldn’t load the cues.</div>'; return; }
@@ -338,25 +334,18 @@
   }
   function renderCueEdit() {
     if (!cueDoc) return;
-    const cues = cueDoc.cues.map(c => ({ ...c, fade_out: { ...c.fade_out }, fade_in: { ...c.fade_in } })), shows = cueDoc.shows || [];
+    const cues = cueDoc.cues.map(c => ({ ...c })), shows = cueDoc.shows || [];
     const len = n => { const s = shows.find(x => x.name === n); return s && s.length ? ` (${Math.floor(s.length / 60)}:${String(Math.round(s.length % 60)).padStart(2, '0')})` : ''; };
-    const fade = (c, k, label) => `<div class="fade-row"><span>${label}</span><span class="secs"><input type="number" min="0" max="30" step="0.5" class="${k}-s" value="${c[k].s}" ${c[k].on ? '' : 'disabled'} aria-label="${label} seconds"> s
-        <label class="switch"><input type="checkbox" class="${k}-on" ${c[k].on ? 'checked' : ''} aria-label="${label}"><span></span></label></span></div>`;
     $('#cueEdit').innerHTML = cues.map((c, i) => `<div class="cue-edit" data-i="${i}">
         <div class="top"><input type="text" value="${esc(c.name)}" maxlength="30" aria-label="Cue name"><button class="del" aria-label="Delete ${esc(c.name)}">&times;</button></div>
-        <select aria-label="Show"><option value="">Pick a saved show…</option>${shows.map(s => `<option value="${esc(s.name)}" ${s.name === c.show ? 'selected' : ''}>${esc(s.name)}${len(s.name)}</option>`).join('')}</select>
-        ${fade(c, 'fade_out', 'Fade the music out')}${fade(c, 'fade_in', 'Fade the music back in')}</div>`).join('')
+        <select aria-label="Show"><option value="">Pick a saved show…</option>${shows.map(s => `<option value="${esc(s.name)}" ${s.name === c.show ? 'selected' : ''}>${esc(s.name)}${len(s.name)}</option>`).join('')}</select></div>`).join('')
       + `<button class="add" id="addCue">+ Add cue</button>`;
-    $('#addCue').onclick = () => saveCues([...cues, { name: `Cue ${cues.length + 1}`, show: '', fade_out: { on: true, s: 2 }, fade_in: { on: true, s: 3 } }]);
+    $('#addCue').onclick = () => saveCues([...cues, { name: `Cue ${cues.length + 1}`, show: '' }]);
     for (const el of $('#cueEdit').querySelectorAll('.cue-edit')) {
       const c = cues[+el.dataset.i];
       el.querySelector('input[type=text]').onchange = e => { c.name = e.target.value.trim() || c.name; saveCues(cues); };
       el.querySelector('select').onchange = e => { c.show = e.target.value; saveCues(cues); };
       el.querySelector('.del').onclick = () => { if (confirm(`Delete ${c.name}?`)) { cues.splice(+el.dataset.i, 1); saveCues(cues); } };
-      for (const k of ['fade_out', 'fade_in']) {
-        el.querySelector(`.${k}-on`).onchange = e => { c[k].on = e.target.checked; saveCues(cues); };
-        el.querySelector(`.${k}-s`).onchange = e => { c[k].s = Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)); saveCues(cues); };
-      }
     }
   }
 
@@ -477,8 +466,8 @@
   }
   setInterval(poll, 1500);
 
-  // ---- rooms: switch one off (karaoke in the living room) and its lights go back to how they were and
-  // its speakers fade out; switch it on and both fade back in
+  // ---- rooms: switch one off (karaoke in the living room) and its lights fade back to how they were and
+  // its speakers mute; switch it on and the lights fade back in and the speakers unmute
   let roomsShown = '', roomBusy = 0;
   function renderRooms(rooms) {
     $('#roomsCard').hidden = !rooms.length;
