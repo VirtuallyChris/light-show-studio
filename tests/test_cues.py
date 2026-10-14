@@ -1,4 +1,4 @@
-"""Cues: a button that stops the music, plays a saved show, and brings the music back.
+"""Cues: a button that fades the music out, plays a saved show, and brings the music back.
 
 Rehearsals only: nothing here touches a speaker, a light or Spotify."""
 
@@ -27,8 +27,8 @@ class TestCues(unittest.TestCase):
     def runner(self):
         st = Store()
         r = CueRunner(st.load, st.save, lambda name: 0.3)
-        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding"},
-                   {"id": "shot", "name": "Shot o'clock", "show": "Shots"},
+        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding", "fade_out": {"on": True, "s": 0.2}, "fade_in": {"on": True, "s": 0.3}},
+                   {"id": "shot", "name": "Shot o'clock", "show": "Shots", "fade_out": {"on": False, "s": 2}, "fade_in": {"on": False, "s": 2}},
                    {"id": "empty", "name": "Nothing yet", "show": ""}])
         return r
 
@@ -37,12 +37,19 @@ class TestCues(unittest.TestCase):
         names = [c["name"] for c in CueRunner(st.load, st.save, lambda n: 0).list()]
         self.assertEqual(names, ["Doorbell", "Shot o'clock"])
 
-    def test_the_music_stops_the_show_plays_and_the_music_comes_back(self):
+    def test_fades_out_plays_the_show_then_fades_back_in(self):
         r, h = self.runner(), Watch(0.3)
         r.run("door", h)
         r.thread.join(5)
-        self.assertEqual(h.calls, ["pause", ("show", "Ding"), "resume"])
+        self.assertEqual(h.calls, [("fade out", 0.2), "pause", ("show", "Ding"), "resume"])
         self.assertEqual(r.status()["phase"], "done")
+        self.assertEqual(r.status()["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
+
+    def test_without_fades_the_music_just_stops_and_starts(self):
+        r, h = self.runner(), Watch(0.2)
+        r.run("shot", h)
+        r.thread.join(5)
+        self.assertEqual(h.calls, ["pause", ("show", "Shots"), "resume"])
         self.assertEqual(r.status()["steps"], ["pause", "show", "resume", "done"])
 
     def test_ending_early_brings_the_music_back(self):
@@ -75,9 +82,10 @@ class TestCues(unittest.TestCase):
         r.thread.join(5)
 
     def test_settings_are_kept_in_range(self):
-        c = clean([{"name": "x" * 50, "fade_out": {"on": True, "s": 99}}])[0]   # an old cue's fade settings are dropped
+        c = clean([{"name": "x" * 50, "fade_out": {"on": True, "s": 99}, "fade_in": {"s": "soon"}}])[0]
         self.assertEqual(len(c["name"]), 30)
-        self.assertEqual(set(c), {"id", "name", "show"})
+        self.assertEqual(c["fade_out"]["s"], 30.0)
+        self.assertEqual(c["fade_in"], {"on": True, "s": 2.0})
 
 
 
@@ -121,7 +129,9 @@ class FakeJam:
         self.spotify = FakeSpotify(playing)
         self.calls = []
         self.engine = None if kind is None else SimpleNamespace(
-            output=kind, hold=lambda: self.calls.append("hold"), release=lambda restart: self.calls.append(("release", restart)))
+            output=kind, hold=lambda: self.calls.append("hold"),
+            fade_out=lambda s: (self.calls.append(("fade out", s)), 0.05)[1],
+            release=lambda restart, fade_in=0.0: self.calls.append(("release", restart, fade_in)))
 
     def _output_kind(self, out):
         return out
@@ -133,7 +143,7 @@ class TestLiveCues(unittest.TestCase):
     def run_cue(self, hooks):
         st = Store()
         r = CueRunner(st.load, st.save, lambda n: 0.2, live=lambda: hooks)
-        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding"}])
+        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding", "fade_out": {"on": True, "s": 0.2}, "fade_in": {"on": True, "s": 0.2}}])
         st_ = r.run("door")
         r.thread.join(5)
         return st_, r.status()
@@ -147,32 +157,36 @@ class TestLiveCues(unittest.TestCase):
         first, last = self.run_cue(self.hooks(cast, jam))
         self.assertFalse(first["rehearsal"])
         self.assertEqual((first["via"], first["device"]), ("cast", "Everywhere"))
-        self.assertEqual(jam.calls, ["hold", ("release", True)])             # the speakers get the jam back
+        # faded in the jam's own audio, and the speakers get the jam back fading in
+        self.assertEqual(jam.calls, [("fade out", 0.2), "hold", ("release", True, 0.2)])
         self.assertEqual(cast.calls, [("play", "http://pc/api/audio/Ding", "C:/shows/Ding/song.mp3", "Ding", 0.0)])
         self.assertEqual(cast.levels, [])                                    # the speakers' volume never touched: no chimes
-        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])
+        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
 
     def test_a_jam_on_this_pc_leaves_the_song_to_the_page(self):
         cast, jam = FakeCast(connected=False), FakeJam("pc")
         first, last = self.run_cue(self.hooks(cast, jam))
         self.assertEqual(first["via"], "pc")
         self.assertEqual(cast.calls, [])
-        self.assertEqual(jam.calls, ["hold", ("release", False)])
-        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])
+        self.assertEqual(jam.calls, [("fade out", 0.2), "hold", ("release", True, 0.2)])   # this PC's stream fades too
+        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
 
     def test_without_a_jam_spotify_is_paused_only_if_it_was_playing(self):
         jam = FakeJam(None, playing=True)
-        self.run_cue(self.hooks(FakeCast(connected=False), jam))
+        _, last = self.run_cue(self.hooks(FakeCast(connected=False), jam))
         self.assertEqual(jam.spotify.calls, ["pause", "resume"])
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])   # no audio of ours to fade
         quiet = FakeJam(None, playing=False)
         self.run_cue(self.hooks(FakeCast(connected=False), quiet))
         self.assertEqual(quiet.spotify.calls, [])
 
     def test_a_silent_preview_jam_shows_only_the_lights(self):
         cast, jam = FakeCast(), FakeJam("none")
-        first, _ = self.run_cue(self.hooks(cast, jam))
+        first, last = self.run_cue(self.hooks(cast, jam))
         self.assertEqual(first["via"], "none")
         self.assertEqual(cast.calls, [])
+        self.assertEqual(jam.calls, ["hold", ("release", False, 0.0)])
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "done"])
 
 
 if __name__ == "__main__":

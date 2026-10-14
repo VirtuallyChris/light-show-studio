@@ -1,12 +1,13 @@
 """Cues: buttons on the Party Hub that stop the party for a moment (a doorbell, shot o'clock).
 
-A cue stops the music at once, plays one of your saved shows (its sound on the speakers, its lights
-in the room), then brings the music straight back. In a jam the room is behind Spotify; pausing
-Spotify pauses the room at once and holds the buffer, so the room picks up exactly where it stopped.
+A cue fades the music out (if set), pauses Spotify, plays one of your saved shows (its sound on the
+speakers, its lights in the room), then resumes Spotify and fades the music back in (if set). In a
+jam the room is behind Spotify; pausing Spotify pauses the room at once and holds the buffer, so the
+room picks up exactly where it stopped.
 
-The music is never faded: a Google speaker chimes at every volume change, so a fade on the speakers
-was a run of beeps, and a fade in the audio itself would reach the room late (a speaker buffers up
-to 20 s ahead). The speakers' volume is never touched.
+The fades are in the jam's audio itself, never on the speakers' volume: a Google speaker chimes at
+every volume change, so a fade on the volume was a run of beeps. The speakers' volume is never
+touched. Without a jam there is no audio of ours to fade, and the music just stops and starts.
 
 Where the show plays:
 - the jam is on Cast speakers (or the studio is casting): the show's song goes to the same speaker
@@ -29,9 +30,18 @@ import time
 import uuid
 
 DEFAULT_CUES = [
-    {"id": "doorbell", "name": "Doorbell", "show": ""},
-    {"id": "shot", "name": "Shot o'clock", "show": ""},
+    {"id": "doorbell", "name": "Doorbell", "show": "", "fade_out": {"on": True, "s": 1.5}, "fade_in": {"on": True, "s": 3.0}},
+    {"id": "shot", "name": "Shot o'clock", "show": "", "fade_out": {"on": True, "s": 2.0}, "fade_in": {"on": True, "s": 4.0}},
 ]
+
+
+def _fade(v) -> dict:
+    v = v if isinstance(v, dict) else {}
+    try:
+        s = float(v.get("s", 2.0))
+    except (TypeError, ValueError):
+        s = 2.0
+    return {"on": bool(v.get("on", True)), "s": round(max(0.0, min(30.0, s)), 2)}
 
 
 def clean(cues) -> list[dict]:
@@ -44,7 +54,7 @@ def clean(cues) -> list[dict]:
             cid = uuid.uuid4().hex[:10]
         ids.add(cid)
         out.append({"id": cid, "name": str(c.get("name") or "").strip()[:30] or f"Cue {len(out) + 1}",
-                    "show": str(c.get("show") or "")[:120]})
+                    "show": str(c.get("show") or "")[:120], "fade_out": _fade(c.get("fade_out")), "fade_in": _fade(c.get("fade_in"))})
     return out[:12]
 
 
@@ -55,11 +65,16 @@ class Rehearsal:
         self.show_length = show_length                  # show name -> seconds
         self.calls: list = []
 
+    def fade_out(self, seconds: float) -> float:
+        self.calls.append(("fade out", seconds))
+        return seconds
+
     def pause_music(self) -> None:
         self.calls.append("pause")
 
-    def resume_music(self) -> None:
+    def resume_music(self, fade_in: float = 0.0) -> bool:
         self.calls.append("resume")
+        return fade_in > 0
 
     def play_show(self, name: str) -> float:
         self.calls.append(("show", name))
@@ -87,6 +102,12 @@ class LiveHooks:
         self.device = cast.name if self.via == "cast" else ""
         self.paused_spotify = False
 
+    def fade_out(self, seconds: float) -> float | None:
+        """The jam's audio fades out on its speakers (or this PC): how long until the room is silent."""
+        if self.engine is None or self.via == "none":
+            return None                                  # no audio of ours to fade
+        return self.engine.fade_out(seconds)
+
     def pause_music(self) -> None:
         if self.engine is not None:
             self.engine.hold()
@@ -113,14 +134,19 @@ class LiveHooks:
             except Exception:  # noqa: BLE001
                 pass
 
-    def resume_music(self) -> None:
+    def resume_music(self, fade_in: float = 0.0) -> bool:
+        """The music comes back, fading in when it is the jam's own audio. True if it fades."""
         if self.engine is not None:
-            self.engine.release(restart=self.via == "cast")
-        elif self.paused_spotify:
+            # the speakers (or this PC) get the jam's stream back from where the room stopped
+            restart = self.via in ("cast", "pc")
+            self.engine.release(restart=restart, fade_in=fade_in if restart else 0.0)
+            return restart and fade_in > 0
+        if self.paused_spotify:
             try:
                 self.jam.spotify.resume()
             except Exception:  # noqa: BLE001
                 pass
+        return False
 
 
 class CueRunner:
@@ -183,9 +209,19 @@ class CueRunner:
         self.state.update(phase=name, t0=self.clock(), dur=dur)
         self.state["steps"] = self.state.get("steps", []) + [name]
 
+    def _wait(self, secs: float) -> None:
+        end = self.clock() + secs
+        while self.clock() < end:
+            self.sleep(min(0.1, max(0.0, end - self.clock())))
+
     def _run(self, cue: dict) -> None:
         h = self.hooks
+        fo, fi = cue["fade_out"], cue["fade_in"]
         try:
+            wait = h.fade_out(fo["s"]) if fo["on"] and fo["s"] > 0 else None
+            if wait:
+                self._phase("fade_out", wait)
+                self._wait(wait)
             self._phase("pause")
             h.pause_music()
             dur = h.play_show(cue["show"])
@@ -196,7 +232,10 @@ class CueRunner:
             if self.stop_flag.is_set():
                 h.stop_show()
             self._phase("resume")
-            h.resume_music()
+            fade = fi["s"] if fi["on"] else 0.0
+            if h.resume_music(fade):
+                self._phase("fade_in", fade)
+                self._wait(fade)
             self._phase("done")
         except Exception as e:  # noqa: BLE001 - the music must come back whatever went wrong
             self.state["error"] = f"{type(e).__name__}: {e}"

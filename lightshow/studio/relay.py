@@ -157,6 +157,7 @@ class RelayStream:
         self.sent = 0                                   # stream frames handed out
         self.segments: list[list[int]] = []             # [stream_frame, capture_frame or -1 for silence, length]
         self.gaps: list[list[int]] = []                 # [at_capture_frame, silence_frames_left]
+        self.gain: tuple | None = None                  # (from stream frame, frames, gain from, gain to): a fade
         self.started_at = relay.clock()
         self.closed = False
 
@@ -172,6 +173,32 @@ class RelayStream:
         """
         self.gaps.append([int(at_capture_time * self.relay.sr), int(seconds * self.relay.sr)])
         self.gaps.sort()
+
+    def fade(self, seconds: float, to: float, start: float | None = None) -> None:
+        """Fade what the stream hands out from here (a cue's fade): to 0 for out, to 1 for in, from the
+        level it is at now (or start). The speakers hear it once they reach this point of the stream."""
+        with self.relay.cond:
+            g0 = self._gain_at(self.sent) if start is None else float(start)
+            self.gain = (self.sent, max(1, int(seconds * self.relay.sr)), g0, float(to))
+
+    def _gain_at(self, f: int) -> float:
+        if self.gain is None:
+            return 1.0
+        s, n, g0, g1 = self.gain
+        k = min(1.0, max(0.0, (f - s) / n))
+        return g0 + (g1 - g0) * k * k * (3 - 2 * k)
+
+    def _faded(self, data: bytes, n: int) -> bytes:
+        if self.gain is None:
+            return data
+        s, length, g0, g1 = self.gain
+        if self.sent >= s + length and g1 >= 1.0:
+            self.gain = None                            # faded all the way in: nothing to do any more
+            return data
+        k = np.clip((self.sent + np.arange(n) - s) / length, 0.0, 1.0)
+        g = (g0 + (g1 - g0) * k * k * (3 - 2 * k)).astype(np.float32)
+        x = np.frombuffer(data, dtype=np.int16).reshape(n, -1).astype(np.float32) * g[:, None]
+        return np.clip(x, -32768, 32767).astype(np.int16).tobytes()
 
     def _note(self, capture_frame: int, n: int) -> None:
         last = self.segments[-1] if self.segments else None
@@ -219,7 +246,7 @@ class RelayStream:
             n = min(max_frames, avail)
             if self.gaps:
                 n = min(n, max(1, self.gaps[0][0] - self.cursor))
-            data = r._slice(self.cursor, self.cursor + n).tobytes()
+            data = self._faded(r._slice(self.cursor, self.cursor + n).tobytes(), n)
             self._note(self.cursor, n)
             self.cursor += n
             return data

@@ -713,15 +713,44 @@ class JamEngine:
             pass
         return rc
 
-    def release(self, restart: bool) -> None:
+    def fade_out(self, seconds: float) -> float | None:
+        """A cue fades the room out first, in the audio itself (a speaker's volume would chime at every
+        step). Where the speakers hold little ahead (this PC: about a second) the stream simply fades
+        from here. A Cast speaker holds up to 20 s ahead, so it is handed a fresh stream from where the
+        room is, fading out, as a skip is: it drops what it held and plays that at once. Returns how long
+        to wait for the room to fall silent, or None when there is nothing to fade."""
+        with self.lock:
+            s = self.output.stream
+            if not self.streaming or s is None or self.gate.paused or seconds <= 0:
+                return None
+            ahead = s.sent / self.relay.sr - self.output.position()
+            if not isinstance(self.output, CastOutput) and ahead <= 3.0:
+                s.fade(seconds, 0.0)
+                return max(0.0, ahead) + max(0.0, self.output.offset) + seconds
+            at = self.room_capture_time()
+            if at is None:
+                return None
+            fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
+            fresh.fade(seconds, 0.0, start=1.0)
+            self.output.start_stream(fresh)
+            self.say(f"a cue: the room fades out over {seconds:.1f}s")
+            return seconds + (self.CAST_RELOAD_S if isinstance(self.output, CastOutput) else 0.0)
+
+    CAST_RELOAD_S = 2.0      # a Cast speaker taking a fresh stream starts it within about this (waiting longer is only silence)
+
+    def release(self, restart: bool, fade_in: float = 0.0) -> None:
         """The cue is over: the room carries on from where it stopped. When the cue played on the
         jam's own speakers (restart), they get the jam's stream back from that point and play it at
-        once; then Spotify resumes (otherwise the next poll lets the paused room run again)."""
+        once, fading in over fade_in seconds; then Spotify resumes (otherwise the next poll lets the
+        paused room run again)."""
         with self.lock:
             at, self.held_at, self.cue_hold = self.held_at, None, False
             if restart and self.streaming and at is not None:
                 # it plays from there at once: the buffer already holds what comes next
-                self.output.start_stream(self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput)))
+                fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
+                if fade_in > 0:
+                    fresh.fade(fade_in, 1.0, start=0.0)
+                self.output.start_stream(fresh)
             self.say("the cue is over: the room carries on")
         try:
             self.spotify.resume()

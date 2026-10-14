@@ -66,7 +66,11 @@
   function fetchArt(t) {
     J.artPending = J.artPending || new Set(); if (J.artPending.has(t.image)) return;
     J.artPending.add(t.image);
-    albumPalette(t).finally(() => { J.artPending.delete(t.image); J.shown = null; render(); });
+    coverJob(t.image).then(() => {
+      if (J.art[t.image] !== undefined) J.artPending.delete(t.image);
+      else setTimeout(() => J.artPending.delete(t.image), 15000);   // not fetched: asked again in a while, not at once
+      J.shown = null; render();
+    });
   }
   function pairPicker(t) {
     if (!t || !t.id || t.kind === 'custom') return '';
@@ -370,18 +374,37 @@
   }
 
   /** The album cover's dominant bright color, and a second from the cover (or a neighbor of the
-   *  first), as a palette. Colors are pushed to full brightness: the lights want solid color. */
+   *  first), as a palette. Colors are pushed to full brightness: the lights want solid color.
+   *  A song's show waits at most 3 s for its cover; a cover that comes later still colors the list,
+   *  and the show in the room if it is that song's. */
   async function albumPalette(track) {
     const url = track && track.image; if (!url) return null;
     J.art = J.art || {}; if (J.art[url] !== undefined) return J.art[url];
+    return Promise.race([coverJob(url), new Promise(r => setTimeout(() => r(null), 3000))]);
+  }
+  // One read of each cover, however many ask. A cover that could not be fetched is not remembered as
+  // colorless (that left a song gray for the whole night when the studio was busy): it is tried again.
+  function coverJob(url) {
+    J.art = J.art || {}; J.artJobs = J.artJobs || {};
+    if (J.art[url] !== undefined) return Promise.resolve(J.art[url]);
+    if (!J.artJobs[url]) J.artJobs[url] = readCover(url).then(pal => {
+      if (pal !== undefined) {
+        J.art[url] = pal;
+        const t = J.doc && J.doc.track;
+        if (pal && J.live && t && t.image === url && !S.albumPalette) { S.albumPalette = pal; recolor(); }   // came late: the show takes it now
+      } else setTimeout(() => { delete J.artJobs[url]; }, 15000);
+      return pal || null;
+    });
+    return J.artJobs[url];
+  }
+  /** A cover's palette; null when it has no bright color; undefined when it could not be fetched. */
+  async function readCover(url) {
     let pal = null;
     try {
-      // decoded from the bytes (an <img> waits while the window is hidden), and never for long:
-      // a song's show does not wait on its cover
-      const blob = await Promise.race([fetch('/api/jam/art?url=' + encodeURIComponent(url)).then(r => r.ok ? r.blob() : null),
-                                       new Promise(r => setTimeout(() => r(null), 3000))]);
-      if (!blob) throw new Error('no cover');
-      const img = await createImageBitmap(blob);
+      // decoded from the bytes (an <img> waits while the window is hidden)
+      const r = await fetch('/api/jam/art?url=' + encodeURIComponent(url));
+      if (!r.ok) return undefined;
+      const img = await createImageBitmap(await r.blob());
       const cv = document.createElement('canvas'); cv.width = cv.height = 48;
       const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 48, 48);
       const px = g.getImageData(0, 0, 48, 48).data, bins = new Array(24).fill(0), sx = new Array(24).fill(0), sy = new Array(24).fill(0);
@@ -401,8 +424,7 @@
           return '#' + [f(5), f(3), f(1)].map(x => x.toString(16).padStart(2, '0')).join(''); };
         pal = [hex(h1, 1, 1), hex(h2, 1, 1), hex((h1 + 330) % 360, 1, 1)];               // solid colors only
       }
-    } catch (e) { pal = null; }
-    J.art[url] = pal;
+    } catch (e) { return undefined; }
     return pal;
   }
 

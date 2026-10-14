@@ -617,6 +617,76 @@ class TestOpenerService(unittest.TestCase):
         self.assertEqual(svc._room_cue()["phase"], "done")
 
 
+class TestCueFades(unittest.TestCase):
+    """A cue's fades are made in the jam's own audio, never on a speaker's volume. Fakes only."""
+
+    def test_the_stream_fades_what_it_hands_out(self):
+        clock = Clock()
+        relay = Relay(sr=1000, channels=2, capacity_s=60, clock=clock)
+        relay.write(np.full((5000, 2), 10000, dtype=np.int16))
+        s = relay.open_stream(0.0, pace=False)
+        s.fade(2.0, 0.0, start=1.0)                         # out over 2 s
+        x = np.frombuffer(s.read(4000, timeout=0), dtype=np.int16).reshape(-1, 2)[:, 0]
+        self.assertEqual(x[0], 10000)
+        self.assertTrue(np.all(np.diff(x[:2000].astype(int)) <= 0))
+        self.assertAlmostEqual(x[1000], 5000, delta=100)  # halfway down halfway through
+        self.assertTrue(np.all(x[2000:] == 0))            # and silent after
+        s2 = relay.open_stream(0.0, pace=False)
+        s2.fade(1.0, 1.0, start=0.0)                       # in over 1 s
+        y = np.frombuffer(s2.read(3000, timeout=0), dtype=np.int16).reshape(-1, 2)[:, 0]
+        self.assertEqual(y[0], 0)
+        self.assertTrue(np.all(y[1000:] == 10000))
+        s2.read(500, timeout=0)
+        self.assertIsNone(s2.gain)                          # done fading: back to plain copying
+
+    def test_this_pc_fades_in_place_and_comes_back_fading_in(self):
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=10.0)
+            sim.play(a, ta)
+            sim.run(14.0, analyse=False)
+            e = sim.engine
+            self.assertTrue(e.streaming)
+            starts = sim.out.starts
+            wait = e.fade_out(1.5)
+            self.assertAlmostEqual(wait, 2.5, delta=0.6)    # the second it holds ahead, then the fade
+            self.assertEqual(sim.out.starts, starts)        # faded where it is: no new stream
+            e.hold()
+            e.release(restart=True, fade_in=2.0)
+            self.assertEqual(sim.out.starts, starts + 1)    # the room's music back, from where it stopped
+            self.assertEqual(sim.out.stream.gain[2:], (0.0, 1.0))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_a_cast_speaker_gets_a_fresh_stream_fading_out(self):
+        from types import SimpleNamespace
+        from lightshow.studio.jam import CastOutput
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=10.0)
+            sim.play(a, ta)
+            sim.run(14.0, analyse=False)
+            e = sim.engine
+            played = []
+            cast = SimpleNamespace(name="Everywhere", status=lambda: {"position": 3.0},
+                                   play_stream=lambda url, kind, title: played.append(url), pause=lambda: None, resume=lambda: None)
+            out = CastOutput(cast, lambda sid: f"http://pc/stream/{sid}")
+            e.output = out
+            old = e.relay.open_stream(e.relay.capture_time - 10.0, pace=False)
+            out.start_stream(old)
+            old.read(44100 * 15, timeout=0)                  # the speaker has pulled 15 s ahead
+            room = e.room_capture_time()
+            wait = e.fade_out(2.0)
+            self.assertEqual(played, ["http://pc/stream/1", "http://pc/stream/2"])   # a fresh stream, as for a skip
+            self.assertAlmostEqual(out.stream.cursor / e.relay.sr, room, delta=0.05)  # from where the room is
+            self.assertEqual(out.stream.gain[2:], (1.0, 0.0))
+            self.assertGreaterEqual(wait, 2.0)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 # ========================================================================== sync check
 class FakeMic:
     """A microphone in a room that hears the relay late, quieter, and with noise on top."""

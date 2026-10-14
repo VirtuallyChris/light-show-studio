@@ -613,7 +613,7 @@ class Studio:
         return web.json_response({"cues": cues})
 
     async def cues_run(self, request):
-        """Run a cue: the music stops, a saved show plays, the music comes back."""
+        """Run a cue: the music fades out, a saved show plays, the music comes back."""
         if not JamService._lan(request):
             raise web.HTTPForbidden()
         try:

@@ -469,17 +469,21 @@ devices on the home network (private addresses) and this PC.
 ## Cues: the doorbell, shot o'clock
 
 The Party Hub's **Cues** are big buttons for the moments the party stops for: tap
-one and the music stops at once, Spotify pauses (in a jam the room pauses with it
-and keeps its buffer), one of your saved shows plays, then Spotify resumes and the
-music comes straight back where it left off. Tap the running cue to end its show
-early. In **Settings**, each cue has a name and its show (any saved show, with its
-length). Doorbell and Shot o'clock are there to start with; **+ Add cue** adds
-more. Cues are kept in config.json (`cues`).
+one and the music fades out, Spotify pauses (in a jam the room pauses with it and
+keeps its buffer), one of your saved shows plays, then Spotify resumes and the
+music fades back in where it left off. Tap the running cue to end its show early.
+In **Settings**, each cue has a name, its show (any saved show, with its length),
+and whether the music fades out and back in, and over how many seconds (up to
+30). Doorbell and Shot o'clock are there to start with; **+ Add cue** adds more.
+Cues are kept in config.json (`cues`).
 
-The music is never faded. A Google speaker chimes at every volume change, so a
-fade on the speakers was a string of beeps; a fade in the audio itself would reach
-the room late, as a speaker buffers up to 20 seconds ahead. The speakers' volume
-is never touched by a cue.
+The fades are made in the jam's audio itself, never on the speakers' volume: a
+Google speaker chimes at every volume change, so a fade on the volume was a string
+of beeps. A Cast speaker holds up to 20 seconds of the stream ahead, so for the
+fade out it is handed a fresh stream from where the room is, fading out, the way a
+skip jumps at once; the fade in is part of the stream the speakers get back after
+the show. On this PC the stream simply fades. Without a jam there is no audio of
+ours to fade, and the music just stops and starts.
 
 Where the show plays:
 
@@ -487,16 +491,16 @@ Where the show plays:
   once where it is, the show's song goes to the same speaker or group, and the
   studio page plays its lights following that speaker's position (less its
   measured delay). Afterwards the speakers get the jam's stream back from exactly
-  where the room stopped, and Spotify resumes. The show plays at the party's own
-  level.
+  where the room stopped, fading in, and Spotify resumes. The show plays at the
+  party's own level.
 - **The jam is on this PC** (or there is no jam and nothing is casting): the
   studio page plays the song on this PC with its lights.
 - **A silent preview jam**: the lights only.
 
 Without a jam, Spotify is paused only if something is playing, and resumed only
 if it was. Each cue's show is analysed ahead of time (when cues are saved and
-when the studio starts), and the page loads it as the cue starts, so its lights
-start with it. A test copy of the studio (`--no-lights`) only ever
+when the studio starts), and the page loads it while the music fades out, so its
+lights start with it. A test copy of the studio (`--no-lights`) only ever
 rehearses: every step on its real timing, marked *rehearsal* on the Party Hub,
 with nothing touched. Cues have not yet been tried on the real speakers.
 
