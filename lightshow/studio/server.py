@@ -282,8 +282,11 @@ class LightOutput:
         """Hand each light back as it was before the show took it over.
 
         Leaving real-time mode returns a Govee light to what it was doing before (a scene
-        included), so that comes first; then its power and brightness; and its color only if it
-        did not come back to the one it had, so a scene is not painted over for nothing.
+        included), but at the show's 100 % brightness: so its own brightness goes first, while the
+        show still has it (a light that was off is switched off), and only then does it leave
+        real-time mode, coming back in its own color at its own brightness. Then its power and
+        brightness again, and its color only if it did not come back to the one it had, so a scene is
+        not painted over for nothing.
         """
         if not self.enabled:
             return
@@ -301,6 +304,14 @@ class LightOutput:
         for d in devs:                                       # a light whose state was never read: as it was last time
             if not self.saved.get(d.ip) and self.remembered(d):
                 self.saved[d.ip] = self.remembered(d)
+        for _ in range(2):                                   # brightness first: no flash at 100 % on the way out
+            for d in devs:
+                was = self.saved.get(d.ip) or {}
+                if was and not was.get("onOff", 1):
+                    d.turn(False)
+                elif was.get("brightness") is not None:
+                    d.brightness(int(was["brightness"]))
+            time.sleep(0.08)
         for _ in range(3):
             for d in devs:
                 d.razer(False)

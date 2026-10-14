@@ -515,6 +515,7 @@ class FakeLight:
         if on and self.pre is None:
             self.pre = dict(self.st["color"])
         if not on and self.pre is not None:
+            self.back_at = (self.st["onOff"], self.st["brightness"])     # how it looks the moment the show lets go
             self.st["color"] = self.pre if self.keeps_color else {"r": 10, "g": 200, "b": 30}
             self.pre = None
 
@@ -570,7 +571,10 @@ class TestLightsHandedBack(unittest.TestCase):
             for L in (a, b, c):
                 L.log.clear()
             o.stop()
-        self.assertEqual(a.log[0], ("razer", False))                       # real-time mode off first
+        self.assertEqual(a.log[0], ("brightness", 40))                     # its brightness first, while the show has it...
+        self.assertEqual(a.back_at, (1, 40))                               # ...so it comes back at 40 %, never 100 %
+        self.assertEqual(b.back_at, (1, 70))
+        self.assertEqual(c.back_at[0], 0)                                  # one that was off goes off before it is let go
         self.assertEqual(a.st["brightness"], 40)
         self.assertNotIn("color", [x[0] for x in a.log])                   # its color came back by itself
         self.assertIn(("color", (0, 0, 255)), b.log)
@@ -592,7 +596,8 @@ class TestLightsHandedBack(unittest.TestCase):
             dropped, added = o.select(["1.1.1.1"], [a, b, c])          # untick b mid-show
             self.assertEqual([d.ip for d in dropped], ["1.1.1.2"])
             o.reselect(dropped, added)
-            self.assertEqual(b.log[0], ("razer", False))               # handed back like closing the studio
+            self.assertEqual(b.log[0], ("brightness", 70))             # handed back like closing the studio: its brightness first
+            self.assertEqual(b.back_at, (1, 70))
             self.assertEqual((b.st["brightness"], b.st["color"]), (70, {"r": 0, "g": 0, "b": 255}))
             self.assertEqual(a.log, [])                                # the other light keeps playing
             self.assertEqual(set(o.saved), {"1.1.1.1"})

@@ -558,7 +558,10 @@ only speakers a room muted are ever unmuted.
 A light unticked in the studio is handed back at once. When the show takes a
 light, it asks how the light is; that state is also kept in config.json
 (`light_states`), so a light that does not answer on busy Wi-Fi still goes back
-to how it was last time rather than staying on the show's last frame.
+to how it was last time rather than staying on the show's last frame. A light
+handed back gets its own brightness first, while the show still has it (the
+show runs it at 100%), and only then leaves the show, so it comes back in its
+own color at its own brightness instead of flashing at full brightness first.
 
 The "now and then" extras are picked for each song from its own two colors: the
 two hues farthest from both, either side of the middle of the wider gap between
