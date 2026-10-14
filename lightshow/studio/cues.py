@@ -30,18 +30,25 @@ import time
 import uuid
 
 DEFAULT_CUES = [
-    {"id": "doorbell", "name": "Doorbell", "show": "", "fade_out": {"on": True, "s": 1.5}, "fade_in": {"on": True, "s": 3.0}},
+    # the doorbell cuts straight to its show (someone is at the door), then the music fades back in
+    {"id": "doorbell", "name": "Doorbell", "show": "", "fade_out": {"on": False, "s": 1.5}, "fade_in": {"on": True, "s": 3.0}},
     {"id": "shot", "name": "Shot o'clock", "show": "", "fade_out": {"on": True, "s": 2.0}, "fade_in": {"on": True, "s": 4.0}},
 ]
 
 
-def _fade(v) -> dict:
+def _fade(v, default: dict) -> dict:
     v = v if isinstance(v, dict) else {}
     try:
-        s = float(v.get("s", 2.0))
+        s = float(v.get("s", default["s"]))
     except (TypeError, ValueError):
-        s = 2.0
-    return {"on": bool(v.get("on", True)), "s": round(max(0.0, min(30.0, s)), 2)}
+        s = default["s"]
+    return {"on": bool(v.get("on", default["on"])), "s": round(max(0.0, min(30.0, s)), 2)}
+
+
+def _fade_default(cid: str, key: str) -> dict:
+    """A cue saved without its fades takes the starting cue's (the doorbell's cut, then fade in), else 2 s each."""
+    start = next((c for c in DEFAULT_CUES if c["id"] == cid), None)
+    return dict(start[key]) if start else {"on": True, "s": 2.0}
 
 
 def clean(cues) -> list[dict]:
@@ -54,7 +61,8 @@ def clean(cues) -> list[dict]:
             cid = uuid.uuid4().hex[:10]
         ids.add(cid)
         out.append({"id": cid, "name": str(c.get("name") or "").strip()[:30] or f"Cue {len(out) + 1}",
-                    "show": str(c.get("show") or "")[:120], "fade_out": _fade(c.get("fade_out")), "fade_in": _fade(c.get("fade_in"))})
+                    "show": str(c.get("show") or "")[:120], "fade_out": _fade(c.get("fade_out"), _fade_default(cid, "fade_out")),
+                    "fade_in": _fade(c.get("fade_in"), _fade_default(cid, "fade_in"))})
     return out[:12]
 
 

@@ -87,6 +87,11 @@ class TestCues(unittest.TestCase):
         self.assertEqual(c["fade_out"]["s"], 30.0)
         self.assertEqual(c["fade_in"], {"on": True, "s": 2.0})
 
+    def test_a_doorbell_saved_without_fades_cuts_then_fades_back_in(self):
+        c = clean([{"id": "doorbell", "name": "Doorbell", "show": "Thriller End Laugh"}])[0]
+        self.assertFalse(c["fade_out"]["on"])                              # a jump cut to its show
+        self.assertEqual(c["fade_in"], {"on": True, "s": 3.0})
+
 
 
 class FakeCast:

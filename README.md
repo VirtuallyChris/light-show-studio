@@ -474,7 +474,8 @@ keeps its buffer), one of your saved shows plays, then Spotify resumes and the
 music fades back in where it left off. Tap the running cue to end its show early.
 In **Settings**, each cue has a name, its show (any saved show, with its length),
 and whether the music fades out and back in, and over how many seconds (up to
-30). Doorbell and Shot o'clock are there to start with; **+ Add cue** adds more.
+30). Doorbell and Shot o'clock are there to start with (the doorbell cuts straight
+to its show, then fades the music back in); **+ Add cue** adds more.
 Cues are kept in config.json (`cues`).
 
 The fades are made in the jam's audio itself, never on the speakers' volume: a
