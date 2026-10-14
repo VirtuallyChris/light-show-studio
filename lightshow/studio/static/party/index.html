@@ -590,7 +590,8 @@
   // ---- the page
   const NOTE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>';
   const SHOW = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
-  const artBox = t => t && t.image ? `<div class="art" style="background-image:url('${esc(t.image)}')"></div>` : `<div class="art none">${t && t.kind === 'custom' ? SHOW : NOTE}</div>`;
+  // the big card shows the cover at its largest (640 px); the rows keep the small one
+  const artBox = (t, big) => { const src = t && (big && t.art || t.image); return src ? `<div class="art" style="background-image:url('${esc(src)}')"></div>` : `<div class="art none">${t && t.kind === 'custom' ? SHOW : NOTE}</div>`; };
   function render() {
     if (!state) return;
     const st = state;
@@ -606,7 +607,7 @@
     const idle = msg => `<div class="np idle">${artBox(null)}<div class="title">${msg}</div></div>`;
     const nowHtml = !st.running ? idle('Start a jam in the studio, then come back here.')
       : !r ? idle(st.streaming ? 'Between songs' : 'The room hears nothing yet')
-      : `<div class="np">${artBox(r)}
+      : `<div class="np">${artBox(r, true)}
           <div class="eyebrow">${r.opener ? 'Opening song' : 'In the room'}</div>
           <div class="title">${esc(r.name || r.label)}</div>${(r.artists || []).length ? `<div class="artist">${esc(r.artists.join(', '))}</div>` : ''}
           ${colorBox(r, true)}

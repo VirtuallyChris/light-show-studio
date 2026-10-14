@@ -42,6 +42,7 @@ class Track:
     uri: str = ""
     artist_ids: list[str] = field(default_factory=list)
     image: str = ""                       # album art (a small size), for the show's colors
+    art: str = ""                         # the same art at its largest (640 px), to look at on the phone
 
     @property
     def label(self) -> str:
@@ -49,7 +50,12 @@ class Track:
 
     def to_json(self) -> dict:
         return {"id": self.id, "name": self.name, "artists": self.artists, "duration": self.duration, "label": self.label,
-                "image": self.image}
+                "image": self.image, "art": self.art}
+
+
+def largest_image(images: list | None) -> str:
+    ims = [i for i in (images or []) if isinstance(i, dict) and i.get("url")]
+    return max(ims, key=lambda i: i.get("width") or 0)["url"] if ims else ""
 
 
 def pick_image(images: list | None) -> str:
@@ -80,7 +86,7 @@ def parse_track(item: dict | None) -> Track | None:
     return Track(id=item["id"], name=item.get("name", ""), artists=[a.get("name", "") for a in item.get("artists", [])],
                  duration=float(item.get("duration_ms", 0)) / 1000.0, uri=item.get("uri", ""),
                  artist_ids=[a.get("id", "") for a in item.get("artists", []) if a.get("id")],
-                 image=pick_image((item.get("album") or {}).get("images")))
+                 image=pick_image((item.get("album") or {}).get("images")), art=largest_image((item.get("album") or {}).get("images")))
 
 
 def http_transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple[int, bytes]:
@@ -285,7 +291,7 @@ class PlayerState:
                                    artists=[a.get("name", "") for a in artists], duration=float(item.get("duration_ms", 0)) / 1000.0,
                                    uri=item.get("uri", ""),
                                    artist_ids=[a.get("uri", "").rsplit(":", 1)[-1] for a in artists if a.get("uri")],
-                                   image=pick_image((item.get("album") or {}).get("images")))
+                                   image=pick_image((item.get("album") or {}).get("images")), art=largest_image((item.get("album") or {}).get("images")))
             else:
                 self.track = None
             self.position = float(state.get("position_ms", 0)) / 1000.0 if isinstance(state, dict) else 0.0

@@ -843,7 +843,7 @@ class JamService:
                 return None
             pair, own = colors(t)
             return {"id": t.get("id"), "label": t.get("label"), "name": t.get("name"), "artists": t.get("artists"),
-                    "image": t.get("image"), "kind": t.get("kind"), "duration": t.get("duration"), "colors": pair, "own": own,
+                    "image": t.get("image"), "art": t.get("art") or t.get("image"), "kind": t.get("kind"), "duration": t.get("duration"), "colors": pair, "own": own,
                     "theme_off": bool((own_all.get(t.get("id")) or {}).get("off")),
                     "only": bool((own_all.get(t.get("id")) or {}).get("only")), **(extra or {})}
         room, ahead = st.get("room"), st.get("ahead")
