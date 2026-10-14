@@ -137,12 +137,23 @@
         ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take two more colors now and then, picked for each song from its own two (purple and green get red and orange)">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}></span></div>` : ''}</div>`;
   }
   /** The song in the room got new colors (here, or on the Party Hub): build its show again in them. */
-  const trackStyle = t => (t && ((J.state || {}).track_styles || {})[t.id]) || null;     // a vibe picked by hand
-  const colorSig = () => { const t = J.doc && J.doc.track; return JSON.stringify([colorsFor(t), extrasFor(colorsFor(t), t), rainbowOn(t), trackStyle(t)]); };
+  // A vibe or a genre picked by hand for a song the analysis gets wrong. The genre gives the show the words
+  // the genre effects listen for, and (the vibe left to the analysis) the vibe that goes with it.
+  const trackGenre = t => { const k = t && ((J.state || {}).track_genres || {})[t.id]; return k && ((J.state || {}).genre_choices || []).find(g => g.key === k) || null; };
+  const levelStyle = lv => lv < 0.7 ? 'chill' : lv < 1.6 ? 'groove' : lv < 2.4 ? 'dance' : 'rave';
+  const trackStyle = t => (t && ((J.state || {}).track_styles || {})[t.id]) || (trackGenre(t) ? levelStyle(trackGenre(t).level) : null);
+  const colorSig = () => { const t = J.doc && J.doc.track; return JSON.stringify([colorsFor(t), extrasFor(colorsFor(t), t), rainbowOn(t), trackStyle(t), (trackGenre(t) || {}).key]); };
   function applyStyle(t) {
     const p = St.P(); if (!p) return;
     p.settings = { ...(p.settings || {}) };
     if (trackStyle(t)) p.settings.style = trackStyle(t); else delete p.settings.style;
+    applyGenre(t);
+  }
+  function applyGenre(t) {
+    const g = trackGenre(t), a = S.analysis; if (!a) return;
+    if (!a._heardGenre) a._heardGenre = a.genre || null;             // what the analysis heard, to go back to
+    a.genre = g ? { ...(a._heardGenre || {}), genres: [g.words], spotify: [], picked: g.key } : a._heardGenre;
+    a._swells = undefined;
   }
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
@@ -188,7 +199,7 @@
         <div class="jam-row" ${(st.fetch || {}).on ? 'hidden' : ''}><label title="One of your saved shows plays in the room first, with its lights, while Spotify plays unheard behind it. The room joins the jam as it ends, a whole song behind, so each song is heard to its end before the room gets to it.">Open with</label><select id="jamOpenWith">
           <option value="">Nothing (start ${esc(String(Math.round(((st.last || {}).target_delay) || 90)))} s behind)</option>
           ${(J.openerShows || []).filter(s => s.length >= 60 || s.name === st.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === st.opener_choice ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
-        <div class="jam-row" ${st.opener_choice && !(st.fetch || {}).on ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="${(st.fetch || {}).on ? 3 : 10}" max="180" step="${(st.fetch || {}).on ? 1 : 5}" value="${(st.fetch || {}).on ? Math.round(st.fetch.delay || 3) : 90}" class="num"> s</span></div>
+        <div class="jam-row" ${st.opener_choice && !(st.fetch || {}).on ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="${(st.fetch || {}).on ? 3 : 10}" max="180" step="${(st.fetch || {}).on ? 1 : 5}" value="${(st.fetch || {}).on ? Math.round(st.fetch.delay || 5) : 90}" class="num"> s</span></div>
         <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
         <div class="jam-row"><label>On a skip</label><select id="jamOnSkip">
           <option value="keep">Keep the delay</option>
@@ -258,7 +269,7 @@
     const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = () => fn().catch(err => toast('Jam: ' + err.message, true)); };
     // the form starts from the settings last used, then keeps whatever is being changed
     const last = (J.state && J.state.last) || {};
-    const fromLast = { jamDelay: ((J.state || {}).fetch || {}).on ? (J.state.fetch.delay || 3) : last.target_delay, jamXfade: last.crossfade, jamOnSkip: last.skip_jumps === undefined ? undefined : (last.skip_jumps ? 'jump' : 'keep'),
+    const fromLast = { jamDelay: ((J.state || {}).fetch || {}).on ? (J.state.fetch.delay || 5) : last.target_delay, jamXfade: last.crossfade, jamOnSkip: last.skip_jumps === undefined ? undefined : (last.skip_jumps ? 'jump' : 'keep'),
       jamSource: last.source, jamWhere: last.speakers, jamDevice: last.device, jamPcDevice: last.pc_device };
     for (const [id, v] of Object.entries(fromLast)) if (keep[id] === undefined && v !== undefined && v !== null) keep[id] = String(v);
     for (const [id, v] of Object.entries(keep)) { const e = $('#' + id); if (e && v !== undefined && id !== 'jamDevice' && id !== 'jamPcDevice') e.value = v; }
@@ -556,7 +567,7 @@
     const doc = await api('jam/analysis?key=' + encodeURIComponent(room.key));
     if (!doc.analysis || room.key !== J.key) return;
     const a = doc.analysis, p = St.P();
-    S.analysis = a; J.lastFeat = performance.now();
+    S.analysis = a; J.lastFeat = performance.now(); applyGenre(J.doc && J.doc.track);
     if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); St.draw(); return; }
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
     p.sections = St.withBuildups(St.tidySections(a.sections));      // a drop with none still gets its buildup

@@ -341,7 +341,7 @@ class TestEngine(unittest.TestCase):
         told = []
         sim.engine.on_mismatch = told.append
         sim.play(self.a, self.ta)
-        sim.run(30)
+        sim.run(48)                                                               # searched further first (from 30 s in)
         t = sim.engine.current
         self.assertEqual(t.kind, "live")                                          # built as it plays, from Spotify's audio
         self.assertEqual([x.id for x in told], [self.ta.id])                      # the copy is not fetched again
@@ -384,6 +384,52 @@ class TestEngine(unittest.TestCase):
         sim.run(45.0)
         self.assertEqual(t.kind, "live")
         self.assertEqual([x.id for x in told], [self.ta.id])
+
+    def test_a_copy_with_a_longer_intro_is_found_further_out_not_dropped(self):
+        from lightshow.studio.analysis import HOP, analyze_audio
+        from lightshow.studio.matching import match_features
+        lead = np.zeros((int(5.0 * SR), 2), dtype=self.a["audio"].dtype)        # the copy: 5 s of intro first
+        mono = np.concatenate([lead, self.a["audio"]]).mean(axis=1)
+        mono[: int(5.0 * SR)] = 0.02 * np.sin(np.arange(int(5.0 * SR)) * 0.05)
+        copy = analyze_audio(mono, SR, events=False)
+        copy["align_bands"] = match_features(mono, SR, HOP).tolist()
+        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        sim = Sim(self.dir, target=3.0)
+        told = []
+        sim.engine.on_mismatch = told.append
+        sim.play(self.a, self.ta)
+        true_start = sim.relay.capture_time
+        sim.run(40.0)
+        t = sim.engine.current
+        self.assertEqual(told, [])
+        self.assertEqual(t.kind, "learned")
+        self.assertTrue(t.aligned)
+        self.assertAlmostEqual(t.start, true_start - 5.0, delta=0.08)             # the copy's 0:00 is 5 s before Spotify's
+
+    def test_a_seek_in_a_known_song_keeps_its_show_and_lines_up_again(self):
+        from lightshow.studio.analysis import HOP, analyze_audio
+        from lightshow.studio.matching import match_features
+        mono = self.a["audio"].mean(axis=1)
+        copy = analyze_audio(mono, SR, events=False)
+        copy["align_bands"] = match_features(mono, SR, HOP).tolist()
+        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        sim = Sim(self.dir, target=3.0)
+        told = []
+        sim.engine.on_mismatch = told.append
+        sim.play(self.a, self.ta)
+        sim.run(20.0)
+        first = sim.engine.current
+        self.assertTrue(first.aligned)
+        sim.play(self.a, self.ta, at=60.0)                                        # seek to 1:00 on the phone
+        seek_at = sim.relay.capture_time
+        sim.run(16.0)
+        t = sim.engine.current
+        self.assertIsNot(t, first)                                                # a new stretch of the same song...
+        self.assertEqual(t.kind, "learned")                                       # ...with its show, not a first listen
+        self.assertEqual(told, [])
+        self.assertTrue(t.aligned, f"not lined up after the seek: match {t.align_peak}")
+        self.assertAlmostEqual(t.start, seek_at - 60.0, delta=0.06)               # 0:00 where it would be: 1:00 at the seek
+        self.assertIs(sim.engine.track_at(seek_at - 1.0), first)                  # the room still hears the old place first
 
     def test_a_learned_song_is_recognised_and_lined_up_by_ear(self):
         from lightshow.studio.analysis import analyze_audio
@@ -998,7 +1044,7 @@ class TestPartyHub(unittest.TestCase):
             room = {"id": "a", "label": "A", "kind": "live"}
             st = {"running": True, "room": room, "queue": [{"id": "b", "label": "B", "kind": "live"}],
                   "jam_colors": {**JamService.DEFAULT_COLORS, **jam_colors}, "track_colors": track_colors, "assigned_colors": {}}
-            fake = SimpleNamespace(_state=lambda: st, party_level=1.0, studio=SimpleNamespace(rooms=None), _found_style=lambda t: None)
+            fake = SimpleNamespace(_state=lambda: st, party_level=1.0, studio=SimpleNamespace(rooms=None), _found_style=lambda t: None, _found_genres=lambda t: [])
             return JamService._party(fake)
         pick = {"mode": "pick", "primary": "#8000ff", "secondary": "#00ff00"}
         on = hub(pick, {})

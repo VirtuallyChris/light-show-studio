@@ -458,8 +458,15 @@ and nothing else: no accents in other colors and no rainbow drops (a red and
 orange song stays red and orange); such a song shows a small *2*. A tap anywhere on a song brings up its colors on one sheet, with its **Vibe**:
 *Auto* (the style its analysis found, shown beside it) or Chill, Groove, Dance or
 Rave picked by hand, for a song the analysis gets wrong (a chill song taken for a
-rager). The vibe is kept for that track (`shows/_jam/styles.json`), and the song
-playing is rebuilt in it at once. **Party colors** switches the
+rager). Its **Genre** is there too: *Auto* (what the analysis heard) or one picked
+by hand (Pop, Hip hop, Trap, EDM, House, Dubstep, Drum & bass, Rock, Indie, Metal,
+R&B, Country, Folk, Jazz, Ambient). The genre turns on the effects that belong to it
+(808s and hat rolls for hip hop and trap, wobbles and glitches for bass music,
+candlelight for folk) and, with the vibe on Auto, sets the vibe too (Dubstep is
+Rave, Folk is Chill). **Party colors / Album art** at the top of the sheet does what
+the song's little *party* / *cover* chip does. Vibe and genre are kept for that
+track (`shows/_jam/styles.json`, `shows/_jam/genres.json`), and the song playing is
+rebuilt in them at once. **Party colors** switches the
 party's colors (purple and green, or the pairs) on or off for every song: off,
 each song plays in its album cover's two colors. Each song's **party** / **cover**
 chip does the same for that song alone (kept for the track). A change of colors
@@ -606,12 +613,18 @@ are checked against the same stretch of the copy (a fingerprint of the whole son
 is kept for this), a small slip put right. If what Spotify plays does not sound like
 the copy, at the start or part way (another edit), that song's show is built as it
 plays from Spotify's audio, like a first listen, and the copy is not used again. A
+copy that does not line up near Spotify's start (a video's intro, a few seconds more
+silence) is searched for up to 10 seconds either way, from 30 seconds in, before it is
+given up on. A download YouTube refuses (it does now and then) is tried again at once,
+twice, and again five minutes later. A seek on the phone within a song learned ahead
+(or one of your shows) keeps its show: it carries on from the new place, lined up again
+by ear on what is heard after the seek. A
 song playing that was not learned ahead (tapped directly, or one Spotify chose after
 the queue) is a first listen; if its copy is learned while it plays, the full show
 takes over from there.
 
 **Learn ahead** in the Jam panel turns it on or off (on wherever spotDL is
-installed); with it on, the room stays **Stay behind by** (3 s to start with, at
+installed); with it on, the room stays **Stay behind by** (5 s to start with, at
 least 3) behind, and no opening song is needed. Less is livelier, at a cost: the
 studio hears of a new song about a second late (Spotify is asked once a second), a
 speaker holds only that much against a Wi-Fi hiccup, and below 7 s each song starts

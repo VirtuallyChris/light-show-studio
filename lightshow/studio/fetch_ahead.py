@@ -34,7 +34,9 @@ SPOTDL_HOME = os.path.join(os.path.expanduser("~"), ".spotdl")   # where `spotdl
 LENGTH_SLACK_S = 8.0            # a copy this much longer or shorter than Spotify's is another version (a little
                                 # more silence at an end is fine: the jam checks the copy against Spotify by ear)
 FETCH_TIMEOUT_S = 240
-RETRY_AFTER_S = 30 * 60         # a song that could not be fetched is tried again after this
+RETRY_AFTER_S = 30 * 60         # a song with no usable copy (none found, another version) is tried again after this
+RETRY_DOWNLOAD_S = 5 * 60       # one whose download failed (YouTube refuses now and then: HTTP 403) much sooner
+DOWNLOAD_TRIES = 3              # and before that it is tried again at once, a few seconds apart
 
 
 def available() -> bool:
@@ -96,6 +98,7 @@ class FetchAhead:
         self.library = library
         self.download, self.to_flac, self.length, self.analyze = download, to_flac, length, analyze
         self.is_available, self.clock, self.log = is_available, clock, log
+        self.retry_pause = 4.0
         self.lock = threading.Condition()
         self.waiting: deque = deque()                 # tracks to download, the next to play first
         self.ready: deque = deque()                   # (track, folder, file) downloaded, to analyse
@@ -109,7 +112,7 @@ class FetchAhead:
         if not getattr(t, "id", None) or self.library.has_learned(t.id) or self.library.match_project(t):
             return False
         f = self.failed.get(t.id)
-        if f and self.clock() - f[0] < RETRY_AFTER_S:
+        if f and self.clock() - f[0] < (RETRY_DOWNLOAD_S if "download" in f[2].lower() else RETRY_AFTER_S):
             return False
         held = [t2.id for t2 in self.waiting] + [x[0].id for x in self.ready] + [b.id for b in self.busy.values() if b]
         return t.id not in held
@@ -195,7 +198,15 @@ class FetchAhead:
                 self.busy["download"] = track
             folder = tempfile.mkdtemp(prefix="lss-ahead-")
             try:
-                path = self.to_flac(self.download(track, folder))
+                for attempt in range(DOWNLOAD_TRIES):          # YouTube refuses a download now and then (HTTP 403)
+                    try:
+                        got = self.download(track, folder)
+                        break
+                    except LookupError as e:
+                        if "download" not in str(e).lower() or attempt == DOWNLOAD_TRIES - 1:
+                            raise
+                        time.sleep(self.retry_pause)
+                path = self.to_flac(got)
                 n = self.length(path)
                 if abs(n - float(track.duration)) > LENGTH_SLACK_S:
                     raise ValueError(f"the copy found is {n:.0f} s long, Spotify's {track.duration:.0f} s: another version")

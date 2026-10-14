@@ -121,6 +121,8 @@ class JamService:
             web.post("/api/party/colors", self.party_colors),
             web.post("/api/party/style", self.party_style),
             web.post("/api/jam/style", self.track_style),
+            web.post("/api/party/genre", self.party_genre),
+            web.post("/api/jam/genre", self.track_genre),
             web.post("/api/party/playback", self.party_playback),
             web.post("/api/party/level", self.party_level_set),
             web.get("/api/party/volumes", self.party_volumes),
@@ -154,7 +156,7 @@ class JamService:
     # How far behind the room is when songs are learned ahead. Less is livelier, at a cost: the studio hears of
     # a new song about a second late, a speaker holds only this much against a Wi-Fi hiccup, and a song is
     # lined up by ear 7 s in, so below that each song starts on Spotify's clock and may shift a little then.
-    FETCH_DELAY_S = 3.0
+    FETCH_DELAY_S = 5.0
 
     def _fetch_on(self) -> bool:
         """Learn ahead is on (the default where spotDL is installed): songs are learned before they play,
@@ -434,6 +436,7 @@ class JamService:
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
                 "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "track_styles": self.library.styles(),
+                "track_genres": self.library.genres(), "genre_choices": self._genre_choices(),
                 "party_level": self.party_level,
                 "cue": self._room_cue(),
                 "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice(),
@@ -764,15 +767,25 @@ class JamService:
                       "pairs": [["#8000ff", "#00ff00"], ["#8000ff", "#ff6000"], ["#00ff00", "#ff6000"], ["#ff0000", "#0040ff"]],
                       "rainbow": True}                     # in "mix", a song that goes all out gets rainbow drops
 
-    def _found_style(self, t: dict) -> str | None:
-        """The show style a learned song's analysis found (read once: a learned file is megabytes)."""
+    def _found(self, t: dict) -> dict:
+        """What a learned song's analysis found of its genre (read once: a learned file is megabytes)."""
         tid = t.get("id")
         if not tid or t.get("kind") != "learned":
-            return None
-        found = self.__dict__.setdefault("_found_styles", {})
+            return {}
+        found = self.__dict__.setdefault("_found_genre", {})
         if tid not in found:
-            found[tid] = (((self.library.learned(tid) or {}).get("analysis") or {}).get("genre") or {}).get("style")
+            found[tid] = (((self.library.learned(tid) or {}).get("analysis") or {}).get("genre") or {})
         return found[tid]
+
+    def _found_style(self, t: dict) -> str | None:
+        return self._found(t).get("style")
+
+    def _found_genres(self, t: dict) -> list:
+        g = self._found(t)
+        return (g.get("genres") or g.get("spotify") or [])[:2]
+
+    def _genre_choices(self) -> list:
+        return [{"key": k, "label": lbl, "words": words, "level": lv} for k, (lbl, words, lv) in self.library.GENRES.items()]
 
     def _vibe_order(self, track_id: str, n: int) -> list[int]:
         """Which pairs suit a track, best first, from what was learned about it the last time it played
@@ -839,7 +852,7 @@ class JamService:
         """What the Party Hub shows: the song in the room, what comes next, and each one's colors."""
         st = self._state()
         jc, own_all, assigned = st.get("jam_colors", {}), st.get("track_colors", {}), st.get("assigned_colors", {})
-        styles = st.get("track_styles", {})
+        styles, genres = st.get("track_styles", {}), st.get("track_genres", {})
 
         def colors(t):
             if t.get("kind") == "custom":
@@ -863,7 +876,8 @@ class JamService:
                     "image": t.get("image"), "art": t.get("art") or t.get("image"), "kind": t.get("kind"), "duration": t.get("duration"), "colors": pair, "own": own,
                     "theme_off": bool((own_all.get(t.get("id")) or {}).get("off")),
                     "only": bool((own_all.get(t.get("id")) or {}).get("only")),
-                    "style": t.get("style") or self._found_style(t), "vibe": styles.get(t.get("id")), **(extra or {})}
+                    "style": t.get("style") or self._found_style(t), "vibe": styles.get(t.get("id")),
+                    "genre_found": (t.get("genres") or self._found_genres(t) or [None])[0], "genre": genres.get(t.get("id")), **(extra or {})}
         room, ahead = st.get("room"), st.get("ahead")
         up = ([ahead] if ahead and (not room or ahead.get("key") != room.get("key")) else []) + list(st.get("queue") or [])
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
@@ -875,7 +889,7 @@ class JamService:
                 "prelisten": self.prelisten.status() if getattr(self, "prelisten", None) else {},
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
                 "room": (self._opener_room() if hasattr(self, "_opener_room") else None) or item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
-                "upcoming": [item(t) for t in up[:12]]}
+                "upcoming": [item(t) for t in up[:12]], "genre_choices": st.get("genre_choices") or []}
 
     async def party_state(self, request):
         if not self._lan(request):
@@ -911,6 +925,26 @@ class JamService:
             raise web.HTTPForbidden()
         self._set_style(await request.json())
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
+
+    async def party_genre(self, request):
+        """From the phone: a song's genre ({track_id, genre: one of genre_choices' keys}, or none for the one
+        the analysis hears), kept for that track; the song playing is rebuilt in it at once."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        if not body.get("track_id"):
+            raise web.HTTPBadRequest(text="no track")
+        self.library.set_genre(str(body["track_id"]), body.get("genre"))
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
+
+    async def track_genre(self, request):
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        if not body.get("track_id"):
+            raise web.HTTPBadRequest(text="no track")
+        self.library.set_genre(str(body["track_id"]), body.get("genre"))
+        return await self._run(self._state)
 
     async def track_style(self, request):
         if not self._local(request):

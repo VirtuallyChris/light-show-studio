@@ -104,6 +104,21 @@ class TestFetchAhead(unittest.TestCase):
         self.assertEqual(order, ["t1", "t2", "t3", "t4"])
         self.assertIsNone(f.state_of("t4"))
 
+    def test_a_refused_download_is_tried_again_at_once(self):
+        f, lib, _, order = self.make()
+        f.retry_pause = 0.0
+        real, refusals = f.download, [2]
+        def flaky(t, folder):
+            if refusals[0]:
+                refusals[0] -= 1
+                raise LookupError("YT-DLP download error - HTTP 403")     # YouTube says no, now and then
+            return real(t, folder)
+        f.download = flaky
+        f.submit([track(1)])
+        self.assertTrue(self.wait(lambda: f.idle()))
+        self.assertIn("t1", lib.learned)                                  # the third try got it
+        self.assertEqual(f.status()["failed"], [])
+
     def test_without_spotdl_nothing_happens(self):
         f = FetchAhead(FakeLibrary(), is_available=lambda: False)
         self.assertEqual(f.submit([track(1)]), 0)

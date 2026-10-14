@@ -71,6 +71,8 @@ class JamLibrary:
         self._colors: dict | None = None
         self.styles_path = os.path.join(self.dir, "styles.json")
         self._styles: dict | None = None
+        self.genres_path = os.path.join(self.dir, "genres.json")
+        self._genres: dict | None = None
         self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
         self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
 
@@ -185,6 +187,39 @@ class JamLibrary:
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(styles, fh, indent=1)
         os.replace(tmp, self.styles_path)
+
+    # A song's genre, chosen by hand: what the effects that belong to a genre listen for (808s and hat rolls
+    # for hip hop and trap, wobbles and glitches for bass music, candlelight for folk), and, with the vibe
+    # left to the analysis, the vibe too. key -> (label, the genre words the show is given, its level:
+    # under 0.7 chill, under 1.6 groove, under 2.4 dance, rave above; as genre.py ranks genres).
+    GENRES = {
+        "pop": ("Pop", "Pop music", 1.3), "hiphop": ("Hip hop", "Hip hop music", 1.3), "trap": ("Trap", "Trap rap", 2.0),
+        "edm": ("EDM", "Electronic dance music", 2.5), "house": ("House", "House music", 2.2), "dubstep": ("Dubstep", "Dubstep bass music", 3.0),
+        "dnb": ("Drum & bass", "Drum and bass", 3.0), "rock": ("Rock", "Rock music", 1.1), "indie": ("Indie", "Independent music", 1.0),
+        "metal": ("Metal", "Heavy metal", 1.9), "rnb": ("R&B", "Rhythm and blues", 0.9), "country": ("Country", "Country", 0.8),
+        "folk": ("Folk", "Folk music acoustic", 0.4), "jazz": ("Jazz", "Jazz", 0.4), "ambient": ("Ambient", "Ambient music", 0.1),
+    }
+
+    def genres(self) -> dict:
+        if self._genres is None:
+            try:
+                with open(self.genres_path, encoding="utf-8") as fh:
+                    self._genres = {k: v for k, v in json.load(fh).items() if v in self.GENRES}
+            except (OSError, ValueError):
+                self._genres = {}
+        return self._genres
+
+    def set_genre(self, track_id: str, genre: str | None) -> None:
+        genres = self.genres()
+        if genre in self.GENRES:
+            genres[track_id] = genre
+        else:
+            genres.pop(track_id, None)                   # back to the genre the analysis hears
+        os.makedirs(self.dir, exist_ok=True)
+        tmp = self.genres_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(genres, fh, indent=1)
+        os.replace(tmp, self.genres_path)
 
     def match_project(self, track: Track) -> str | None:
         linked = self.links().get(track.id)
@@ -347,6 +382,8 @@ ALIGN_PEAK = 0.5
 EARLY_S = 7.0                # a learned song is first lined up this far in (a few seconds before the room hears it)...
 EARLY_PEAK, EARLY_EDGE = 0.8, 0.05   # ...if it matches this clearly; otherwise it waits for the usual 14 s
 VERIFY_EVERY_S = 20.0        # a song learned from a copy is checked again this often while it plays
+WIDE_REACH = 10.0            # a copy that does not line up near Spotify's start is searched this far either way (a
+                             # video's intro, a few seconds more silence) before it is given up on, from 30 s in
 MISMATCH_PEAK = ALIGN_PEAK   # a song learned from a copy that matches this badly is not the recording Spotify plays
                              # (the same recording scores above 0.9; another, even in the same style, about 0.35)
 
@@ -497,6 +534,9 @@ class JamTrack:
     source: str = "heard"               # how its saved analysis was learned: "heard", or "youtube" (from a copy)
     tried_at: float = -1e9              # capture time it was last tried for lining up by ear
     verified_at: float = 0.0            # capture time its copy was last checked against what plays
+    narrow_failed: bool = False         # its copy did not line up near Spotify's start: searched further
+    heard_from: float | None = None     # after a seek: the capture time this stretch of the song begins at (its
+                                        # start is still where 0:00 would have been; nothing before is this)
     genre: dict | None = None           # show style and the genres behind it
     spotify_genres: list = field(default_factory=list)
 
@@ -506,7 +546,8 @@ class JamTrack:
 
     def to_json(self) -> dict:
         return {**self.track.to_json(), "key": self.key, "kind": self.kind, "project": self.project, "aligned": self.aligned,
-                "version": self.version, "horizon": round(self.horizon, 2), "style": (self.genre or {}).get("style")}
+                "version": self.version, "horizon": round(self.horizon, 2), "style": (self.genre or {}).get("style"),
+                "genres": ((self.genre or {}).get("genres") or (self.genre or {}).get("spotify") or [])[:2]}
 
 
 @dataclass
@@ -591,7 +632,7 @@ class JamEngine:
     def track_at(self, capture_time: float) -> JamTrack | None:
         for i in range(len(self.tracks) - 1, -1, -1):
             t = self.tracks[i]
-            if capture_time >= t.start - 0.05:
+            if capture_time >= max(t.start, t.heard_from if t.heard_from is not None else t.start) - 0.05:
                 end = t.end if t.end is not None else t.start + t.track.duration + 1.0
                 return t if capture_time < end + 0.05 else None
         return None
@@ -646,6 +687,8 @@ class JamEngine:
                 expected = last_prog + ((np_.fetched_at - last_at) if was_playing else 0.0)
                 jumped = abs(np_.progress - expected) > 3.0
             self._last_seen = (np_.track.id, np_.progress, np_.fetched_at, True)
+            if same and jumped and cur.kind in ("learned", "custom"):
+                return self._seek(cur, est_start, head)
             if same and not jumped:
                 # Every reading is late by however long Spotify took to answer, never early, so the
                 # smallest is the truest. Frozen once analysis has begun: its times hang off this.
@@ -653,6 +696,23 @@ class JamEngine:
                     cur.start = est_start
                 return
             self._begin_track(np_.track, est_start, cur, restarted=same)
+
+    def _seek(self, cur: JamTrack, est_start: float, head: float) -> None:
+        """A seek within a song whose show is whole (learned, or yours): the show carries on from the new
+        place instead of the song starting over as a first listen. A new stretch of the same song begins
+        where the seek is heard (the room gets there when it gets there), and it is lined up by ear on
+        what is heard after the seek only."""
+        at = max(est_start, head - 0.3)                    # where the recording jumps (Spotify is asked once a second)
+        cur.end, cur.skipped = at, True
+        self.serial += 1
+        jt = JamTrack(cur.track, est_start, cur.kind, cur.project, serial=self.serial)
+        jt.heard_from, jt.source, jt.spotify_genres = at, cur.source, cur.spotify_genres
+        jt.analysis, jt.genre, jt.version, jt.horizon, jt.ref, jt.saved = cur.analysis, cur.genre, cur.version + 1, cur.horizon, cur.ref, True
+        self.tracks.append(jt)
+        del self.tracks[:-40]
+        self.say(f"seek in {cur.track.name}: its show carries on from {head - est_start:.0f}s")
+        if self.cfg.skip_jumps:
+            self._flush(jt)
 
     def _begin_track(self, track: Track, est_start: float, prev: JamTrack | None, restarted: bool) -> None:
         natural = False
@@ -956,7 +1016,8 @@ class JamEngine:
         return f"upgraded {jt.track.name}"
 
     def _align(self, jt: JamTrack, head: float) -> bool:
-        have = (jt.end or head) - max(jt.start, self.relay.oldest_time)     # what was actually recorded of it
+        heard = max(jt.start, self.relay.oldest_time, jt.heard_from if jt.heard_from is not None else jt.start)
+        have = (jt.end or head) - heard                     # what was actually recorded of it (since a seek, if one)
         # With the room only seconds behind (learning ahead), the song has to be lined up before the
         # room hears it: tried from 7 s in, believed then only on a clear match, and from 14 s as before.
         early = EARLY_S <= have < 14.0
@@ -970,12 +1031,22 @@ class JamEngine:
                 return False
         env, fps = jt.ref
         env = np.atleast_2d(env)
-        reach = 2.0
-        w0 = max(self.relay.oldest_time, jt.start - reach)
+        # A copy from YouTube may start a few seconds earlier or later than Spotify's (an intro, more
+        # silence): when it does not line up close to Spotify's start, it is searched for further either
+        # way once enough has been heard for that, and only given up on if it is not found there either.
+        wide = jt.source == "youtube" and jt.narrow_failed
+        if wide and have < 2 * WIDE_REACH + 10.0:
+            return False
+        reach = WIDE_REACH if wide else 2.0
+        w0 = max(self.relay.oldest_time, jt.start - reach, heard if jt.heard_from is not None else -1e18)
         # A song already playing when the jam began has no opening in the recording: match the
         # part of the saved song that the recording's first moment could be, not its first seconds.
         q0 = max(0.0, w0 - (jt.start - reach))            # song time at w0 for the earliest start searched
-        y = self.relay.audio(w0, min(w0 + 24.0 + reach, jt.end or head), SR_ANALYSIS, mono=True)
+        if int(q0 * fps) + int(8 * fps) > env.shape[1]:     # nothing saved that far into it (a seek past what is kept)
+            jt.aligned = True
+            self.say(f"{jt.track.name}: nothing saved that far in to line up against; using Spotify's clock")
+            return True
+        y = self.relay.audio(w0, min(w0 + 24.0 + 2 * reach, jt.end or head), SR_ANALYSIS, mono=True)
         start, peak, edge = align_start(live_bands(y), env[:, int(q0 * fps):], w0 - q0, fps, reach=reach, min_ref=4.0 if early else 8.0)
         jt.align_peak, jt.align_edge = peak, edge
         if early and not (peak >= EARLY_PEAK and edge >= EARLY_EDGE and abs(start - jt.start) <= reach + 0.5):
@@ -986,6 +1057,10 @@ class JamEngine:
                 jt.start, jt.aligned, jt.version = start, True, jt.version + 1
                 jt.verified_at = head
             self.say(f"lined up {jt.track.name} by ear {have:.0f}s in ({moved * 1000:+.0f} ms, match {peak:.2f})")
+        elif jt.source == "youtube" and not wide and jt.end is None:
+            jt.narrow_failed = True                          # not near Spotify's start: look further before giving up
+            self.say(f"{jt.track.name}: its copy does not start where Spotify's does (match {peak:.2f}); looking further")
+            return False
         elif jt.source == "youtube" and peak < MISMATCH_PEAK and jt.end is None:
             self._mismatch(jt, peak)
         else:
@@ -1003,7 +1078,7 @@ class JamEngine:
         env = np.atleast_2d(env)
         span, reach = 10.0, 0.5
         q = head - span - jt.start                           # song time the window opens at
-        if q < 0 or q + span > env.shape[1] / fps:
+        if q < 0 or q + span > env.shape[1] / fps or (jt.heard_from is not None and head - span - reach < jt.heard_from):
             return None
         y = self.relay.audio(head - span - reach, head, SR_ANALYSIS, mono=True)
         found, peak, edge = align_start(live_bands(y), env[:, int(q * fps):int((q + span) * fps)], head - span - reach, fps,
