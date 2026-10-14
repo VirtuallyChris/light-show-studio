@@ -1,0 +1,219 @@
+"""Learn ahead: a song's show is worked out before it plays, from a copy found on YouTube.
+
+The jam normally has to hear a song to learn it, which is why the room stays a song behind. With
+spotDL (https://github.com/spotdl/spotify-downloader) the studio takes a queued song's details from
+Spotify (title, artists, length), finds the same recording on YouTube Music (or YouTube), and
+downloads it. The full analysis runs on it at once, much faster than the song plays, and the
+download is deleted the moment the analysis is done: only the numbers are kept, exactly as a song
+learned by listening is kept (shows/_jam/learned). When the song comes up, the jam lines the saved
+analysis up with what Spotify actually plays, by ear, so a copy with a slightly different start
+still lands on the beat. A copy whose length is not within a few seconds of Spotify's is taken to be
+another version (a radio edit, a video with an intro) and not used.
+
+Spotify's own audio is never touched: spotDL reads only the song's details from Spotify. The copy
+comes from YouTube, which its terms do not allow; it exists only for as long as the analysis takes.
+
+spotDL lives in its own Python (.venv-spotdl), run as a separate program, so its pinned packages
+never meet the studio's. Without it, nothing here runs and the jam listens as before.
+"""
+
+from __future__ import annotations
+
+import glob
+import os
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from collections import deque
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SPOTDL = os.path.join(ROOT, ".venv-spotdl", "Scripts" if os.name == "nt" else "bin", "spotdl" + (".exe" if os.name == "nt" else ""))
+SPOTDL_HOME = os.path.join(os.path.expanduser("~"), ".spotdl")   # where `spotdl --download-deno` puts Deno
+LENGTH_SLACK_S = 4.0            # a copy this much longer or shorter than Spotify's is another version
+FETCH_TIMEOUT_S = 240
+RETRY_AFTER_S = 30 * 60         # a song that could not be fetched is tried again after this
+
+
+def available() -> bool:
+    return os.path.isfile(SPOTDL) and shutil.which("ffmpeg") is not None
+
+
+def _download(track, folder: str) -> str:
+    """The song's copy, downloaded into folder as it comes (no re-encoding): its path."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    # Deno (installed with `spotdl --download-deno`) lets YouTube's downloader get the copies that need it
+    # ("made for kids" ones among them): its folder goes first on the path spotDL sees.
+    env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
+    r = subprocess.run([SPOTDL, "download", f"https://open.spotify.com/track/{track.id}", "--output",
+                        os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
+                        "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
+    got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
+    if not got:
+        tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or ["no copy found"]
+        raise LookupError(tail[0][:160])
+    return got[0]
+
+
+def _to_flac(src: str) -> str:
+    """The analysis reads FLAC (not m4a): converted losslessly, in well under a second."""
+    out = os.path.splitext(src)[0] + ".flac"
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, out], check=True, timeout=120, creationflags=flags)
+    return out
+
+
+def _length(path: str) -> float:
+    import soundfile as sf
+    return float(sf.info(path).duration)
+
+
+def _analyze(path: str, cache_dir: str) -> dict:
+    from .analysis import analyze_cached
+    a = dict(analyze_cached(path, cache_dir))
+    a["align_bands"] = whole_fingerprint(path)
+    return a
+
+
+def whole_fingerprint(path: str) -> list:
+    """What the jam matches by ear, for the whole song rather than its first 45 s: a song learned from a
+    copy is checked against what Spotify plays all the way through, not only lined up at its start."""
+    import librosa
+
+    from .analysis import HOP, SR
+    from .matching import match_features
+    y, _ = librosa.load(path, sr=SR, mono=True)
+    return [[round(float(v), 2) for v in row] for row in match_features(y, SR, HOP)]
+
+
+class FetchAhead:
+    """One song downloads while the one before it is analysed: two workers, a song at a time each."""
+
+    def __init__(self, library, download=_download, to_flac=_to_flac, length=_length, analyze=_analyze,
+                 is_available=available, clock=time.monotonic, log=print):
+        self.library = library
+        self.download, self.to_flac, self.length, self.analyze = download, to_flac, length, analyze
+        self.is_available, self.clock, self.log = is_available, clock, log
+        self.lock = threading.Condition()
+        self.waiting: deque = deque()                 # tracks to download, the next to play first
+        self.ready: deque = deque()                   # (track, folder, file) downloaded, to analyse
+        self.busy: dict = {"download": None, "analyse": None}
+        self.failed: dict[str, tuple[float, str, str]] = {}   # track id -> (when, label, why)
+        self.learned_now = 0
+        self.threads: list[threading.Thread] = []
+
+    # -- what to learn ------------------------------------------------------------------------------
+    def _wanted(self, t) -> bool:
+        if not getattr(t, "id", None) or self.library.has_learned(t.id) or self.library.match_project(t):
+            return False
+        f = self.failed.get(t.id)
+        if f and self.clock() - f[0] < RETRY_AFTER_S:
+            return False
+        held = [t2.id for t2 in self.waiting] + [x[0].id for x in self.ready] + [b.id for b in self.busy.values() if b]
+        return t.id not in held
+
+    def submit(self, tracks, first: bool = True) -> int:
+        """Songs to learn ahead. The jam's queue goes first (in its order), ahead of a playlist's."""
+        if not self.is_available():
+            return 0
+        with self.lock:
+            new = [t for t in tracks if self._wanted(t)]
+            if first:
+                self.waiting.extendleft(reversed(new))
+            else:
+                self.waiting.extend(new)
+            self.lock.notify_all()
+        if new:
+            self._start()
+        return len(new)
+
+    def mismatched(self, track) -> None:
+        """The jam heard that Spotify's version is not this copy: not fetched again tonight."""
+        with self.lock:
+            self.failed[track.id] = (self.clock() + 24 * 3600, track.label, "Spotify plays another version")
+
+    def forget(self) -> None:
+        """Drop what is waiting (a jam stopped): what is under way finishes."""
+        with self.lock:
+            self.waiting.clear()
+
+    def status(self) -> dict:
+        with self.lock:
+            fails = [{"label": lbl, "why": why} for _, lbl, why in self.failed.values()][-5:]
+            busy = self.busy["analyse"] or self.busy["download"]
+            return {"available": self.is_available(), "working": busy.label if busy else None,
+                    "waiting": len(self.waiting) + len(self.ready), "learned": self.learned_now, "failed": fails}
+
+    def idle(self) -> bool:
+        with self.lock:
+            return not self.waiting and not self.ready and not any(self.busy.values())
+
+    # -- the two workers ------------------------------------------------------------------------------
+    def _start(self) -> None:
+        if any(t.is_alive() for t in self.threads):
+            return
+        self.threads = [threading.Thread(target=self._downloads, daemon=True), threading.Thread(target=self._analyses, daemon=True)]
+        for t in self.threads:
+            t.start()
+
+    def _fail(self, track, why: str) -> None:
+        with self.lock:
+            self.failed[track.id] = (self.clock(), track.label, why)
+        self.log(f"[learn ahead] {track.label}: {why}")
+
+    def _downloads(self) -> None:
+        while True:
+            with self.lock:
+                while not self.waiting or len(self.ready) >= 2:      # never more than two copies on disk
+                    if not self.lock.wait(timeout=600):
+                        return
+                track = self.waiting.popleft()
+                if not self._wanted_now(track):
+                    continue
+                self.busy["download"] = track
+            folder = tempfile.mkdtemp(prefix="lss-ahead-")
+            try:
+                path = self.to_flac(self.download(track, folder))
+                n = self.length(path)
+                if abs(n - float(track.duration)) > LENGTH_SLACK_S:
+                    raise ValueError(f"the copy found is {n:.0f} s long, Spotify's {track.duration:.0f} s: another version")
+                with self.lock:
+                    self.ready.append((track, folder, path))
+                    self.lock.notify_all()
+            except Exception as e:  # noqa: BLE001 - the jam listens to this one instead
+                shutil.rmtree(folder, ignore_errors=True)
+                self._fail(track, str(e) or type(e).__name__)
+            finally:
+                with self.lock:
+                    self.busy["download"] = None
+                    self.lock.notify_all()
+
+    def _wanted_now(self, track) -> bool:
+        return not self.library.has_learned(track.id) and not self.library.match_project(track)
+
+    def _analyses(self) -> None:
+        from . import priority
+        priority.low_thread()                          # the room's own playback and the live analysis come first
+        while True:
+            with self.lock:
+                while not self.ready:
+                    if not self.lock.wait(timeout=600):
+                        return
+                track, folder, path = self.ready.popleft()
+                self.busy["analyse"] = track
+                self.lock.notify_all()
+            try:
+                t0 = self.clock()
+                a = self.analyze(path, os.path.join(folder, "cache"))
+                self.library.save_learned(track, a, source="youtube")
+                with self.lock:
+                    self.learned_now += 1
+                self.log(f"[learn ahead] {track.label}: learned in {self.clock() - t0:.0f} s, the copy deleted")
+            except Exception as e:  # noqa: BLE001
+                self._fail(track, f"{type(e).__name__}: {e}")
+            finally:
+                shutil.rmtree(folder, ignore_errors=True)      # the copy goes at once: only the numbers stay
+                with self.lock:
+                    self.busy["analyse"] = None
+                    self.lock.notify_all()

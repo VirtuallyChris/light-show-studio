@@ -168,10 +168,11 @@
           <option value="pc">This PC</option>
           <option value="none">Nowhere (preview only)</option></select></div>
         <div class="hint" id="jamPcHint">This PC plays on Windows' default output.</div>
-        <div class="jam-row"><label title="One of your saved shows plays in the room first, with its lights, while Spotify plays unheard behind it. The room joins the jam as it ends, a whole song behind, so each song is heard to its end before the room gets to it.">Open with</label><select id="jamOpenWith">
+        ${(st.fetch || {}).available ? `<div class="jam-row"><label title="Each queued song is found on YouTube by its Spotify details, analysed before it plays and the copy deleted, so the room needs to be only seconds behind. A song nobody queued is learned as it plays.">Learn ahead</label><label class="toggle"><input type="checkbox" id="jamFetch" ${st.fetch.on ? 'checked' : ''}></label></div>` : ''}
+        <div class="jam-row" ${(st.fetch || {}).on ? 'hidden' : ''}><label title="One of your saved shows plays in the room first, with its lights, while Spotify plays unheard behind it. The room joins the jam as it ends, a whole song behind, so each song is heard to its end before the room gets to it.">Open with</label><select id="jamOpenWith">
           <option value="">Nothing (start ${esc(String(Math.round(((st.last || {}).target_delay) || 90)))} s behind)</option>
           ${(J.openerShows || []).filter(s => s.length >= 60 || s.name === st.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === st.opener_choice ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
-        <div class="jam-row" ${st.opener_choice ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="10" max="180" step="5" value="90" class="num"> s</span></div>
+        <div class="jam-row" ${st.opener_choice && !(st.fetch || {}).on ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="${(st.fetch || {}).on ? 5 : 10}" max="180" step="5" value="${(st.fetch || {}).on ? Math.round(st.fetch.delay || 10) : 90}" class="num"> s</span></div>
         <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
         <div class="jam-row"><label>On a skip</label><select id="jamOnSkip">
           <option value="keep">Keep the delay</option>
@@ -193,7 +194,7 @@
         ${st.output_error ? `<div class="warn">Playback: ${esc(st.output_error)}</div>` : ''}
         ${sp.error ? `<div class="warn">Spotify: ${esc(sp.error)}</div>` : ''}</div>
       ${colorsSection(st)}
-      <div class="jam-sec"><h4>Up next</h4>${(st.queue || []).slice(0, 8).map(q => `<div class="jam-q"><span>${esc(q.label)}</span>${pairPicker(q)}${badge(q.kind)}</div>`).join('') || '<div class="hint">Nothing queued.</div>'}</div>
+      <div class="jam-sec"><h4>Up next${fetchLine(st)}</h4>${(st.queue || []).slice(0, 8).map(q => `<div class="jam-q"><span>${esc(q.label)}</span>${pairPicker(q)}${badge(q.kind)}</div>`).join('') || '<div class="hint">Nothing queued.</div>'}</div>
       <div class="jam-sec"><h4>Log</h4><div class="jam-log">${(st.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div></div>
       <div class="jam-actions">
         <button id="jamStop">Stop jam</button>
@@ -230,11 +231,18 @@
     fetch('/api/cues').then(r => r.json()).then(d => { J.openerShows = d.shows || []; render(); }).catch(() => { J.openerShows = J.openerShows || []; }).finally(() => { J.loadingShows = false; });
   }
 
+  function fetchLine(st) {
+    const f = st.fetch || {};
+    if (!f.on) return '';
+    const fails = (f.failed || []).map(x => `${x.label}: ${x.why}`).join('\n');
+    return ` <span class="hint" title="${esc(fails || 'Queued songs are learned from a copy on YouTube before they play')}">${f.working ? `learning ${esc(f.working)}` + (f.waiting ? `, ${f.waiting} more` : '') : 'learned ahead'}${(f.failed || []).length ? ` · ${f.failed.length} not found` : ''}</span>`;
+  }
+
   function wire(keep) {
     const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = () => fn().catch(err => toast('Jam: ' + err.message, true)); };
     // the form starts from the settings last used, then keeps whatever is being changed
     const last = (J.state && J.state.last) || {};
-    const fromLast = { jamDelay: last.target_delay, jamXfade: last.crossfade, jamOnSkip: last.skip_jumps === undefined ? undefined : (last.skip_jumps ? 'jump' : 'keep'),
+    const fromLast = { jamDelay: ((J.state || {}).fetch || {}).on ? (J.state.fetch.delay || 10) : last.target_delay, jamXfade: last.crossfade, jamOnSkip: last.skip_jumps === undefined ? undefined : (last.skip_jumps ? 'jump' : 'keep'),
       jamSource: last.source, jamWhere: last.speakers, jamDevice: last.device, jamPcDevice: last.pc_device };
     for (const [id, v] of Object.entries(fromLast)) if (keep[id] === undefined && v !== undefined && v !== null) keep[id] = String(v);
     for (const [id, v] of Object.entries(keep)) { const e = $('#' + id); if (e && v !== undefined && id !== 'jamDevice' && id !== 'jamPcDevice') e.value = v; }
@@ -246,6 +254,8 @@
     const source = $('#jamSource');
     const showSource = () => { const studio = !source || source.value === 'studio'; const box = $('#jamPlayerBox'), hint = $('#jamAppHint'); if (box) box.hidden = !studio; if (hint) hint.hidden = studio; };
     if (source) { source.onchange = () => { showSource(); api('jam/prefs', { source: source.value }).then(st => { J.state = st; }).catch(() => {}); }; showSource(); }
+    const fetchSw = $('#jamFetch');
+    if (fetchSw) fetchSw.onchange = () => api('jam/prefs', { fetch: fetchSw.checked }).then(st => { J.state = st; J.shown = null; render(); }).catch(e => toast(e.message, true));
     const auto = $('#jamAuto'); if (auto) auto.onchange = () => api('jam/prefs', { auto: auto.checked }).then(st => { J.state = st; }).catch(() => {});
     // colors: the jam's pair, and any track's own (saved for the next time it plays)
     const saveJam = async body => {
@@ -418,7 +428,7 @@
     if (!room) { if (J.anchor) J.anchor.playing = false; S.audio.playing = false; return; }
     // A show that fails to build or update must not stop the clock: the lights would sit at 0:00.
     try {
-      if (room.key !== J.key) { await load(room); if (room.key !== J.key) return; }
+      if (room.key !== J.key || (J.doc && room.kind !== J.doc.kind)) { await load(room); if (room.key !== J.key) return; }
       else if (room.kind === 'live' && room.version !== J.version) await refresh(room);
       else if (room.kind === 'live' && performance.now() - (J.lastFeat || 0) > 5000) await refresh(room, true);
     } catch (e) { buildFailed(room, e); }

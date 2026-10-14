@@ -582,6 +582,47 @@ Spotify is only ever asked what a remote control could ask: what is playing, how
 far in, whether it is paused, what is queued. It is never asked for audio, and
 no audio is written to disk: it exists only in a rolling memory buffer.
 
+**Learn ahead: the room only 10 seconds behind.** With spotDL installed (below),
+the studio learns every queued song before it plays, so the room needs to be only
+seconds behind Spotify instead of a whole song. For each song in the Spotify queue
+(up to 12, the next to play first), spotDL takes its details from Spotify (title,
+artists, length), finds the same recording on YouTube Music (or YouTube) and
+downloads it; the full analysis runs on it (about 45 s for a 3-minute song, while
+the next one downloads), and the copy is deleted the moment it is done: only the
+analysis is kept, with the songs the jam learned by listening (`shows/_jam/learned`).
+A copy whose length is not within 4 seconds of Spotify's is another version and is
+not used. The speakers only ever play Spotify's own audio, relayed as always; the
+copy is never heard, so a music video's intro never reaches the room.
+
+The copy and Spotify's audio are checked against each other by ear, so the show
+lands on Spotify's beats: from 7 seconds into the song (before a room 10 seconds
+behind hears it) the song is lined up, on a clear match only, otherwise at 14
+seconds as before; and every 20 seconds while it plays, the last ten seconds heard
+are checked against the same stretch of the copy (a fingerprint of the whole song
+is kept for this), a small slip put right. If what Spotify plays does not sound like
+the copy, at the start or part way (another edit), that song's show is built as it
+plays from Spotify's audio, like a first listen, and the copy is not used again. A
+song playing that was not learned ahead (tapped directly, or one Spotify chose after
+the queue) is a first listen; if its copy is learned while it plays, the full show
+takes over from there.
+
+**Learn ahead** in the Jam panel turns it on or off (on wherever spotDL is
+installed); with it on, the room stays **Stay behind by** (10 s to start with) behind,
+and no opening song is needed. **Pre-listen** learns a playlist the same way, from
+copies, about a minute a song, without playing anything or tying up Spotify. Setup,
+once (spotDL runs in its own Python so its packages never meet the studio's; it
+needs ffmpeg, and Deno so YouTube's downloader can fetch every video):
+
+```
+py -3.12 -m venv .venv-spotdl
+.venv-spotdl\Scripts\python -m pip install spotdl==4.5.2
+.venv-spotdl\Scripts\spotdl --download-deno
+```
+
+Spotify's own audio is never downloaded: spotDL reads only a song's details from
+Spotify. The copies come from YouTube, whose terms do not allow downloading; each
+exists only for as long as its analysis takes.
+
 Recording and playback each run in a small process of their own, handing audio
 to the studio through shared memory. The analysis is heavy Python work, and when
 the audio shared a process with it, playback stalled and skipped and the lights,

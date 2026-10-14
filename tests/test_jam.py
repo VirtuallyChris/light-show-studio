@@ -331,6 +331,60 @@ class TestEngine(unittest.TestCase):
         self.assertLess(os.path.getsize(sim.library._learned_path(self.ta.id)), 1_500_000)
         self.assertEqual([f for f in os.listdir(sim.library.learned_dir) if not f.endswith(".json")], [])
 
+    def test_a_copy_that_is_not_what_spotify_plays_is_dropped_and_built_live(self):
+        from lightshow.studio.analysis import analyze_audio
+
+        # learned ahead from a "copy" that is really another recording (here: the other song)
+        other = analyze_audio(self.b["audio"].mean(axis=1), SR, events=False)
+        JamLibrary(self.dir).save_learned(self.ta, other, source="youtube")
+        sim = Sim(self.dir, target=20.0)
+        told = []
+        sim.engine.on_mismatch = told.append
+        sim.play(self.a, self.ta)
+        sim.run(30)
+        t = sim.engine.current
+        self.assertEqual(t.kind, "live")                                          # built as it plays, from Spotify's audio
+        self.assertEqual([x.id for x in told], [self.ta.id])                      # the copy is not fetched again
+        self.assertGreater(t.passes, 0)
+        self.assertNotEqual(sim.library.learned(self.ta.id) and sim.library.learned(self.ta.id).get("source"), "youtube")
+
+    def test_a_song_learned_ahead_is_lined_up_before_a_room_ten_seconds_behind_hears_it(self):
+        from lightshow.studio.analysis import analyze_audio
+
+        JamLibrary(self.dir).save_learned(self.ta, analyze_audio(self.a["audio"].mean(axis=1), SR, events=False), source="youtube")
+        sim = Sim(self.dir, target=10.0, lag=0.35)                                # Spotify's answers run 350 ms stale
+        sim.run(3.0, analyse=False)
+        true_start = sim.relay.capture_time
+        sim.play(self.a, self.ta)
+        sim.run(9.0)                                                              # 9 s in: the room has not heard it yet
+        t = sim.engine.current
+        self.assertTrue(t.aligned, f"not lined up 9 s in: match {t.align_peak}, edge {t.align_edge}")
+        self.assertAlmostEqual(t.start, true_start, delta=0.04)
+        sim.run(60.0)                                                             # checked again as it plays: still the same
+        self.assertEqual(t.kind, "learned")
+        self.assertAlmostEqual(t.start, true_start, delta=0.06)
+
+    def test_a_song_that_stops_matching_its_copy_part_way_is_built_live_from_there(self):
+        from lightshow.studio.analysis import analyze_audio
+
+        from lightshow.studio.analysis import HOP
+        from lightshow.studio.matching import match_features
+        mono = self.a["audio"].mean(axis=1)
+        copy = analyze_audio(mono, SR, events=False)
+        copy["align_bands"] = match_features(mono, SR, HOP).tolist()               # learned from a copy: the whole song
+        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        sim = Sim(self.dir, target=10.0)
+        told = []
+        sim.engine.on_mismatch = told.append
+        sim.play(self.a, self.ta)
+        sim.run(30.0)
+        t = sim.engine.current
+        self.assertEqual(t.kind, "learned")
+        sim.capture.load(self.b["audio"])                                         # Spotify's edit goes another way from here
+        sim.run(45.0)
+        self.assertEqual(t.kind, "live")
+        self.assertEqual([x.id for x in told], [self.ta.id])
+
     def test_a_learned_song_is_recognised_and_lined_up_by_ear(self):
         from lightshow.studio.analysis import analyze_audio
 

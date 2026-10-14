@@ -113,7 +113,7 @@ class TestAutoStart(unittest.TestCase):
             port = 0
             class cast:            # noqa: N801
                 cast, name, media_path = None, "", ""
-        self.cfg = {"jam_last": {"speakers": "pc", "pc_device": "Headphones", "target_delay": 30.0}}
+        self.cfg = {"jam_last": {"speakers": "pc", "pc_device": "Headphones", "target_delay": 30.0}, "jam_fetch": False}
         svc = JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
         svc.spotify.store.update(client_id="x", refresh_token="r")   # signed in
         self.started, self.transfers = [], []
@@ -149,6 +149,16 @@ class TestAutoStart(unittest.TestCase):
         self.report(svc, {"state": {**SDK_STATE, "paused": True, "stamp": 3}})
         self.report(svc, {"state": {**SDK_STATE, "stamp": 4}})
         self.assertEqual(len(self.started), 2)                    # but it is when the music starts again
+
+    def test_learning_ahead_an_auto_started_jam_keeps_the_short_delay(self):
+        from unittest import mock
+        svc = self.service()
+        self.cfg["jam_fetch"] = True
+        with mock.patch("lightshow.studio.fetch_ahead.available", lambda: True):
+            self.report(svc, {"device_id": "dev1", "ready": True})
+            self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})
+        self.assertEqual(len(self.started), 1)
+        self.assertNotIn("target_delay", self.started[0])          # the jam's own learn-ahead delay (10 s), not the last 30 s
 
     def test_auto_start_can_be_turned_off(self):
         svc = self.service()

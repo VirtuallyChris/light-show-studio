@@ -11,6 +11,10 @@ it is something to start the night before.
 One Spotify account plays one thing at a time: while pre-listen runs, the account is busy. If
 Spotify starts playing anywhere else (a phone taking over), or a real jam is started, pre-listen
 steps aside at once.
+
+With learn ahead (fetch_ahead: a copy of each song found on YouTube, analysed and deleted) nothing
+is played at all: every song is learned from its copy, two at a time (one downloading while the one
+before it is analysed), about a minute each, and Spotify stays free.
 """
 
 from __future__ import annotations
@@ -35,12 +39,13 @@ def playlist_id(text: str) -> str | None:
 
 class PreListen:
     def __init__(self, spotify, library, start_jam, stop_jam, device_id, device_name="Light Show Studio",
-                 clock=time.monotonic, sleep=time.sleep):
+                 clock=time.monotonic, sleep=time.sleep, fetch=None):
         self.spotify, self.library = spotify, library
         self.start_jam, self.stop_jam = start_jam, stop_jam         # the silent jam that does the learning
         self.device_id = device_id                                  # () -> the studio player's Spotify device id
         self.device_name = device_name
         self.clock, self.sleep = clock, sleep
+        self.fetch = fetch                                          # FetchAhead, or None: learn by listening
         self.thread: threading.Thread | None = None
         self.halt = threading.Event()
         self.state: dict = {"running": False}
@@ -76,6 +81,12 @@ class PreListen:
         if not todo:
             return self.status()
         self.halt.clear()
+        if self.fetch is not None:                          # from copies: nothing plays, Spotify stays free
+            self.state["how"] = "copies"
+            self.fetch.submit(todo, first=False)
+            self.thread = threading.Thread(target=self._run_fetched, args=(todo,), daemon=True)
+            self.thread.start()
+            return self.status()
         self.start_jam()                                    # silent: the room hears nothing, nothing is kept but what is learned
         self.thread = threading.Thread(target=self._run, args=(todo,), daemon=True)
         self.thread.start()
@@ -104,6 +115,25 @@ class PreListen:
             self.stop_jam()
         except Exception:  # noqa: BLE001
             pass
+        self.state.update(running=False, current=None, note=note)
+
+    def _run_fetched(self, todo: list) -> None:
+        while not self.halt.wait(CHECK_S):
+            learned = [t for t in todo if self.library.has_learned(t.id)]
+            failed = {f["label"] for f in self.fetch.status()["failed"]}
+            left = [t for t in todo if t not in learned]
+            st = self.fetch.status()
+            self.state.update(learned=len(learned), remaining_s=round(60 * len(left)), current=st["working"])
+            if not left:
+                return self._finish_fetched(f"learned all {len(todo)} songs")
+            if self.fetch.idle():                           # the rest could not be found or analysed
+                missed = [t.label for t in left if t.label in failed] or [t.label for t in left]
+                return self._finish_fetched(f"learned {len(learned)} of {len(todo)}; no copy for: {', '.join(missed[:4])}"
+                                            + ("…" if len(missed) > 4 else ""))
+        self.fetch.forget()
+        self._finish_fetched(f"stopped after {len([t for t in todo if self.library.has_learned(t.id)])} of {len(todo)}")
+
+    def _finish_fetched(self, note: str) -> None:
         self.state.update(running=False, current=None, note=note)
 
     def _run(self, todo: list) -> None:

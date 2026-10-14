@@ -1,6 +1,7 @@
 # Python
 .venv/
 .venv-songformer/
+.venv-spotdl/
 __pycache__/
 *.pyc
 

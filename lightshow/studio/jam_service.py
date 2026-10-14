@@ -53,6 +53,9 @@ class JamService:
         self.studio, self.shows_dir = studio, shows_dir
         self.load_config, self.save_config, self.local_ip = load_config, save_config, local_ip
         self.library = JamLibrary(shows_dir)
+        # learn ahead: queued songs learned before they play, from a copy found on YouTube (fetch_ahead)
+        from .fetch_ahead import FetchAhead
+        self.fetch = FetchAhead(self.library)
         self._assigned: dict[str, int] = {}                  # track id -> the pair it got in "mix"
         self._moods: dict[str, dict | None] = {}             # track id -> its learned mood (or None)
         # Party level, 0..1: how much of the show comes through. Below 1 the studio lays the song's main
@@ -65,7 +68,8 @@ class JamService:
         from .prelisten import PreListen
         self.prelisten = PreListen(self.spotify, self.library,
                                    start_jam=lambda: self._start({"source": "studio", "speakers": "none", "target_delay": 20, "prelisten": True}),
-                                   stop_jam=self._stop, device_id=lambda: self.player.device_id)
+                                   stop_jam=self._stop, device_id=lambda: self.player.device_id,
+                                   fetch=self.fetch if self._fetch_on() else None)
         self.player_browser = "Microsoft Edge, hidden"
         self.player_enabled = True                      # False: a test copy that must not register a Spotify speaker
         from .player_browser import HiddenPlayer
@@ -145,9 +149,20 @@ class JamService:
         st = c.status()
         return max(0.0, float(st.get("duration") or 0.0) - float(st.get("position") or 0.0)), st.get("state") in ("PLAYING", "BUFFERING")
 
+    FETCH_DELAY_S = 10.0          # how far behind the room is when songs are learned ahead (a few seconds to line up)
+
+    def _fetch_on(self) -> bool:
+        """Learn ahead is on (the default where spotDL is installed): songs are learned before they play,
+        so the room needs to be only seconds behind, not a song."""
+        from . import fetch_ahead
+        return bool(self.load_config().get("jam_fetch", True)) and fetch_ahead.available()
+
     def _start(self, body: dict) -> dict:
         self._stop()
         demo = bool(body.get("demo"))
+        ahead = not demo and not body.get("prelisten") and self._fetch_on()
+        if ahead and "target_delay" not in body:
+            body = {**body, "target_delay": float(self.load_config().get("jam_fetch_delay", self.FETCH_DELAY_S))}
         relay = Relay(sr=44100, channels=2, capacity_s=600.0)
         gate = Gate()
         cfg = JamSettings(target_delay=float(body.get("target_delay", 90.0)), max_gap=float(body.get("max_gap", 6.0)),
@@ -171,7 +186,8 @@ class JamService:
         # in the room with its lights while Spotify plays, unheard, behind it, and the room joins the jam as
         # it ends, a whole song behind. So the jam is always a song ahead: each song is heard to its end
         # before the room gets to it, and gets its full show from the first beat.
-        opener = None if demo or body.get("prelisten") or where not in ("cast", "pc") else self._opener_plan(body)
+        # (learning ahead, the room is only seconds behind: no opening song is needed to fill a buffer)
+        opener = None if demo or ahead or body.get("prelisten") or where not in ("cast", "pc") else self._opener_plan(body)
         if opener:
             cfg.target_delay = max(20.0, opener[1] - 2.0)
         if demo:
@@ -199,6 +215,9 @@ class JamService:
         segment_fn = structure_model.run_audio if structure_model.available() else None
         self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
         self.runner = JamRunner(self.engine, file_status=self._file_status)
+        if ahead:
+            self.engine.on_queue = lambda tracks: self.fetch.submit(tracks, first=True)
+            self.engine.on_mismatch = self.fetch.mismatched
         self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") and use_cast or where == "pc" else ", preview only (no speakers)")
         self.runner.start()
         if demo:
@@ -213,7 +232,11 @@ class JamService:
             self.mode = "pre-listen: learning songs, nothing plays in the room"
         if not demo and not body.get("prelisten"):             # a pre-listen never becomes the jam you start next
             cfg_all = self.load_config()
-            cfg_all["jam_last"] = {k: body[k] for k in LAST_KEYS if k in body}
+            last = {k: body[k] for k in LAST_KEYS if k in body}
+            if ahead:                                        # the delay learning ahead is kept on its own
+                cfg_all["jam_fetch_delay"] = float(last.pop("target_delay", self.FETCH_DELAY_S))
+                last["target_delay"] = cfg_all.get("jam_last", {}).get("target_delay", 90.0)
+            cfg_all["jam_last"] = last
             self.save_config(cfg_all)
         return self._state()
 
@@ -368,6 +391,8 @@ class JamService:
                 and self._last().get("source", "studio") == "studio")
 
     def _stop(self) -> None:
+        if getattr(self, "fetch", None) is not None:
+            self.fetch.forget()                              # what is under way finishes; nothing new starts
         if self.runner:
             self.runner.stop()
         if self.capture:
@@ -405,7 +430,9 @@ class JamService:
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
                 "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "party_level": self.party_level,
                 "cue": self._room_cue(),
-                "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice()}
+                "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice(),
+                "fetch": {**self.fetch.status(), "on": self._fetch_on(),
+                          "delay": float(self.load_config().get("jam_fetch_delay", self.FETCH_DELAY_S))}}
         if self.engine is None:
             return base
         st = self.engine.state()
@@ -439,7 +466,7 @@ class JamService:
 
     async def start(self, request):
         body = await request.json()
-        if self.prelisten.busy():                           # a real jam always wins: pre-listen steps aside
+        if self.prelisten.busy() and self.prelisten.fetch is None:   # a real jam always wins (one learning from copies needs no Spotify)
             await asyncio.get_running_loop().run_in_executor(None, self.prelisten.stop, "a jam was started")
         return await self._run(self._start, body)
 
@@ -448,7 +475,7 @@ class JamService:
         """Learn a playlist's songs (or the queue's) ahead of the party: {source: a playlist link, or "queue"}."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        if self.engine is not None and not self.prelisten.busy():
+        if self.engine is not None and not self.prelisten.busy() and self.prelisten.fetch is None:
             return web.json_response({"error": "stop the jam first: Spotify can only play one thing at a time"}, status=400)
         source = str((await request.json()).get("source") or "").strip()
         return await self._run(self.prelisten.start, source)
@@ -689,6 +716,8 @@ class JamService:
 
     def _auto_start(self) -> None:
         body = {**self._last(), "source": "studio", "auto": True}
+        if self._fetch_on():
+            body.pop("target_delay", None)                  # learning ahead keeps its own (short) delay
         if self.studio.cast.cast is not None:
             body["speakers"] = "cast"                       # casting: the room is the Cast speaker
         try:
@@ -1006,6 +1035,9 @@ class JamService:
             cfg["jam_last"] = {**cfg.get("jam_last", {}), "source": body["source"]}
         if "opener" in body:                                  # the saved show every jam opens with ("" for none)
             cfg["jam_opener"] = str(body["opener"] or "")
+        if "fetch" in body:                                   # learn ahead from YouTube copies
+            cfg["jam_fetch"] = bool(body["fetch"])
+            self.prelisten.fetch = self.fetch if body["fetch"] else None
         self.save_config(cfg)
         return web.json_response(self._state())
 
