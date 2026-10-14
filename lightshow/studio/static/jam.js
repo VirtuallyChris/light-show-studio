@@ -23,8 +23,15 @@
     return j;
   };
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const KIND = { custom: ['your show', 'k-custom'], learned: ['learned', 'k-learned'], live: ['first listen', 'k-live'] };
-  const badge = k => `<span class="jam-kind ${(KIND[k] || KIND.live)[1]}">${(KIND[k] || KIND.live)[0]}</span>`;
+  // what each song's show is built from: your own show, an analysis made ahead (or the last time it played),
+  // or a first listen; learning ahead, a first listen says where it stands: being analyzed, or next in line
+  const KIND = { custom: ['your show', 'k-custom'], learned: ['analyzed', 'k-learned'], live: ['first listen', 'k-live'],
+                 analyzing: ['analyzing…', 'k-learning'], queued: ['queued', 'k-live'] };
+  const badge = (k, t) => {
+    const s = t && t.learning && t.learning !== 'failed' ? t.learning : k, [label, cls] = KIND[s] || KIND.live;
+    const why = t && t.learning === 'failed' ? ` title="${esc('Not learned ahead: ' + (t.learning_why || 'no copy found'))}"` : '';
+    return `<span class="jam-kind ${cls}"${why}>${label}</span>`;
+  };
   const styleTag = t => t && t.style ? ` <span class="jam-style">${esc(t.style)}</span>` : '';
 
   // ------------------------------------------------------------------ colors
@@ -185,8 +192,8 @@
     } else {
       const room = st.room, ahead = st.ahead; const pct = Math.max(0, Math.min(100, 100 * (st.delay || 0) / (st.target_delay || 90)));
       html += `<div class="jam-sec"><h4>${esc(st.mode || 'jam')}</h4>
-        <div class="jam-now"><div class="lbl">In the room</div><div class="ttl">${room ? esc(room.label) : (st.streaming ? 'between songs' : `filling the buffer… ${Math.round(st.buffered || 0)} s of ${Math.round(st.target_delay)} s`)}</div>${room ? badge(room.kind) + styleTag(room) + (room.project ? ` <span class="hint">${esc(room.project)}</span>` : '') + pairPicker(room) : ''}</div>
-        <div class="jam-now"><div class="lbl">On Spotify now, ${Math.round(st.delay || 0)} s ahead of the room</div><div class="ttl">${ahead ? esc(ahead.label) : '—'}</div>${ahead ? badge(ahead.kind) + styleTag(ahead) + (ahead.kind === 'live' ? ` <span class="hint">analysed to ${fmt(ahead.horizon)}</span>` : '') : ''}</div>
+        <div class="jam-now"><div class="lbl">In the room</div><div class="ttl">${room ? esc(room.label) : (st.streaming ? 'between songs' : `filling the buffer… ${Math.round(st.buffered || 0)} s of ${Math.round(st.target_delay)} s`)}</div>${room ? badge(room.kind, room) + styleTag(room) + (room.project ? ` <span class="hint">${esc(room.project)}</span>` : '') + pairPicker(room) : ''}</div>
+        <div class="jam-now"><div class="lbl">On Spotify now, ${Math.round(st.delay || 0)} s ahead of the room</div><div class="ttl">${ahead ? esc(ahead.label) : '—'}</div>${ahead ? badge(ahead.kind, ahead) + styleTag(ahead) + (ahead.kind === 'live' ? ` <span class="hint">analysed to ${fmt(ahead.horizon)}</span>` : '') : ''}</div>
         <div class="jam-meter" title="How far the room is behind Spotify"><div style="width:${pct}%"></div><span>${(st.delay || 0).toFixed(1)} s behind · aiming for ${Math.round(st.target_delay)} s</span></div>
         ${st.paused ? '<div class="hint">Paused on the phone. The buffer is held.</div>' : ''}
         ${st.handover ? `<div class="hint">${st.handover === 'armed' ? 'Spotify is held until your opening song is nearly over.' : 'Filling the buffer behind the opening song…'}</div>` : ''}
@@ -194,7 +201,7 @@
         ${st.output_error ? `<div class="warn">Playback: ${esc(st.output_error)}</div>` : ''}
         ${sp.error ? `<div class="warn">Spotify: ${esc(sp.error)}</div>` : ''}</div>
       ${colorsSection(st)}
-      <div class="jam-sec"><h4>Up next${fetchLine(st)}</h4>${(st.queue || []).slice(0, 8).map(q => `<div class="jam-q"><span>${esc(q.label)}</span>${pairPicker(q)}${badge(q.kind)}</div>`).join('') || '<div class="hint">Nothing queued.</div>'}</div>
+      <div class="jam-sec"><h4>Up next${fetchLine(st)}</h4>${(st.queue || []).slice(0, 8).map(q => `<div class="jam-q"><span>${esc(q.label)}</span>${pairPicker(q)}${badge(q.kind, q)}</div>`).join('') || '<div class="hint">Nothing queued.</div>'}</div>
       <div class="jam-sec"><h4>Log</h4><div class="jam-log">${(st.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div></div>
       <div class="jam-actions">
         <button id="jamStop">Stop jam</button>

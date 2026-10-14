@@ -447,6 +447,11 @@ class JamService:
         if self.capture is not None and getattr(self.capture, "lost", 0):
             st["capture"]["lost_s"] = round(self.capture.lost, 2)
         played = [st.get("room"), st.get("ahead"), *(st.get("queue") or [])]
+        for t in played:                                     # learning ahead: where each first listen stands
+            if t and t.get("kind") == "live" and t.get("id") and base.get("fetch", {}).get("on"):
+                got = self.fetch.state_of(t["id"])
+                if got:
+                    t["learning"], t["learning_why"] = got
         return {**base, **st, "now": time.monotonic(), "assigned_colors": self._assign_colors(played)}
 
     async def _run(self, fn, *args):

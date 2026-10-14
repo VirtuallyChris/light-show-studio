@@ -88,6 +88,22 @@ class TestFetchAhead(unittest.TestCase):
         self.assertTrue(self.wait(lambda: len(lib.learned) == 4 and f.idle()))
         self.assertEqual(order, ["t1", "t7", "t2", "t3"])
 
+    def test_a_song_added_to_the_end_of_the_queue_waits_its_turn(self):
+        f, lib, _, order = self.make()
+        gate = threading.Event()
+        real = f.download
+        f.download = lambda t, folder: (gate.wait(2), real(t, folder))[1]
+        f.submit([track(1), track(2), track(3)])                          # the queue
+        self.assertTrue(self.wait(lambda: f.busy["download"] is not None))
+        f.submit([track(2), track(3), track(4)])                          # a song played, one added at the end
+        self.assertEqual([t.id for t in f.waiting], ["t2", "t3", "t4"])   # not jumping the line
+        self.assertEqual(f.state_of("t1"), ("analyzing", ""))
+        self.assertEqual(f.state_of("t4"), ("queued", ""))
+        gate.set()
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 4 and f.idle()))
+        self.assertEqual(order, ["t1", "t2", "t3", "t4"])
+        self.assertIsNone(f.state_of("t4"))
+
     def test_without_spotdl_nothing_happens(self):
         f = FetchAhead(FakeLibrary(), is_available=lambda: False)
         self.assertEqual(f.submit([track(1)]), 0)

@@ -31,7 +31,8 @@ from collections import deque
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPOTDL = os.path.join(ROOT, ".venv-spotdl", "Scripts" if os.name == "nt" else "bin", "spotdl" + (".exe" if os.name == "nt" else ""))
 SPOTDL_HOME = os.path.join(os.path.expanduser("~"), ".spotdl")   # where `spotdl --download-deno` puts Deno
-LENGTH_SLACK_S = 4.0            # a copy this much longer or shorter than Spotify's is another version
+LENGTH_SLACK_S = 8.0            # a copy this much longer or shorter than Spotify's is another version (a little
+                                # more silence at an end is fine: the jam checks the copy against Spotify by ear)
 FETCH_TIMEOUT_S = 240
 RETRY_AFTER_S = 30 * 60         # a song that could not be fetched is tried again after this
 
@@ -114,13 +115,23 @@ class FetchAhead:
         return t.id not in held
 
     def submit(self, tracks, first: bool = True) -> int:
-        """Songs to learn ahead. The jam's queue goes first (in its order), ahead of a playlist's."""
+        """Songs to learn ahead. The jam's queue goes first, in the queue's own order (the next to play
+        first, a song just added at its end last), ahead of anything else waiting (a playlist's)."""
         if not self.is_available():
             return 0
         with self.lock:
             new = [t for t in tracks if self._wanted(t)]
             if first:
-                self.waiting.extendleft(reversed(new))
+                ids = [t.id for t in tracks]
+                queued = {t.id: t for t in self.waiting if t.id in ids}
+                rest = [t for t in self.waiting if t.id not in ids]
+                ordered, seen = [], set()
+                for t in tracks:                          # the queue's order, whether waiting already or new
+                    w = queued.get(t.id) or next((n for n in new if n.id == t.id), None)
+                    if w is not None and t.id not in seen:
+                        ordered.append(w)
+                        seen.add(t.id)
+                self.waiting = deque(ordered + rest)
             else:
                 self.waiting.extend(new)
             self.lock.notify_all()
@@ -137,6 +148,16 @@ class FetchAhead:
         """Drop what is waiting (a jam stopped): what is under way finishes."""
         with self.lock:
             self.waiting.clear()
+
+    def state_of(self, track_id: str) -> tuple[str, str] | None:
+        """Where a song stands: ("analyzing" | "queued" | "failed", why), or None (nothing to do)."""
+        with self.lock:
+            if any(b and b.id == track_id for b in self.busy.values()):
+                return "analyzing", ""
+            if any(t.id == track_id for t in self.waiting) or any(x[0].id == track_id for x in self.ready):
+                return "queued", ""
+            f = self.failed.get(track_id)
+            return ("failed", f[2]) if f else None
 
     def status(self) -> dict:
         with self.lock:
