@@ -139,6 +139,11 @@ class ModelWorker:
             note(f"[{self.name}] the model stopped answering (see models.log)")
             return None
 
+    def warm(self) -> bool:
+        """Start the worker (and load its model) now, ahead of the first request."""
+        with self.lock:
+            return self._start()
+
     def ask_file_and_cache(self, path: str, cache_dir: str):
         return self._ask({"path": os.path.abspath(path), "cache": os.path.abspath(cache_dir)})
 

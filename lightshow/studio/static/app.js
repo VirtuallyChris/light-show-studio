@@ -209,7 +209,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 3;                                            // 3: each song draws its own mix of effects
+  const SHOW_VERSION = 4;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1793,9 +1793,10 @@
   /** The analysis found no drums at all (the separated drum track is near silent): a calm song. */
   const noDrums = () => !!(S.analysis && S.analysis.drum_calibration && S.analysis.drum_calibration.has_drums === false);
   /** A song without drums that still lifts: its loud parts (the top tenth) are at least 0.65 and half
-   *  again as loud as its middle, like an indie song whose choruses swell on synths and bass. It gets a
-   *  show that builds and lifts like a groove song, with the bass keeping time; a truly calm song
-   *  (a lullaby-quiet one) stays calm. */
+   *  again as loud as its middle, like an indie song whose choruses swell on synths and bass. It stays
+   *  a calm (chill) show, soft effects only, but its drops lift a little more: their motion moves at a
+   *  livelier pace. (It used to get a groove show, with flashes on the bass line and drop blasts, which
+   *  was far too much for a song like The Wldlfe's Heaven is a place.) */
   function swells() {
     const a = S.analysis; if (!a || !a.energy || !a.energy.length) return false;
     if (a._swells === undefined) {
@@ -1812,7 +1813,7 @@
   function showStyle() {
     const p = P(), g = S.analysis && S.analysis.genre;
     if (p && p.settings && STYLE_NAMES[p.settings.style]) return p.settings.style;
-    if (noDrums()) return swells() ? 'groove' : 'chill';           // nothing keeps time: slow fades, unless the song swells
+    if (noDrums()) return 'chill';                                   // nothing keeps time: a calm show (one that swells lifts its drops a little more)
     if (g && STYLE_NAMES[g.style]) return g.style;
     return ((S.analysis && S.analysis.mood && S.analysis.mood.drive) || 0.6) > 0.72 ? 'dance' : 'groove';
   }
@@ -2024,7 +2025,7 @@
           const ok = look.drops.filter(r => (hard || !r.flash) && (room || !r.room)).slice(0, 3);
           const r = ok[kind % ok.length] || look.drops.find(r => !r.flash && !r.room) || LOOKS.dreamy.drops[0];
           clip(0, r.base[0], b0, len, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
-          if (r.top === 'motion') motion(chill ? 0.5 : style === 'rave' ? 1.3 : 1);
+          if (r.top === 'motion') motion(chill ? (swells() ? 0.75 : 0.5) : style === 'rave' ? 1.3 : 1);
           // a dance drop's flashes come every other beat and softer: flashing on every beat is rave's
           else if (style === 'dance' && r.flash && Array.isArray(r.top)) top([r.top[0], 'rate' in r.top[1] ? { ...r.top[1], rate: r.top[1].rate * 0.6 } : { ...r.top[1], every: Math.max(2, r.top[1].every || 1) },
                                                                                  { ...(r.top[2] || {}), opacity: ((r.top[2] || {}).opacity || 1) * 0.6 }]);

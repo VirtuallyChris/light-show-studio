@@ -784,12 +784,11 @@ noise.
   drum track is silent is dropped, the beat pulse goes only where the drums play,
   and a song whose drum track is near silent (under 10% of its level) **has no
   drums**: no kicks, no snares, and a calm, chill show unless a style is set by
-  hand, or the song swells: a drumless song whose loud parts (its top tenth,
-  two seconds at a time) reach 0.65 and half again its middle, and that does not
-  sound calm to the listening model, gets a show that builds and lifts like a
-  groove song, with the bass keeping time (drops flash with the bass line, the
-  small lamps pulse with it) and its effects drawn from its vibe like any other song.
-  The Wldlfe's *Heaven is a place* (choruses twice as loud as its verses) swells;
+  hand. A drumless song that swells (its loud parts, the top tenth two seconds at
+  a time, reach 0.65 and half again its middle) stays calm, soft effects only, but
+  its drops lift a little more, their motion livelier. (Such songs used to get a
+  groove show, with flashes on the bass line; on The Wldlfe's *Heaven is a place*
+  that was far too much.)
   *If I Became Friends With The Aliens* stays calm. A calm song's sparkle is
   **Starlight**: single segments glow up to white and fade away slowly, a few at
   a time at random spots along every strip and lamp, like stars coming out, over

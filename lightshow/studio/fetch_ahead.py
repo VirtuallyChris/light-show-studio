@@ -347,6 +347,8 @@ class FetchAhead:
         self.threads = [threading.Thread(target=self._downloads, daemon=True), threading.Thread(target=self._analyses, daemon=True)]
         for t in self.threads:
             t.start()
+        if self.analyze is _analyze and ANALYSER.available():          # the analysis process and its models, loading now
+            threading.Thread(target=ANALYSER.warm, daemon=True).start()
 
     def _fail(self, track, why: str) -> None:
         with self.lock:
