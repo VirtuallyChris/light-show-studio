@@ -563,6 +563,10 @@ class JamSettings:
     crossfade: float = 0.0              # Spotify's crossfade setting, in seconds (it cannot be read from the API)
     outro: float = 30.0                 # a change this close to a song's end counts as the song ending
     skip_jumps: bool = False            # a skip jumps the room to the new song now, giving up the delay
+    # Learning ahead, a first listen is only a stopgap until its copy is learned: its beat is followed and
+    # nothing else (no stems, sections model, instruments or genre), so the processor's time goes to the
+    # copy's full analysis, and what is heard is not kept (the copy is what the song is learned from).
+    light_live: bool = False
 
 
 class JamEngine:
@@ -992,11 +996,12 @@ class JamEngine:
             cur.checked_at = self.clock()
             if self.library.has_learned(cur.track.id):
                 return self._upgrade(cur)
-        if cur and cur.kind == "live" and cur.end is None and cur.genre is None and head - cur.start >= 30.0:
+        if cur and cur.kind == "live" and cur.end is None and cur.genre is None and head - cur.start >= 30.0 and not self.cfg.light_live:
             return self._genre(cur, min(head - cur.start, cur.track.duration))
         if cur and cur.kind == "live" and cur.end is None:
             have = min(head - cur.start, cur.track.duration)
-            if have >= self.cfg.min_audio and have - cur.horizon >= self.cfg.analyse_every:
+            every = self.cfg.analyse_every * (2 if self.cfg.light_live else 1)
+            if have >= self.cfg.min_audio and have - cur.horizon >= every:
                 return self._pass(cur, have, final=False)
         return None
 
@@ -1150,10 +1155,11 @@ class JamEngine:
 
     def _pass(self, jt: JamTrack, have: float, final: bool) -> str:
         y = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=True, pad=True)   # song time 0 is sample 0
-        events = final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1)
+        light = self.cfg.light_live and jt.kind == "live"   # the beat only (see JamSettings.light_live)
+        events = not light and (final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1))
         stereo = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=False, pad=True) if events else None
         a = self.analyse_fn(y, SR_ANALYSIS, stereo=stereo, use_model=False, events=events, bpm_hint=jt.bpm_lock,
-                            segment_fn=self.segment_fn)
+                            segment_fn=None if light else self.segment_fn)
         if not events and jt.analysis:                      # keep the last instrument pass until the next one
             for k in ("events", "fills", "hook", "curves", "drum_calibration", "rolls", "cuts", "entries", "hatrolls", "wobbles", "key_change"):
                 a[k] = jt.analysis.get(k, a.get(k))
@@ -1171,6 +1177,8 @@ class JamEngine:
     def _finish(self, jt: JamTrack) -> str:
         have = jt.end - jt.start
         jt.saved = True
+        if self.cfg.light_live:
+            return f"{jt.track.name}: heard only for its beat; it is learned from its copy instead"
         if have < max(30.0, 0.9 * jt.track.duration) or jt.start < self.relay.oldest_time:
             return f"{jt.track.name}: not enough of it was heard to keep"
         msg = self._pass(jt, have, final=True)
@@ -1229,7 +1237,7 @@ class JamEngine:
             if jt is None:
                 return None
             base = {"key": jt.key, "kind": jt.kind, "project": jt.project, "version": jt.version, "track": jt.track.to_json(),
-                    "horizon": round(jt.horizon, 2)}
+                    "horizon": round(jt.horizon, 2), "light": jt.kind == "live" and self.cfg.light_live}
             if jt.kind == "custom":
                 return base
             if jt.kind == "learned":

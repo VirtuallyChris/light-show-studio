@@ -431,6 +431,26 @@ class TestEngine(unittest.TestCase):
         self.assertAlmostEqual(t.start, seek_at - 60.0, delta=0.06)               # 0:00 where it would be: 1:00 at the seek
         self.assertIs(sim.engine.track_at(seek_at - 1.0), first)                  # the room still hears the old place first
 
+    def test_learning_ahead_a_first_listen_follows_only_the_beat_and_is_not_kept(self):
+        calls = []
+        sim = Sim(self.dir, target=5.0, light_live=True)
+        real = sim.engine.analyse_fn
+        def spy(y, sr, **kw):
+            calls.append((kw.get("events"), kw.get("segment_fn")))
+            return real(y, sr, **kw)
+        sim.engine.analyse_fn = spy
+        sim.engine.genre_fn = lambda y, sr: self.fail("no genre model for a stopgap listen")
+        sim.engine.segment_fn = lambda *a, **k: self.fail("no section model for a stopgap listen")
+        sim.play(self.a, self.ta)
+        sim.run(self.a["duration"] + 2)
+        sim.play(self.b, self.tb)                                                  # the song ends naturally
+        sim.run(12)
+        self.assertTrue(calls)
+        self.assertTrue(all(ev is False and seg is None for ev, seg in calls))      # the beat only, every pass
+        self.assertIsNone(sim.library.learned(self.ta.id))                         # learned from its copy instead
+        t = sim.engine.current
+        self.assertTrue(sim.engine.analysis_json(t.key)["light"])
+
     def test_a_learned_song_is_recognised_and_lined_up_by_ear(self):
         from lightshow.studio.analysis import analyze_audio
 

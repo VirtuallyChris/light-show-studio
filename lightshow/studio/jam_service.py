@@ -174,7 +174,7 @@ class JamService:
         gate = Gate()
         cfg = JamSettings(target_delay=float(body.get("target_delay", 90.0)), max_gap=float(body.get("max_gap", 6.0)),
                           crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))),
-                          skip_jumps=bool(body.get("skip_jumps", False)))
+                          skip_jumps=bool(body.get("skip_jumps", False)), light_live=ahead)
         hidden_name = self._hidden_output_name()
         if not demo and hidden_name is None:
             raise ValueError(f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")

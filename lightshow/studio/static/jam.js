@@ -158,6 +158,7 @@
   }
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
+    if (J.doc.light) { S.jamColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
     S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); J.colorSig = colorSig();
     const restyle = (St.P().settings || {}).style !== (trackStyle(J.doc.track) || undefined);
     applyStyle(J.doc.track);
@@ -549,6 +550,10 @@
       adopt(data.analysis, data.project, data.saved || null);
       if (!data.saved) try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
       if (J.failedKey !== room.key) toast(`${room.label}: playing your show`);
+    } else if (doc.light) {
+      adopt(doc.analysis, room.label, null);
+      buildLight();                                                   // a stopgap until its copy is learned
+      if (J.failedKey !== room.key) toast(`${room.label}: following the beat until its full show is ready`);
     } else {
       adopt(doc.analysis, room.label, null);
       applyStyle(doc.track);                                          // a vibe picked for it by hand
@@ -561,6 +566,20 @@
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
   }
 
+  /** Learning ahead, a first listen is a stopgap until its copy is learned: the song's main color at nearly
+   *  full brightness, pulsing on the beat, and nothing else to work out (the processor goes to the copy). */
+  function buildLight() {
+    const p = St.P(); if (!p || !S.analysis) return;
+    const col = (S.jamColors && S.jamColors[0]) || (S.albumPalette && S.albumPalette[0]) || '#ffffff';
+    p.bpm = S.analysis.bpm || 120; p.phase = S.analysis.downbeat_phase || 0; p.beats = (S.analysis.beats || []).slice();
+    for (const lane of p.lanes) lane.clips = [];
+    p.paletteClips = [];
+    const len = Math.max(4, Math.ceil(St.timeToBeat(S.analysis.duration || 240)) + 4);
+    p.lanes[0].clips.push({ id: 'light' + Date.now().toString(36), effect: 'pulse', start: 0, len, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0,
+      params: { ...Effects.defaults('pulse'), follow: 'beat', every: 1, size: 1, decay: 0.5, floor: 0.8 }, palette: Effects.solidPalette([col]) });
+    St.draw();
+  }
+
   const sectionKeys = () => St.P().sections.map(s => `${s.type}@${s.start.toFixed(2)}-${s.end.toFixed(2)}`);
 
   /** A first listen has learned more: take the new grid and rebuild only what the room has not reached. */
@@ -569,6 +588,7 @@
     if (!doc.analysis || room.key !== J.key) return;
     const a = doc.analysis, p = St.P();
     S.analysis = a; J.lastFeat = performance.now(); applyGenre(J.doc && J.doc.track);
+    if (doc.light) { J.version = doc.version; buildLight(); return; }   // the beat, a little further along
     if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); St.draw(); return; }
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
     p.sections = St.withBuildups(St.tidySections(a.sections));      // a drop with none still gets its buildup
