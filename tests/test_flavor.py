@@ -123,6 +123,63 @@ class TestDropTiming(unittest.TestCase):
         self.assertEqual((secs[1]["start"], drops, moves), (16.0, [16.0], []))
 
 
+class TestSettleSections(unittest.TestCase):
+    """Sections corrected from the stems and the hook (Higher Power, Baggy Jeans)."""
+
+    def _song(self, n_s=210, fps=30, bpm=89.0):
+        beat = 60.0 / bpm
+        return {"feature_fps": fps, "bpm": bpm, "downbeat_phase": 0, "beats": [round(i * beat, 4) for i in range(int(n_s / beat))]}
+
+    def test_drops_follow_the_hook(self):
+        from lightshow.studio.analysis import hook_drops
+        a = self._song(); fps = 30; bar = 4 * 60.0 / 89.0
+        mel = np.full(210 * fps, 0.35)
+        for t0, t1 in ((103.0, 124.5), (151.5, 198.0)):          # the choruses: the melody up
+            mel[int(t0 * fps):int(t1 * fps)] = 0.8
+        a["curves"] = {"other": list(mel), "lead": list(mel)}
+        a["hook"] = {"length": bar, "times": [105.6, 116.4, 151.5, 162.3, 173.1, 183.9]}
+        snares = [[t, 1.0, 0] for t in np.arange(14.0, 200.0, 2 * 60 / 89.0) if not 58 <= t < 74]   # no backbeat 58-74
+        a["events"] = {"snare": snares}
+        a["sections"] = [{"start": 0.0, "end": 16.7, "type": "intro"}, {"start": 16.7, "end": 51.7, "type": "verse"},
+                         {"start": 51.7, "end": 73.3, "type": "drop"}, {"start": 73.3, "end": 100.3, "type": "verse"},
+                         {"start": 100.3, "end": 200.0, "type": "drop"}, {"start": 200.0, "end": 208.0, "type": "outro"}]
+        a["drops"] = [51.7, 100.3]
+        self.assertTrue(hook_drops(a))
+        got = [(round(s["start"]), s["type"]) for s in a["sections"]]
+        self.assertEqual([t for _, t in got], ["intro", "verse", "drop", "verse", "drop", "outro"])
+        self.assertAlmostEqual(a["sections"][2]["start"], 103.0, delta=1.5)        # where the melody lifts, not 100.3
+        self.assertAlmostEqual(a["sections"][3]["start"], 124.5, delta=1.5)        # the bridge, no longer inside a drop
+        self.assertAlmostEqual(a["sections"][4]["start"], 151.5, delta=1.5)
+        self.assertEqual(len(a["drops"]), 2)
+        self.assertEqual(hook_drops(a), [])                                         # and again: nothing more to change
+
+    def test_a_drop_out_of_a_pause_starts_at_the_hit(self):
+        from lightshow.studio.analysis import drop_after_pause
+        a = self._song(80); fps = 30
+        e = np.full(80 * fps, 0.55)
+        e[int(52.8 * fps):int(53.47 * fps)] = 0.2                                   # the pause
+        e[int(53.47 * fps):] = 0.85                                                 # the hit, and the drop goes on
+        a["energy"] = list(e)
+        a["sections"] = [{"start": 10.0, "end": 54.37, "type": "verse"}, {"start": 54.37, "end": 80.0, "type": "drop"}]
+        a["drops"] = [54.37]
+        self.assertTrue(drop_after_pause(a))
+        self.assertLess(a["sections"][1]["start"], 54.0)
+        self.assertAlmostEqual(a["sections"][1]["start"], 53.47, delta=0.3)
+        self.assertEqual(a["sections"][0]["end"], a["sections"][1]["start"])
+
+    def test_a_breakdown_with_drums_is_a_verse(self):
+        from lightshow.studio.analysis import drummed_breakdowns
+        a = self._song(60); fps = 30
+        a["curves"] = {"drums_present": [0.8] * (60 * fps)}
+        a["events"] = {"snare": [[t, 1.0, 0] for t in np.arange(0.0, 60.0, 60 / 89.0)]}
+        a["sections"] = [{"start": 0.0, "end": 11.5, "type": "intro"}, {"start": 11.5, "end": 43.6, "type": "breakdown"}]
+        self.assertTrue(drummed_breakdowns(a))
+        self.assertEqual(a["sections"][1]["type"], "verse")
+        quiet = {**self._song(60), "curves": {"drums_present": [0.05] * (60 * fps)}, "events": {"snare": []},
+                 "sections": [{"start": 11.5, "end": 43.6, "type": "breakdown"}]}
+        self.assertEqual(drummed_breakdowns(quiet), [])
+
+
 class TestDrumlessDrops(unittest.TestCase):
     """A "drop" with the drums silent, in a song that has drums, is a lead-in, not a drop."""
 

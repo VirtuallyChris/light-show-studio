@@ -899,12 +899,28 @@ noise.
   line, bass one beat after). So a drop whose bass is silent going in moves to the
   first beat of its first bar where the separated bass plays; one whose bass is
   already playing stays. Over 24 songs that moved 10 of 64 drops, by 1 to 3 beats.
+  But a drop that comes out of a pause (quiet, then a sudden hit that stays loud)
+  starts at the hit, even when the bass fills in a beat later (Baggy Jeans at 0:53).
+- **Sections are checked against the drums and the hook**, on every analysis,
+  saved ones too (so learned songs need no relearning):
+  - where a song's hook (the riff it keeps coming back to) plays nearly only in
+    its drops, a "drop" the hook never plays in and that has no snare backbeat is
+    a verse; a drop starts on the bar near its first hook where the melody lifts,
+    when the found start does not lift at all; and a long drop whose hook stops
+    for 10 bars or more while the melody falls away is two drops with a verse
+    between. Coldplay's *Higher Power*: verse at 0:14 (not 0:17), no drop at 0:52,
+    the chorus at 1:43 (not 1:40), the bridge at 2:05 its own verse, the last
+    chorus at 2:31;
+  - an intro ends where the drums come in to stay, not a bar or two later;
+  - a breakdown with the drums playing through it (three quarters of it, with a
+    backbeat) is a verse (*Baggy Jeans* 0:11 to 0:44).
   **Re-detect** analyses the song again from scratch with the newest analysis:
   everything saved for it is thrown away first.
 - **A buildup where the snares build.** A drop with no buildup marked before it,
-  where the snares do build into it (at least 8 in its last 4 bars, rolls
-  counting, the last 2 bars as busy as the 2 before; or at least 4 in its last
-  2 bars), gets a buildup section over those bars: the section row says so, it
+  where the snares do build into it (half again the song's usual backbeat in its
+  last 2 or 4 bars, rolls counting: a rock song's steady snare on 2 and 4 is no
+  build; at least 8 in 4 bars, the last 2 as busy as the 2 before, or at least 4
+  in 2 bars), gets a buildup section over those bars: the section row says so, it
   can be moved or retyped like any other, and it is built as one. A drop that
   simply arrives (no snares building, or no drums) stays that way. Shows built
   before this have their lifts named buildups the same way when opened.

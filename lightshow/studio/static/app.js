@@ -48,14 +48,22 @@
     return join(out, (a, b) => a.type === b.type);                                  // a sliver may have joined two alike
   }
 
-  /** How many beats of snare buildup run into beat `end`: 16 when the last 4 bars hold at least 8
-   *  snares (rolls count) and the last 2 bars are at least as busy as the 2 before, else 8 when the
-   *  last 2 bars hold at least 4, else 0: no build there to call a buildup. */
+  /** How many beats of snare buildup run into beat `end`: 16 when the last 4 bars hold half again the
+   *  song's usual snares (rolls count; at least 8) and the last 2 bars are at least as busy as the 2
+   *  before, else 8 when the last 2 bars hold half again the usual (at least 4), else 0: no build there
+   *  to call a buildup. The usual is the song's backbeat (its typical 2 bars that have a snare at all):
+   *  a rock song's snare on 2 and 4 is not a build, however steady (it used to make every section
+   *  before a drop one: Coldplay's Higher Power). */
   function snareBuild(end, room = 16) {
-    const ev = (S.analysis && S.analysis.events) || {}, hits = [...(ev.snare || []), ...(ev.roll || [])].map(e => timeToBeat(e[0]));
+    const a = S.analysis || {}, ev = a.events || {}, hits = [...(ev.snare || []), ...(ev.roll || [])].map(e => timeToBeat(e[0]));
     const n = (b0, b1) => hits.filter(b => b >= b0 && b < b1).length;
-    if (room >= 16 && n(end - 16, end) >= 8 && n(end - 8, end) >= n(end - 16, end - 8)) return 16;
-    if (room >= 8 && n(end - 8, end) >= 4) return 8;
+    if (a._backbeat === undefined) {                               // snares in a typical 8 beats that have any
+      const w = []; for (let b = 0; b + 8 <= timeToBeat(a.duration || 0); b += 8) { const k = n(b, b + 8); if (k) w.push(k); }
+      w.sort((x, y) => x - y); a._backbeat = w.length >= 4 ? w[Math.floor(w.length / 2)] : 0;
+    }
+    const usual = a._backbeat;
+    if (room >= 16 && n(end - 16, end) >= Math.max(8, 3 * usual) && n(end - 8, end) >= n(end - 16, end - 8)) return 16;
+    if (room >= 8 && n(end - 8, end) >= Math.max(4, 1.5 * usual)) return 8;
     return 0;
   }
   /** A drop with no buildup marked before it, where the snares do build into it, gets one: those last
@@ -209,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 4;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm
+  const SHOW_VERSION = 5;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).

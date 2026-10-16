@@ -182,9 +182,9 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "builtin_sections": builtin_sections,
         "builtin_drops": builtin_drops,
     }
-    moved = drumless_drops(out)
+    moved = settle_sections(out)
     if moved:
-        print(f"[structure] drops set where their drums come in: {moved}")
+        print(f"[structure] sections settled by the drums and the hook: {moved}")
     return out
 
 
@@ -320,6 +320,225 @@ def drumless_drops(a: dict) -> list:
         a["drops"] = sorted([d for d in (a.get("drops") or []) if not (start - 0.5 <= d < end)] + [round(at, 3)])
         changes.append((round(start, 1), "->", round(at, 1)))
     a["sections"] = out
+    return changes
+
+
+def _curve(a: dict, name: str):
+    c = (a.get("curves") or {}).get(name)
+    return np.asarray(c, dtype=float) if c else None
+
+
+def settle_sections(a: dict) -> list:
+    """The rules that correct where sections start and what they are, from the stems and the hook: run
+    on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning."""
+    return drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drums_start_verse(a) + drummed_breakdowns(a)
+
+
+def hook_drops(a: dict) -> list:
+    """Drops are where the song's hook plays. Where the hook (the riff the song comes back to, see
+    events) plays nearly only inside drops, it marks the choruses, and:
+
+    - a drop it never plays in, that has no snare backbeat either (under 0.4 of the hooked drops'),
+      is a verse (Coldplay's Higher Power at 0:52: a synth stretch without snares);
+    - a drop lands on the bar near its first hook where the melody (the other and lead stems) lifts
+      most, up to two bars after where it was found (Higher Power's chorus: 1:43, not 1:40);
+    - a long drop whose hooks stop for 10 bars or more, while the melody falls away, is two drops
+      with a verse between (Higher Power's bridge, 2:05 to 2:31, was inside one 100 s drop).
+
+    Songs whose hook is found in only some of their drops are left alone. Changes the analysis in
+    place (a saved one too, on load); returns what changed."""
+    hook = a.get("hook") or {}
+    times = sorted(float(t) for t in (hook.get("times") or []))
+    secs = [dict(s) for s in (a.get("sections") or [])]
+    if len(times) < 3 or not secs:
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    beats = [float(b) for b in a.get("beats") or []]
+    bars = beats[int(a.get("downbeat_phase") or 0)::4]
+    if len(bars) < 8:
+        return []
+    bar = float(np.median(np.diff(bars)))
+    other, lead = _curve(a, "other"), _curve(a, "lead")
+    mel = other if lead is None else (other + lead) / 2 if other is not None else lead
+    if mel is None:
+        return []
+    lvl = lambda t0, t1: float(mel[max(0, int(t0 * fps)):max(int(t0 * fps) + 1, int(t1 * fps))].mean()) if int(t0 * fps) < len(mel) else 0.0
+    drops = [s for s in secs if s.get("type") == "drop"]
+    inside = lambda s: [t for t in times if s["start"] - 0.5 <= t < s["end"]]
+    in_drops = sum(len(inside(s)) for s in drops)
+    # the hook marks the choruses only where nearly all of it plays inside drops, in more than one place
+    if not drops or in_drops < 0.75 * len(times) or len(times) < 3:
+        return []
+    period = float(np.median(np.diff(times))) if len(times) > 1 else 4 * bar
+    ev = a.get("events") or {}
+    snares = np.array(sorted(float(e[0]) for e in (ev.get("snare") or [])))
+    snare_rate = lambda t0, t1: float(((snares >= t0) & (snares < t1)).sum()) / max(1e-6, (t1 - t0) / bar)
+    hooked = [d for d in drops if inside(d)]
+    backbeat = float(np.mean([snare_rate(d["start"], d["end"]) for d in hooked])) if hooked else 0.0
+    near_bar = lambda t: min(bars, key=lambda b: abs(b - t))
+    changes, out = [], []
+    for s in secs:
+        if s.get("type") != "drop":
+            out.append(s)
+            continue
+        hs = inside(s)
+        if not hs:                                    # a drop the hook never plays in, nor the backbeat: a verse
+            if all(inside(d) for d in drops if d is not s) and len(drops) >= 2 and backbeat >= 1.0 \
+                    and snare_rate(s["start"], s["end"]) < 0.4 * backbeat:
+                out.append({**s, "type": "verse"})
+                changes.append((round(s["start"], 1), "verse (no hook)"))
+                continue
+            out.append(s)
+            continue
+        # groups of hooks: a long gap between two (over 2.5 hook periods) is no chorus
+        groups, g = [], [hs[0]]
+        for t in hs[1:]:
+            if t - g[-1] > 2.5 * period and t - g[-1] >= 10 * bar:
+                groups.append(g); g = [t]
+            else:
+                g.append(t)
+        groups.append(g)
+        if groups[0][0] - s["start"] > 3 * bar:      # the hook comes late in this drop: only its start may move
+            groups = [[s["start"]] + [t for gg in groups for t in gg]]
+        pieces = []
+        cur_start = s["start"]
+        for i, g in enumerate(groups):
+            # where the drop lands: the bar near its first hook where the melody lifts most
+            cands = [b for b in bars if g[0] - 2.2 * bar <= b <= g[0] + 0.5 * bar and b >= cur_start - 0.1 * bar]
+            if i == 0:
+                cands = [b for b in cands if s["start"] - 0.1 <= b <= s["start"] + 2.1 * bar] or [s["start"]]
+            rise = lambda b: lvl(b, b + bar) - lvl(b - bar, b)
+            land = max(cands, key=rise) if cands else s["start"]
+            if i == 0 and (s.get("hit") or rise(near_bar(s["start"])) >= 0.05 or rise(land) < 0.2):
+                land = s["start"]                     # the found start lifts too (or is a hit after a pause): kept
+            if i > 0:
+                pieces.append(("verse", cur_start, land))
+            # where it ends, if another group follows: the bar after its last hook where the melody falls most
+            if i < len(groups) - 1:
+                ends = [b for b in bars if g[-1] + bar <= b <= g[-1] + period + bar]
+                fall = lambda b: lvl(b - 2 * bar, b) - lvl(b, b + 2 * bar)
+                end = max(ends, key=fall) if ends else g[-1] + period
+                nxt = groups[i + 1][0]
+                if lvl(end, nxt - bar) > 0.75 * lvl(land, end):     # the melody does not fall away between: one drop
+                    groups[i + 1] = g + groups[i + 1]
+                    continue
+                pieces.append(("drop", land, end))
+                cur_start = end
+            else:
+                pieces.append(("drop", land, s["end"]))
+        if pieces[0][1] - s["start"] >= 0.5 * bar:     # the drop lands later than found: what comes before runs on to it
+            if out and abs(out[-1]["end"] - s["start"]) < 0.01:
+                out[-1] = {**out[-1], "end": round(pieces[0][1], 3)}
+            else:
+                pieces.insert(0, ("verse", s["start"], pieces[0][1]))
+        for typ, t0, t1 in pieces:
+            if t1 - t0 >= bar - 0.01:
+                out.append({**s, "type": typ, "start": round(t0, 3), "end": round(t1, 3)})
+        if len(pieces) > 1 or abs(pieces[0][1] - s["start"]) > 0.1:
+            changes.append((round(s["start"], 1), [(p[0], round(p[1], 1), round(p[2], 1)) for p in pieces]))
+    if not changes:
+        return []
+    # a verse next to a verse is one
+    merged = []
+    for s in out:
+        if merged and merged[-1]["type"] == s["type"] == "verse" and abs(merged[-1]["end"] - s["start"]) < 0.01:
+            merged[-1]["end"] = s["end"]
+        else:
+            merged.append(s)
+    a["sections"] = merged
+    a["drops"] = [s["start"] for s in merged if s["type"] == "drop" and not any(p["type"] == "drop" and abs(p["end"] - s["start"]) < 0.01 for p in merged)]
+    return changes
+
+
+def drums_start_verse(a: dict) -> list:
+    """An intro ends where the drums come in to stay, not a bar or two later (Higher Power: the drums and
+    the voice come in at 0:14, the verse was found at 0:17). Returns what changed."""
+    dp = _curve(a, "drums_present")
+    secs = a.get("sections") or []
+    if dp is None or len(secs) < 2 or secs[0].get("type") != "intro":
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    beats = [float(b) for b in a.get("beats") or []]
+    bars = beats[int(a.get("downbeat_phase") or 0)::4]
+    if len(bars) < 4:
+        return []
+    bar = float(np.median(np.diff(bars)))
+    lvl = lambda t0, t1: float(dp[max(0, int(t0 * fps)):max(int(t0 * fps) + 1, int(t1 * fps))].mean()) if int(t0 * fps) < len(dp) else 0.0
+    end = float(secs[0]["end"])
+    for b in [x for x in bars if end - 2.5 * bar <= x <= end - 0.5 * bar]:
+        if lvl(b - bar, b) < 0.3 and all(lvl(t, t + bar) >= 0.4 for t in (b, b + bar, b + 2 * bar)) and b - secs[0]["start"] >= 2 * bar:
+            secs[0] = {**secs[0], "end": round(b, 3)}
+            secs[1] = {**secs[1], "start": round(b, 3)}
+            a["sections"] = secs
+            return [(round(end, 1), "->", round(b, 1))]
+    return []
+
+
+def drop_after_pause(a: dict) -> list:
+    """A drop that comes out of a pause starts at the hit that ends it. Where, in the two beats before a
+    drop, the song goes quiet (under 0.4) and then jumps loud (0.7 or more, and staying up), the drop is
+    that jump, on the nearest beat: The Band CAMINO's Baggy Jeans at 0:53, where the bass only fills in
+    a beat later (and the bass rule had put the drop there). Across 44 learned songs it moved 13 drops
+    in 8 songs, each about a beat; Great Good Fine Ok, whose drums hit before its bass lands with no
+    pause, is left alone. Returns what changed."""
+    e, secs = a.get("energy"), a.get("sections") or []
+    beats = np.asarray(a.get("beats") or [], dtype=float)
+    if not e or not secs or len(beats) < 8:
+        return []
+    e = np.asarray(e, dtype=float)
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    beat = float(np.median(np.diff(beats)))
+    w, hold = max(2, int(0.2 * fps)), int(0.5 * fps)
+    changes = []
+    for k, s in enumerate(secs):
+        if s.get("type") != "drop" or k == 0:
+            continue
+        d, best = float(s["start"]), None
+        for i in range(max(w, int((d - 2.2 * beat) * fps)), int((d - 0.3 * beat) * fps)):
+            before, after = e[i - w:i].mean(), e[i:i + hold].mean()
+            if before < 0.4 and after >= 0.7 and e[i:i + 2 * hold].min() >= 0.45 and (best is None or after - before > best[1] + 0.05):
+                best = (i, after - before)
+        if best is None:
+            continue
+        t = best[0] / fps
+        nb = float(beats[np.argmin(np.abs(beats - t))])
+        at = nb if abs(nb - t) <= 0.35 * beat and nb < d - 0.1 else t
+        if at <= float(secs[k - 1]["start"]) + beat:
+            continue
+        secs[k - 1] = {**secs[k - 1], "end": round(at, 3)}
+        secs[k] = {**s, "start": round(at, 3), "hit": True}
+        a["drops"] = sorted([x for x in (a.get("drops") or []) if abs(x - d) > 0.5] + [round(at, 3)])
+        changes.append((round(d, 2), "->", round(at, 2)))
+    if changes:
+        a["sections"] = secs
+    return changes
+
+
+def drummed_breakdowns(a: dict) -> list:
+    """A breakdown is the song pulling back: one with the drums playing through it (the drum track on in
+    three quarters of it, 2 s at a time, and a backbeat of 1.5 snares a bar or more) is a verse
+    (Baggy Jeans' opening 0:11 to 0:44). Returns what changed."""
+    dp, secs = _curve(a, "drums_present"), a.get("sections") or []
+    if dp is None or not secs or not a.get("bpm"):
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    bar = 240.0 / float(a["bpm"])
+    snares = [float(x[0]) for x in ((a.get("events") or {}).get("snare") or [])]
+    changes = []
+    for k, s in enumerate(secs):
+        if s.get("type") != "breakdown":
+            continue
+        t0, t1 = float(s["start"]), float(s["end"])
+        blocks = [dp[int(t * fps):int((t + 2) * fps)].mean() for t in np.arange(t0, t1 - 1.9, 2.0) if int(t * fps) < len(dp)]
+        if not blocks:
+            continue
+        on = float(np.mean([b >= 0.45 for b in blocks]))
+        per_bar = sum(t0 <= x < t1 for x in snares) / max(1.0, (t1 - t0) / bar)
+        if on >= 0.75 and per_bar >= 1.5:
+            secs[k] = {**s, "type": "verse"}
+            changes.append((round(t0, 1), "breakdown -> verse"))
+    if changes:
+        a["sections"] = secs
     return changes
 
 
@@ -762,6 +981,6 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
             json.dump(data, fh)
     from .genre import restyle                             # (decided by the newest rule, on what was heard)
     data["genre"] = restyle(data.get("genre"), float((data.get("mood") or {}).get("drive", 0.6)))
-    drumless_drops(data)                                   # (a saved analysis too: a drop with no drums is none)
+    settle_sections(data)                                  # (a saved analysis too: drops where the drums and the hook are)
     data["version"] = ANALYSIS_VERSION                     # a show built on it records which analysis it was
     return data
