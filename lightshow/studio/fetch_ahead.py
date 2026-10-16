@@ -21,12 +21,15 @@ from __future__ import annotations
 
 import glob
 import os
+import sys
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
 from collections import deque
+
+from .model_worker import ModelWorker
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPOTDL = os.path.join(ROOT, ".venv-spotdl", "Scripts" if os.name == "nt" else "bin", "spotdl" + (".exe" if os.name == "nt" else ""))
@@ -194,11 +197,38 @@ def _length(path: str) -> float:
     return float(sf.info(path).duration)
 
 
-def _analyze(path: str, cache_dir: str) -> dict:
+def analyze_here(path: str, cache_dir: str) -> dict:
+    """The full analysis of a copy (what the analysis worker runs), with the whole song's fingerprint."""
     from .analysis import analyze_cached
     a = dict(analyze_cached(path, cache_dir))
     a["align_bands"] = whole_fingerprint(path)
     return a
+
+
+class AnalysisWorker(ModelWorker):
+    """The analysis in its own process (analysis_worker.py): the studio's Python, below normal priority,
+    a few cores at most, so the lights and the music, in the studio's process, always come first."""
+
+    env_extra = {k: "4" for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS")}
+
+    def python(self) -> str:
+        exe = sys.executable
+        console = os.path.join(os.path.dirname(exe), "python.exe")        # (pythonw.exe when started hidden)
+        return console if os.path.basename(exe).lower() == "pythonw.exe" and os.path.exists(console) else exe
+
+
+ANALYSER = AnalysisWorker("lightshow.studio.analysis_worker", "analysis", start_timeout=120, request_timeout=900)
+
+
+def _analyze(path: str, cache_dir: str) -> dict:
+    """In the analysis worker; in this process only if the worker cannot run."""
+    if ANALYSER.available():
+        a = ANALYSER.ask_file_and_cache(path, cache_dir)
+        if a is not None:
+            return a
+        if ANALYSER.last_error and not ANALYSER.last_error.startswith("the model"):
+            raise RuntimeError(ANALYSER.last_error)        # the analysis itself failed: say so
+    return analyze_here(path, cache_dir)
 
 
 def whole_fingerprint(path: str) -> list:

@@ -63,9 +63,14 @@ class ModelWorker:
         self.name = module.rsplit(".", 1)[-1]
         self.last_error = ""          # why the last request failed
 
-    @staticmethod
-    def available() -> bool:
-        return os.path.exists(venv_py())
+    def python(self) -> str:
+        """The Python the worker runs in: the model environment's (a subclass may run elsewhere)."""
+        return venv_py()
+
+    def available(self) -> bool:
+        return os.path.exists(self.python())
+
+    env_extra: dict = {}                          # more environment for the worker process
 
     def _start(self) -> bool:
         if self.proc and self.proc.poll() is None:
@@ -80,7 +85,7 @@ class ModelWorker:
             self.failed_at = time.monotonic()
             note(f"[{self.name}] {self.failed}")
             return False
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", **self.env_extra}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
         try:
             err = open(MODELS_LOG, "a", encoding="utf-8")
@@ -88,7 +93,7 @@ class ModelWorker:
             err.flush()
         except OSError:
             err = subprocess.DEVNULL
-        self.proc = subprocess.Popen([venv_py(), "-m", self.module], cwd=ROOT, env=env,
+        self.proc = subprocess.Popen([self.python(), "-m", self.module], cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                                      creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)
         hello = self._read(self.start_timeout)          # the first run downloads the model
@@ -133,6 +138,9 @@ class ModelWorker:
             self.last_error = "the model stopped answering"
             note(f"[{self.name}] the model stopped answering (see models.log)")
             return None
+
+    def ask_file_and_cache(self, path: str, cache_dir: str):
+        return self._ask({"path": os.path.abspath(path), "cache": os.path.abspath(cache_dir)})
 
     def ask_file(self, path: str):
         return self._ask({"path": os.path.abspath(path)})       # always a full path: the worker changes directory
