@@ -874,7 +874,10 @@ noise.
   eighths, each flashing in turn and fading, along the strip, back and forth or
   at random (each song its own order). What drifts over a song's intro,
   breakdowns and outro is drawn too: meteors, slow random stage steps, or a few
-  sparkles. The hyper chase is for dance and rave drops only.
+  sparkles. The hyper chase is for dance and rave drops only. Motions that
+  sweep the strip (comets, a scanner, a bounce, meteors, an orbit) are drawn half
+  as often as the others, and stage steps a little less: over 57 songs, sweeps
+  are 4 in 10 drop motions, and 7 songs got two.
 - **Long strips and short lamps play different parts.** With both kinds ticked
   (a short lamp has a dozen segments or fewer, like a 7-segment floor lamp), the
   things that travel (comets, chases, sparkles, scanners) run on the long strips,
@@ -906,6 +909,9 @@ noise.
   already playing stays. Over 24 songs that moved 10 of 64 drops, by 1 to 3 beats.
   But a drop that comes out of a pause (quiet, then a sudden hit that stays loud)
   starts at the hit, even when the bass fills in a beat later (Baggy Jeans at 0:53).
+  And a drop whose bass comes in a beat or two before the bar line (dropping out
+  for a moment before it) starts where the bass comes in, if the song stays loud
+  from there (Nightly's *the feeling* at 0:42.7, not 0:43.9).
 - **Sections are checked against the drums and the hook**, on every analysis,
   saved ones too (so learned songs need no relearning):
   - where a song's hook (the riff it keeps coming back to) plays nearly only in

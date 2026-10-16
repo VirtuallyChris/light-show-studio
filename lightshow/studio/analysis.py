@@ -331,7 +331,8 @@ def _curve(a: dict, name: str):
 def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
     on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning."""
-    return drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drums_start_verse(a) + drummed_breakdowns(a) + repeated_drops(a)
+    return (drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+            + drummed_breakdowns(a) + repeated_drops(a))
 
 
 def hook_drops(a: dict) -> list:
@@ -492,7 +493,7 @@ def drop_after_pause(a: dict) -> list:
     w, hold = max(2, int(0.2 * fps)), int(0.5 * fps)
     changes = []
     for k, s in enumerate(secs):
-        if s.get("type") != "drop" or k == 0:
+        if s.get("type") != "drop" or k == 0 or s.get("hit"):
             continue
         d, best = float(s["start"]), None
         for i in range(max(w, int((d - 2.2 * beat) * fps)), int((d - 0.3 * beat) * fps)):
@@ -538,6 +539,44 @@ def drummed_breakdowns(a: dict) -> list:
         if on >= 0.75 and per_bar >= 1.5:
             secs[k] = {**s, "type": "verse"}
             changes.append((round(t0, 1), "breakdown -> verse"))
+    if changes:
+        a["sections"] = secs
+    return changes
+
+
+def drop_pickup(a: dict) -> list:
+    """A drop starts where its bass first comes in, even off the bar line. The bass rule starts a drop
+    on the first bar line where the bass plays; but a drop whose bass comes in a beat or two early
+    (and drops out for a moment before the bar line) is heard there: Nightly's the feeling at 0:42.7,
+    not 0:43.9. In the two beats before a drop: the beat where the bass comes in (under 0.12 the beat
+    before, 0.45 or more the beat after), from where the song stays loud (no 0.2 s under 0.45, 0.65
+    on average, and louder than the beat before). Across 44 learned songs it moved 6 drops in 5
+    songs; none in the studio's songs (Great Good Fine Ok included). Returns what changed."""
+    secs = a.get("sections") or []
+    bass, e = (a.get("curves") or {}).get("bass"), a.get("energy")
+    beats = np.asarray(a.get("beats") or [], dtype=float)
+    if not secs or not bass or not e or len(beats) < 8:
+        return []
+    bass, e = np.asarray(bass, dtype=float), np.asarray(e, dtype=float)
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    beat = float(np.median(np.diff(beats)))
+    m = lambda x, t0, t1: float(x[max(0, int(t0 * fps)):max(int(t0 * fps) + 1, int(t1 * fps))].mean())
+    changes = []
+    for k, s in enumerate(secs):
+        if s.get("type") != "drop" or k == 0 or s.get("hit"):
+            continue
+        d = float(s["start"])
+        for b in [float(x) for x in beats if d - 2.2 * beat <= x <= d - 0.5 * beat]:
+            if b <= float(secs[k - 1]["start"]) + beat:
+                continue
+            blocks = [m(e, t, t + 0.2) for t in np.arange(b, d - 0.05, 0.2)]
+            if m(bass, b - beat, b - 0.1 * beat) < 0.12 and m(bass, b, b + beat) >= 0.45 \
+                    and blocks and min(blocks) >= 0.45 and m(e, b, d) >= 0.65 and m(e, b - beat, b) < m(e, b, d) - 0.1:
+                secs[k - 1] = {**secs[k - 1], "end": round(b, 3)}
+                secs[k] = {**s, "start": round(b, 3), "hit": True}
+                a["drops"] = sorted([x for x in (a.get("drops") or []) if abs(x - d) > 0.5] + [round(b, 3)])
+                changes.append((round(d, 2), "->", round(b, 2)))
+                break
     if changes:
         a["sections"] = secs
     return changes

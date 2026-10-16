@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 6;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove
+  const SHOW_VERSION = 7;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1721,13 +1721,13 @@
     let n = 0; const rnd = () => Effects.hash(seed + 7919 * ++n);
     // a weighted draw without repeats: each family's entries as likely as the family suits the song
     // (Efraimidis-Spirakis keys), one entry per effect so two picks are never the same thing twice
-    const order = (slot, name = x => x[0]) => {
+    const order = (slot, name = x => x[0], like = () => 1) => {
       const seen = new Set();
-      return Object.entries(LOOKS).flatMap(([k, l]) => (w[k] > 0 ? [].concat(slot(l)).map(x => [x, Math.pow(rnd(), 1 / w[k])]) : []))
+      return Object.entries(LOOKS).flatMap(([k, l]) => (w[k] > 0 ? [].concat(slot(l)).map(x => [x, Math.pow(rnd(), 1 / (w[k] * like(x)))]) : []))
         .sort((x, y) => y[1] - x[1]).map(x => x[0]).filter(x => !seen.has(name(x)) && seen.add(name(x)));
     };
     const bed = slot => order(l => [slot(l)])[0];
-    const verse = order(l => l.verse), tops = order(l => l.verseTop), motions = order(l => l.motion, x => x);
+    const verse = order(l => l.verse), tops = order(l => l.verseTop), motions = order(l => l.motion, x => x, x => (SWEEPS.has(x) ? 0.5 : x === 'steps' ? 0.6 : 1));   // sweeps (and steps) less likely: not in every drop
     S.mix = {
       intro: bed(l => l.intro), breakdown: bed(l => l.breakdown), outro: bed(l => l.outro),
       verse: [verse[0], verse[1] || verse[0]], verseTop: [tops[0], tops[1] || tops[0]],
@@ -1739,11 +1739,13 @@
                ['sparkle', { density: 0.05, life: 0.4 }, { opacity: 0.8 }]][Math.floor(rnd() * 3)];
     S.look = Object.entries(w).sort((x, y) => y[1] - x[1])[0][0];   // the family it leans to most
     S.dark = (w.haunted + w.storm) >= 0.5 * Object.values(w).reduce((x, y) => x + y, 0);   // thunder and heartbeats
+    // the song's own motion, and a second for every other drop
     S.motionFam = motions[0];
-    S.motionFams = [motions[0], motions[1] || motions[0]];          // the song's own motion, and a second for every other drop
+    S.motionFams = [motions[0], motions[1] || motions[0]];
     const kinds = new Set(selectedLights().map(lightKind));
     S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
   }
+  const SWEEPS = new Set(['comets', 'scanner', 'bounce', 'meteors', 'orbit']);    // motions that travel the strip (drawn half as often)
   /** How likely each family of effects is in this song's mix (the best fit 1): from its style, drive,
    *  brightness, key and genre. The family that fits best carries the song, the ones close to it often
    *  join in, and every other a little (a move or two from elsewhere), so no two songs of one vibe are
