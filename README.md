@@ -154,8 +154,12 @@ after that. Saved shows live in the `shows/` folder and reload from the
    |---|---|---|
    | Chill | ambient, jazz, folk, soul, classical | Slow fades and drifting light. No strobes, no flashes |
    | Groove | rock, pop, hip hop, indie, R&B | Moves on the beat. Drops lift without flashing; buildups strobe to 1/8 notes |
-   | Dance | house, trance, EDM, metal | Drops flash on the beat; buildups strobe to 1/16 notes |
-   | Rave | dubstep, drum and bass, techno | Everything: 1/32 strobes, blasts, rushes on drum fills |
+   | Dance | house, trance, EDM, metal | Drops flash every other beat, softer, in the song's own colors; buildups strobe to 1/16 notes |
+   | Rave | dubstep, drum and bass, techno | Everything: 1/32 strobes, blasts, rushes on drum fills, rainbow drops |
+
+   The accents on top (one-shots on the biggest lead moments, the lead traced, ghost-note
+   sparks) follow the style too: none in a chill song, two one-shots a drop in groove,
+   three in dance, all of them in rave.
 
    The genre comes from a model that listens to the song: MIT's Audio
    Spectrogram Transformer, trained on Google's AudioSet (open source, about

@@ -1719,10 +1719,10 @@
       && drumless(sct) && energyIn(sct.start, sct.end) <= 0.5 * top);
     return quiet.sort((x, y) => energyIn(x.start, x.end) - energyIn(y.start, y.end)).slice(0, 3).map(sct => [sct.start, sct.end]);
   }
-  /** A song that goes all out: rave, or a hard-driving dance track with more than one drop. */
+  /** A song that goes all out (rainbow drops, fireworks): rave only. Dance used to count too when it drove
+   *  hard with two drops, which was nearly every dance song, and every one felt like a rave. */
   function isEpic() {
-    const a = S.analysis || {}, style = showStyle(), drive = (a.mood && a.mood.drive) || 0;
-    return style === 'rave' || (style === 'dance' && drive >= 0.75 && (a.drops || []).length >= 2);
+    return showStyle() === 'rave';
   }
   /** chill | groove | dance | rave: chosen for the song from its genre, unless set by hand in the Song panel */
   const STYLE_NAMES = { chill: 'Chill', groove: 'Groove', dance: 'Dance', rave: 'Rave' };
@@ -1885,7 +1885,7 @@
     const drums = (opacity, size = 0.75) => drumsHere && clip(2, 'pulse', b0, len, { follow: 'drums', decay: 0.45, size }, { opacity, blend: 'add' });
     const snaresHere = drumsKnown ? [...(ev.snare || []), ...(ev.roll || [])].filter(e => e[0] >= s.start && e[0] < s.end).length : 0;
     // the drum strobe: flashes on the real hits only; how hard depends on the kind of song
-    const strobeLevel = { rave: 0.9, dance: 0.6, groove: 0.3 }[style] || 0;
+    const strobeLevel = { rave: 0.9, dance: 0.45, groove: 0.3 }[style] || 0;
     // the song's motion over a drop: pace 1 is a normal drop, below 1 slower
     const motion = (pace = 1, extra = {}) => {
       const fam = (S.motionFams && s.type === 'drop' ? S.motionFams[variant % 2] : S.motionFam) || 'comets', sp = x => Math.max(0.5, Math.round(x / pace * 4) / 4);   // on quarter beats: 2 / 1.3 is 1.5, not 1.538…
@@ -1936,14 +1936,14 @@
         break;
       case 'buildup':
         // every crazy snare build, and every other buildup of a hard song, jumps around the room
-        zoneBuild = hard && len >= 8 && longStrips && (snaresHere >= 8 || variant % 2 === 0);
+        zoneBuild = hard && len >= 8 && longStrips && (snaresHere >= 8 || (style === 'rave' && variant % 2 === 0));
         clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
         // The build is felt all around the room: every snare (else every hit, else a build of beats,
         // eighths and sixteenths) lights random stretches of the strips and lamps, more of them,
         // brighter and snappier as it goes. A hard song's crazier builds start out in the dark, so the
         // light jumps around the room; a calm song's build is gentle, on the beat, two at most.
         const follow = chill ? 'beat' : snaresHere >= 4 ? 'snare' : drumsHere ? 'drums' : 'build';
-        clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: hard ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
+        clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         break;
@@ -1958,24 +1958,27 @@
           const ok = look.drops.filter(r => (hard || !r.flash) && (room || !r.room));
           const r = ok[kind % ok.length] || look.drops[0];
           clip(0, r.base[0], b0, len, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
-          if (r.top === 'motion') motion(chill ? 0.5 : hard ? 1.3 : 1);
+          if (r.top === 'motion') motion(chill ? 0.5 : style === 'rave' ? 1.3 : 1);
+          // a dance drop's flashes come every other beat and softer: flashing on every beat is rave's
+          else if (style === 'dance' && r.flash && Array.isArray(r.top)) top([r.top[0], 'rate' in r.top[1] ? { ...r.top[1], rate: r.top[1].rate * 0.6 } : { ...r.top[1], every: Math.max(2, r.top[1].every || 1) },
+                                                                                 { ...(r.top[2] || {}), opacity: ((r.top[2] || {}).opacity || 1) * 0.6 }]);
           else top(r.top);
         }
         if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 4 }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
         drums(chill ? 0.8 : 1, 0.85);
         // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
-        const pump = chill ? 0 : hard ? 0.5 : 0.3;
+        const pump = chill ? 0 : style === 'rave' ? 0.5 : style === 'dance' ? 0.4 : 0.3;
         if (pump) for (const c of first) if (BED.has(c.effect) || c === first[0]) c.bassPump = pump;
         // A drop built on a clear, rhythmic bass line (most beats have a bass hit, but not every eighth:
         // a constant eighth-note bass would be a steady strobe) flashes with the bass, like a hand-made
         // show would; then it leaves the kick strobe out, so the two do not fight.
         const bassHits = ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end)).length / Math.max(1, len);
         const bassy = !chill && bassHits >= 0.6 && bassHits <= 1.7;
-        if (bassy) clip(5, 'basshits', b0, len, { decay: 0.3 }, { opacity: hard ? 0.8 : 0.45, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
-        else if (drumsHere && strobeLevel && longStrips && hard && variant % 2)   // the ceiling split: kick on one half, snare on the other
+        if (bassy) clip(5, 'basshits', b0, len, { decay: 0.3 }, { opacity: style === 'rave' ? 0.8 : style === 'dance' ? 0.6 : 0.45, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
+        else if (drumsHere && strobeLevel && longStrips && style === 'rave' && variant % 2)   // the ceiling split: kick on one half, snare on the other
           clip(5, 'zonehits', b0, len, { follow: 'both', mode: 'halves', decay: 0.14 }, { opacity: strobeLevel, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
-        else if (drumsHere && strobeLevel && longStrips && style === 'groove')     // a fifth of the strip on each snare
-          clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'each', zones: 5, decay: 0.25 }, { opacity: 0.55, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
+        else if (drumsHere && strobeLevel && longStrips && (style === 'groove' || style === 'dance'))     // a fifth of the strip on each snare
+          clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'each', zones: 5, decay: 0.25 }, { opacity: style === 'dance' ? 0.65 : 0.55, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
         else if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
         break;
@@ -2069,7 +2072,7 @@
     if (!chill) for (const [w0, w1] of a.wobbles || []) for (const s of drops) {
       const t0 = Math.max(w0, s.start), t1 = Math.min(w1, s.end); if (t1 - t0 < 2) continue;
       const b0 = Math.round(beatOf(t0)), b1 = Math.round(beatOf(t1));
-      put(5, 'wobble', b0, b1 - b0, {}, { blend: 'add', opacity: hard ? 0.85 : 0.6, ...lt });
+      put(5, 'wobble', b0, b1 - b0, {}, { blend: 'add', opacity: style === 'rave' ? 0.85 : hard ? 0.7 : 0.6, ...lt });
     }
 
     // 808s: in hip-hop and trap, where they come often enough to be the song's sound (a held bass note
@@ -2232,8 +2235,14 @@
    *  full-length layer just adds noise. And it belongs where the music is big:
    *  drops and hyped verses get the accents, quiet sections stay quiet.
    */
+  // How many accents a section may carry on top of its drums and its base: one-shots on the biggest
+  // lead moments, and texture (the lead traced, ghost-note sparks). Every style used to get nearly the
+  // same pile (a drop of a chill song had riff strikes, sweeps, color slams, sparks and the lead traced
+  // all at once), so every show felt like a rave; now the calmer the style, the fewer.
+  const ACCENTS = { chill: { shots: 0, texture: 0 }, groove: { shots: 2, texture: 1 }, dance: { shots: 3, texture: 1 }, rave: { shots: 5, texture: 2 } };
   function addSignature(s, b0, len, variant, style) {
     const hard = style === 'dance' || style === 'rave';
+    const budget = ACCENTS[style] || ACCENTS.groove;
     const a = S.analysis; if (!a || !a.events) return;
     const p = P();
     const quiet = s.type === 'intro' || s.type === 'breakdown' || s.type === 'outro';
@@ -2251,8 +2260,9 @@
     const hookList = s.type === 'intro' || s.type === 'outro' ? []
       : s.type === 'breakdown' ? hooks.slice(0, 2) : hooks;
     for (const t of hookList) {
+      const soft = quiet || style === 'chill';                     // a calm song's riff sweeps, it never bursts
       clip(4, 'hookstrike', t2b(t), Math.min(hookBeats, b0 + len - t2b(t)),
-           { shape: quiet ? 'sweep' : 'burst', decay: quiet ? 0.8 : 0.4 }, { opacity: quiet ? 0.55 : 1 });
+           { shape: soft ? 'sweep' : 'burst', decay: soft ? 0.8 : 0.4 }, { opacity: soft ? 0.55 : style === 'groove' ? 0.8 : 1 });
     }
     // A fill rush is a lot of movement, so it is kept for the hardest drops only
     if (style === 'rave' && s.type === 'drop') for (const [f0, f1] of fills) {
@@ -2261,12 +2271,13 @@
     }
     // one-shots sprinkled on the biggest lead moments, so a long drop keeps surprising
     const hype = loud || (s.type === 'verse' && leads.length >= 12);
-    if (hype && leads.length) {
+    const most = s.type === 'drop' ? budget.shots : Math.min(2, budget.shots);
+    if (hype && leads.length && most) {
       const picks = [];
       for (const e of [...leads].sort((x, y) => y[1] - x[1])) {
         const bt = t2b(e[0]);
         if (bt > b0 + 3 && bt < b0 + len - 3 && picks.every(q => Math.abs(q - bt) >= 8)) picks.push(bt);
-        if (picks.length >= (s.type === 'drop' ? 5 : 3)) break;
+        if (picks.length >= most) break;
       }
       const shots = hard ? ['sweepout', 'colorslam', 'whiteflash'] : style === 'chill' ? ['ripple', 'sweepout'] : ['sweepout', 'colorslam', 'ripple'];
       picks.sort((x, y) => x - y).forEach((bt, k) => {
@@ -2277,8 +2288,9 @@
     }
     // texture: only where the music is already busy
     if (loud) {
-      if (leads.length >= 3) clip(4, 'leadtrace', b0, len, { tail: 0.2 }, { opacity: 0.95 });
-      if (ghosts.length >= 8) clip(5, 'ghostspark', b0, len, { count: 3 }, { opacity: 0.7 });
+      let texture = budget.texture;
+      if (texture && leads.length >= 3) { clip(4, 'leadtrace', b0, len, { tail: 0.2 }, { opacity: style === 'rave' ? 0.95 : 0.8 }); texture--; }
+      if (texture && ghosts.length >= 8) { clip(5, 'ghostspark', b0, len, { count: 3 }, { opacity: 0.7 }); texture--; }
       // (not in a buildup: a whole strip swelling on every bass note would bury the build's hits)
       if (leads.length < 3 && basses.length >= 6 && s.type !== 'buildup') clip(2, 'bassnote', b0, len, {}, { opacity: 0.8, blend: 'add' });
     } else if (leads.length >= 4) {
