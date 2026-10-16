@@ -778,7 +778,9 @@ class JamService:
         found = self.__dict__.setdefault("_found_genre", {})
         if tid not in found:
             a = (self.library.learned(tid) or {}).get("analysis") or {}
-            found[tid] = {**(a.get("genre") or {}), "problems": list(a.get("problems") or [])}
+            from .genre import restyle
+            g = restyle(a.get("genre"), float((a.get("mood") or {}).get("drive", 0.6))) or {}
+            found[tid] = {**g, "problems": list(a.get("problems") or [])}
         return found[tid]
 
     def _found_style(self, t: dict) -> str | None:

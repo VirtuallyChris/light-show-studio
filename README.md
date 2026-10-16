@@ -160,8 +160,14 @@ after that. Saved shows live in the `shows/` folder and reload from the
    The genre comes from a model that listens to the song: MIT's Audio
    Spectrogram Transformer, trained on Google's AudioSet (open source, about
    350 MB, downloaded once, runs in the model environment described below). In
-   Jam mode the genres Spotify lists for the artist count too. The song's own
-   energy can move it a little, but a loud rock song is still rock. The Song
+   Jam mode the genres Spotify lists for the artist count too. The model's
+   middle guess counts, not an average (a faint "dubstep" among pop guesses does
+   not drag a pop song up a style), and when its guesses are unsure the song leans
+   to Groove. The song's own energy moves it only a little, measured from how
+   loud a modern master normally is, so a loud rock song is still rock. (At a
+   party in October 2026 three songs in four came out Dance or Rave, indie bands
+   included; with this rule the same 34 songs came out 24 Groove, 7 Dance, 2 Rave,
+   1 Chill. Songs learned before the change are styled again from what was heard.) The Song
    panel (nothing selected) shows what the model heard and lets you choose the
    style yourself; press **Auto-build show** again to rebuild in it.
 3. **Tweak**: drag effects from the library onto any layer, drag clip edges

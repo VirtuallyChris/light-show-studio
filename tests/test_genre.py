@@ -25,7 +25,8 @@ class TestStyle(unittest.TestCase):
     def test_rock_stays_calmer_than_edm_however_loud(self):
         rock = {"Rock music": 0.6, "Grunge": 0.2, "Exciting music": 0.3, "Angry music": 0.3}
         self.assertEqual(style_from(rock, drive=0.99)["style"], "groove")      # a loud rock song is still rock
-        self.assertEqual(style_from({"Dubstep": 0.5, "Electronic music": 0.6}, drive=0.8)["style"], "rave")
+        self.assertEqual(style_from({"Dubstep": 0.6, "Electronic music": 0.4}, drive=0.8)["style"], "rave")
+        self.assertEqual(style_from({"Dubstep": 0.5, "Electronic music": 0.6}, drive=0.8)["style"], "dance")   # more electronic than dubstep
         self.assertEqual(style_from({"Drum and bass": 0.7}, drive=0.7)["style"], "rave")
 
     def test_the_four_styles(self):
@@ -41,7 +42,7 @@ class TestStyle(unittest.TestCase):
         self.assertLessEqual(abs(style_from(house, 1.0)["level"] - style_from(house, 0.0)["level"]), 0.9 + 1e-6)
 
     def test_with_nothing_to_go_on_it_falls_back_to_energy(self):
-        self.assertEqual(style_from(None, 0.9)["style"], "dance")
+        self.assertEqual(style_from(None, 0.9)["style"], "groove")             # loud, but nothing else known: groove
         self.assertEqual(style_from({}, 0.5)["style"], "groove")
         self.assertEqual(style_from({}, 0.5)["source"], "energy")
 

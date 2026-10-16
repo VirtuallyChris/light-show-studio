@@ -57,7 +57,10 @@ SPOTIFY_KEYWORDS = [
     (("ambient", "classical", "new age", "sleep", "piano", "orchestral", "soundtrack"), 0.1),
 ]
 BOUNDS = (0.7, 1.6, 2.4)          # chill | groove | dance | rave
-MAX_NUDGE = 0.45                  # energy and mood can move a song this far along the scale, no further
+MAX_NUDGE = 0.3                   # energy and mood can move a song this far along the scale, no further
+LOUD_IS_NORMAL = 0.85             # nearly every modern master measures this driving: only beyond it is a song pushed up
+SURE_WEIGHT = 0.4                 # genre scores adding up to this much are believed in full; less pulls towards groove
+MIDDLE = 1.2                      # groove: where a song nothing much is known about sits
 
 
 def spotify_level(genres: list[str]) -> float | None:
@@ -70,28 +73,59 @@ def spotify_level(genres: list[str]) -> float | None:
     return float(np.mean(levels)) if levels else None
 
 
+def _weighted_median(pairs: list[tuple[float, float]]) -> float:
+    pairs = sorted(pairs)
+    half, acc = sum(w for _, w in pairs) / 2, 0.0
+    for v, w in pairs:
+        acc += w
+        if acc >= half:
+            return v
+    return pairs[-1][0]
+
+
 def style_from(labels: dict | None, drive: float = 0.6, spotify_genres: list[str] | None = None) -> dict:
-    """Turn genre scores (and whatever Spotify says) into a show style, with the reasons."""
+    """Turn genre scores (and whatever Spotify says) into a show style, with the reasons.
+
+    Calibrated on 34 songs heard at a party (Oct 2026), where three songs in four came out dance or rave,
+    indie rock bands included. Two reasons, both fixed here: (1) the genres were averaged, so a faint
+    "dubstep 0.08" among pop, R&B and electronic guesses dragged a pop song up a style; now the weighted
+    middle guess counts, and guesses that add up to little (the model unsure) are pulled towards groove;
+    (2) drive was measured from 0.6, but nearly every modern master is 0.85 to 1.0, so nearly every song
+    got the whole push up; now only drive beyond that counts, and the push is smaller.
+    """
     labels = labels or {}
     genres = sorted(((n, p) for n, p in labels.items() if n in TIER), key=lambda kv: -kv[1])
     top = [(n, p) for n, p in genres[:5] if p >= 0.05] or genres[:1]
     weight = sum(p for _, p in top)
-    model_level = sum(p * TIER[n] for n, p in top) / weight if weight >= 0.05 else None
+    model_level = None
+    if weight >= 0.03:
+        sure = min(1.0, weight / SURE_WEIGHT)
+        model_level = sure * _weighted_median([(TIER[n], p) for n, p in top]) + (1 - sure) * MIDDLE
     sp_level = spotify_level(spotify_genres)
     levels = [lv for lv in (model_level, sp_level) if lv is not None]
+    mood = sum(labels.get(n, 0.0) * w for n, w in MOOD.items())
+    nudge = float(np.clip((drive - LOUD_IS_NORMAL) * 1.2 + 0.5 * mood, -MAX_NUDGE, MAX_NUDGE))
     if levels:
         base = float(np.mean(levels))
-        mood = sum(labels.get(n, 0.0) * w for n, w in MOOD.items())
-        nudge = float(np.clip((drive - 0.6) * 1.5 + mood, -MAX_NUDGE, MAX_NUDGE))
         source = "+".join(s for s, lv in (("listening", model_level), ("spotify", sp_level)) if lv is not None)
-    else:                                                # nothing to go on: the old rule, by drive alone
-        base, nudge, source = (2.1 if drive > 0.72 else 1.2), 0.0, "energy"
+    else:                                                # nothing to go on: groove, a little either way by drive
+        base, source = MIDDLE, "energy"
     level = float(np.clip(base + nudge, 0.0, 3.0))
     style = STYLES[int(np.searchsorted(BOUNDS, level, side="right"))]
     return {"style": style, "level": round(level, 2), "source": source,
             "genres": [n for n, _ in top[:3] if labels.get(n, 0) >= 0.05],
             "spotify": list(spotify_genres or [])[:4],
             "scores": {n: round(p, 3) for n, p in genres[:8]}}
+
+
+def restyle(genre: dict | None, drive: float) -> dict | None:
+    """A genre saved by an earlier rule, decided again from what was heard (kept with it): songs learned
+    before the rule changed get the style they would get now, without being analysed again."""
+    if not genre or not genre.get("scores") or "listening" not in str(genre.get("source")):
+        return genre
+    g = style_from(genre["scores"], drive, genre.get("spotify"))
+    g["genres"] = genre.get("genres") or g["genres"]
+    return g
 
 
 # ------------------------------------------------------------------------ the worker

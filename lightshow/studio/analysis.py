@@ -697,4 +697,6 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     if changed or not os.path.exists(cache):
         with open(cache, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
+    from .genre import restyle                             # (decided by the newest rule, on what was heard)
+    data["genre"] = restyle(data.get("genre"), float((data.get("mood") or {}).get("drive", 0.6)))
     return data
