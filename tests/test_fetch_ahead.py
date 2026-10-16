@@ -135,6 +135,18 @@ class TestFetchAhead(unittest.TestCase):
         self.assertTrue(self.wait(lambda: f.idle() and order == ["t1"]))
         self.assertEqual(f.submit([track(1)]), 0)                         # once a run, whatever it says the second time
 
+    def test_the_analyses_follow_the_queue_as_it_is_now(self):
+        f, lib, _, order = self.make()
+        analysed, gate = [], threading.Event()
+        real = f.analyze
+        f.analyze = lambda p, c: (gate.wait(2), analysed.append(os.path.basename(p)[:2]), real(p, c))[2]
+        f.submit([track(1), track(2), track(3)])
+        self.assertTrue(self.wait(lambda: len(f.ready) == 2))             # t1 being analysed, t2 and t3 downloaded
+        f.submit([track(3), track(2)])                                    # the queue changed: t3 now plays first
+        gate.set()
+        self.assertTrue(self.wait(lambda: f.idle() and len(analysed) == 3))
+        self.assertEqual(analysed, ["t1", "t3", "t2"])
+
     def test_without_spotdl_nothing_happens(self):
         f = FetchAhead(FakeLibrary(), is_available=lambda: False)
         self.assertEqual(f.submit([track(1)]), 0)

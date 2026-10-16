@@ -229,7 +229,8 @@ class FetchAhead:
         self.busy: dict = {"download": None, "analyse": None}
         self.failed: dict[str, tuple[float, str, str]] = {}   # track id -> (when, label, why)
         self.learned_now = 0
-        self.checked: dict[str, bool] = {}            # track id -> learned without anything failing (see _learned_well)
+        self.checked: dict[str, bool] = {}
+        self.order: list[str] = []                    # the jam's queue as last handed over (ids, next first)            # track id -> learned without anything failing (see _learned_well)
         self.threads: list[threading.Thread] = []
 
     # -- what to learn ------------------------------------------------------------------------------
@@ -261,6 +262,7 @@ class FetchAhead:
             new = [t for t in tracks if self._wanted(t)]
             if first:
                 ids = [t.id for t in tracks]
+                self.order = ids                          # the queue as it stands: the analyses follow it too
                 queued = {t.id: t for t in self.waiting if t.id in ids}
                 rest = [t for t in self.waiting if t.id not in ids]
                 ordered, seen = [], set()
@@ -396,7 +398,11 @@ class FetchAhead:
                 while not self.ready:
                     if not self.lock.wait(timeout=600):
                         return
-                track, folder, path = self.ready.popleft()
+                # the song that plays soonest of those downloaded (the queue may have changed since)
+                rank = lambda x: self.order.index(x[0].id) if x[0].id in self.order else len(self.order)
+                best = min(self.ready, key=rank)
+                self.ready.remove(best)
+                track, folder, path = best
                 self.busy["analyse"] = track
                 self.lock.notify_all()
             try:
