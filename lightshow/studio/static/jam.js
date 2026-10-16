@@ -158,6 +158,8 @@
   }
   function recolor() {
     if (!J.live || !J.doc || J.doc.kind === 'custom') return;
+    // not while the song's show is still being loaded (a cover can arrive half way): the load uses it itself
+    if (!St.P() || J.key !== J.doc.key) return;
     if (J.doc.light) { S.jamColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
     S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); J.colorSig = colorSig();
     const restyle = (St.P().settings || {}).style !== (trackStyle(J.doc.track) || undefined);
