@@ -331,7 +331,7 @@ def _curve(a: dict, name: str):
 def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
     on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning."""
-    return drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drums_start_verse(a) + drummed_breakdowns(a)
+    return drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drums_start_verse(a) + drummed_breakdowns(a) + repeated_drops(a)
 
 
 def hook_drops(a: dict) -> list:
@@ -375,6 +375,7 @@ def hook_drops(a: dict) -> list:
     snare_rate = lambda t0, t1: float(((snares >= t0) & (snares < t1)).sum()) / max(1e-6, (t1 - t0) / bar)
     hooked = [d for d in drops if inside(d)]
     backbeat = float(np.mean([snare_rate(d["start"], d["end"]) for d in hooked])) if hooked else 0.0
+    sung = float(np.mean([lvl(d["start"], d["end"]) for d in hooked])) if hooked else 0.0
     near_bar = lambda t: min(bars, key=lambda b: abs(b - t))
     changes, out = [], []
     for s in secs:
@@ -384,7 +385,7 @@ def hook_drops(a: dict) -> list:
         hs = inside(s)
         if not hs:                                    # a drop the hook never plays in, nor the backbeat: a verse
             if all(inside(d) for d in drops if d is not s) and len(drops) >= 2 and backbeat >= 1.0 \
-                    and snare_rate(s["start"], s["end"]) < 0.4 * backbeat:
+                    and snare_rate(s["start"], s["end"]) < 0.4 * backbeat and lvl(s["start"], s["end"]) < sung:
                 out.append({**s, "type": "verse"})
                 changes.append((round(s["start"], 1), "verse (no hook)"))
                 continue
@@ -537,6 +538,62 @@ def drummed_breakdowns(a: dict) -> list:
         if on >= 0.75 and per_bar >= 1.5:
             secs[k] = {**s, "type": "verse"}
             changes.append((round(t0, 1), "breakdown -> verse"))
+    if changes:
+        a["sections"] = secs
+    return changes
+
+
+_REPEAT_KEYS = ("drum", "bass", "other", "lead")
+
+
+def repeated_drops(a: dict) -> list:
+    """A section that repeats a drop is a drop. A verse or breakdown (8 bars or more) with the drop's
+    snares (0.7 to 1.4 times as many) and either its hook at the same places (two or more, within 0.6 s)
+    and nearly its sound (energy, drums, bass, other, lead within 0.08 on average), or its sound almost
+    exactly (within 0.035), is that chorus again: Nightly's don't even think about it at 1:30, the
+    0:34 drop over again (within 0.019, the hook 6 and 14 s in both times). Across 44 learned songs
+    it changed that one section. Returns what changed."""
+    secs = a.get("sections") or []
+    cur = a.get("curves") or {}
+    e = a.get("energy")
+    if not secs or not e or not all(k in cur for k in _REPEAT_KEYS) or not a.get("bpm"):
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    bar = 240.0 / float(a["bpm"])
+    e = np.asarray(e, dtype=float)
+    curves = {k: np.asarray(cur[k], dtype=float) for k in _REPEAT_KEYS}
+    snares = np.array(sorted(float(x[0]) for x in ((a.get("events") or {}).get("snare") or [])))
+    hooks = sorted(float(t) for t in ((a.get("hook") or {}).get("times") or []))
+
+    def profile(s):
+        i0, i1 = int(s["start"] * fps), max(int(s["start"] * fps) + 1, int(s["end"] * fps))
+        return np.array([e[i0:i1].mean()] + [curves[k][i0:i1].mean() for k in _REPEAT_KEYS])
+
+    def snare_rate(s):
+        return float(((snares >= s["start"]) & (snares < s["end"])).sum()) / max(1e-6, s["end"] - s["start"])
+
+    def offsets(s):
+        return [round(t - s["start"], 1) for t in hooks if s["start"] - 0.5 <= t < s["end"]]
+
+    drops = [s for s in secs if s.get("type") == "drop"]
+    if not drops:
+        return []
+    changes = []
+    for k, s in enumerate(secs):
+        if s.get("type") not in ("verse", "breakdown") or s["end"] - s["start"] < 8 * bar:
+            continue
+        ps, rs, os_ = profile(s), snare_rate(s), offsets(s)
+        for d in drops:
+            pd, rd = profile(d), snare_rate(d)
+            dist = float(np.abs(ps - pd).mean())
+            od = offsets(d)
+            same_hook = len(os_) >= 2 and sum(any(abs(x - y) <= 0.6 for y in od) for x in os_) >= 2
+            close_drums = rd > 0 and 0.7 <= rs / rd <= 1.4
+            if close_drums and ((same_hook and dist <= 0.08) or dist <= 0.035):
+                secs[k] = {**s, "type": "drop"}
+                a["drops"] = sorted(set((a.get("drops") or []) + [round(float(s["start"]), 3)]))
+                changes.append((round(s["start"], 1), s["type"] + " -> drop", "like", round(d["start"], 1), round(dist, 3), same_hook))
+                break
     if changes:
         a["sections"] = secs
     return changes

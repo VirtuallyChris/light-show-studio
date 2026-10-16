@@ -144,7 +144,7 @@ const Effects = (() => {
   // whatever is below. For calm songs, where anything quicker would break the spell.
   def({ id: 'starlight', name: 'Starlight', cat: 'slow', desc: 'Single segments glow up and fade away slowly at random spots along the strip, in white (or warm white, or the palette), like stars coming out. Made for calm songs: put it over a dim bed.', swatch: ['#ffffff', '#0b1020'],
     params: { density: { type: 'range', def: 0.12, min: 0.01, max: 0.6, step: 0.01, label: 'How many stars' },
-      life: { type: 'range', def: 6, min: 1, max: 32, step: 0.5, label: 'Each star lasts (beats)' },
+      life: { type: 'range', def: 3, min: 0.5, max: 32, step: 0.5, label: 'Each star lasts (beats)' },
       tint: { type: 'select', def: 'white', options: { white: 'white', warm: 'warm white', palette: 'the palette' }, label: 'Color' } },
     render(c) {
       clear(c.out);
@@ -284,6 +284,28 @@ const Effects = (() => {
   def({ id: 'chase', name: 'Chase', cat: 'medium', desc: 'Blocks of palette color run along the strip, one block per beat.', swatch: ['#ff2fa0', '#00ffd0'],
     params: { speed: P.speed(1, 'Beats per block'), size: P.size(0.12, 'Block size'), direction: P.direction(), gap: { type: 'range', def: 0.6, min: 0, max: 0.9, step: 0.01, label: 'Gap' } },
     render(c) { const blocks = Math.max(1, Math.round(1 / c.p.size)); const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / c.n); const u = x * blocks - s; const k = Math.floor(u); const on = frac(u) > c.p.gap; const col = palIdx(c.pal, k); set(c.out, i, on ? col[0] : 0, on ? col[1] : 0, on ? col[2] : 0); } } });
+
+  def({ id: 'steps', name: 'Stage steps', cat: 'medium', desc: 'The strip in parts (eighths by default): every beat the next part flashes in a palette color and fades, like stage lights firing in turn. Run goes along the strip, Bounce back and forth, Random anywhere (never the same part twice in a row).', swatch: ['#ffb000', '#000000'],
+    params: { zones: { type: 'range', def: 8, min: 2, max: 16, step: 1, label: 'Parts' }, every: P.speed(1, 'Next part every (beats)'),
+      decay: { type: 'range', def: 0.75, min: 0.1, max: 4, step: 0.05, label: 'Fade (beats)' },
+      order: { type: 'select', def: 'run', options: { run: 'run', bounce: 'bounce', random: 'random' }, label: 'Order' }, overlay: P.bool('Transparent background', true) },
+    render(c) {
+      clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1);
+      const z = Math.max(2, Math.round(c.p.zones)), step = Math.floor(c.beat / c.p.every);
+      const rnd = k => Math.floor(hash(k * 7919 + 13) * z);
+      const zoneOf = k => {
+        if (c.p.order === 'bounce') { const m = 2 * (z - 1), r = ((k % m) + m) % m; return r < z ? r : m - r; }
+        if (c.p.order === 'random') { const q = rnd(k); return q === rnd(k - 1) ? (q + 1) % z : q; }
+        return ((k % z) + z) % z;
+      };
+      const back = Math.ceil(c.p.decay / c.p.every) + 1;
+      for (let k = step; k > step - back && k >= 0; k--) {
+        const age = (c.beat - k * c.p.every) / c.p.decay; if (age < 0 || age > 1) continue;
+        const v = (1 - age) * (1 - age), zi = zoneOf(k), col = colorFor(c, (zi + 0.5) / z, k);
+        const i0 = Math.floor(zi * c.n / z), i1 = Math.max(i0 + 1, Math.floor((zi + 1) * c.n / z));
+        for (let i = i0; i < Math.min(c.n, i1); i++) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
+      }
+    } });
 
   def({ id: 'comet', name: 'Comets', cat: 'medium', desc: 'Comets launch every N beats and streak along the strip with a fading tail.', swatch: ['#ffffff', '#0040ff'],
     params: { every: P.speed(2, 'Launch every (beats)'), travel: P.speed(2, 'Travel time (beats)'), tail: P.size(0.35, 'Tail length'), direction: P.direction(), color: P.color(), overlay: P.bool('Transparent background', true) },

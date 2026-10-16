@@ -789,10 +789,10 @@ noise.
   its drops lift a little more, their motion livelier. (Such songs used to get a
   groove show, with flashes on the bass line; on The Wldlfe's *Heaven is a place*
   that was far too much.)
-  *If I Became Friends With The Aliens* stays calm. A calm song's sparkle is
+  A calm song's sparkle is
   **Starlight**: single segments glow up to white and fade away slowly, a few at
   a time at random spots along every strip and lamp, like stars coming out, over
-  a soft color wash (a handful per 50 segments, each lasting a few seconds; more
+  a soft color wash (a handful per 50 segments, each twinkling for a second or two; more
   and a little quicker in its louder parts, fewer and slower as it ends). Stars
   keep their full brightness however the rest of a section is dimmed. Other
   songs get stars in their cute parts only: an intro, breakdown, outro or verse
@@ -870,6 +870,11 @@ noise.
   (comets, sparkles, meteors, orbits, ripples, a bouncing comet, a scanner),
   alternating from drop to drop. Songs whose mix is mostly haunted and storm get
   thunder on the biggest hits. Over 44 learned songs, 41 drew different drops.
+  **Stage steps** is one of the motions and verse movers too: the strip in
+  eighths, each flashing in turn and fading, along the strip, back and forth or
+  at random (each song its own order). What drifts over a song's intro,
+  breakdowns and outro is drawn too: meteors, slow random stage steps, or a few
+  sparkles. The hyper chase is for dance and rave drops only.
 - **Long strips and short lamps play different parts.** With both kinds ticked
   (a short lamp has a dozen segments or fewer, like a 7-segment floor lamp), the
   things that travel (comets, chases, sparkles, scanners) run on the long strips,
@@ -913,7 +918,10 @@ noise.
     chorus at 2:31;
   - an intro ends where the drums come in to stay, not a bar or two later;
   - a breakdown with the drums playing through it (three quarters of it, with a
-    backbeat) is a verse (*Baggy Jeans* 0:11 to 0:44).
+    backbeat) is a verse (*Baggy Jeans* 0:11 to 0:44);
+  - a verse or breakdown that repeats a drop (its snares, and its hook at the
+    same places with nearly its sound, or its sound almost exactly) is a drop:
+    Nightly's *don't even think about it* at 1:30 is its 0:34 chorus again.
   **Re-detect** analyses the song again from scratch with the newest analysis:
   everything saved for it is thrown away first.
 - **A buildup where the snares build.** A drop with no buildup marked before it,

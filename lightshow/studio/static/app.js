@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 5;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup
+  const SHOW_VERSION = 6;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1683,16 +1683,16 @@
    *  'motion' (the song's motion), or [effect, settings, clip settings]; `flash` marks one that flashes. */
   const LOOKS = {
     haunted: { name: 'Haunted', intro: ['ember', { speed: 2, intensity: 0.6 }], verse: [['ember', { speed: 1, intensity: 0.75 }], ['aurora', { speed: 16, intensity: 0.45, depth: 0.85 }]],
-      verseTop: [['meteors', { every: 2, chance: 0.5, travel: 3, tail: 0.3 }], ['bounce', { speed: 4, tail: 0.35 }]],
-      breakdown: ['aurora', { speed: 16, depth: 0.9, intensity: 0.35 }], outro: ['ember', { speed: 2, intensity: 0.5 }], motion: ['meteors', 'orbit', 'bounce'],
+      verseTop: [['meteors', { every: 2, chance: 0.5, travel: 3, tail: 0.3 }], ['bounce', { speed: 4, tail: 0.35 }], ['steps', { zones: 8, every: 2, decay: 2, order: 'random' }, { opacity: 0.7 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.9, intensity: 0.35 }], outro: ['ember', { speed: 2, intensity: 0.5 }], motion: ['meteors', 'orbit', 'bounce', 'steps'],
       drops: [{ base: ['battle', { speed: 8, surge: 0.2 }], top: 'motion' }, { base: ['wave', { speed: 2, waves: 2, floor: 0.05 }], top: 'motion' },
               { base: ['ember', { speed: 0.5, intensity: 1 }], top: ['lightning', { rate: 0.35 }, { opacity: 0.8, blend: 'add' }], flash: true }] },
     neon: { name: 'Neon club', intro: ['gradient', { speed: 16, intensity: 0.4 }], verse: [['gradient', { speed: 8, intensity: 0.4 }], ['wave', { speed: 4, waves: 1.5, floor: 0 }]],
-      verseTop: [['ripple', { every: 2, travel: 2, width: 0.12 }], ['chase', { speed: 2, size: 0.1, gap: 0.7 }, { opacity: 0.7 }]],
-      breakdown: ['colorwash', { speed: 8, intensity: 0.4 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['ripples', 'sparkles', 'orbit'],
+      verseTop: [['ripple', { every: 2, travel: 2, width: 0.12 }], ['chase', { speed: 2, size: 0.1, gap: 0.7 }, { opacity: 0.7 }], ['steps', { zones: 8, every: 1, decay: 1, order: 'bounce' }, { opacity: 0.7 }]],
+      breakdown: ['colorwash', { speed: 8, intensity: 0.4 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['ripples', 'sparkles', 'orbit', 'steps'],
       drops: [{ base: ['chase', { speed: 1, size: 0.12, gap: 0.6 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.55, blend: 'add' }], flash: true },
               { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
-              { base: ['hyperchase', { speed: 0.25, size: 0.08 }], top: 'motion' },
+              { base: ['hyperchase', { speed: 0.25, size: 0.08 }], top: 'motion', fast: true },
               { base: ['roomsplit', { every: 1, pump: 0.4 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true, room: true }] },
     dreamy: { name: 'Dreamy', intro: ['twinkle', { density: 0.25, speed: 4, base: 0.12 }], verse: [['colorwash', { speed: 16, intensity: 0.45 }], ['aurora', { speed: 16, intensity: 0.4, depth: 0.7 }]],
       verseTop: [['sparkle', { density: 0.08, life: 0.25 }, { opacity: 0.8 }], ['orbit', { speed: 8, count: 2 }, { opacity: 0.8 }]],
@@ -1700,13 +1700,13 @@
       drops: [{ base: ['wave', { speed: 4, waves: 1, floor: 0.1 }], top: 'motion' }, { base: ['colorwash', { speed: 8, intensity: 0.75 }], top: 'motion' },
               { base: ['roomwave', { speed: 8, floor: 0.25 }], top: 'motion', room: true }] },
     rock: { name: 'Rock show', intro: ['breathe', { speed: 4, floor: 0.05 }], verse: [['gradient', { speed: 16, intensity: 0.4 }], ['breathe', { speed: 2, floor: 0.1 }]],
-      verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['bounce', { speed: 2, tail: 0.3 }]],
-      breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['breathe', { speed: 4, floor: 0.05 }], motion: ['scanner', 'comets', 'bounce'],
+      verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['bounce', { speed: 2, tail: 0.3 }], ['steps', { zones: 8, every: 1, decay: 0.75, order: 'run' }, { opacity: 0.75 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['breathe', { speed: 4, floor: 0.05 }], motion: ['scanner', 'comets', 'bounce', 'steps'],
       drops: [{ base: ['alternate', { every: 1, size: 2 }], top: 'motion' }, { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
               { base: ['scanner', { speed: 1, size: 0.2, floor: 0.15 }], top: ['flash', { every: 2, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true }] },
     storm: { name: 'Storm', intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.9 }], verse: [['battle', { speed: 16, surge: 0.1 }], ['halves', { every: 2, dim: 0.15 }]],
-      verseTop: [['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.25 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }]],
-      breakdown: ['ember', { speed: 2, intensity: 0.5 }], outro: ['aurora', { speed: 16, intensity: 0.35, depth: 0.9 }], motion: ['meteors', 'comets', 'ripples'],
+      verseTop: [['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.25 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }], ['steps', { zones: 8, every: 1, decay: 0.6, order: 'random' }, { opacity: 0.8 }]],
+      breakdown: ['ember', { speed: 2, intensity: 0.5 }], outro: ['aurora', { speed: 16, intensity: 0.35, depth: 0.9 }], motion: ['meteors', 'comets', 'ripples', 'steps'],
       drops: [{ base: ['battle', { speed: 4, surge: 0.3 }], top: ['lightning', { rate: 0.5 }, { opacity: 0.85, blend: 'add' }], flash: true },
               { base: ['halves', { every: 1, dim: 0 }], top: 'motion' }, { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
               { base: ['roomsplit', { every: 0.5, pump: 0.5 }], top: 'motion', room: true }] },
@@ -1733,6 +1733,10 @@
       verse: [verse[0], verse[1] || verse[0]], verseTop: [tops[0], tops[1] || tops[0]],
       drops: order(l => l.drops, r => r.base[0]),                    // in the song's own order; the first that fit are used
     };
+    S.stepOrder = ['run', 'bounce', 'random'][Math.floor(rnd() * 3)];          // how this song's stage steps go
+    // what drifts over its intro, breakdowns and outro (it used to be meteors in every song)
+    S.drift = [['meteors', { every: 4, chance: 0.35, travel: 4 }], ['steps', { zones: 8, every: 2, decay: 2.5, order: 'random' }, { opacity: 0.6 }],
+               ['sparkle', { density: 0.05, life: 0.4 }, { opacity: 0.8 }]][Math.floor(rnd() * 3)];
     S.look = Object.entries(w).sort((x, y) => y[1] - x[1])[0][0];   // the family it leans to most
     S.dark = (w.haunted + w.storm) >= 0.5 * Object.values(w).reduce((x, y) => x + y, 0);   // thunder and heartbeats
     S.motionFam = motions[0];
@@ -1970,6 +1974,7 @@
       if (fam === 'ripples') return clip(1, 'ripple', b0, len, { every: sp(1), travel: sp(1.5), width: 0.12 }, { opacity: 0.9, ...extra });
       if (fam === 'bounce') return clip(1, 'bounce', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
       if (fam === 'scanner') return clip(1, 'scanner', b0, len, { speed: sp(2), size: 0.15, floor: 0 }, { opacity: 0.85, ...extra });
+      if (fam === 'steps') return clip(1, 'steps', b0, len, { zones: 8, every: sp(1), decay: Math.max(0.5, sp(1)) * 0.8, order: S.stepOrder || 'run' }, { opacity: 0.95, ...extra });
       return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
     };
     const look = S.mix;                                                // the song's own mix (pickLook)
@@ -1996,14 +2001,14 @@
     switch (s.type) {
       case 'intro':
         clip(0, starBed(look.intro)[0], b0, len, starBed(look.intro)[1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.08, life: 8 }, { blend: 'add' });   // a calm song: the stars come out
-        else clip(1, 'meteors', b0, len, { every: 4, chance: 0.35, travel: 4 });
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.08, life: 4 }, { blend: 'add' });   // a calm song: the stars come out
+        else top(S.drift, { opacity: ((S.drift || [])[2] || {}).opacity || 1 });
         drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
         if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
         else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.12, life: 6 }, { blend: 'add' });   // single white stars, slowly, here and there
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.12, life: 3 }, { blend: 'add' });   // single white stars, twinkling here and there
         else top(look.verseTop[v]);                                     // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
         if (!chill && drumsHere && longStrips && snaresHere >= len / 8)   // the snare lands on a quarter of the ceiling, in turn
@@ -2030,7 +2035,7 @@
         } else {
           // The song's drop moves (the first three it drew that fit), one per drop, in turn. A chill or
           // groove song lifts its drops with motion rather than flashing: the flashy ones are for dance and rave.
-          const ok = look.drops.filter(r => (hard || !r.flash) && (room || !r.room)).slice(0, 3);
+          const ok = look.drops.filter(r => (hard || (!r.flash && !r.fast)) && (room || !r.room)).slice(0, 3);
           const r = ok[kind % ok.length] || look.drops.find(r => !r.flash && !r.room) || LOOKS.dreamy.drops[0];
           clip(0, r.base[0], b0, len, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
           if (r.top === 'motion') motion(chill ? (swells() ? 0.75 : 0.5) : style === 'rave' ? 1.3 : 1);
@@ -2039,7 +2044,7 @@
                                                                                  { ...(r.top[2] || {}), opacity: ((r.top[2] || {}).opacity || 1) * 0.6 }]);
           else top(r.top);
         }
-        if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 4 }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
+        if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 2 }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
         drums(chill ? 0.8 : 1, 0.85);
         // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
         const pump = chill ? 0 : style === 'rave' ? 0.5 : style === 'dance' ? 0.4 : 0.3;
@@ -2060,14 +2065,14 @@
       }
       case 'breakdown':
         clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 8 }, { blend: 'add' });
-        else clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 }, { opacity: 0.85 });
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 4 }, { blend: 'add' });
+        else top(S.drift, { opacity: 0.85 * (((S.drift || [])[2] || {}).opacity || 1) });
         drums(0.5, 0.5);
         break;
       case 'outro':
         clip(0, look.outro[0], b0, len, look.outro[1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.06, life: 10 }, { blend: 'add' });   // and go out again, one by one
-        else clip(1, 'meteors', b0, len, { every: 4, chance: 0.3, travel: 4 });
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.06, life: 5 }, { blend: 'add' });   // and go out again, one by one
+        else top(S.drift, { opacity: ((S.drift || [])[2] || {}).opacity || 1 });
         drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }
@@ -2090,7 +2095,7 @@
     }
     S.sectionClips = null;
   }
-  const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
+  const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'steps', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
 
   /** The genre words the listening model heard in the song, lowercased. */
   const genreWords = () => (((S.analysis && S.analysis.genre && S.analysis.genre.genres) || []).join(' ') + ' ' + ((S.analysis && S.analysis.genre && S.analysis.genre.spotify) || []).join(' ')).toLowerCase();
