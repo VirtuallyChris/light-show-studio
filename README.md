@@ -610,7 +610,9 @@ its length) and has spotDL download that one. (spotDL's own YouTube Music search
 back empty for songs plainly there, and fell back to music videos.) Failing that,
 spotDL's own pick, and then a search of YouTube that only takes the artist's own
 channel (their "Topic" channel first, which carries the album audio), never a live
-take, a cover or a remix; the full analysis runs on it (about 45 s for a 3-minute song, while
+take, a cover or a remix; the full analysis runs on it, in a process of its own at below-normal priority
+on at most four cores (the models on the GPU), so the lights and the music always
+come first (about 45 s for a 3-minute song, while
 the next one downloads), and the copy is deleted the moment it is done: only the
 analysis is kept, with the songs the jam learned by listening (`shows/_jam/learned`).
 A copy whose length is not within 4 seconds of Spotify's is another version and is
@@ -642,7 +644,10 @@ when the pointer rests on it; the show is made regardless, from what did work. W
 model would not start goes to `studio.log` and `models.log`, and it is tried again
 every 2 minutes. **Learn ahead** in the Jam panel turns it on or off (on wherever spotDL is
 installed); with it on, the room stays **Stay behind by** (5 s to start with, at
-least 3) behind, and no opening song is needed. Less is livelier, at a cost: the
+least 3) behind, and no opening song is needed. A song playing before its copy is learned is a stopgap: its main color at
+nearly full brightness, pulsing on the beat, and only its beat is worked out (no
+stems, sections, instruments or genre), so the processor goes to the copy; what is
+heard is not kept, and the full show takes over when the copy is learned. Less is livelier, at a cost: the
 studio hears of a new song about a second late (Spotify is asked once a second), a
 speaker holds only that much against a Wi-Fi hiccup, and below 7 s each song starts
 on Spotify's clock and may shift a little when it is lined up by ear. 5 to 10 s hides
