@@ -121,3 +121,38 @@ class TestDropTiming(unittest.TestCase):
         beats, stems = self.song(bass_from=8.0)
         secs, drops, moves = refine_drops(self.sections(16.0), [16.0], beats, stems)
         self.assertEqual((secs[1]["start"], drops, moves), (16.0, [16.0], []))
+
+
+class TestDrumlessDrops(unittest.TestCase):
+    """A "drop" with the drums silent, in a song that has drums, is a lead-in, not a drop."""
+
+    def test_a_drop_with_no_drums_becomes_a_verse(self):
+        from lightshow.studio.analysis import drumless_drops
+        fps = 30
+        dp = [0.6] * (40 * fps) + [0.05] * (26 * fps) + [0.7] * (26 * fps)   # drums, then none, then drums
+        a = {"feature_fps": fps, "curves": {"drums_present": dp}, "drops": [40.0, 66.0],
+             "sections": [{"start": 0.0, "end": 40.0, "type": "verse"}, {"start": 40.0, "end": 66.0, "type": "drop"},
+                          {"start": 66.0, "end": 92.0, "type": "drop"}]}
+        self.assertEqual(drumless_drops(a), [(40.0, "verse")])
+        self.assertEqual([s["type"] for s in a["sections"]], ["verse", "verse", "drop"])
+        self.assertEqual(a["drops"], [66.0])
+
+    def test_a_drop_lands_where_its_drums_come_back_after_the_build(self):
+        from lightshow.studio.analysis import drumless_drops
+        fps = 30
+        # drums, a drumless 12 s, drums at half (the build), a 2 s stop, then the drums for good
+        dp = [0.7] * (20 * fps) + [0.02] * (12 * fps) + [0.5] * (14 * fps) + [0.1] * (2 * fps) + [0.8] * (30 * fps)
+        a = {"feature_fps": fps, "curves": {"drums_present": dp}, "drops": [20.0], "beats": [i * 0.5 for i in range(200)],
+             "sections": [{"start": 0.0, "end": 20.0, "type": "verse"}, {"start": 20.0, "end": 78.0, "type": "drop"}]}
+        drumless_drops(a)
+        self.assertEqual([s["type"] for s in a["sections"]], ["verse", "verse", "drop"])
+        self.assertAlmostEqual(a["sections"][2]["start"], 48.0, delta=0.6)       # after the stop, not where the build began
+        self.assertEqual(len(a["drops"]), 1)
+        self.assertAlmostEqual(a["drops"][0], 48.0, delta=0.6)
+
+    def test_a_song_without_drums_keeps_its_drops(self):
+        from lightshow.studio.analysis import drumless_drops
+        a = {"feature_fps": 30, "curves": {"drums_present": [0.05] * 3000}, "drops": [40.0],
+             "sections": [{"start": 40.0, "end": 66.0, "type": "drop"}]}
+        self.assertEqual(drumless_drops(a), [])
+        self.assertEqual(a["sections"][0]["type"], "drop")

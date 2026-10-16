@@ -145,7 +145,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     if ev.get("rolls"):
         sections, _ = buildups_from_rolls(sections, ev["rolls"], beats, phase)
 
-    return {
+    out = {
         "duration": duration,
         # the opening 45 seconds as band onsets: enough to find this song's 0:00 by ear in a jam
         "align_bands": [[round(float(v), 2) for v in row] for row in match_features(y[: int(45 * sr)], sr, HOP)],
@@ -162,6 +162,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "key_change": ev.get("key_change"),
         "hook": ev["hook"],
         "curves": ev["curves"],
+        "feature_fps": FEATURE_FPS,
         "bpm": round(bpm, 3),
         "beat_offset": round(float(first), 4),
         "downbeat_phase": phase,
@@ -181,6 +182,10 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "builtin_sections": builtin_sections,
         "builtin_drops": builtin_drops,
     }
+    moved = drumless_drops(out)
+    if moved:
+        print(f"[structure] drops set where their drums come in: {moved}")
+    return out
 
 
 # Krumhansl-Schmuckler key profiles, used only to tell major from minor.
@@ -258,6 +263,64 @@ def stem_beats(stems: dict, beats) -> np.ndarray | None:
             i0, i1 = int(beats[b] * fps), max(int(beats[b] * fps) + 1, int(beats[b + 1] * fps))
             out[b, j] = float(env[i0:i1].mean()) / ref if i0 < len(env) else 0.0
     return np.clip(out, 0, 1.5)
+
+
+def drumless_drops(a: dict) -> list:
+    """A drop starts where its drums come in to stay. Where a section found as a drop (loud and bassy)
+    starts with the separated drum track silent (under 0.15 for its first 6 s), in a song that has drums:
+
+    - if the drums never settle in (2 s stretches all at 0.45 or more for 8 s), it is no drop at all: a
+      verse (SLANDER's When I'm With You at 1:06, a heavy drumless lead-in);
+    - else the drop lands where they do, and when they come in, stop for a moment and come back (the
+      classic build), after the stop (the same song's last drop: 3:06 found, drums in at 3:18, a pause
+      at 3:33, the drop at 3:37, which is where it is heard). What comes before is a verse.
+
+    Drops that start with drums, however sparse (Coldplay's chorus) or light, are left alone. Across 32
+    songs with a drum track this changed four sections in three songs. Changes the analysis in place
+    (also one saved before the rule); returns what changed."""
+    dp = (a.get("curves") or {}).get("drums_present")
+    secs = a.get("sections") or []
+    if not dp or not secs:
+        return []
+    dp = np.asarray(dp, dtype=float)
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    lvl = lambda t0, t1: float(dp[int(t0 * fps):max(int(t0 * fps) + 1, int(t1 * fps))].mean()) if int(t0 * fps) < len(dp) else 1.0
+    if not any(lvl(s["start"], s["end"]) >= 0.5 for s in secs):
+        return []                                        # a song without drums: its drops swell instead
+    steady = lambda t, end: t + 8 <= end + 1e-6 and all(lvl(b, b + 2) >= 0.45 for b in (t, t + 2, t + 4, t + 6))
+    bars = sorted(a.get("downbeats") or a.get("beats") or [])
+    out, changes = [], []
+    for s in secs:
+        start, end = float(s["start"]), float(s["end"])
+        if s.get("type") != "drop" or lvl(start, min(end, start + 6)) >= 0.15:
+            out.append(s)
+            continue
+        came = next((float(t) for t in np.arange(start, end - 7.5, 0.5) if steady(t, end)), None)
+        if came is None:                                 # the drums never settle in: no drop here at all
+            out.append({**s, "type": "verse"})
+            a["drops"] = [d for d in (a.get("drops") or []) if not (start - 0.5 <= d < end)]
+            changes.append((round(start, 1), "verse"))
+            continue
+        at = came
+        dip = next((float(t) for t in np.arange(came + 2, min(end - 8, came + 24), 0.5) if lvl(t, t + 2) < 0.35), None)
+        if dip is not None:
+            after = next((float(t) for t in np.arange(dip + 1, end - 7.5, 0.5) if steady(t, end)), None)
+            if after is not None:
+                at = after
+        # the first moment the drums pass 0.45 there, then the nearest bar line within a second
+        k = next((i for i in range(int(at * fps), min(len(dp), int((at + 2) * fps))) if dp[i] >= 0.45), int(at * fps))
+        th = k / fps
+        near = [b for b in bars if start < b < end and abs(b - th) <= 1.0]
+        at = float(min(near, key=lambda b: abs(b - th))) if near else th
+        if at - start < 4:
+            out.append(s)
+            continue
+        out.append({**s, "end": at, "type": "verse"})
+        out.append({**s, "start": at})
+        a["drops"] = sorted([d for d in (a.get("drops") or []) if not (start - 0.5 <= d < end)] + [round(at, 3)])
+        changes.append((round(start, 1), "->", round(at, 1)))
+    a["sections"] = out
+    return changes
 
 
 def refine_drops(sections: list[dict], drops: list, beats, stems: dict) -> tuple[list[dict], list, list]:
@@ -699,4 +762,5 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
             json.dump(data, fh)
     from .genre import restyle                             # (decided by the newest rule, on what was heard)
     data["genre"] = restyle(data.get("genre"), float((data.get("mood") or {}).get("drive", 0.6)))
+    drumless_drops(data)                                   # (a saved analysis too: a drop with no drums is none)
     return data
