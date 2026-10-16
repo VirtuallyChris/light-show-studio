@@ -200,7 +200,34 @@
 
   // ------------------------------------------------------------------ undo / save
   function snapshot() { return JSON.stringify(P()); }
-  function beginChange() { if (!P()) return; S.undo.push(snapshot()); if (S.undo.length > 100) S.undo.shift(); S.redo.length = 0; }
+  function beginChange() {
+    if (!P()) return; S.undo.push(snapshot()); if (S.undo.length > 100) S.undo.shift(); S.redo.length = 0;
+    if (!S.building) P().handEdited = true;                          // changed by hand: never rebuilt by itself
+  }
+  // How shows are built (the effects chosen for each part of a song, how hard each style goes) is
+  // versioned: SHOW_VERSION goes up with every change to it. A saved show records the version it was
+  // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
+  // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
+  // in memory), unless it was changed by hand since it was built, which only says so.
+  const SHOW_VERSION = 2;
+  const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
+  /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
+   *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
+   *  Returns "rebuilt", "edited" (out of date, but changed by hand: left as it is), or "" (up to date). */
+  function freshenSaved(data) {
+    const p = S.project;
+    if (!p || !data.saved || !showStale(p, S.analysis)) return '';
+    // a show from before versions: built by the studio if it was rebuilt before (a backup beside it), else by hand
+    if (p.handEdited || (!p.built && !data.rebuilt_before)) return 'edited';
+    const q = newProject(S.analysis, data.project);
+    const { look, ...settings } = p.settings || {};
+    q.settings = { ...q.settings, ...settings };
+    q.palettes = { ...q.palettes, ...(p.palettes || {}) };
+    q.name = p.name || q.name;
+    S.project = q; migrateProject(q);
+    autoBuild(true);
+    return 'rebuilt';
+  }
   function changed() { scheduleSave(); draw(); }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); S.project = JSON.parse(S.undo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); S.project = JSON.parse(S.redo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
@@ -220,6 +247,13 @@
       if (!r.ok) throw new Error(`the studio answered ${r.status}`);
       return true;
     } catch (e) { toast('Save failed: ' + e.message, true); return null; }
+  }
+  /** Save a show rebuilt because it was out of date, keeping the version it replaces. */
+  async function saveBackedUp() {
+    if (!P() || !S.name || (S.jam && S.jam.live)) return false;
+    clearTimeout(S.saveTimer);
+    try { return (await fetch(`/api/projects/${encodeURIComponent(S.name)}?backup=1`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectProject()) })).ok; }
+    catch (e) { return false; }
   }
   /** Save, and say what happened (the button and Ctrl+S). */
   async function saveNow() {
@@ -253,7 +287,9 @@
     S.project = data.saved || newProject(data.analysis, data.project);
     if (!S.project.lanes) S.project = newProject(data.analysis, data.project);
     migrateProject(S.project);
+    const fresh = freshenSaved(data);
     $('#projectName').value = S.project.name || S.name;
+    if (fresh === 'rebuilt') { clearTimeout(S.saveTimer); await saveBackedUp(); }    // now, before its usual save could
     $('#bpm').value = S.project.bpm.toFixed(2);
     $('#latency').value = S.defaults.lightOffset ?? 30;           // the lights' own delay: the same for every song
     // an offset typed for this project wins; otherwise the connected speaker's own measured delay
@@ -267,6 +303,8 @@
     await loadAudio(data.audio_url);
     zoomFit(); inspector(); renderPalettes(); draw(); refreshRecent();
     toast(`${S.name}: ${S.project.bpm.toFixed(1)} bpm, ${S.project.sections.length} sections, ${S.project.drops.length} drops` + (S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''));
+    if (fresh === 'rebuilt') toast(`${S.name}: rebuilt with the latest show logic (the old show is kept as a backup)`);
+    else if (fresh === 'edited') toast(`${S.name} was built by older show logic. It has your own changes, so it is left as it is: press Auto-build show to rebuild it.`, true);
   }
   async function refreshRecent() {
     const sel = $('#recent'); const cur = sel.value;
@@ -1507,16 +1545,12 @@
       const heard = g ? [...(g.genres || []), ...((g.spotify || []).length ? ['Spotify: ' + g.spotify.slice(0, 2).join(', ')] : [])].join(', ') : '';
       const styleRow = `<div class="row"><label title="How hard the lights go when you auto-build. Chill never strobes; groove moves but lifts drops without flashing; dance flashes on the beat; rave goes all out.">Show style</label><select id="songStyle">
         <option value="">Auto${auto ? ': ' + STYLE_NAMES[auto] : ''}</option>${Object.entries(STYLE_NAMES).map(([k, n]) => `<option value="${k}" ${p.settings && p.settings.style === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
-        <div class="row"><label title="The set of effects auto-build draws on, chosen from the song's vibe">Look</label><select id="songLook">
-        <option value="">Auto: ${LOOKS[chooseLook()].name}</option>${Object.entries(LOOKS).map(([k, l]) => `<option value="${k}" ${p.settings && p.settings.look === k ? 'selected' : ''}>${l.name}</option>`).join('')}</select></div>
         ${heard ? `<div class="row heard"><label>Sounds like</label><span class="genre-heard">${esc(heard)}</span></div>` : ''}`;
       el.innerHTML = `<div class="panel"><h3>Song</h3>${styleRow}<div class="row"><label title="Auto-build builds the show around this color, the way a jam song is built around its album cover">Main color</label><span class="main-color"><input id="mainColor" type="color" value="${p.settings.mainColor || '#ff0000'}"><button id="mainColorRebuild" class="small" title="Auto-build the show with this color now">Rebuild</button>${p.settings.mainColor ? '<button id="mainColorAuto" class="small" title="Back to the automatic palettes">Auto</button>' : ''}</span></div><div class="row"><label>Default palette</label><select id="defPal">${Object.keys(p.palettes).map(n => `<option ${n === p.defaultPalette ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div class="row"><label title="When the music goes quiet, every light dims with it, even in a drop">Dim with the music</label><input id="followLoud" type="checkbox" ${p.settings.followLoudness === false ? '' : 'checked'}></div>${S.analysis && S.analysis.structure_source === 'loudness' ? `<div class="hint warn">Section timing was not refined: ${esc(S.analysis.structure_error || 'SongFormer did not run')}. Boundaries may be a bar or two off. Press Re-detect to try again.</div>` : ''}</div>` + help; $('#mainColor').onchange = e => { beginChange(); p.settings.mainColor = Effects.solid(e.target.value); changed(); inspector(); toast('Main color set. Press Rebuild (or Auto-build show) to build the show around it.'); };
       $('#mainColorRebuild').onclick = () => { if (!p.settings.mainColor) p.settings.mainColor = Effects.solid($('#mainColor').value); autoBuild(); inspector(); };
       if ($('#mainColorAuto')) $('#mainColorAuto').onclick = () => { beginChange(); delete p.settings.mainColor; changed(); inspector(); toast('Back to the automatic palettes. Press Auto-build show to rebuild.'); };
       $('#defPal').onchange = e => { beginChange(); p.defaultPalette = e.target.value; changed(); };
       $('#followLoud').onchange = e => { beginChange(); p.settings.followLoudness = e.target.checked; changed(); pushFrameIfIdle(); };
-      $('#songLook').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.look = e.target.value; changed(); inspector();
-        toast(`Look: ${e.target.value ? LOOKS[e.target.value].name : 'Auto (' + LOOKS[chooseLook()].name + ')'}. Press Auto-build show to rebuild in it.`); };
       $('#songStyle').onchange = e => { beginChange(); p.settings = p.settings || {}; p.settings.style = e.target.value; changed(); inspector();
         toast(`Show style: ${e.target.value ? STYLE_NAMES[e.target.value] : 'Auto (' + STYLE_NAMES[showStyle()] + ')'}. Press Auto-build show to rebuild in it.`); };
       return; }
@@ -1670,7 +1704,7 @@
    *  when it learns a song's style part way through, before building the rest. */
   function pickLook() {
     const p = P(), a0 = S.analysis || {};
-    S.look = (p && p.settings && LOOKS[p.settings.look]) ? p.settings.look : chooseLook();
+    S.look = chooseLook();                                          // from the song itself (no longer set by hand)
     const fams = LOOKS[S.look].motion, f0 = Math.floor(Effects.hash(Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100)) * fams.length) % fams.length;
     S.motionFam = fams[f0];
     S.motionFams = [fams[f0], fams[(f0 + 1) % fams.length]];      // the song's own motion, and a second for every other drop
@@ -1753,7 +1787,9 @@
     return ((S.analysis && S.analysis.mood && S.analysis.mood.drive) || 0.6) > 0.72 ? 'dance' : 'groove';
   }
   function autoBuild(quiet = false) {
-    if (!P()) return; if (!quiet) beginChange(); const p = P();
+    if (!P()) return; if (!quiet) { S.building = true; beginChange(); S.building = false; } const p = P();
+    p.built = { show: SHOW_VERSION, analysis: (S.analysis && S.analysis.version) ?? null, at: new Date().toISOString() };
+    p.handEdited = false;
     p.sections = withBuildups(p.sections);
     for (const lane of p.lanes) lane.clips = []; p.paletteClips = [];
     while (p.lanes.length < DEFAULT_LANES) p.lanes.push(newLane());
@@ -2395,5 +2431,5 @@
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved };
 })();

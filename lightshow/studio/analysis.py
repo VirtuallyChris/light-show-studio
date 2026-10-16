@@ -763,4 +763,5 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     from .genre import restyle                             # (decided by the newest rule, on what was heard)
     data["genre"] = restyle(data.get("genre"), float((data.get("mood") or {}).get("drive", 0.6)))
     drumless_drops(data)                                   # (a saved analysis too: a drop with no drums is none)
+    data["version"] = ANALYSIS_VERSION                     # a show built on it records which analysis it was
     return data

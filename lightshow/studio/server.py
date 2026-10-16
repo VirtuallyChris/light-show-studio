@@ -461,6 +461,7 @@ class LightOutput:
 
 class Studio:
     def __init__(self, port: int = 8765, quit_when_closed: bool = False, lights: bool = True, player: bool = True):
+        self.read_only = not lights                      # a test copy (--no-lights) never writes a show
         self.port = port
         self.quit_when_closed = quit_when_closed
         self.ws_clients = 0
@@ -1078,18 +1079,31 @@ class Studio:
         if os.path.exists(pj):
             with open(pj, encoding="utf-8") as fh:
                 project = json.load(fh)
-        return web.json_response({"project": name, "audio_url": f"/api/audio/{name}", "analysis": analysis, "saved": project})
+        # (a show rebuilt before, project.before-rebuild.json beside it, was built by the studio, not by hand)
+        return web.json_response({"project": name, "audio_url": f"/api/audio/{name}", "analysis": analysis, "saved": project,
+                                  "rebuilt_before": os.path.exists(os.path.join(pdir, "project.before-rebuild.json"))})
 
     async def save_project(self, request):
+        """Save a show. ?backup=1 (a show rebuilt because it was built by older show logic) keeps the
+        version it replaces as project.before-rebuild.json first. A test copy of the studio (--no-lights)
+        never writes: it shares the shows folder, and a test once saved over a real show."""
         name = safe_name(request.match_info["name"])
         body = await request.json()
+        if self.read_only:
+            print(f"[test copy] not saving {name}: a test copy of the studio never writes shows")
+            return web.json_response({"ok": True, "name": name, "read_only": True})
         pdir = self._project_dir(name)
-        with open(os.path.join(pdir, "project.json"), "w", encoding="utf-8") as fh:
+        path = os.path.join(pdir, "project.json")
+        if request.query.get("backup") == "1" and os.path.exists(path):
+            shutil.copy2(path, os.path.join(pdir, "project.before-rebuild.json"))
+        with open(path, "w", encoding="utf-8") as fh:
             json.dump(body, fh)
         return web.json_response({"ok": True, "name": name})
 
     async def delete_project(self, request):
         name = safe_name(request.match_info["name"])
+        if self.read_only:
+            return web.json_response({"ok": True, "read_only": True})     # a test copy never deletes a show
         pdir = os.path.join(SHOWS_DIR, name)
         if os.path.isdir(pdir):
             shutil.rmtree(pdir)

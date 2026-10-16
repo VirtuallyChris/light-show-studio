@@ -174,6 +174,17 @@ after that. Saved shows live in the `shows/` folder and reload from the
    1 Chill. Songs learned before the change are styled again from what was heard.) The Song
    panel (nothing selected) shows what the model heard and lets you choose the
    style yourself; press **Auto-build show** again to rebuild in it.
+
+   **Shows keep up with the studio.** How shows are built is versioned, and every
+   saved show records the version it was built with and the analysis it was built
+   on. A show built by older logic is rebuilt when it is opened, keeping its
+   settings (style, main color): in the studio it is then saved, the old one kept
+   as `project.before-rebuild.json`; in a jam or as a cue it is rebuilt as it
+   plays. A show changed by hand since it was built is never rebuilt by itself:
+   opening it says it is out of date, and **Auto-build show** rebuilds it. (A test
+   copy of the studio, `--no-lights`, never saves or deletes a show.) The look of a
+   show (its set of effects) follows the song, its vibe and genre, and is not
+   chosen by hand.
 3. **Tweak**: drag effects from the library onto any layer, drag clip edges
    to resize, drag the body to move, Alt-drag to copy. Layers are numbered
    from the bottom; higher layers sit on top, so a comet on layer 2 rides over

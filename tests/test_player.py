@@ -657,3 +657,34 @@ class TestLightsHandedBack(unittest.TestCase):
             self.assertEqual(o.saved["1.1.1.2"]["brightness"], 25)
             o.stop()
         self.assertEqual(b.st["brightness"], 25)
+
+
+class TestSavingShows(unittest.IsolatedAsyncioTestCase):
+    """A test copy of the studio never writes a show; a show rebuilt by newer logic keeps the old one."""
+
+    async def test_a_test_copy_never_saves_and_a_rebuild_keeps_a_backup(self):
+        import json
+        import os
+        import tempfile
+        from unittest import mock
+
+        from aiohttp.test_utils import TestClient, TestServer
+
+        from lightshow.studio import server
+        d = tempfile.mkdtemp()
+        with mock.patch.object(server, "SHOWS_DIR", d):
+            os.makedirs(os.path.join(d, "Song"))
+            path = os.path.join(d, "Song", "project.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"v": "old"}, fh)
+            test_copy = server.Studio(port=0, lights=False, player=False)
+            async with TestClient(TestServer(test_copy.app)) as client:
+                r = await (await client.post("/api/projects/Song", json={"v": "new"})).json()
+            self.assertTrue(r.get("read_only"))
+            self.assertEqual(json.load(open(path, encoding="utf-8")), {"v": "old"})       # untouched
+            real = server.Studio(port=0, lights=False, player=False)
+            real.read_only = False                                                     # as the real studio
+            async with TestClient(TestServer(real.app)) as client:
+                await client.post("/api/projects/Song?backup=1", json={"v": "rebuilt"})
+            self.assertEqual(json.load(open(path, encoding="utf-8")), {"v": "rebuilt"})
+            self.assertEqual(json.load(open(os.path.join(d, "Song", "project.before-rebuild.json"), encoding="utf-8")), {"v": "old"})

@@ -400,7 +400,7 @@
     if (C.run !== cue.run) return;
     if (data.error) { toast(`${cue.name}: ${data.error}`, true); return; }
     // the show itself, without touching playback (opening a song the usual way would pause the speaker)
-    adopt(data.analysis, cue.show, data.saved || null); S.name = '';  // never saved over while it plays
+    adopt(data.analysis, cue.show, data.saved || null, data); S.name = '';  // never saved over while it plays
     if (!data.saved) try { St.autoBuild(true); } catch (e) { console.error(e); }
     const started = asked - into * 1000;                             // when the show began, on this page's clock
     if (cue.via === 'cast') {
@@ -474,10 +474,11 @@
     J.failedKey = room.key;
   }
 
-  function adopt(analysis, name, saved) {
+  function adopt(analysis, name, saved, data) {
     S.analysis = analysis; S.name = saved ? name : '';
     S.project = saved || St.newProject(analysis, name);
     St.migrateProject(S.project);
+    if (saved && data) St.freshenSaved(data);                     // built by older show logic: built again (in memory)
     $('#projectName').value = name; $('#bpm').value = S.project.bpm.toFixed(2);
     $('#emptyState').hidden = true;
     S.undo.length = 0; S.redo.length = 0; S.view.sel = null; S.view.multi = [];
@@ -549,7 +550,7 @@
     if (doc.kind === 'custom' && doc.project) {
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
-      adopt(data.analysis, data.project, data.saved || null);
+      adopt(data.analysis, data.project, data.saved || null, data);
       if (!data.saved) try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
       if (J.failedKey !== room.key) toast(`${room.label}: playing your show`);
     } else if (doc.light) {
