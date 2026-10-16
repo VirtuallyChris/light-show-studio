@@ -108,6 +108,8 @@
   .btn { width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--card2); color: var(--text); font-size: 22px; display: grid; place-items: center; }
   .btn.big { width: 72px; height: 72px; background: var(--text); color: var(--bg); font-size: 26px; box-shadow: var(--shadow); }
   .btn:active { transform: scale(0.95); }
+  .btn svg { width: 24px; height: 24px; fill: currentColor; }
+  .btn.big svg { width: 30px; height: 30px; }
   /* colors */
   .colors { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
   .sw { position: relative; width: 34px; height: 34px; border-radius: 10px; border: 2px solid var(--sw-line); overflow: hidden; flex: none; }
@@ -257,6 +259,10 @@
   <section class="card hero" id="nowCard">
     <div id="now"></div>
   </section>
+  <section class="card">
+    <div class="label">Up next</div>
+    <div id="next"></div>
+  </section>
   <section class="card" id="cuesCard" hidden>
     <div class="label">Cues</div>
     <div class="cues" id="cues"></div>
@@ -282,10 +288,6 @@
     <div class="theme-sw" id="themeSw"></div>
   </section>
 
-  <section class="card">
-    <div class="label">Up next</div>
-    <div id="next"></div>
-  </section>
 </section>
 
 <!-- ======================================================== SETTINGS -->
@@ -644,6 +646,13 @@
   }
 
   // ---- the page
+  // the transport's icons, drawn (rounded, filled with the button's own text color)
+  const ICON = {
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4.5" width="4.2" height="15" rx="1.3"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1.3"/></svg>',
+    prev: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5" width="2.6" height="14" rx="1.2"/><path d="M19.5 6.2v11.6a1 1 0 0 1-1.55.83L9.6 13a1.2 1.2 0 0 1 0-2l8.35-5.63a1 1 0 0 1 1.55.83z"/></svg>',
+    next: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="16.9" y="5" width="2.6" height="14" rx="1.2"/><path d="M4.5 6.2v11.6a1 1 0 0 0 1.55.83L14.4 13a1.2 1.2 0 0 0 0-2L6.05 5.37A1 1 0 0 0 4.5 6.2z"/></svg>',
+  };
   const NOTE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>';
   const SHOW = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
   // the big card shows the cover at its largest (640 px); the rows keep the small one
@@ -669,9 +678,9 @@
           ${colorBox(r, true)}
           <div class="bar"><div id="prog"></div></div><div class="times"><span id="pos">0:00</span><span>${fmt(r.duration)}</span></div>
           <div class="controls">
-          <button class="btn" id="bPrev" aria-label="Previous song">&#9198;</button>
-          <button class="btn big" id="bPlay" aria-label="${r.playing ? 'Pause' : 'Play'}">${r.playing ? '&#10074;&#10074;' : '&#9654;'}</button>
-          <button class="btn" id="bNext" aria-label="Next song">&#9197;</button></div></div>`;
+          <button class="btn" id="bPrev" aria-label="Previous song">${ICON.prev}</button>
+          <button class="btn big" id="bPlay" aria-label="${r.playing ? 'Pause' : 'Play'}">${r.playing ? ICON.pause : ICON.play}</button>
+          <button class="btn" id="bNext" aria-label="Next song">${ICON.next}</button></div></div>`;
     const up = st.upcoming || [];
     const nextHtml = !st.running ? `<div class="empty">—</div>` : up.length ? up.map(t => `<div class="row">${artBox(t)}
         <div style="min-width:0"><div class="title">${esc(t.name || t.label)}</div><div class="artist">${esc((t.artists || []).join(', '))}</div>${colorBox(t)}</div></div>`).join('')
