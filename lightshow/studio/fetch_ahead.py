@@ -229,11 +229,22 @@ class FetchAhead:
         self.busy: dict = {"download": None, "analyse": None}
         self.failed: dict[str, tuple[float, str, str]] = {}   # track id -> (when, label, why)
         self.learned_now = 0
+        self.checked: dict[str, bool] = {}            # track id -> learned without anything failing (see _learned_well)
         self.threads: list[threading.Thread] = []
 
     # -- what to learn ------------------------------------------------------------------------------
+    def _learned_well(self, track_id: str) -> bool:
+        """Learned, and nothing failed doing it. A song whose analysis had something fail (a model that
+        was not running) is learned again, once each time the studio runs: read once, not every poll."""
+        if not self.library.has_learned(track_id):
+            return False
+        if track_id not in self.checked:
+            doc = self.library.learned(track_id) or {}
+            self.checked[track_id] = not ((doc.get("analysis") or {}).get("problems"))
+        return self.checked[track_id]
+
     def _wanted(self, t) -> bool:
-        if not getattr(t, "id", None) or self.library.has_learned(t.id) or self.library.match_project(t):
+        if not getattr(t, "id", None) or self._learned_well(t.id) or self.library.match_project(t):
             return False
         f = self.failed.get(t.id)
         if f and self.clock() - f[0] < (RETRY_DOWNLOAD_S if "download" in f[2].lower() else RETRY_AFTER_S):
@@ -375,7 +386,7 @@ class FetchAhead:
                 time.sleep(self.retry_pause)
 
     def _wanted_now(self, track) -> bool:
-        return not self.library.has_learned(track.id) and not self.library.match_project(track)
+        return not self._learned_well(track.id) and not self.library.match_project(track)
 
     def _analyses(self) -> None:
         from . import priority
@@ -392,6 +403,7 @@ class FetchAhead:
                 t0 = self.clock()
                 a = self.analyze(path, os.path.join(folder, "cache"))
                 self.library.save_learned(track, a, source="youtube")
+                self.checked[track.id] = True                  # learned again: not again this run, whatever it says
                 with self.lock:
                     self.learned_now += 1
                 self.log(f"[learn ahead] {track.label}: learned in {self.clock() - t0:.0f} s, the copy deleted")

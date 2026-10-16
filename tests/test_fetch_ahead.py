@@ -12,9 +12,16 @@ def track(i, secs=180.0):
     return Track(id=f"t{i}", name=f"Song {i}", artists=["Band"], duration=secs, uri=f"spotify:track:t{i}")
 
 
+class Learned(dict):
+    """track id -> its analysis; called like the library's learned(), it gives the saved doc."""
+
+    def __call__(self, tid):
+        return {"analysis": self[tid]} if tid in self else None
+
+
 class FakeLibrary:
     def __init__(self, own=()):
-        self.learned, self.own, self.saved = {}, set(own), []
+        self.learned, self.own, self.saved = Learned(), set(own), []
         self.lock = threading.Lock()
 
     def has_learned(self, tid):
@@ -119,6 +126,14 @@ class TestFetchAhead(unittest.TestCase):
         self.assertTrue(self.wait(lambda: f.idle()))
         self.assertIn("t1", lib.learned)                                  # the third try got it
         self.assertEqual(f.status()["failed"], [])
+
+    def test_a_song_learned_while_a_model_was_down_is_learned_again(self):
+        f, lib, _, order = self.make()
+        lib.learned["t1"] = {"bpm": 1.0, "problems": ["the genre could not be heard (no model)"]}
+        lib.learned["t2"] = {"bpm": 1.0, "problems": []}
+        self.assertEqual(f.submit([track(1), track(2)]), 1)                # the one with a failure, not the good one
+        self.assertTrue(self.wait(lambda: f.idle() and order == ["t1"]))
+        self.assertEqual(f.submit([track(1)]), 0)                         # once a run, whatever it says the second time
 
     def test_without_spotdl_nothing_happens(self):
         f = FetchAhead(FakeLibrary(), is_available=lambda: False)
