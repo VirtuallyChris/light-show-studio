@@ -846,8 +846,8 @@ class JamEngine:
             jt.analysis = learned["analysis"]
             a0 = jt.analysis
             a0["genre"] = restyle(a0.get("genre"), float((a0.get("mood") or {}).get("drive", 0.6)))
-            from .analysis import drumless_drops
-            drumless_drops(a0)
+            from .analysis import settle_sections
+            settle_sections(a0)
             jt.genre = a0.get("genre")
             jt.version = 1
             jt.horizon = track.duration
@@ -1121,8 +1121,8 @@ class JamEngine:
         a = learned["analysis"]
         from .genre import restyle
         a["genre"] = restyle(a.get("genre"), float((a.get("mood") or {}).get("drive", 0.6)))
-        from .analysis import drumless_drops
-        drumless_drops(a)
+        from .analysis import settle_sections
+        settle_sections(a)
         with self.lock:
             jt.kind, jt.analysis, jt.genre, jt.source = "learned", a, a.get("genre"), learned.get("source", "heard")
             jt.horizon, jt.version, jt.saved = jt.track.duration, jt.version + 1, True
