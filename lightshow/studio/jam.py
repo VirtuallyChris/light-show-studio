@@ -1358,7 +1358,7 @@ class JamEngine:
             feat = self.features.slice(jt.start, jt.start + head)
         n_f, n_p = int(dur * FEATURE_FPS), int(dur * WAVE_PPS)
         pad = lambda xs, n, fill: (xs + [fill] * max(0, n - len(xs)))[:n]
-        out = {"duration": dur, "feature_fps": FEATURE_FPS, "wave_pps": WAVE_PPS, "structure_source": "live",
+        out = {"duration": dur, "feature_fps": FEATURE_FPS, "wave_pps": WAVE_PPS, "structure_source": "live", "heard": round(head, 2),
                "energy": pad(feat["energy"], n_f, 0.0), "bands": pad(feat["bands"], n_f, [0.0] * N_BANDS), "peaks": pad(feat["peaks"], n_p, 0.0)}
         if a is None:                                        # nothing analysed yet: a plain grid and one open section
             live = jt.beat is not None and jt.beat.bpm is not None      # (learning ahead: the beat as heard)

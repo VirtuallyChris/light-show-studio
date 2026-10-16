@@ -577,6 +577,7 @@
     p.bpm = S.analysis.bpm || 120; p.phase = S.analysis.downbeat_phase || 0; p.beats = (S.analysis.beats || []).slice();
     for (const lane of p.lanes) lane.clips = [];
     p.paletteClips = [];
+    p.settings = { ...(p.settings || {}), followLoudness: false };   // full brightness: not dimmed with the music
     const len = Math.max(4, Math.ceil(St.timeToBeat(S.analysis.duration || 240)) + 4);
     p.lanes[0].clips.push({ id: 'light' + Date.now().toString(36), effect: 'pulse', start: 0, len, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0,
       params: { ...Effects.defaults('pulse'), follow: 'beat', every: 1, size: 1, decay: 0.5, floor: 0.8 }, palette: Effects.solidPalette([col]) });

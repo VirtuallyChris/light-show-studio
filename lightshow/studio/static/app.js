@@ -719,11 +719,13 @@
       const pct = (arr, q) => { const v = arr.filter(x => x > 0).sort((x, y) => x - y); return v.length ? v[Math.floor(v.length * q)] : 0; };
       const ref = pct(Array.from(held), 0.9) || 1;          // a first listen is zero where not yet heard
       const g = new Float32Array(n).fill(1);
+      // a first listen knows the music only up to what it has heard: past that, full brightness, not dark
+      const heard = a.heard != null ? Math.min(n, Math.floor(a.heard * fps)) : n;
       const spans = p.sections.length ? p.sections.map(x => [x.start, x.end]) : [[0, n / fps]];
       for (const [s0, s1] of spans) {
         const i0 = Math.max(0, Math.floor(s0 * fps)), i1 = Math.min(n, Math.ceil(s1 * fps));
         const usual = pct(Array.from(held.subarray(i0, i1)), 0.5) || ref;
-        for (let i = i0; i < i1; i++) {
+        for (let i = i0; i < Math.min(i1, heard); i++) {
           const dip = Math.pow(Math.min(1, held[i] / (0.55 * usual + 1e-6)), 1.6);
           const overall = Math.max(0.3, Math.pow(Math.min(1, held[i] / (0.5 * ref + 1e-6)), 0.8));
           g[i] = Math.max(0.04, dip * overall);
