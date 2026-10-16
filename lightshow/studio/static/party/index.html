@@ -746,7 +746,7 @@
     const nowHtml = !st.running ? idle('Start a jam in the studio, then come back here.')
       : !r ? idle(st.streaming ? 'Between songs' : 'The room hears nothing yet')
       : `<div class="np${skipping ? ' pending' : ''}">${artBox(shownSong, true)}
-          <div class="eyebrow">${skipping ? (skipping.action === 'next' ? 'Skipping…' : 'Going back…') : r.opener ? 'Opening song' : 'In the room'}</div>
+          <div class="eyebrow">${skipping ? (skipping.action === 'next' ? 'Next song loading…' : 'Going back…') : r.opener ? 'Opening song' : 'In the room'}</div>
           <div class="title">${esc(shownSong.name || shownSong.label)}</div>${(shownSong.artists || []).length ? `<div class="artist">${esc(shownSong.artists.join(', '))}</div>` : ''}
           ${colorBox(shownSong, true)}
           <div class="bar"><div id="prog"></div></div><div class="times"><span id="pos">0:00</span><span>${fmt(r.duration)}</span></div>
