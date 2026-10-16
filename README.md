@@ -182,9 +182,9 @@ after that. Saved shows live in the `shows/` folder and reload from the
    as `project.before-rebuild.json`; in a jam or as a cue it is rebuilt as it
    plays. A show changed by hand since it was built is never rebuilt by itself:
    opening it says it is out of date, and **Auto-build show** rebuilds it. (A test
-   copy of the studio, `--no-lights`, never saves or deletes a show.) The look of a
-   show (its set of effects) follows the song, its vibe and genre, and is not
-   chosen by hand.
+   copy of the studio, `--no-lights`, never saves or deletes a show.) The effects a
+   show is made of are drawn for each song from its vibe and genre, never chosen
+   by hand.
 3. **Tweak**: drag effects from the library onto any layer, drag clip edges
    to resize, drag the body to move, Alt-drag to copy. Layers are numbered
    from the bottom; higher layers sit on top, so a comet on layer 2 rides over
@@ -788,7 +788,7 @@ noise.
   two seconds at a time) reach 0.65 and half again its middle, and that does not
   sound calm to the listening model, gets a show that builds and lifts like a
   groove song, with the bass keeping time (drops flash with the bass line, the
-  small lamps pulse with it) and its look chosen by its vibe like any other song.
+  small lamps pulse with it) and its effects drawn from its vibe like any other song.
   The Wldlfe's *Heaven is a place* (choruses twice as loud as its verses) swells;
   *If I Became Friends With The Aliens* stays calm. A calm song's sparkle is
   **Starlight**: single segments glow up to white and fade away slowly, a few at
@@ -849,24 +849,28 @@ noise.
   layer breathes with it (clip setting **Follow the bass**: half for dance and
   rave, 30% for groove, none for chill): brighter as the bass swells, dimmer
   when it drops out for a beat.
-- **Each song has a look.** One look per song keeps a show coherent, and the
-  look comes from the song's vibe (its style, drive, brightness, key and genre),
-  so a night of songs is not one show over and over:
+- **Each song draws its own mix.** There is no look to pick: shows are made from
+  five families of effects, each suited to a vibe, and every song draws its own
+  beds, verse movers, motions and drop moves from them, the families as likely as
+  they suit the song (its style, drive, brightness, key and genre):
   - *Haunted* (dark, minor, mid-tempo): embers and aurora, meteors and a
     bouncing comet, color battles in the drops.
   - *Neon club* (bright dance music): fast gradients and waves, ripples and
     chases, hyper chases and flashing chases in the drops.
-  - *Dreamy* (soft, bright, and every song without drums): color washes, aurora
-    and twinkles, slow sparkles and orbits, never a flash.
+  - *Dreamy* (soft and bright): color washes, aurora and twinkles, slow
+    sparkles and orbits, never a flash.
   - *Rock show* (live-drum rock and indie): gradients and breathing, a scanner
-    sweeping, alternating and random blocks in the drops, big kick and snare hits.
+    sweeping, alternating and random blocks in the drops.
   - *Storm* (hard, minor, driving): battles and halves, lightning and meteors.
-  Each look has its drops (taken in turn, the flashing ones only for dance and
-  rave), and each song a motion of its own from the look's (comets, sparkles,
-  meteors, orbits, ripples, a bouncing comet, a scanner), alternating with a
-  second from drop to drop. The Song panel's **Look** shows the one chosen and
-  can set another. Over 20 songs of different genres: Neon club 9, Rock show 6,
-  Storm 2, Haunted 1, Dreamy 2 (the two without drums).
+  The family that fits best carries the song, close ones often join in, and any
+  other may lend a move or two, so two rock songs are two different shows. A calm
+  song draws soft things only, a song without drums never a rock show, and a
+  dance or rave song rarely a gentle drop. The draw is seeded by the song, so a
+  rebuild gives the same show. Each song uses the first three drop moves it drew
+  that fit (in turn; the flashing ones only for dance and rave), and two motions
+  (comets, sparkles, meteors, orbits, ripples, a bouncing comet, a scanner),
+  alternating from drop to drop. Songs whose mix is mostly haunted and storm get
+  thunder on the biggest hits. Over 44 learned songs, 41 drew different drops.
 - **Long strips and short lamps play different parts.** With both kinds ticked
   (a short lamp has a dozen segments or fewer, like a 7-segment floor lamp), the
   things that travel (comets, chases, sparkles, scanners) run on the long strips,

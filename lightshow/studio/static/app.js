@@ -209,7 +209,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 2;
+  const SHOW_VERSION = 3;                                            // 3: each song draws its own mix of effects
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1666,10 +1666,11 @@
     return cols.slice(k).concat(cols.slice(0, k));
   }
   const MOTIONS = ['comets', 'sparkles', 'meteors', 'orbit', 'ripples', 'bounce', 'scanner'];
-  /** A song's look: which beds, motion and drop moves it is built from. One look per song keeps the
-   *  show coherent; the look comes from the song's vibe, so a night of songs is not one show over
-   *  and over. Each drop recipe is [base effect, its settings] and what goes over it: 'motion' (the
-   *  song's motion family), or [effect, settings, clip settings]; `flash` marks one that flashes. */
+  /** The material shows are made from, in five families by vibe. A song is not given one of them:
+   *  it draws its own mix (its beds, what moves over its verses, its motions, its drop moves) from all
+   *  five, each family as likely as it suits the song (see pickLook), so every song feels different
+   *  while staying in its vibe. Each drop recipe is [base effect, its settings] and what goes over it:
+   *  'motion' (the song's motion), or [effect, settings, clip settings]; `flash` marks one that flashes. */
   const LOOKS = {
     haunted: { name: 'Haunted', intro: ['ember', { speed: 2, intensity: 0.6 }], verse: [['ember', { speed: 1, intensity: 0.75 }], ['aurora', { speed: 16, intensity: 0.45, depth: 0.85 }]],
       verseTop: [['meteors', { every: 2, chance: 0.5, travel: 3, tail: 0.3 }], ['bounce', { speed: 4, tail: 0.35 }]],
@@ -1700,24 +1701,57 @@
               { base: ['halves', { every: 1, dim: 0 }], top: 'motion' }, { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
               { base: ['roomsplit', { every: 0.5, pump: 0.5 }], top: 'motion', room: true }] },
   };
-  /** Settle the song's look and motions, and which kinds of light are ticked. Jam mode calls it again
-   *  when it learns a song's style part way through, before building the rest. */
+  /** Draw the song's own mix of effects (S.mix), its motions, and which kinds of light are ticked. Jam
+   *  mode calls it again when it learns a song's style part way through, before building the rest.
+   *  The draw is seeded by the song (its length and tempo): the same song gets the same show on every
+   *  rebuild, and two songs of one vibe get different ones. */
   function pickLook() {
-    const p = P(), a0 = S.analysis || {};
-    S.look = chooseLook();                                          // from the song itself (no longer set by hand)
-    const fams = LOOKS[S.look].motion, f0 = Math.floor(Effects.hash(Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100)) * fams.length) % fams.length;
-    S.motionFam = fams[f0];
-    S.motionFams = [fams[f0], fams[(f0 + 1) % fams.length]];      // the song's own motion, and a second for every other drop
+    const a0 = S.analysis || {}, w = lookWeights();
+    const seed = Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100);
+    let n = 0; const rnd = () => Effects.hash(seed + 7919 * ++n);
+    // a weighted draw without repeats: each family's entries as likely as the family suits the song
+    // (Efraimidis-Spirakis keys), one entry per effect so two picks are never the same thing twice
+    const order = (slot, name = x => x[0]) => {
+      const seen = new Set();
+      return Object.entries(LOOKS).flatMap(([k, l]) => (w[k] > 0 ? [].concat(slot(l)).map(x => [x, Math.pow(rnd(), 1 / w[k])]) : []))
+        .sort((x, y) => y[1] - x[1]).map(x => x[0]).filter(x => !seen.has(name(x)) && seen.add(name(x)));
+    };
+    const bed = slot => order(l => [slot(l)])[0];
+    const verse = order(l => l.verse), tops = order(l => l.verseTop), motions = order(l => l.motion, x => x);
+    S.mix = {
+      intro: bed(l => l.intro), breakdown: bed(l => l.breakdown), outro: bed(l => l.outro),
+      verse: [verse[0], verse[1] || verse[0]], verseTop: [tops[0], tops[1] || tops[0]],
+      drops: order(l => l.drops, r => r.base[0]),                    // in the song's own order; the first that fit are used
+    };
+    S.look = Object.entries(w).sort((x, y) => y[1] - x[1])[0][0];   // the family it leans to most
+    S.dark = (w.haunted + w.storm) >= 0.5 * Object.values(w).reduce((x, y) => x + y, 0);   // thunder and heartbeats
+    S.motionFam = motions[0];
+    S.motionFams = [motions[0], motions[1] || motions[0]];          // the song's own motion, and a second for every other drop
     const kinds = new Set(selectedLights().map(lightKind));
     S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
   }
-  /** The look that fits this song best: from its style, drive, brightness, key and genre. */
-  function chooseLook() {
+  /** How likely each family of effects is in this song's mix (the best fit 1): from its style, drive,
+   *  brightness, key and genre. The family that fits best carries the song, the ones close to it often
+   *  join in, and every other a little (a move or two from elsewhere), so no two songs of one vibe are
+   *  the same show. A calm song draws soft things only, a song without drums no rock show, and a dance
+   *  or rave song rarely a dreamy (gentle) drop. */
+  function lookWeights() {
+    const sc = lookScores(), best = Math.max(...Object.values(sc), 1e-6), w = {}, st = showStyle();
+    for (const [k, v] of Object.entries(sc)) {
+      const r = v / best;
+      if (st === 'chill') w[k] = r >= 0.6 ? Math.pow(r, 3) : 0;
+      else if (k === 'rock' && noDrums()) w[k] = 0;
+      else w[k] = Math.max(r * r, k === 'dreamy' && (st === 'dance' || st === 'rave') ? 0.03 : 0.08);
+    }
+    return w;
+  }
+  /** Each family's fit to the song: from its style, drive, brightness, key and genre. */
+  function lookScores() {
     const a = S.analysis || {}, m = a.mood || {}, st = showStyle();
     const drive = m.drive ?? 0.5, bright = m.brightness ?? 0.5, minor = m.mode === 'minor';
     const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
     const rocky = /rock|indie|independent|punk|alternative|grunge|metal|emo|folk/.test(g), electronic = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g);
-    if (st === 'chill') return 'dreamy';                               // a calm song (with or without drums)
+    if (st === 'chill') return { dreamy: 1, haunted: minor ? 0.75 : 0, neon: 0, rock: 0, storm: 0 };   // a calm song: soft things only (a minor one, embers too)
     const clubby = st === 'dance' || st === 'rave', heavy = /dubstep|bass music|metal|hardstyle|trap|drum and bass/.test(g);
     const score = {
       haunted: (minor ? 1 : 0.3) * (1 - 0.6 * Math.abs(drive - 0.5) * 2) * (1 - 0.5 * bright) * (st === 'rave' ? 0.5 : 1),
@@ -1726,13 +1760,7 @@
       rock: (st === 'groove' ? 1 : 0.4) * (rocky ? 1 : 0.45) * (0.4 + 0.6 * drive) * (electronic ? 0.5 : 1) * (noDrums() ? 0.2 : 1),   // a rock show needs a drummer
       storm: (minor ? 1 : 0.3) * (0.3 + 0.7 * drive) * (clubby ? 1 : 0.4) * (heavy ? 1 : 0.8) * (1 - 0.4 * bright),
     };
-    const key = Math.round((a.duration || 0) * 10) + Math.round((a.bpm || 0) * 100);
-    let best = null;
-    for (const [name, sc] of Object.entries(score)) {
-      const v = sc * (0.9 + 0.2 * Effects.hash(key + name.length * 7919));       // a nudge, so close calls vary from song to song
-      if (!best || v > best[1]) best = [name, v];
-    }
-    return best[0];
+    return score;
   }
   /** A song's mean energy from t0 to t1 (0..1). */
   function energyIn(t0, t1) {
@@ -1933,7 +1961,7 @@
       if (fam === 'scanner') return clip(1, 'scanner', b0, len, { speed: sp(2), size: 0.15, floor: 0 }, { opacity: 0.85, ...extra });
       return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
     };
-    const look = LOOKS[S.look] || LOOKS.neon;
+    const look = S.mix;                                                // the song's own mix (pickLook)
     // long strips (more than a dozen segments) run the length of a ceiling: room for hits on part of them
     const longStrips = selectedLights().some(l => lightKind(l) === 'long');
     let zoneBuild = false;
@@ -1989,10 +2017,10 @@
           clip(0, 'gradient', b0, len, { speed: 4, stretch: 0.67, intensity: 0.85 }, { palette: 'Rainbow' });
           motion(1.5);
         } else {
-          // The look's drop moves, one per drop, in turn. A chill or groove song lifts its drops with
-          // motion rather than flashing: the flashy recipes are for dance and rave.
-          const ok = look.drops.filter(r => (hard || !r.flash) && (room || !r.room));
-          const r = ok[kind % ok.length] || look.drops[0];
+          // The song's drop moves (the first three it drew that fit), one per drop, in turn. A chill or
+          // groove song lifts its drops with motion rather than flashing: the flashy ones are for dance and rave.
+          const ok = look.drops.filter(r => (hard || !r.flash) && (room || !r.room)).slice(0, 3);
+          const r = ok[kind % ok.length] || look.drops.find(r => !r.flash && !r.room) || LOOKS.dreamy.drops[0];
           clip(0, r.base[0], b0, len, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
           if (r.top === 'motion') motion(chill ? 0.5 : style === 'rave' ? 1.3 : 1);
           // a dance drop's flashes come every other beat and softer: flashing on every beat is rave's
@@ -2134,8 +2162,8 @@
       }
     }
 
-    // the darkest looks: thunder on the three biggest hits inside the drops, a heartbeat where only a kick plays
-    if (S.look === 'haunted' || S.look === 'storm') {
+    // the darkest songs (their mix mostly haunted and storm): thunder on the three biggest hits inside the drops, a heartbeat where only a kick plays
+    if (S.dark) {
       if (!chill) {
         const hits = [...(ev.kick || []), ...(ev.basshit || [])].filter(e => drops.some(s => e[0] >= s.start + 2 && e[0] < s.end - 1));
         const used = p.lanes.flatMap(l => l.clips.filter(c => c.effect === 'thunder').map(c => beatToTime(c.start)));   // three in all
