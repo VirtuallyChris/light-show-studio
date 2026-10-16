@@ -926,6 +926,12 @@ noise.
   - a verse, breakdown or buildup starts where its music does, not in the second
     or two of quiet before it (the section before ringing out): *Settle Down*'s
     verse at 0:25.3, not 0:23 where the intro's riff stops;
+  - the outro starts on the bar where the song lets go (the sound only dies away
+    after it): *Settle Down*'s at 3:44.75, not a bar later;
+  - and every section starts on a bar line (a downbeat, the yellow marks): a
+    change heard a beat early, like a pickup hit before the drop, belongs to the
+    bar it leads into. The rules always run from the sections as first found, so
+    running them again gives the same answer and new rules reach old songs.
   - a breakdown with the drums playing through it (three quarters of it, with a
     backbeat) is a verse (*Baggy Jeans* 0:11 to 0:44);
   - a verse or breakdown that repeats a drop (its snares, and its hook at the

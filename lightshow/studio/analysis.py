@@ -330,9 +330,17 @@ def _curve(a: dict, name: str):
 
 def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
-    on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning."""
+    on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning.
+    Always from the sections as first found (kept as sections_found): run twice, the same answer."""
+    if "sections_found" in a:
+        a["sections"] = [dict(s) for s in a["sections_found"]]
+        a["drops"] = list(a.get("drops_found") or [])
+    else:
+        a["sections_found"] = [dict(s) for s in a.get("sections") or []]
+        a["drops_found"] = list(a.get("drops") or [])
     return (drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
-            + drummed_breakdowns(a) + repeated_drops(a) + gap_before_section(a))
+            + drummed_breakdowns(a) + repeated_drops(a) + gap_before_section(a) + outro_where_it_rings_out(a)
+            + sections_on_bar_lines(a))
 
 
 def hook_drops(a: dict) -> list:
@@ -626,6 +634,63 @@ def gap_before_section(a: dict) -> list:
         secs[k - 1] = {**secs[k - 1], "end": round(at, 3)}
         secs[k] = {**s, "start": round(at, 3)}
         changes.append((round(t0, 2), "->", round(at, 2), s["type"]))
+    if changes:
+        a["sections"] = secs
+    return changes
+
+
+def outro_where_it_rings_out(a: dict) -> list:
+    """The outro starts on the bar where the song lets go: the last bar line, up to two bars before the
+    outro found, after which the sound only dies away (the next bar under 0.75 of the bar before, and
+    never back up to it). The 1975's Settle Down: the last hit at 3:44.75 rings out, the outro was
+    found a bar later. Returns what changed."""
+    secs, e = a.get("sections") or [], a.get("energy")
+    beats = np.asarray(a.get("beats") or [], dtype=float)
+    if len(secs) < 2 or secs[-1].get("type") != "outro" or not e or len(beats) < 8:
+        return []
+    e = np.asarray(e, dtype=float)
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    bars = beats[int(a.get("downbeat_phase") or 0)::4]
+    bar = 4 * float(np.median(np.diff(beats)))
+    m = lambda t0, t1: float(e[max(0, int(t0 * fps)):max(int(t0 * fps) + 1, int(t1 * fps))].mean()) if int(t0 * fps) < len(e) else 0.0
+    start = float(secs[-1]["start"])
+    for b in [float(x) for x in bars if start - 2.1 * bar <= x < start - 0.1 * bar]:
+        before = m(b - bar, b)
+        after = [m(t, t + 0.5) for t in np.arange(b + 0.25, len(e) / fps - 0.5, 0.5)]
+        if before >= 0.4 and after and m(b + 0.25, b + bar) < 0.75 * before and max(after) < before and b > float(secs[-2]["start"]) + bar:
+            secs[-2] = {**secs[-2], "end": round(b, 3)}
+            secs[-1] = {**secs[-1], "start": round(b, 3)}
+            a["sections"] = secs
+            return [(round(start, 2), "outro ->", round(b, 2))]
+    return []
+
+
+def sections_on_bar_lines(a: dict) -> list:
+    """Every section starts on a bar line (a downbeat): the nearest one, the later of two as near (the
+    music has come in by then). The rules above find where the music changes; with the bar lines right,
+    a change heard a beat early (a pickup hit before the drop, the bass coming in ahead of the bar) still
+    belongs to the bar it leads into. Returns what changed."""
+    secs = a.get("sections") or []
+    beats = np.asarray(a.get("beats") or [], dtype=float)
+    if len(secs) < 2 or len(beats) < 8:
+        return []
+    bars = beats[int(a.get("downbeat_phase") or 0)::4]
+    beat = float(np.median(np.diff(beats)))
+    changes = []
+    for k in range(1, len(secs)):
+        t = float(secs[k]["start"])
+        d = np.abs(bars - t)
+        if d.min() <= 0.15 * beat:
+            continue
+        near = bars[d <= d.min() + 0.15 * beat]
+        at = float(near.max())
+        if at <= float(secs[k - 1]["start"]) + beat or at >= float(secs[k]["end"]) - beat:
+            continue
+        if secs[k].get("type") == "drop":
+            a["drops"] = sorted([x for x in (a.get("drops") or []) if abs(x - t) > 0.5] + [round(at, 3)])
+        secs[k - 1] = {**secs[k - 1], "end": round(at, 3)}
+        secs[k] = {**secs[k], "start": round(at, 3)}
+        changes.append((round(t, 2), "on the bar", round(at, 2)))
     if changes:
         a["sections"] = secs
     return changes
