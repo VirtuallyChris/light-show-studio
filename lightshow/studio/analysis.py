@@ -332,7 +332,7 @@ def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
     on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning."""
     return (drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
-            + drummed_breakdowns(a) + repeated_drops(a))
+            + drummed_breakdowns(a) + repeated_drops(a) + gap_before_section(a))
 
 
 def hook_drops(a: dict) -> list:
@@ -577,6 +577,55 @@ def drop_pickup(a: dict) -> list:
                 a["drops"] = sorted([x for x in (a.get("drops") or []) if abs(x - d) > 0.5] + [round(b, 3)])
                 changes.append((round(d, 2), "->", round(b, 2)))
                 break
+    if changes:
+        a["sections"] = secs
+    return changes
+
+
+def gap_before_section(a: dict) -> list:
+    """A verse, breakdown or buildup starts where its music does, not in the silence before it. Where a
+    section opens on a quiet stretch (under 0.35 for a second or more, starting within half a second
+    of it) and the music comes back within a bar and a quarter (0.5 or more for a second), the section
+    starts there, on the bar line if one is near: the quiet is the section before ringing out
+    (The 1975's Settle Down: the intro's riff stops at 0:23, the verse comes in at 0:25.3). Longer
+    quiet is a break of its own and stays. Across 44 learned songs it moved 8 sections, 1.0 to 2.2 s.
+    Returns what changed."""
+    secs = a.get("sections") or []
+    e = a.get("energy")
+    beats = np.asarray(a.get("beats") or [], dtype=float)
+    if not secs or not e or len(beats) < 8:
+        return []
+    e = np.asarray(e, dtype=float)
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    beat = float(np.median(np.diff(beats)))
+    bars = beats[int(a.get("downbeat_phase") or 0)::4]
+    blk = lambda t: float(e[max(0, int(t * fps)):max(int(t * fps) + 1, int((t + 0.25) * fps))].mean()) if int(t * fps) < len(e) else 0.0
+    changes = []
+    for k, s in enumerate(secs):
+        if k == 0 or s.get("type") not in ("verse", "breakdown", "buildup"):
+            continue
+        t0, t1 = float(s["start"]), float(s["end"])
+        # a quiet run that starts within half a second of the section
+        t = t0 - 0.25
+        while t < t0 + 0.5 and blk(t) >= 0.35:
+            t += 0.25
+        if t >= t0 + 0.5:
+            continue
+        q0 = t
+        while t < t0 + 8 * beat and blk(t) < 0.35:
+            t += 0.25
+        if t - q0 < 1.0 or t >= t0 + 8 * beat:
+            continue
+        back = t                                        # the music comes back
+        if np.mean([blk(x) for x in np.arange(back, back + 1.0, 0.25)]) < 0.5:
+            continue
+        nb = [b for b in bars if abs(b - back) <= 0.35 * beat]
+        at = float(nb[0]) if nb else float(beats[np.argmin(np.abs(beats - back))])
+        if at - t0 < beat or at - t0 > 5 * beat or at > t1 - 8 * beat:
+            continue
+        secs[k - 1] = {**secs[k - 1], "end": round(at, 3)}
+        secs[k] = {**s, "start": round(at, 3)}
+        changes.append((round(t0, 2), "->", round(at, 2), s["type"]))
     if changes:
         a["sections"] = secs
     return changes

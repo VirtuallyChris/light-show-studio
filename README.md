@@ -923,6 +923,9 @@ noise.
     the chorus at 1:43 (not 1:40), the bridge at 2:05 its own verse, the last
     chorus at 2:31;
   - an intro ends where the drums come in to stay, not a bar or two later;
+  - a verse, breakdown or buildup starts where its music does, not in the second
+    or two of quiet before it (the section before ringing out): *Settle Down*'s
+    verse at 0:25.3, not 0:23 where the intro's riff stops;
   - a breakdown with the drums playing through it (three quarters of it, with a
     backbeat) is a verse (*Baggy Jeans* 0:11 to 0:44);
   - a verse or breakdown that repeats a drop (its snares, and its hook at the

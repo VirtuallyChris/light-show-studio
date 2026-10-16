@@ -180,6 +180,29 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual(drummed_breakdowns(quiet), [])
 
 
+class TestGapBeforeSection(unittest.TestCase):
+    def test_a_verse_starts_where_its_music_comes_back(self):
+        from lightshow.studio.analysis import gap_before_section
+        fps, beat = 30, 60 / 107.1
+        e = np.full(80 * fps, 0.6)
+        e[int(23.0 * fps):int(25.0 * fps)] = 0.15                                    # the intro rings out
+        a = {"feature_fps": fps, "energy": list(e), "downbeat_phase": 0, "beats": [round(i * beat, 4) for i in range(140)],
+             "sections": [{"start": 0.0, "end": 22.97, "type": "intro"}, {"start": 22.97, "end": 60.0, "type": "verse"}]}
+        self.assertTrue(gap_before_section(a))
+        self.assertAlmostEqual(a["sections"][1]["start"], 25.2, delta=0.4)
+        self.assertEqual(a["sections"][0]["end"], a["sections"][1]["start"])
+        self.assertEqual(gap_before_section(a), [])                                  # and stays
+
+    def test_a_long_break_stays_its_own(self):
+        from lightshow.studio.analysis import gap_before_section
+        fps, beat = 30, 0.5
+        e = np.full(80 * fps, 0.6)
+        e[int(20.0 * fps):int(25.0 * fps)] = 0.1                                     # five quiet seconds
+        a = {"feature_fps": fps, "energy": list(e), "downbeat_phase": 0, "beats": [i * beat for i in range(160)],
+             "sections": [{"start": 0.0, "end": 20.0, "type": "intro"}, {"start": 20.0, "end": 60.0, "type": "verse"}]}
+        self.assertEqual(gap_before_section(a), [])
+
+
 class TestDrumlessDrops(unittest.TestCase):
     """A "drop" with the drums silent, in a song that has drums, is a lead-in, not a drop."""
 
