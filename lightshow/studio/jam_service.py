@@ -55,7 +55,7 @@ class JamService:
         self.library = JamLibrary(shows_dir)
         # learn ahead: queued songs learned before they play, from a copy found on YouTube (fetch_ahead)
         from .fetch_ahead import FetchAhead
-        self.fetch = FetchAhead(self.library)
+        self.fetch = FetchAhead(self.library, keep=lambda: bool(self.load_config().get("jam_keep_youtube_copies", False)))
         self._assigned: dict[str, int] = {}                  # track id -> the pair it got in "mix"
         self._moods: dict[str, dict | None] = {}             # track id -> its learned mood (or None)
         # Party level, 0..1: how much of the show comes through. Below 1 the studio lays the song's main

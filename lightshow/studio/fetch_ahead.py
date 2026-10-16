@@ -247,8 +247,11 @@ class FetchAhead:
 
     def __init__(self, library, download=_download, to_flac=_to_flac, length=_length, analyze=_analyze,
                  is_available=available, clock=time.monotonic, log=print, search=_search_youtube, download_from=_download_from,
-                 search_music=_search_ytmusic):
+                 search_music=_search_ytmusic, keep=lambda: False):
         self.library = library
+        # config jam_keep_youtube_copies (off by default): keep each copy after it is learned, in
+        # shows/_jam/copies, and learn from it again instead of downloading it (a relearn, a new analysis)
+        self.keep = keep
         self.download, self.to_flac, self.length, self.analyze = download, to_flac, length, analyze
         self.search, self.download_from, self.search_music = search, download_from, search_music
         self.is_available, self.clock, self.log = is_available, clock, log
@@ -367,6 +370,12 @@ class FetchAhead:
                 self.busy["download"] = track
             folder = tempfile.mkdtemp(prefix="lss-ahead-")
             try:
+                kept = self.kept_copy(track)
+                if kept:                                 # kept from before (jam_keep_youtube_copies): no download
+                    with self.lock:
+                        self.ready.append((track, folder, kept))
+                        self.lock.notify_all()
+                    continue
                 path, why = None, ""
                 # YouTube Music's own song first (the album recording, matched by artist, name and length),
                 # then spotDL's pick, then a search of YouTube itself
@@ -409,6 +418,31 @@ class FetchAhead:
                     self.busy["download"] = None
                     self.lock.notify_all()
 
+    def copies_dir(self) -> str:
+        return os.path.join(self.library.dir, "copies")
+
+    def kept_copy(self, track) -> str | None:
+        """The copy kept for this track, when copies are kept and there is one."""
+        if not self.keep():
+            return None
+        p = os.path.join(self.copies_dir(), f"{track.id}.flac")
+        return p if os.path.exists(p) else None
+
+    def _keep_copy(self, track, path: str) -> bool:
+        """Keep a copy just learned (when copies are kept); True if it was kept."""
+        if not self.keep():
+            return False
+        dest = os.path.join(self.copies_dir(), f"{track.id}.flac")
+        if os.path.abspath(path) == os.path.abspath(dest):
+            return True
+        try:
+            os.makedirs(self.copies_dir(), exist_ok=True)
+            shutil.move(path, dest)
+            return True
+        except OSError as e:
+            self.log(f"[learn ahead] {track.label}: the copy could not be kept ({e})")
+            return False
+
     def _fetch(self, get):
         """A download, tried again at once (a few seconds apart) when YouTube refuses it (HTTP 403)."""
         for attempt in range(DOWNLOAD_TRIES):
@@ -444,11 +478,12 @@ class FetchAhead:
                 self.checked[track.id] = True                  # learned again: not again this run, whatever it says
                 with self.lock:
                     self.learned_now += 1
-                self.log(f"[learn ahead] {track.label}: learned in {self.clock() - t0:.0f} s, the copy deleted")
+                kept = self._keep_copy(track, path)
+                self.log(f"[learn ahead] {track.label}: learned in {self.clock() - t0:.0f} s, the copy {'kept' if kept else 'deleted'}")
             except Exception as e:  # noqa: BLE001
                 self._fail(track, f"{type(e).__name__}: {e}")
             finally:
-                shutil.rmtree(folder, ignore_errors=True)      # the copy goes at once: only the numbers stay
+                shutil.rmtree(folder, ignore_errors=True)      # the copy goes at once (unless kept): only the numbers stay
                 with self.lock:
                     self.busy["analyse"] = None
                     self.lock.notify_all()

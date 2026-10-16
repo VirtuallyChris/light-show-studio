@@ -64,6 +64,18 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     if bpm_hint is None:
         bpm, beats = fix_half_tempo(y, sr, bpm, beats)
     bpm, beats = cap_tempo(y, sr, bpm, beats)
+    # Beat This, where the models are in use (a song file; a copy learned ahead): its beats and bar
+    # lines are the grid (see beats_model.py); librosa's stays when it cannot run or hears no pulse
+    phases, beat_source = None, "librosa"
+    if use_model or segment_fn is not None:
+        try:
+            from . import beats_model
+            got = beats_model.model_grid(y, sr, duration) if beats_model.available() else None
+            if got:
+                bpm, beats, phases = got
+                beat_source = "beat this"
+        except Exception as e:  # noqa: BLE001 - librosa's grid stands
+            print(f"[beats] Beat This skipped: {type(e).__name__}: {e}")
     first = float(beats[0]) if len(beats) else first
 
     # --- frame features ---------------------------------------------------------------
@@ -86,7 +98,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     peaks = peaks / (peaks.max() + 1e-9)
 
     # --- structure and downbeats -------------------------------------------------------
-    phase, sections, drops = find_structure(y, sr, beats, rms, duration)
+    phase, sections, drops = find_structure(y, sr, beats, rms, duration, phases)
     downbeats = beats[phase::4]
     # the loudness detector says what each part is; SongFormer, when it can run, says
     # exactly when each part starts (see structure_model.py for the measurements)
@@ -166,6 +178,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "bpm": round(bpm, 3),
         "beat_offset": round(float(first), 4),
         "downbeat_phase": phase,
+        "beat_source": beat_source,
         "beats": [round(float(b), 4) for b in beats],
         "downbeats": [round(float(b), 4) for b in downbeats],
         "tracked_beats": [round(float(b), 4) for b in tracked],
@@ -349,8 +362,6 @@ def hook_drops(a: dict) -> list:
 
     - a drop it never plays in, that has no snare backbeat either (under 0.4 of the hooked drops'),
       is a verse (Coldplay's Higher Power at 0:52: a synth stretch without snares);
-    - a drop lands on the bar near its first hook where the melody (the other and lead stems) lifts
-      most, up to two bars after where it was found (Higher Power's chorus: 1:43, not 1:40);
     - a long drop whose hooks stop for 10 bars or more, while the melody falls away, is two drops
       with a verse between (Higher Power's bridge, 2:05 to 2:31, was inside one 100 s drop).
 
@@ -419,8 +430,9 @@ def hook_drops(a: dict) -> list:
                 cands = [b for b in cands if s["start"] - 0.1 <= b <= s["start"] + 2.1 * bar] or [s["start"]]
             rise = lambda b: lvl(b, b + bar) - lvl(b - bar, b)
             land = max(cands, key=rise) if cands else s["start"]
-            if i == 0 and (s.get("hit") or rise(near_bar(s["start"])) >= 0.05 or rise(land) < 0.2):
-                land = s["start"]                     # the found start lifts too (or is a hit after a pause): kept
+            if i == 0:
+                land = s["start"]                     # a drop's own start stands (moving it to where the melody lifts
+                                                      # suited Higher Power and put If Youre Too Shy's last drop 3 s late)
             if i > 0:
                 pieces.append(("verse", cur_start, land))
             # where it ends, if another group follows: the bar after its last hook where the melody falls most
@@ -851,7 +863,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 27         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 28         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
@@ -911,7 +923,7 @@ def fix_half_tempo(y, sr, bpm, beats):
     return bpm / 2, beats[(0 if even > odd else 1)::2]
 
 
-def find_structure(y, sr, beats, rms, duration):
+def find_structure(y, sr, beats, rms, duration, phases=None):
     """Downbeat phase, sections and drops from per-bar features.
 
     Cues, learned against hand-labelled dance/pop tracks:
@@ -1000,7 +1012,9 @@ def find_structure(y, sr, beats, rms, duration):
         print(f"[phase] bound {np.round(phase_term(bound_strength, np.sum), 2)}  kick {np.round(phase_term(kick, np.mean), 2)}"
               f"  flux {np.round(phase_term(flux_low, np.sum), 2)}  mid {np.round(phase_term(onset_mid, np.sum), 2)}"
               f"  -> score {np.round(score, 2)}", file=_s.stderr)
-    phase = int(np.argmax(score))
+    # the beat model's downbeats say where the bar lines may be (one place, or two in half time)
+    allowed = [p for p in (phases or range(4)) if 0 <= p < 4] or list(range(4))
+    phase = int(max(allowed, key=lambda p: score[p]))
 
     # --- per-bar features ------------------------------------------------------------------
     bar_starts = np.arange(phase, n, 4)

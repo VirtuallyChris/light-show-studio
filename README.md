@@ -641,6 +641,9 @@ on at most four cores (the models on the GPU), so the lights and the music alway
 come first (about 45 s for a 3-minute song, while
 the next one downloads), and the copy is deleted the moment it is done: only the
 analysis is kept, with the songs the jam learned by listening (`shows/_jam/learned`).
+Set `"jam_keep_youtube_copies": true` in `config.json` (off by default) to keep each
+copy instead, in `shows/_jam/copies`: a song learned again (after an analysis
+update) is then learned from its kept copy, with no download.
 A copy whose length is not within 4 seconds of Spotify's is another version and is
 not used. The speakers only ever play Spotify's own audio, relayed as always; the
 copy is never heard, so a music video's intro never reaches the room.
@@ -901,6 +904,18 @@ noise.
   between the whole-strip strobe and the ceiling split in halves (the kick on one
   half, the snare on the other); groove drops flash a fifth of each strip on the
   snare; verses land each snare on a quarter of the ceiling, going round.
+- **Beats and bar lines come from Beat This.** Where the models run (a song
+  file, a copy learned ahead), the beat grid is fitted through the beats a
+  trained model (Beat This, CPJKU) hears: one steady tempo, each beat numbered
+  from the gap to the one before so a beat it skips or doubles in a break cannot
+  slide the count. The bar lines (the yellow marks, every 4 beats: all songs are
+  in four) are where most of the model's downbeats land. Past 135 bpm every other
+  beat is kept, the half the downbeats are on (a beat is the pulse you nod to).
+  librosa's tracker stands only when the model cannot run or hears no steady
+  pulse. It fixed songs whose tempo was wrong (The Strike's *The Getaway*: a bar
+  line every 5 real beats) and kept the hand-checked *If Youre Too Shy*'s bar
+  lines to within 30 ms. The model lives in `.venv-songformer` (`beat_this`,
+  checkpoint in `~/.cache/torch/hub`); its worker is `beats_infer.py`.
 - **A drop starts where its bass comes in.** Loudness puts a drop on the bar line
   where the drums hit, but you hear the drop when the bass lands, which in many
   songs is a beat or a few later (Great Good Fine Ok's last drop: drums on the bar

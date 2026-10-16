@@ -147,7 +147,7 @@ class TestSettleSections(unittest.TestCase):
         self.assertTrue(hook_drops(a))
         got = [(round(s["start"]), s["type"]) for s in a["sections"]]
         self.assertEqual([t for _, t in got], ["intro", "verse", "drop", "verse", "drop", "outro"])
-        self.assertAlmostEqual(a["sections"][2]["start"], 103.0, delta=1.5)        # where the melody lifts, not 100.3
+        self.assertAlmostEqual(a["sections"][2]["start"], 100.3, delta=0.1)        # its own start stands (the bar lines decide)
         self.assertAlmostEqual(a["sections"][3]["start"], 124.5, delta=1.5)        # the bridge, no longer inside a drop
         self.assertAlmostEqual(a["sections"][4]["start"], 151.5, delta=1.5)
         self.assertEqual(len(a["drops"]), 2)

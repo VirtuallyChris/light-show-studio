@@ -73,6 +73,21 @@ class TestFetchAhead(unittest.TestCase):
         self.assertTrue(all(not os.path.exists(d) for d in folders))      # only the numbers stay
         self.assertEqual(f.submit([track(1)]), 0)                         # learned already: not again
 
+    def test_copies_are_kept_when_the_config_says_so_and_learned_from_again(self):
+        import shutil, tempfile
+        f, lib, folders, order = self.make()
+        lib.dir = tempfile.mkdtemp(prefix="lss-test-")
+        self.addCleanup(shutil.rmtree, lib.dir, True)
+        f.keep = lambda: True                                             # jam_keep_youtube_copies: true
+        f.submit([track(1)])
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 1 and f.idle()))
+        self.assertTrue(os.path.exists(os.path.join(lib.dir, "copies", "t1.flac")))
+        lib.learned.clear()                                               # to learn again (a new analysis)
+        f.submit([track(1)])
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 1 and f.idle()))
+        self.assertEqual(order, ["t1"])                                   # from the copy kept: no second download
+        self.assertTrue(os.path.exists(os.path.join(lib.dir, "copies", "t1.flac")))
+
     def test_another_version_or_no_copy_is_left_to_the_jam(self):
         f, lib, folders, _ = self.make(lengths={"t2": 240.0}, missing={"t3"})
         f.submit([track(1), track(2), track(3)])
