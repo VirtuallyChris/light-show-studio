@@ -291,12 +291,12 @@ winget install --id Python.Python.3.12 --scope user
 ```
 
 The weights download automatically on first use. The environment lives in the
-project folder (`.venv-songformer`, not in git), on the local disk on purpose: a
-network share is far too slow for PyTorch. (`%LOCALAPPDATA%\lanlightshowenv-songformer`
-is still looked in, second. Do not create it from a terminal inside a packaged app,
-such as the Claude desktop app's: Windows quietly keeps what such an app writes under
-AppData\Local in the app's own storage, and the studio started from its shortcut
-never sees it. That is how the studio went days with no genre, stems or sections.)
+project folder (`.venv-songformer`, not in git), the folder the studio runs from, and
+nowhere else; on the local disk on purpose: a network share is far too slow for
+PyTorch. (Do not put it under AppData\Local from a terminal inside a packaged app such
+as the Claude desktop app's: Windows quietly keeps what such an app writes there in the
+app's own storage, and the studio started from its shortcut never sees it. That is how
+the studio once went days with no genre, stems or sections.)
 A model that will not start is tried again every 2 minutes, and why goes to
 `studio.log` and `models.log`.
 Without it, the built-in detector below is used.

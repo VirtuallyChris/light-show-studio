@@ -22,14 +22,13 @@ from .priority import POPEN_BELOW_NORMAL
 from .winpaths import local_appdata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# The model environment: in the project (.venv-songformer) first, then under the user's local app data.
-# The project comes first because a folder under AppData\Local made by a program that Windows runs as a
-# packaged app (the Claude desktop app's terminal) is quietly redirected into that app's own storage:
-# that program and everything it starts see it, and the studio started from its shortcut does not. The
-# model environment made that way was missing from the studio for days without a word.
+# The model environment lives in the project folder (.venv-songformer), the folder the studio runs from,
+# and nowhere else. It used to be under AppData\Local, but a folder made there by a program Windows runs
+# as a packaged app (the Claude desktop app's terminal) is quietly redirected into that app's own storage:
+# that program and everything it starts see it, the studio started from its shortcut does not, and the
+# models were missing from the studio for days without a word.
 _CANDIDATES = [
     os.path.join(ROOT, ".venv-songformer", "Scripts", "python.exe"),
-    os.path.join(local_appdata(), "lanlightshow", "venv-songformer", "Scripts", "python.exe"),
 ]
 
 
