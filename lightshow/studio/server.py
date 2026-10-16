@@ -491,6 +491,8 @@ class Studio:
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
         self.jam.player_enabled = player
+        if lights:                                       # the real studio (a test copy loads no models of its own)
+            self.jam.warm_ahead()
         self.app.add_routes([
             web.get("/", self.index),
             web.get("/api/devices", self.devices),

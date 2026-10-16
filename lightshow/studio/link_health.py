@@ -165,16 +165,17 @@ class LinkMonitor:
     def tick(self) -> None:
         """Ping the next light and set its frame rate from its own replies."""
         out = self.output
-        if not (out.enabled and out.active and out.devices):
+        devices = list(out.devices or [])                # once: another thread may change the list meanwhile
+        if not (out.enabled and out.active and devices):
             return
-        ip = out.devices[self.k % len(out.devices)].ip
+        ip = devices[self.k % len(devices)].ip
         self.k += 1
         g = self._governor(ip)
         g.report(self.ping(ip, 300))
         before = out.fps_by_ip.get(ip, g.fps)
         fps = g.decide()
         out.fps_by_ip[ip] = fps
-        out.max_fps = max(out.fps_by_ip.get(d.ip, g.fps) for d in out.devices)
+        out.max_fps = max(out.fps_by_ip.get(d.ip, g.fps) for d in devices)
         if fps != before:
             self.log(f"[lights] {ip}: {before:.0f} -> {fps} fps: {g.reason}")
 
@@ -183,7 +184,10 @@ class LinkMonitor:
 
     def _run(self) -> None:
         while not self.stop.wait(self.every_s):
-            self.tick()
+            try:
+                self.tick()
+            except Exception as e:  # noqa: BLE001 - one bad tick must not end the monitor (the lights' rates)
+                self.log(f"[lights] link monitor: {type(e).__name__}: {e}")
 
     def to_json(self) -> dict:
         lights = {ip: {"fps": g.fps, "reason": g.reason} for ip, g in self.governors.items()}

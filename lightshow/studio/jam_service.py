@@ -163,6 +163,13 @@ class JamService:
     # lined up by ear 7 s in, so below that each song starts on Spotify's clock and may shift a little then.
     FETCH_DELAY_S = 5.0
 
+    def warm_ahead(self) -> None:
+        """Start the learn-ahead process and load its models now, with the studio, not when a jam starts
+        (42 s later, last time, and the first song of the jam waited for it). The real studio only."""
+        if self._fetch_on():
+            from .fetch_ahead import ANALYSER
+            threading.Thread(target=ANALYSER.warm, daemon=True, name="analyser-warm").start()
+
     def _fetch_on(self) -> bool:
         """Learn ahead is on (the default where spotDL is installed): songs are learned before they play,
         so the room needs to be only seconds behind, not a song."""

@@ -1450,9 +1450,10 @@ class JamRunner:
         try:
             rng = np.random.default_rng(0)
             y = (0.1 * rng.standard_normal(SR_ANALYSIS * 8)).astype(np.float32)
-            # (following only the beat, the sections model is never asked here: not loaded twice, see fetch_ahead)
+            # (the code only: no model is loaded here, where it would compete on the GPU with the learn-ahead
+            # process loading its own; a model loads when a first listen first needs it)
             self.engine.analyse_fn(y, SR_ANALYSIS, stereo=np.stack([y, y]), use_model=False, events=True,
-                                   segment_fn=None if self.engine.cfg.light_live else self.engine.segment_fn)
+                                   segment_fn=None)
             live_bands(y)
         except Exception:  # noqa: BLE001 - a warm-up that fails costs nothing
             pass
