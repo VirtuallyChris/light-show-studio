@@ -184,6 +184,10 @@ main { display: grid; grid-template-columns: 19.38rem 1fr 20.92rem; grid-templat
 
 /* what the genre model heard, in the Song panel */
 .inspector .genre-heard { color: var(--muted); font-size: 0.8846rem; text-align: right; line-height: 1.3; }
+/* the genres heard wrap beside their label, which stays on one line (long lists squeezed it to a letter wide) */
+.inspector .row.heard { align-items: flex-start; }
+.inspector .row.heard > label { flex: 0 0 auto; white-space: nowrap; }
+.inspector .row.heard > span.genre-heard { flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
 .jam-style { display: inline-block; font-size: 0.8077rem; color: var(--muted); border: 1px solid var(--line2); border-radius: 76.85rem; padding: 0 0.5385rem; text-transform: capitalize; }
 .jam-check { display: flex; gap: 0.6154rem; align-items: flex-start; font-size: 0.9615rem; color: var(--muted, #8b92a3); margin: 0.4615rem 0 2px; cursor: pointer; }
 .jam-check input { margin-top: 2px; flex: none; }
