@@ -693,6 +693,40 @@ class TestOpeningSong(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class TestColorSets(unittest.TestCase):
+    """The party's colors, and named sets of them (a Halloween set) to switch between."""
+
+    def service(self):
+        from lightshow.studio.jam_service import JamService
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = None, "", ""
+        self.cfg = {}
+        return JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
+
+    def test_sets_are_saved_switched_and_forgotten(self):
+        svc = self.service()
+        svc._set_jam_colors({"mode": "pick", "primary": "#ff8000", "secondary": "#8000ff"})
+        svc._set_jam_colors({"save_as": "Halloween"})
+        c = svc._color_sets()
+        self.assertEqual((c["set"], c["edited"], c["sets"]), ("Halloween", False, ["Halloween"]))
+        svc._set_jam_colors({"mode": "mix", "pairs": [["#ff0000", "#00ff00"], ["#ffffff", "#ff0000"]], "save_as": "Christmas"})
+        svc._set_jam_colors({"use": "Halloween"})                         # back to the orange and purple
+        c = svc._color_sets()
+        self.assertEqual((c["mode"], c["primary"], c["secondary"], c["set"]), ("pick", "#ff8000", "#8000ff", "Halloween"))
+        svc._set_jam_colors({"secondary": "#00ff00"})                     # changed: the set is marked edited...
+        self.assertTrue(svc._color_sets()["edited"])
+        svc._set_jam_colors({"save": True})                               # ...until it is saved
+        self.assertFalse(svc._color_sets()["edited"])
+        self.assertEqual(self.cfg["color_sets"]["Halloween"]["secondary"], "#00ff00")
+        svc._set_jam_colors({"delete": "Halloween"})
+        c = svc._color_sets()
+        self.assertEqual((c["set"], c["sets"]), ("", ["Christmas"]))
+        self.assertEqual(c["primary"], "#ff8000")                         # the colors stay as they are
+
+
 class TestOpenerService(unittest.TestCase):
     """The service side: which show opens, how far behind the jam aims, and what the page plays."""
 

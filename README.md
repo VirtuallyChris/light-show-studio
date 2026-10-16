@@ -476,7 +476,12 @@ the song's little *party* / *cover* chip does. Vibe and genre are kept for that
 track (`shows/_jam/styles.json`, `shows/_jam/genres.json`), and the song playing is
 rebuilt in them at once. **Party colors** switches the
 party's colors (purple and green, or the pairs) on or off for every song: off,
-each song plays in its album cover's two colors. Each song's **party** / **cover**
+each song plays in its album cover's two colors. On the phone's **Lights** tab the party colors
+can be changed too: **Two colors** (every song in them) or **A pair each song**,
+each color tappable into the sixteen, pairs added or removed; and kept as named
+sets (**Save as…**, a Halloween set, a Christmas one) to switch between from the
+**Set** menu. A set changed since it was chosen says so, and **Save** keeps the
+change in it. Sets are kept in config.json (`color_sets`). Each song's **party** / **cover**
 chip does the same for that song alone (kept for the track). A change of colors
 reaches the song playing within a second: the studio rebuilds its show in them. The **Party** slider sets how hard every show goes, live: at 100% the
 full show; lower, the song's main color is laid over the show, that much more

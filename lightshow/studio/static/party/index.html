@@ -129,6 +129,19 @@
   .sixteen .sx-reset { display: block; width: 100%; margin-top: 16px; font: inherit; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
   .sixteen .sx-reset[hidden] { display: none; }
   .tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .sixteen.pair-only .song-only { display: none !important; }
+  /* the party's colors: their set, their mode, the colors themselves */
+  #themeEdit .set-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+  #themeEdit select { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  #themeEdit .mini { font: inherit; font-size: 13px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; white-space: nowrap; }
+  #themeEdit .mini:disabled { opacity: .4; }
+  #themeEdit .mini.del { color: var(--muted); padding: 7px 9px; }
+  #themeEdit .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--card2); border-radius: 12px; margin-top: 12px; }
+  #themeEdit .modes button { font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 9px; padding: 8px; }
+  #themeEdit .modes button.on { color: var(--text); background: var(--card); box-shadow: var(--shadow); }
+  #themeEdit .pairs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }
+  #themeEdit .pair-ed { display: flex; gap: 4px; align-items: center; padding: 4px; border: 1px solid var(--line); border-radius: 12px; }
+  #themeEdit .pair-ed .rm { border: none; background: none; color: var(--muted); font-size: 18px; padding: 0 4px; }
   .sixteen .sx-vibes { display: flex; flex-wrap: wrap; gap: 6px; }
   .sixteen .sx-vibes button { font: inherit; font-size: 13px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 10px; }
   .sixteen .sheet { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
@@ -286,6 +299,7 @@
     <div class="theme-row"><div><div class="label">Party colors</div><div class="hint" id="themeHint"></div></div>
       <label class="switch"><input type="checkbox" id="themeOn" aria-label="Party colors on"><span></span></label></div>
     <div class="theme-sw" id="themeSw"></div>
+    <div id="themeEdit"></div>
   </section>
 
 </section>
@@ -458,6 +472,7 @@
     showVibes();
     const back = sheet.querySelector('.sx-reset'); back.hidden = !box.dataset.own;
     back.onclick = () => { save({}); closeSixteen(); };
+    sheet.classList.remove('pair-only');
     sheet.hidden = false; sheetOpen = true; sheetFor = box.dataset.id;
     requestAnimationFrame(() => sheet.classList.add('up'));
   }
@@ -471,9 +486,26 @@
     old.replaceWith(fresh); wireColors(fresh.closest('.row, .np') ? fresh.closest('.row, .np').parentElement : fresh.parentElement);
     openSixteen(fresh, async body => { try { state = await api('colors', { track_id: id, ...body }); } catch (e) { } shown = ''; render(); });
   }
+  function openPairSheet(title, a, b, done) {
+    const sheet = $('#sixteen'), cur = { a, b };
+    sheet.classList.add('pair-only');
+    sheet.querySelector('.sx-title').textContent = title;
+    for (const grid of sheet.querySelectorAll('.sx-grid')) {
+      const k = grid.dataset.k;
+      grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'a' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
+      for (const btn of grid.querySelectorAll('[data-c]')) btn.onclick = () => {
+        cur[k] = btn.dataset.c;
+        for (const o of grid.querySelectorAll('.on')) o.classList.remove('on');
+        btn.classList.add('on');
+        done(cur.a, cur.b);
+      };
+    }
+    sheet.hidden = false; sheetOpen = true; sheetFor = null;
+    requestAnimationFrame(() => sheet.classList.add('up'));
+  }
   function closeSixteen() {
     const sheet = $('#sixteen'), panel = sheet.querySelector('.sheet');
-    sheet.classList.remove('up'); panel.style.transform = ''; sheet.hidden = true;
+    sheet.classList.remove('up', 'pair-only'); panel.style.transform = ''; sheet.hidden = true;
     if (sheetOpen) { sheetOpen = false; shown = ''; render(); }        // the song rows catch up with what was picked
   }
   // swiped down: it follows the finger, and goes once pulled far enough (or flicked). (The sheet comes
@@ -635,14 +667,47 @@
     try { state = await api('colors', { on: themeSw.checked }); } catch (e) { /* the next poll shows the truth */ }
     shown = ''; render();
   };
+  // The party's colors: on or off, the named set they come from (a Halloween set...), two colors for every
+  // song or a pair for each, and the colors themselves, each tappable into the sixteen.
+  let themeShown = '';
+  const theme = body => api('theme', body).then(st => { state = st; themeShown = ''; render(); }).catch(() => {});
   function renderTheme(st) {
-    const themed = ['pick', 'mix'].includes(st.color_mode);
-    $('#themeCard').hidden = !st.running || !themed;
-    if (!themed) return;
-    if (document.activeElement !== themeSw) themeSw.checked = st.theme_on !== false;
-    $('#themeHint').textContent = st.theme_on !== false ? (st.color_mode === 'mix' ? 'A pair for each song' : 'Every song in these two') : 'Every song in its album cover’s colors';
-    const pairs = st.color_mode === 'mix' ? (st.theme || []) : [st.theme || []];
-    $('#themeSw').innerHTML = st.theme_on !== false ? pairs.map(p => `<span class="pair">${(p || []).map(c => `<span style="background:${esc(c)}"></span>`).join('')}</span>`).join('') : '';
+    const pc = st.party_colors || {}, on = st.theme_on !== false, mode = pc.mode || st.color_mode;
+    $('#themeCard').hidden = !pc.mode;
+    if (document.activeElement !== themeSw) themeSw.checked = on;
+    $('#themeHint').textContent = !on || mode === 'album' ? 'Every song in its album cover’s colors' : (pc.set ? pc.set + (pc.edited ? ' (changed)' : '') : (mode === 'mix' ? 'A pair for each song' : 'Every song in these two'));
+    $('#themeSw').innerHTML = '';
+    const pairs = mode === 'mix' ? (pc.pairs || []) : [[pc.primary, pc.secondary]];
+    const html = !on ? '' : `
+      <div class="set-row">
+        <select id="setPick" aria-label="Color set"><option value="">${pc.set ? 'Choose a set…' : 'Not saved as a set'}</option>${(pc.sets || []).map(n => `<option value="${esc(n)}" ${n === pc.set ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+        ${pc.set ? `<button class="mini" id="setSave" ${pc.edited ? '' : 'disabled'}>Save</button>` : ''}
+        <button class="mini" id="setSaveAs">Save as…</button>
+        ${pc.set ? `<button class="mini del" id="setDel" aria-label="Delete the set ${esc(pc.set)}">&times;</button>` : ''}
+      </div>
+      <div class="modes" role="group" aria-label="How songs get the colors"><button data-m="pick" class="${mode === 'pick' ? 'on' : ''}">Two colors</button><button data-m="mix" class="${mode === 'mix' ? 'on' : ''}">A pair each song</button></div>
+      <div class="pairs">${pairs.map((p, i) => `<div class="pair-ed" data-i="${i}">
+          <button class="sw" data-k="a" style="background:${esc(p[0])}" aria-label="Color one"></button><button class="sw" data-k="b" style="background:${esc(p[1])}" aria-label="Color two"></button>
+          ${mode === 'mix' && pairs.length > 1 ? '<button class="rm" aria-label="Remove this pair">&times;</button>' : ''}</div>`).join('')}
+        ${mode === 'mix' && pairs.length < 8 ? '<button class="mini" id="pairAdd">+ Pair</button>' : ''}</div>`;
+    if (html === themeShown || sheetOpen || document.activeElement === $('#setPick')) return;
+    themeShown = html; $('#themeEdit').innerHTML = html;
+    if (!on) return;
+    $('#setPick').onchange = e => { if (e.target.value) theme({ use: e.target.value }); };
+    const save = $('#setSave'); if (save) save.onclick = () => theme({ save: true });
+    $('#setSaveAs').onclick = () => { const n = (prompt('Name this set of colors', pc.set || '') || '').trim(); if (n) theme({ save_as: n }); };
+    const del = $('#setDel'); if (del) del.onclick = () => { if (confirm(`Delete the set “${pc.set}”? The colors stay as they are.`)) theme({ delete: pc.set }); };
+    for (const b of $('#themeEdit').querySelectorAll('.modes button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ mode: b.dataset.m }); };
+    for (const el of $('#themeEdit').querySelectorAll('.pair-ed')) {
+      const i = +el.dataset.i;
+      for (const sw of el.querySelectorAll('.sw')) sw.onclick = () => openPairSheet(mode === 'mix' ? `Pair ${i + 1}` : 'Party colors', pairs[i][0], pairs[i][1], (a, b) => {
+        for (const x of el.querySelectorAll('.sw')) x.style.background = x.dataset.k === 'a' ? a : b;
+        if (mode === 'mix') { const next = pairs.map((p, j) => j === i ? [a, b] : p); pairs[i] = [a, b]; api('theme', { pairs: next }).then(st => { state = st; }).catch(() => {}); }
+        else api('theme', { primary: a, secondary: b }).then(st => { state = st; }).catch(() => {});
+      });
+      const rm = el.querySelector('.rm'); if (rm) rm.onclick = () => theme({ pairs: pairs.filter((_, j) => j !== i) });
+    }
+    const add = $('#pairAdd'); if (add) add.onclick = () => theme({ pairs: [...pairs, ['#ff0000', '#0040ff']] });
   }
 
   // ---- the page
@@ -872,17 +937,17 @@
   <div class="sheet" role="dialog" aria-label="Song colors">
     <div class="grab" aria-hidden="true"></div>
     <div class="sx-head"><span class="sx-title">Colors</span></div>
-    <div class="sx-theme" role="group" aria-label="Its colors"><button data-t="party">Party colors</button><button data-t="cover">Album art</button></div>
+    <div class="sx-theme song-only" role="group" aria-label="Its colors"><button data-t="party">Party colors</button><button data-t="cover">Album art</button></div>
     <div class="sx-label">Primary</div>
     <div class="sx-grid" data-k="a"></div>
     <div class="sx-label">Secondary</div>
     <div class="sx-grid" data-k="b"></div>
-    <div class="sx-label">Vibe</div>
-    <div class="sx-vibes" role="group" aria-label="Vibe"></div>
-    <div class="sx-label">Genre</div>
-    <div class="sx-vibes sx-genres" role="group" aria-label="Genre"></div>
-    <div class="sx-only"><span>Just these two colors</span><label class="switch"><input type="checkbox" id="sxOnly" aria-label="Just these two colors: no accents in other colors and no rainbow drops"><span></span></label></div>
-    <button class="sx-reset" hidden>Back to the jam’s colors</button>
+    <div class="sx-label song-only">Vibe</div>
+    <div class="sx-vibes song-only" role="group" aria-label="Vibe"></div>
+    <div class="sx-label song-only">Genre</div>
+    <div class="sx-vibes sx-genres song-only" role="group" aria-label="Genre"></div>
+    <div class="sx-only song-only"><span>Just these two colors</span><label class="switch"><input type="checkbox" id="sxOnly" aria-label="Just these two colors: no accents in other colors and no rainbow drops"><span></span></label></div>
+    <button class="sx-reset song-only" hidden>Back to the jam’s colors</button>
   </div>
 </div>
 </body>

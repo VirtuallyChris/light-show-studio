@@ -119,6 +119,7 @@ class JamService:
             web.get("/party/manifest.webmanifest", self.party_manifest),
             web.get("/api/party/state", self.party_state),
             web.post("/api/party/colors", self.party_colors),
+            web.post("/api/party/theme", self.party_theme),
             web.post("/api/party/style", self.party_style),
             web.post("/api/jam/style", self.track_style),
             web.post("/api/party/genre", self.party_genre),
@@ -892,7 +893,8 @@ class JamService:
                 "prelisten": self.prelisten.status() if getattr(self, "prelisten", None) else {},
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
                 "room": (self._opener_room() if hasattr(self, "_opener_room") else None) or item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
-                "upcoming": [item(t) for t in up[:12]], "genre_choices": st.get("genre_choices") or []}
+                "upcoming": [item(t) for t in up[:12]], "genre_choices": st.get("genre_choices") or [],
+                "party_colors": self._color_sets() if hasattr(self, "_color_sets") else {}}
 
     async def party_state(self, request):
         if not self._lan(request):
@@ -1051,28 +1053,70 @@ class JamService:
             self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
                                     off=body.get("theme") is False, only=bool(body.get("only")))
         else:
-            cfg = self.load_config()
-            cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
-            if "on" in body:
-                cur["on"] = bool(body["on"])
-            if body.get("mode") in ("pick", "mix", "album"):
-                cur["mode"] = body["mode"]
-            for k in ("primary", "secondary", "accent1", "accent2"):
-                if hexcolor(body.get(k)):
-                    cur[k] = hexcolor(body[k])
-            if "extras" in body:
-                cur["extras"] = bool(body["extras"])
-            if "rainbow" in body:
-                cur["rainbow"] = bool(body["rainbow"])
-            if isinstance(body.get("pairs"), list):
-                pairs = [[hexcolor(p[0]), hexcolor(p[1])] for p in body["pairs"][:8] if isinstance(p, list) and len(p) == 2]
-                if pairs and all(a and b for a, b in pairs):
-                    cur["pairs"] = pairs
-            self._assigned.clear()                              # pairs or mode changed: hand them out afresh
-            cfg["jam_colors"] = cur
-            self.save_config(cfg)
+            self._set_jam_colors(body)
         # off the event loop: handing out pairs afresh reads what was learned about each queued track
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._state))
+
+    # The party's colors, as kept: what every song plays in ("pick": two colors; "mix": a pair for each song;
+    # "album": its cover's), and named sets of them (a Halloween set...) to switch between.
+    SET_KEYS = ("mode", "primary", "secondary", "pairs", "rainbow")
+
+    def _set_jam_colors(self, body: dict) -> None:
+        """Change the party's colors: {on}, {mode}, {primary, secondary}, {pairs}, {extras}, {rainbow}; and the
+        named sets: {use: name} puts one on, {save_as: name} keeps the colors as they are under a name,
+        {save: true} keeps them in the set they came from, {delete: name} forgets one."""
+        hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
+        cfg = self.load_config()
+        cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
+        sets = dict(cfg.get("color_sets") or {})
+        if body.get("use") in sets:
+            cur.update({k: v for k, v in sets[body["use"]].items() if k in self.SET_KEYS})
+            cur["set"], cur["on"] = body["use"], True
+        if "on" in body:
+            cur["on"] = bool(body["on"])
+        if body.get("mode") in ("pick", "mix", "album"):
+            cur["mode"] = body["mode"]
+        for k in ("primary", "secondary", "accent1", "accent2"):
+            if hexcolor(body.get(k)):
+                cur[k] = hexcolor(body[k])
+        if "extras" in body:
+            cur["extras"] = bool(body["extras"])
+        if "rainbow" in body:
+            cur["rainbow"] = bool(body["rainbow"])
+        if isinstance(body.get("pairs"), list):
+            pairs = [[hexcolor(p[0]), hexcolor(p[1])] for p in body["pairs"][:8] if isinstance(p, list) and len(p) == 2]
+            if pairs and all(a and b for a, b in pairs):
+                cur["pairs"] = pairs
+        name = str(body.get("save_as") or "").strip()[:30]
+        if name:
+            sets[name], cur["set"] = {k: cur[k] for k in self.SET_KEYS}, name
+        elif body.get("save") and cur.get("set") in sets:
+            sets[cur["set"]] = {k: cur[k] for k in self.SET_KEYS}
+        if body.get("delete") in sets:
+            sets.pop(body["delete"])
+            if cur.get("set") == body["delete"]:
+                cur["set"] = ""
+        self._assigned.clear()                                  # pairs or mode changed: hand them out afresh
+        cfg["jam_colors"], cfg["color_sets"] = cur, sets
+        self.save_config(cfg)
+
+    def _color_sets(self) -> dict:
+        """The party's colors for the phone: as they are, the set they came from (and whether they have been
+        changed since), and every set's name."""
+        cfg = self.load_config()
+        cur, sets = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}, cfg.get("color_sets") or {}
+        name = cur.get("set") if cur.get("set") in sets else ""
+        edited = bool(name) and any(sets[name].get(k) != cur.get(k) for k in self.SET_KEYS)
+        return {"mode": cur["mode"], "primary": cur["primary"], "secondary": cur["secondary"], "pairs": cur["pairs"],
+                "set": name, "edited": edited, "sets": sorted(sets, key=str.lower)}
+
+    async def party_theme(self, request):
+        """From the phone: the party's colors and their named sets (see _set_jam_colors)."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        await asyncio.get_running_loop().run_in_executor(None, self._set_jam_colors, body)
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
 
     def _set_theme_on(self, on: bool) -> None:
         """The party's colors for every song, or (off) every song in its own album cover's colors."""
