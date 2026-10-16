@@ -22,13 +22,23 @@ from .priority import POPEN_BELOW_NORMAL
 from .winpaths import local_appdata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# The model environment lives on the local disk (PyTorch is thousands of files);
-# a copy inside the project is honoured too.
+# The model environment: in the project (.venv-songformer) first, then under the user's local app data.
+# The project comes first because a folder under AppData\Local made by a program that Windows runs as a
+# packaged app (the Claude desktop app's terminal) is quietly redirected into that app's own storage:
+# that program and everything it starts see it, and the studio started from its shortcut does not. The
+# model environment made that way was missing from the studio for days without a word.
 _CANDIDATES = [
-    os.path.join(local_appdata(), "lanlightshow", "venv-songformer", "Scripts", "python.exe"),
     os.path.join(ROOT, ".venv-songformer", "Scripts", "python.exe"),
+    os.path.join(local_appdata(), "lanlightshow", "venv-songformer", "Scripts", "python.exe"),
 ]
-VENV_PY = next((c for c in _CANDIDATES if os.path.exists(c)), _CANDIDATES[0])
+
+
+def venv_py() -> str:
+    """The model environment's Python, looked for each time (it may be installed while the studio runs)."""
+    return next((c for c in _CANDIDATES if os.path.exists(c)), _CANDIDATES[0])
+
+
+VENV_PY = venv_py()
 MODELS_LOG = os.path.join(ROOT, "models.log")   # what the model processes print (PyTorch's warnings, a crash)
 RETRY_S = 120.0                                  # a model that would not start is tried again after this
 
@@ -56,7 +66,7 @@ class ModelWorker:
 
     @staticmethod
     def available() -> bool:
-        return os.path.exists(VENV_PY)
+        return os.path.exists(venv_py())
 
     def _start(self) -> bool:
         if self.proc and self.proc.poll() is None:
@@ -67,7 +77,9 @@ class ModelWorker:
             note(f"[{self.name}] trying the model again (it would not start: {self.failed})")
             self.failed = ""
         if not self.available():
-            self.failed = "the model environment is not installed"
+            self.failed = f"the model environment is not installed (looked for {' and '.join(_CANDIDATES)})"
+            self.failed_at = time.monotonic()
+            note(f"[{self.name}] {self.failed}")
             return False
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
@@ -77,7 +89,7 @@ class ModelWorker:
             err.flush()
         except OSError:
             err = subprocess.DEVNULL
-        self.proc = subprocess.Popen([VENV_PY, "-m", self.module], cwd=ROOT, env=env,
+        self.proc = subprocess.Popen([venv_py(), "-m", self.module], cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                                      creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)
         hello = self._read(self.start_timeout)          # the first run downloads the model

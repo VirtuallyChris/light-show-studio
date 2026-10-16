@@ -114,7 +114,7 @@ def add_genre(analysis: dict, path: str) -> bool:
     if analysis.get("genre") and analysis["genre"].get("source") != "energy":
         return False
     drive = float((analysis.get("mood") or {}).get("drive", 0.6))
-    labels = WORKER.classify_file(path) if WORKER.available() and not WORKER.failed else None
+    labels = WORKER.classify_file(path)                  # (a model that failed is tried again every 2 minutes)
     problems = [p for p in analysis.get("problems") or [] if not p.startswith("the genre")]
     if labels is None:                                   # said where it can be read, even from a studio with no console
         from .model_worker import note

@@ -64,7 +64,7 @@ WORKER = StemsWorker("lightshow.studio.stems_infer", "stems")
 
 
 def available() -> bool:
-    return WORKER.available() and not WORKER.failed
+    return WORKER.available()
 
 
 def separate_file(path: str):

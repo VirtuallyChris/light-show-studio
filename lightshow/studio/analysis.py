@@ -682,7 +682,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
             data = json.load(fh)
         # an analysis saved while SongFormer could not run is not kept for ever: try again
         from . import structure_model
-        if data.get("structure_source") != "loudness+songformer" and structure_model.available() and not structure_model.WORKER.failed:
+        if data.get("structure_source") != "loudness+songformer" and structure_model.available():
             data = None
     if data is None:
         data = analyze(path, cache_dir)

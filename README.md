@@ -284,14 +284,21 @@ opened, and **Re-detect** asks again too. To set it up (about 5 GB, once):
 
 ```bash
 winget install --id Python.Python.3.12 --scope user
-%LOCALAPPDATA%\Programs\Python\Python312\python.exe -m venv %LOCALAPPDATA%\lanlightshow\venv-songformer
-%LOCALAPPDATA%\lanlightshow\venv-songformer\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
-%LOCALAPPDATA%\lanlightshow\venv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
-%LOCALAPPDATA%\lanlightshow\venv-songformer\Scripts\python.exe -m pip install demucs
+%LOCALAPPDATA%\Programs\Python\Python312\python.exe -m venv .venv-songformer
+.venv-songformer\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+.venv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
+.venv-songformer\Scripts\python.exe -m pip install demucs
 ```
 
-The weights download automatically on first use. The environment lives on
-the local disk on purpose: a network share is far too slow for PyTorch.
+The weights download automatically on first use. The environment lives in the
+project folder (`.venv-songformer`, not in git), on the local disk on purpose: a
+network share is far too slow for PyTorch. (`%LOCALAPPDATA%\lanlightshowenv-songformer`
+is still looked in, second. Do not create it from a terminal inside a packaged app,
+such as the Claude desktop app's: Windows quietly keeps what such an app writes under
+AppData\Local in the app's own storage, and the studio started from its shortcut
+never sees it. That is how the studio went days with no genre, stems or sections.)
+A model that will not start is tried again every 2 minutes, and why goes to
+`studio.log` and `models.log`.
 Without it, the built-in detector below is used.
 
 **How sections are found.** The analyser works per bar over the whole file,
