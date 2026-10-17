@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 15;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms
+  const SHOW_VERSION = 16;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -801,12 +801,13 @@
     const key = roomSpaceKey(lights), space = S.roomSpaces[key] || (S.roomSpaces = { [key]: roomSpace(lights), ...S.roomSpaces })[key];
     for (const L of lights) {
       const room = space.of.get(L) || { i: 0, n: 1, side: 0, kinds: [lightKind(L)] };
+      const alone = room.n === 1 && !!(S.rooms && S.rooms.length);   // a light alone in its room: no party-only clips
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
       const kind = lightKind(L);
       p.lanes.forEach((lane, li) => {
         if (lane.hidden) return;
         let clip = null;
-        for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && (!c.target || c.target === kind) && (!clip || c.start >= clip.start)) clip = c;
+        for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && (!c.target || c.target === kind) && !(c.party && alone) && (!clip || c.start >= clip.start)) clip = c;
         if (!clip) return;
         const e = Effects.byId[clip.effect]; if (!e) return;
         const src = buf('src' + li + L.ip, n); src.fill(0);
@@ -2150,7 +2151,9 @@
       case 'breakdown':
         // a moody moment: in a long breakdown the overhead strings fade out for its first half and the
         // corner poles carry it alone, then the strings come back for the build
-        if (S.mixedLights && len >= 16) clip(9, 'dark', b0, Math.round(len / 2), {}, { target: 'long', fadeIn: 2, fadeOut: 4 });
+        // (two bars, never half a breakdown: 12 s of dark strings was far too long; the party rooms' strings
+        // only, never a light alone in its room, like the Office test strip, which has no poles to carry it)
+        if (S.mixedLights && len >= 16) clip(9, 'dark', b0, 8, {}, { target: 'long', party: true, fadeIn: 1, fadeOut: 4 });
         clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
         if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 4, tint: S.starTint || 'white' }, { blend: 'add' });
         else top(S.drift, { opacity: 0.85 * (((S.drift || [])[2] || {}).opacity || 1) });

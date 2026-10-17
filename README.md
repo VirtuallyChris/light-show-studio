@@ -950,8 +950,9 @@ noise.
   across that line: the last bar of every buildup crosses the room twice into the
   drop. Rock and electronic songs get **big white hits**: the whole room white on
   the drop's first hit and on each 8-bar phrase a strong hit opens (never in a calm
-  or a pop song). A long breakdown has a moody start: the overhead strings fade out
-  for its first half and the poles carry it alone. Where there are no drums the lamps breathe slowly in the other color.
+  or a pop song). A long breakdown has a moody start: the party rooms' overhead strings
+  fade out for two bars and the poles carry it alone (a light alone in its room,
+  like the Office strip, stays lit). Where there are no drums the lamps breathe slowly in the other color.
   When a drop's base itself travels, the lamps get a color wash of their own
   under the drums. A clip for one kind of light is drawn in its half of the
   layer (strips on top, lamps below), and the clip inspector's **Lights** sets
