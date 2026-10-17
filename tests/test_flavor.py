@@ -180,6 +180,30 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual(drummed_breakdowns(quiet), [])
 
 
+class TestStemAttacks(unittest.TestCase):
+    def test_kicks_and_snares_from_the_drum_tracks_attacks(self):
+        import librosa
+        from lightshow.studio.events import stem_attack_hits
+        sr, hop = 22050, 512
+        y = np.zeros(sr * 6, dtype=np.float32)
+        t = np.arange(int(0.08 * sr)) / sr
+        kick = (np.sin(2 * np.pi * 60 * t) * np.exp(-t * 40)).astype(np.float32)
+        snare = (np.random.default_rng(0).standard_normal(len(t)) * np.exp(-t * 60)).astype(np.float32)
+        snare = librosa.effects.preemphasis(snare, coef=0.97).astype(np.float32)
+        kicks_at, snares_at = [0.5, 1.7, 2.1, 3.9], [1.1, 2.9, 4.6]               # no steady pattern at all
+        for at in kicks_at:
+            y[int(at * sr):int(at * sr) + len(t)] += kick
+        for at in snares_at:
+            y[int(at * sr):int(at * sr) + len(t)] += 0.5 * snare
+        S = np.abs(librosa.stft(y, hop_length=hop))
+        freqs = librosa.fft_frequencies(sr=sr)
+        k, sn = stem_attack_hits(S, freqs, sr, hop)
+        for at in kicks_at:
+            self.assertTrue(any(abs(h[0] - at) < 0.05 for h in k), f"kick at {at}")
+        for at in snares_at:
+            self.assertTrue(any(abs(h[0] - at) < 0.05 for h in sn), f"snare at {at}")
+
+
 class TestGapBeforeSection(unittest.TestCase):
     def test_a_verse_starts_where_its_music_comes_back(self):
         from lightshow.studio.analysis import gap_before_section

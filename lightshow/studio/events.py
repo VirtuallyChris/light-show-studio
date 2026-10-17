@@ -640,6 +640,10 @@ def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
     playing = lambda t: present[min(len(present) - 1, int(t * sr / hop))] >= 0.15
     kicks = [h for h in kicks if playing(h[0])]
     snares = [h for h in snares if playing(h[0])]
+    if not kicks and not snares:                         # drums, but no pattern to calibrate on: their attacks
+        ak, asn = stem_attack_hits(S_d, freqs, sr, hop)
+        kicks, snares = [h for h in ak if playing(h[0])], [h for h in asn if playing(h[0])]
+        k_src = s_src = "stem attacks"
     cal = {"has_drums": True, "drum_level": round(level, 3), "kick_source": k_src, "snare_source": s_src,
            "quality": {f"{a}_{b}": round(v, 2) for (a, b), v in q.items()},
            **((scal if k_src == "stem" else mcal) or {}), "mix": mcal, "stem": scal}
@@ -648,6 +652,33 @@ def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
     roll_hits = [h for h in roll_hits if playing(h[0])]
     cal["rolls"], cal["roll_hits"] = rolls, roll_hits
     return kicks, snares, cal, present
+
+
+def stem_attack_hits(S_d, freqs, sr, hop):
+    """Kicks and snares straight from the separated drum track's attacks, for drums with no steady
+    pattern to calibrate on (Porter Robinson's Unfold: broken beats, a drum track at 45% of the song,
+    and not one hit found, so the lights pulsed on every beat instead). A kick is a jump in the thump
+    below 150 Hz, a snare one in the 1.5-5 kHz crack; each a clear peak (above the song's typical
+    attack, at least 70 ms after the last). Returns two lists of (time, strength 0..1)."""
+    import librosa
+    from scipy.signal import find_peaks
+
+    fps = sr / hop
+
+    def hits(lo, hi):
+        band = (freqs >= lo) & (freqs < hi)
+        if not band.any():
+            return []
+        e = np.log1p(S_d[band].sum(axis=0))
+        flux = np.maximum(0.0, np.diff(e, prepend=e[0]))
+        if not flux.any():
+            return []
+        ref = float(np.percentile(flux[flux > 0], 90))
+        idx, _ = find_peaks(flux, height=0.5 * ref, distance=max(1, int(0.07 * fps)))
+        st = np.clip(flux[idx] / (np.percentile(flux[idx], 95) + 1e-9), 0, 1) if len(idx) else []
+        return [(float(i / fps), float(v)) for i, v in zip(idx, st)]
+
+    return hits(30, 150), hits(1500, 5000)
 
 
 def find_cuts(mid, sr, hop=512):
