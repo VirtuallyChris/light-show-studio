@@ -418,12 +418,21 @@ class FetchAhead:
                         self.lock.notify_all()
                     continue
                 path, why = None, ""
+                spent = {"search": 0.0, "conversion": 0.0}       # where the time went (the log line below)
+
+                def flac(src):
+                    t = self.clock()
+                    try:
+                        return self.to_flac(src)
+                    finally:
+                        spent["conversion"] += self.clock() - t
                 # YouTube Music's own song first (the album recording, matched by artist, name and length),
                 # then spotDL's pick, then a search of YouTube itself
                 music = pick_ytmusic(track, self.search_music(track))
+                spent["search"] = self.clock() - t_dl
                 if music:
                     try:
-                        path = self.to_flac(self._fetch(lambda: self.download_from(track, folder, music)))
+                        path = flac(self._fetch(lambda: self.download_from(track, folder, music)))
                         n = self.length(path)
                         if abs(n - float(track.duration)) > LENGTH_SLACK_S:
                             why, path = f"YouTube Music's copy is {n:.0f} s long, Spotify's {track.duration:.0f} s", None
@@ -431,7 +440,7 @@ class FetchAhead:
                         why = str(e)
                 if path is None:
                     try:
-                        path = self.to_flac(self._fetch(lambda: self.download(track, folder)))
+                        path = flac(self._fetch(lambda: self.download(track, folder)))
                         n = self.length(path)
                         if abs(n - float(track.duration)) > LENGTH_SLACK_S:
                             why, path = f"the copy found is {n:.0f} s long, Spotify's {track.duration:.0f} s: another version", None
@@ -440,15 +449,19 @@ class FetchAhead:
                 if path is None:
                     # spotDL's pick is missing or another version (a music video, a lyric video with an intro):
                     # YouTube is searched for the very recording, by its length, its title and its channel
+                    t = self.clock()
                     url = pick_alternative(track, self.search(track))
+                    spent["search"] += self.clock() - t
                     if url is None:
                         raise ValueError(why or "no copy found")
-                    path = self.to_flac(self._fetch(lambda: self.download_from(track, folder, url)))
+                    path = flac(self._fetch(lambda: self.download_from(track, folder, url)))
                     n = self.length(path)
                     if abs(n - float(track.duration)) > LENGTH_SLACK_S:
                         raise ValueError(f"no copy of Spotify's length ({track.duration:.0f} s) found")
                     self.log(f"[learn ahead] {track.label}: spotDL's pick was not it; using {url}")
-                self.log(f"[learn ahead] {track.label}: copy downloaded in {self.clock() - t_dl:.0f} s (the search, the download, the conversion)")
+                took = self.clock() - t_dl
+                self.log(f"[learn ahead] {track.label}: copy downloaded in {took:.0f} s (search {spent['search']:.1f}, "
+                         f"download {took - spent['search'] - spent['conversion']:.1f}, conversion {spent['conversion']:.1f})")
                 with self.lock:
                     self.ready.append((track, folder, path))
                     self.lock.notify_all()
