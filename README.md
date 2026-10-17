@@ -161,9 +161,17 @@ after that. Saved shows live in the `shows/` folder and reload from the
    sparks) follow the style too: none in a chill song, two one-shots a drop in groove,
    three in dance, all of them in rave.
 
-   The genre comes from a model that listens to the song: MIT's Audio
-   Spectrogram Transformer, trained on Google's AudioSet (open source, about
-   350 MB, downloaded once, runs in the model environment described below). In
+   The genre comes from a model that listens to the song: MAEST (MTG, trained on
+   the 519 styles Discogs gives music, about 350 MB, downloaded once, runs in the
+   model environment described below; non-commercial licence). It hears styles,
+   not just "rock" or "electronic": Pop Rock, Pop Punk, Indie Pop, Synth-pop,
+   Dance-pop, Electro House, Dubstep. It replaced MIT's Audio Spectrogram
+   Transformer (AudioSet), which put pop and rock songs under dance music
+   (Hastings' *Take Mine* as dubstep, Madeon as drum and bass); on 60 songs with a
+   known style MAEST gave the right style to 52, AST to 49, and AST's misses were
+   mostly too hard. AST is still the fallback where MAEST cannot load, and songs
+   whose genre was heard by AST are heard again when opened. Discogs has no
+   future bass or melodic dubstep, so those can come out a style softer. In
    Jam mode the genres Spotify lists for the artist count too. The model's
    middle guess counts, not an average (a faint "dubstep" among pop guesses does
    not drag a pop song up a style), and when its guesses are unsure the song leans

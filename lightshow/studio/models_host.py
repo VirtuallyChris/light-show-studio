@@ -137,31 +137,16 @@ def _stems(state, req, payload):
 
 
 def _load_genre():
-    import torch
-    from transformers import ASTFeatureExtractor, ASTForAudioClassification
     from . import genre_infer
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    extractor = ASTFeatureExtractor.from_pretrained(genre_infer.MODEL)
-    model = ASTForAudioClassification.from_pretrained(genre_infer.MODEL).to(device).eval()
-    keep = [(i, name) for i, name in model.config.id2label.items() if name in genre_infer.MUSIC_LABELS]
-    return extractor, model, keep, device
+    return genre_infer.load_model()                      # MAEST, or AST where it cannot load
 
 
 def _genre(state, req, payload):
-    import numpy as np
-    import torch
     from . import genre_infer
-    extractor, model, keep, device = state
     y, _ = _audio(req, payload, genre_infer.SR)
-    if len(y) < genre_infer.SR * 3:
-        raise ValueError("not enough audio to tell the genre")
-    wins = genre_infer.windows(y, genre_infer.SR)
-    feats = extractor([w.astype(np.float32) for w in wins], sampling_rate=genre_infer.SR, return_tensors="pt")
-    with torch.inference_mode():
-        probs = torch.sigmoid(model(**{k: v.to(device) for k, v in feats.items()}).logits).mean(dim=0).cpu().numpy()
-    return {"labels": {name: round(float(probs[i]), 4) for i, name in keep}, "windows": len(wins)}, b""
+    return genre_infer.classify(state, y), b""
 
 
 def _load_beats():

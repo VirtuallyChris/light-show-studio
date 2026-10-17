@@ -54,6 +54,43 @@ class TestStyle(unittest.TestCase):
         self.assertEqual(style_from({"Pop music": 0.4}, 0.6, ["dubstep"])["source"], "listening+spotify")
 
 
+class TestDiscogsStyles(unittest.TestCase):
+    """MAEST's labels ("Genre---Style", Discogs) on the same scale as AudioSet's."""
+
+    def test_rock_and_pop_rock_stay_groove(self):
+        g = style_from({"Rock---Alternative Rock": 0.56, "Rock---Pop Punk": 0.47, "Rock---Pop Rock": 0.40}, 0.85)
+        self.assertEqual((g["style"], g["model"]), ("groove", "maest"))
+        self.assertEqual(g["genres"], ["Alternative Rock", "Pop Punk", "Pop Rock"])       # shown without the genre
+        take_mine = {"Electronic---Dance-pop": 0.61, "Rock---Pop Punk": 0.22, "Electronic---Tropical House": 0.18}
+        self.assertEqual(style_from(take_mine, 0.85)["style"], "groove")                  # AST: "Dubstep", dance
+
+    def test_dance_music_and_bass_music(self):
+        self.assertEqual(style_from({"Electronic---Electro House": 0.49, "Electronic---House": 0.44,
+                                     "Electronic---Dance-pop": 0.42}, 0.85)["style"], "dance")
+        self.assertEqual(style_from({"Electronic---Dubstep": 0.6, "Electronic---Drum n Bass": 0.3}, 0.85)["style"], "rave")
+        self.assertIn("Drum and bass", style_from({"Electronic---Drum n Bass": 0.7}, 0.85)["genres"])
+
+    def test_a_style_not_placed_takes_its_genres_place(self):
+        self.assertEqual(style_from({"Classical---Baroque": 0.8}, 0.6)["style"], "chill")
+        self.assertEqual(style_from({"Non-Music---Spoken Word": 0.9}, 0.6)["style"], "chill")
+
+    def test_a_genre_heard_before_maest_is_heard_again(self):
+        from unittest import mock
+        from lightshow.studio import genre
+        old = {"genre": {"style": "dance", "source": "listening", "scores": {"Dubstep": 0.12, "Pop music": 0.07}},
+               "mood": {"drive": 0.8}}
+        with mock.patch.object(genre.WORKER, "classify_file", return_value={"Rock---Pop Rock": 0.6}) as ask:
+            self.assertTrue(genre.add_genre(old, "song.mp3"))
+            self.assertEqual((old["genre"]["style"], old["genre"]["model"]), ("groove", "maest"))
+            self.assertFalse(genre.add_genre(old, "song.mp3"))                          # and only once
+        self.assertEqual(ask.call_count, 1)
+
+    def test_an_old_ast_genre_still_restyles(self):
+        from lightshow.studio.genre import restyle
+        g = restyle({"style": "rave", "source": "listening", "scores": {"Rock music": 0.6, "Grunge": 0.2}, "genres": ["Rock music"]}, 0.7)
+        self.assertEqual((g["style"], g["model"]), ("groove", "ast"))
+
+
 class TestSpotifyGenres(unittest.TestCase):
     def test_artist_genres_are_fetched_once_per_artist(self):
         calls = []
@@ -111,11 +148,15 @@ class TestRealModel(unittest.TestCase):
         y = resample_poly(mono, 16000, SR).astype(np.float32)
         labels = WORKER.classify_audio(y, 16000)
         self.assertIsNotNone(labels, WORKER.failed)
-        self.assertIn("Dubstep", labels)
+        self.assertTrue(labels)
         self.assertTrue(all(0.0 <= p <= 1.0 for p in labels.values()))
         top = max(labels, key=labels.get)
-        self.assertIn(top, {"Electronic music", "Techno", "House music", "Electronic dance music", "Dubstep", "Drum and bass",
-                            "Electronica", "Dance music", "Trance music", "Video game music"}, f"top label was {top}: {sorted(labels.items(), key=lambda kv: -kv[1])[:5]}")
+        if "---" in top:                                                   # MAEST: Discogs styles (a synth song: mostly electronic,
+            top5 = sorted(labels, key=labels.get, reverse=True)[:5]        # a soundtrack or chiptune maybe)
+            self.assertGreaterEqual(sum(n.startswith("Electronic---") for n in top5), 3, f"top styles were {top5}")
+        else:                                                              # AST, where MAEST could not load
+            self.assertIn(top, {"Electronic music", "Techno", "House music", "Electronic dance music", "Dubstep", "Drum and bass",
+                                "Electronica", "Dance music", "Trance music", "Video game music"}, f"top label was {top}")
 
     @classmethod
     def tearDownClass(cls):
