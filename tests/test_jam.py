@@ -431,7 +431,7 @@ class TestEngine(unittest.TestCase):
         self.assertAlmostEqual(t.start, seek_at - 60.0, delta=0.06)               # 0:00 where it would be: 1:00 at the seek
         self.assertIs(sim.engine.track_at(seek_at - 1.0), first)                  # the room still hears the old place first
 
-    def test_learning_ahead_a_first_listen_follows_only_the_beat_and_is_not_kept(self):
+    def test_learning_ahead_a_first_listen_only_glows_and_is_not_kept(self):
         calls = []
         sim = Sim(self.dir, target=5.0, light_live=True)
         sim.engine.analyse_fn = lambda *a, **k: calls.append(1) or self.fail("no full analysis for a stopgap listen")
@@ -443,11 +443,10 @@ class TestEngine(unittest.TestCase):
         doc = sim.engine.analysis_json(t.key)
         self.assertTrue(doc["light"])
         a = doc["analysis"]
-        self.assertAlmostEqual(a["bpm"], 128.0, delta=1.5)                          # the tempo heard, 20 s in
-        period = 60 / 128.0
-        near = [b for b in a["beats"] if 10 < b < 30]                                 # around where the room is
-        off = [((b + period / 2) % period) - period / 2 for b in near]              # beats are k periods from 0:00
-        self.assertLess(max(abs(o) for o in off), 0.08)
+        # nothing is worked out for it, not even the beat (the lights only glow: jam.js buildLight): a plain
+        # grid, so all the PC's effort goes to learning the song from its copy
+        self.assertIsNone(t.beat)
+        self.assertEqual(a["bpm"], 120.0)
         sim.run(self.a["duration"] - 18)
         sim.play(self.b, self.tb)                                                  # the song ends naturally
         sim.run(12)

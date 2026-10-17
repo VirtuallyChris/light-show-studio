@@ -689,10 +689,13 @@ when the pointer rests on it; the show is made regardless, from what did work. W
 model would not start goes to `studio.log` and `models.log`, and it is tried again
 every 2 minutes. **Learn ahead** in the Jam panel turns it on or off (on wherever spotDL is
 installed); with it on, the room stays **Stay behind by** (5 s to start with, at
-least 3) behind, and no opening song is needed. A song playing before its copy is learned is a stopgap: its main color at
-nearly full brightness, pulsing on the beat, and only its beat is worked out (no
-stems, sections, instruments or genre), so the processor goes to the copy; what is
-heard is not kept, and the full show takes over when the copy is learned. Less is livelier, at a cost: the
+least 3) behind, and no opening song is needed. A song playing before its copy is learned (the jam just
+started, a skip to a song not yet learned) is a stopgap: its main color glowing slowly
+up and down (a 4 s swell, never dark), with nothing worked out from what is heard (not
+even the beat), and all the effort on its copy: it is downloaded at once (past the
+two-copies-on-disk limit) and analysed at above-normal priority (every other song below
+normal). What is heard is not kept; the full show takes over when the copy is learned,
+about 20 s after the song starts. Less is livelier, at a cost: the
 studio hears of a new song about a second late (Spotify is asked once a second), a
 speaker holds only that much against a Wi-Fi hiccup, and below 7 s each song starts
 on Spotify's clock and may shift a little when it is lined up by ear. 5 to 10 s hides

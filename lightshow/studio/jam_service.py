@@ -235,7 +235,7 @@ class JamService:
         self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
         self.runner = JamRunner(self.engine, file_status=self._file_status)
         if ahead:
-            self.engine.on_queue = lambda tracks: self.fetch.submit(tracks, first=True)
+            self.engine.on_queue = lambda tracks, now=None: self.fetch.submit(tracks, first=True, now=now)
             self.engine.on_mismatch = self.fetch.mismatched
         self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") and use_cast or where == "pc" else ", preview only (no speakers)")
         self.runner.start()

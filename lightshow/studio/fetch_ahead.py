@@ -253,10 +253,11 @@ class AnalysisWorker(ModelWorker):
 ANALYSER = AnalysisWorker("lightshow.studio.analysis_worker", "analysis", start_timeout=120, request_timeout=900)
 
 
-def _analyze(path: str, cache_dir: str) -> dict:
-    """In the analysis worker; in this process only if the worker cannot run."""
+def _analyze(path: str, cache_dir: str, urgent: bool = False) -> dict:
+    """In the analysis worker; in this process only if the worker cannot run. `urgent`: the song is
+    playing now, unlearned: the worker runs it at above-normal priority (else below normal)."""
     if ANALYSER.available():
-        a = ANALYSER.ask_file_and_cache(path, cache_dir)
+        a = ANALYSER._ask({"path": os.path.abspath(path), "cache": os.path.abspath(cache_dir), **({"urgent": True} if urgent else {})})
         if a is not None:
             return a
         if ANALYSER.last_error and not ANALYSER.last_error.startswith("the model"):
@@ -295,6 +296,7 @@ class FetchAhead:
         self.busy: dict = {"download": None, "analyse": None}
         self.failed: dict[str, tuple[float, str, str]] = {}   # track id -> (when, label, why)
         self.learned_now = 0
+        self.now: str | None = None                   # the song playing unlearned (submit): all effort to it
         self.checked: dict[str, bool] = {}
         self.order: list[str] = []                    # the jam's queue as last handed over (ids, next first)            # track id -> learned without anything failing (see _learned_well)
         self.threads: list[threading.Thread] = []
@@ -319,12 +321,16 @@ class FetchAhead:
         held = [t2.id for t2 in self.waiting] + [x[0].id for x in self.ready] + [b.id for b in self.busy.values() if b]
         return t.id not in held
 
-    def submit(self, tracks, first: bool = True) -> int:
+    def submit(self, tracks, first: bool = True, now: str | None = None) -> int:
         """Songs to learn ahead. The jam's queue goes first, in the queue's own order (the next to play
-        first, a song just added at its end last), ahead of anything else waiting (a playlist's)."""
+        first, a song just added at its end last), ahead of anything else waiting (a playlist's). `now`: the
+        song already playing unlearned (the jam just started, or a skip to a song not yet learned): it is
+        downloaded past the two-copy limit and analysed at above-normal priority, all effort on it."""
         if not self.is_available():
             return 0
         with self.lock:
+            if first:
+                self.now = now
             new = [t for t in tracks if self._wanted(t)]
             if first:
                 ids = [t.id for t in tracks]
@@ -394,7 +400,8 @@ class FetchAhead:
     def _downloads(self) -> None:
         while True:
             with self.lock:
-                while not self.waiting or len(self.ready) >= 2:      # never more than two copies on disk
+                # never more than two copies on disk, except the song playing now: it goes at once
+                while not self.waiting or (len(self.ready) >= 2 and self.waiting[0].id != self.now):
                     if not self.lock.wait(timeout=600):
                         return
                 track = self.waiting.popleft()
@@ -508,7 +515,8 @@ class FetchAhead:
                 self.lock.notify_all()
             try:
                 t0 = self.clock()
-                a = self.analyze(path, os.path.join(folder, "cache"))
+                urgent = track.id == self.now
+                a = self.analyze(path, os.path.join(folder, "cache"), **({"urgent": True} if urgent else {}))
                 self.library.save_learned(track, a, source="youtube")
                 self.checked[track.id] = True                  # learned again: not again this run, whatever it says
                 with self.lock:

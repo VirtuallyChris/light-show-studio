@@ -569,8 +569,10 @@
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
   }
 
-  /** Learning ahead, a first listen is a stopgap until its copy is learned: the song's main color at nearly
-   *  full brightness, pulsing on the beat, and nothing else to work out (the processor goes to the copy). */
+  /** Learning ahead, a song playing before it is learned (the jam just started, a skip to a song not yet
+   *  learned) is a stopgap until its copy is: the song's main color glowing slowly up and down (a 4 s swell,
+   *  never dark), no beat followed and nothing else worked out, so the PC's effort goes to learning it (its
+   *  analysis runs at above-normal priority meanwhile, fetch_ahead.submit). */
   function buildLight() {
     const p = St.P(); if (!p || !S.analysis) return;
     const col = (S.jamColors && S.jamColors[0]) || (S.albumPalette && S.albumPalette[0]) || '#ffffff';
@@ -579,8 +581,9 @@
     p.paletteClips = [];
     p.settings = { ...(p.settings || {}), followLoudness: false };   // full brightness: not dimmed with the music
     const len = Math.max(4, Math.ceil(St.timeToBeat(S.analysis.duration || 240)) + 4);
-    p.lanes[0].clips.push({ id: 'light' + Date.now().toString(36), effect: 'pulse', start: 0, len, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0,
-      params: { ...Effects.defaults('pulse'), follow: 'beat', every: 1, size: 1, decay: 0.5, floor: 0.8 }, palette: Effects.solidPalette([col]) });
+    const swell = Math.max(2, Math.round(4 * (p.bpm || 120) / 60));      // ~4 s up and down, on the plain grid
+    p.lanes[0].clips.push({ id: 'light' + Date.now().toString(36), effect: 'breathe', start: 0, len, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0,
+      params: { ...Effects.defaults('breathe'), speed: swell, floor: 0.2, intensity: 1 }, palette: Effects.solidPalette([col]) });
     St.draw();
   }
 

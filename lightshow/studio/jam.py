@@ -692,7 +692,8 @@ class JamEngine:
         self.held_at: float | None = None
         self.cue_hold = False             # while a cue runs, nothing but the cue lets the room go
         self.cue_in_stream = False        # the cue's song is played inside the stream: the speakers are never paused
-        self.on_queue = None              # (tracks) -> None: the song playing and what is queued, as they change (learn ahead)
+        self.on_queue = None              # (tracks, now) -> None: the song playing and what is queued, as they change (learn ahead);
+                                          # now: the id of the song playing unlearned (all effort goes to it), or None
         self.on_mismatch = None           # (track) -> None: a song learned from a copy turned out not to be what Spotify plays
         if analyse_fn is None:
             from .analysis import analyze_audio
@@ -1098,6 +1099,10 @@ class JamEngine:
         if cur and cur.kind == "live" and cur.end is None and cur.genre is None and head - cur.start >= 30.0 and not self.cfg.light_live:
             return self._genre(cur, min(head - cur.start, cur.track.duration))
         if cur and cur.kind == "live" and cur.end is None and self.cfg.light_live:
+            # While it is learned ahead, an unlearned song just glows slowly (jam.js buildLight): no beat
+            # is followed, so the live beat tracker no longer runs every few seconds, and the PC's effort
+            # goes to learning the song.
+            return None
             if cur.beat is None:
                 cur.beat = LiveBeat()
             if cur.beat.update(self.relay, cur.start, head):
@@ -1310,7 +1315,7 @@ class JamEngine:
         if self.on_queue is not None:
             playing = [cur.track] if cur is not None and cur.end is None and cur.kind == "live" else []
             try:
-                self.on_queue(playing + upcoming)       # the song being heard now first: it may still come in time
+                self.on_queue(playing + upcoming, playing[0].id if playing else None)   # the song heard now first
             except Exception as e:  # noqa: BLE001
                 self.say(f"learn ahead: {type(e).__name__}: {e}")
 

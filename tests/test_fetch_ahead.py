@@ -88,6 +88,15 @@ class TestFetchAhead(unittest.TestCase):
         self.assertEqual(order, ["t1"])                                   # from the copy kept: no second download
         self.assertTrue(os.path.exists(os.path.join(lib.dir, "copies", "t1.flac")))
 
+    def test_the_song_playing_unlearned_gets_all_the_effort(self):
+        f, lib, folders, order = self.make()
+        calls = []
+        f.analyze = lambda p, cache, urgent=False: calls.append((os.path.basename(p)[:-4], urgent)) or {"bpm": 120.0}
+        f.submit([track(1), track(2), track(3)], now="t1")                  # t1 is already playing
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 3 and f.idle()))
+        self.assertEqual(calls[0], ("t1", True))                            # first, and at above-normal priority
+        self.assertTrue(all(not u for tid, u in calls[1:]))                 # the songs ahead as before
+
     def test_another_version_or_no_copy_is_left_to_the_jam(self):
         f, lib, folders, _ = self.make(lengths={"t2": 240.0}, missing={"t3"})
         f.submit([track(1), track(2), track(3)])
@@ -244,13 +253,14 @@ class TestLearnedWhilePlaying(unittest.TestCase):
             a, ta = song(128.0, 1)
             sim = Sim(d, target=10.0)
             e = sim.engine
-            got = []
-            e.on_queue = got.append
+            got, nows = [], []
+            e.on_queue = lambda tracks, now=None: got.append(tracks) or nows.append(now)
             sim.spotify.upcoming = [track(5)]
             sim.play(a, ta)
             sim.run(14.0, analyse=False)
             e.refresh_queue()
             self.assertEqual([t.id for t in got[-1]], [ta.id, "t5"])     # the song playing (a first listen) and what is queued
+            self.assertEqual(nows[-1], ta.id)                              # and which one plays now: all effort to it
             cur = e.current
             self.assertEqual(cur.kind, "live")
             e.library.save_learned(ta, {"bpm": 128.0, "beats": [], "sections": [], "drops": [], "duration": ta.duration}, source="youtube")

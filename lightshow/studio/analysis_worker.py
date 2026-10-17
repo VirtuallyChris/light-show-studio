@@ -24,6 +24,7 @@ def main() -> None:
         out.flush()
 
     from .fetch_ahead import analyze_here
+    from . import priority
     reply({"ready": True})
     # load the models now, while the jam's first song plays: loaded at the first song to learn they
     # took minutes, and that song's show came at its end (a request waits for its model's load)
@@ -36,7 +37,11 @@ def main() -> None:
             continue
         try:
             req = json.loads(line)
+            # the song playing now, not yet learned: above normal priority until it is done (the lights only
+            # glow meanwhile); every other song below normal, so the lights and the music come first
+            priority.process(priority.ABOVE_NORMAL if req.get("urgent") else priority.BELOW_NORMAL)
             reply({"analysis": analyze_here(req["path"], req["cache"])})
+            priority.process(priority.BELOW_NORMAL)
         except Exception as e:  # noqa: BLE001 - one song that fails must not end the worker
             reply({"error": f"{type(e).__name__}: {e}"})
 
