@@ -138,7 +138,11 @@ class ModelHost:
             err.flush()
         except OSError:
             err = subprocess.DEVNULL
-        flags = (DETACHED_PROCESS | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0
+        # normal priority, not below: the urgent analysis of a song playing unlearned (above normal) waits on
+        # these models, and at below normal their own CPU work (decoding, resampling) was crowded out: a
+        # first song's SongFormer and stems ran 29 and 33 s instead of ~2.5. The host mostly waits on the GPU,
+        # and the lights and the audio have real-time priority of their own.
+        flags = DETACHED_PROCESS if sys.platform == "win32" else 0
         cmds = []
         base = _base_python()
         if base:                                           # the real interpreter itself: no launcher process
