@@ -26,6 +26,7 @@ process (LSS_MODELS_OWNER) does.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import queue
@@ -56,6 +57,7 @@ class Model:
         try:
             with LOAD_LOCK:                              # one load at a time: two threads importing the same
                 self.state = LOADERS[self.name]()        # library at once (transformers) break each other
+                CARD.set_cap()
             _log(f"{self.name} loaded in {time.time() - t0:.1f} s")
             self.load_error = ""
             self.phase = "warming"
@@ -94,13 +96,140 @@ class Model:
                 continue
             t0 = time.time()
             try:
-                obj, out = HANDLERS[self.name](self.state, req, payload)
+                obj, out = self._answer(req, payload)
                 took = time.time() - t0
                 if took > 5 or waited > 2:                   # (a slow song learned: which model, and why)
-                    _log(f"{time.strftime('%H:%M:%S')} {self.name}: waited {waited:.1f} s in its queue, ran {took:.1f} s")
+                    _log(f"{time.strftime('%H:%M:%S')} {self.name}: waited {waited:.1f} s in its queue, ran {took:.1f} s{_card_use()}")
                 answer({**obj, "seconds": round(took, 2)}, out)
             except Exception as e:  # noqa: BLE001 - one bad request must not end the model
                 answer({"error": f"{type(e).__name__}: {e}"})
+            finally:
+                _free()
+
+    def _answer(self, req, payload):
+        """The model's answer. On the card beside the other models; one that runs out of the card's memory
+        there (a long song while another model is busy with it too) waits for them to finish and runs
+        alone; one that still cannot fit is let past the cap that once, slow, rather than not answer."""
+        try:
+            with CARD.shared():
+                return HANDLERS[self.name](self.state, req, payload)
+        except Exception as e:  # noqa: BLE001
+            if not _out_of_memory(e):
+                raise
+        _log(f"{time.strftime('%H:%M:%S')} {self.name}: out of the card's memory beside the other models: again, alone")
+        with CARD.alone():
+            _free()
+            try:
+                return HANDLERS[self.name](self.state, req, payload)
+            except Exception as e:  # noqa: BLE001
+                if not _out_of_memory(e) or CARD.cap is None:
+                    raise
+            _log(f"{self.name}: too big for the card even alone: past the cap this once (slow)")
+            _free()
+            CARD.limit(1.0)
+            try:
+                return HANDLERS[self.name](self.state, req, payload)
+            finally:
+                _free()
+                CARD.limit(CARD.cap)
+
+
+# -- the graphics card ------------------------------------------------------------------------------------
+
+class Card:
+    """The graphics card the models share, and its memory.
+
+    On Windows a CUDA program that asks for more memory than the card has is not refused: the driver
+    quietly lends it the PC's own memory, over the bus, and everything it runs slows to a crawl. Five
+    models, two of them busy with a long song at once, plus the memory PyTorch keeps cached between
+    songs, reached 14 GB on a 16 GB card and 8 GB more borrowed: the sections and stems of a song took
+    30 s instead of 6, and the next song sat "analyzing" for minutes. So the models are kept under the
+    card's size, less room for the desktop, the browser and the room view (a model that would go past
+    that is told it is out of memory, and runs again alone: see Model._answer)."""
+
+    HEADROOM = 3.0 * 2**30                               # bytes left for everything else on the card
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.running = 0                                 # requests on the card now
+        self.solo = False                                # one is waiting for the card to itself
+        self.cap: float | None = None                    # the share of the card the models keep under
+
+    def set_cap(self) -> None:
+        torch = _cuda()
+        if torch is None or self.cap is not None:
+            return
+        total = torch.cuda.get_device_properties(0).total_memory
+        self.cap = max(0.5, (total - self.HEADROOM) / total)
+        self.limit(self.cap)
+        _log(f"the card has {total / 2**30:.1f} GB: the models keep under {self.cap * total / 2**30:.1f} GB")
+
+    def limit(self, share: float) -> None:
+        torch = _cuda()
+        if torch is not None:
+            torch.cuda.set_per_process_memory_fraction(share)
+
+    @contextlib.contextmanager
+    def shared(self):
+        with self.cond:
+            self.cond.wait_for(lambda: not self.solo)
+            self.running += 1
+        try:
+            yield
+        finally:
+            with self.cond:
+                self.running -= 1
+                self.cond.notify_all()
+
+    @contextlib.contextmanager
+    def alone(self):
+        with self.cond:
+            self.cond.wait_for(lambda: not self.solo)
+            self.solo = True                             # nothing new starts meanwhile
+            self.cond.wait_for(lambda: self.running == 0)
+        try:
+            yield
+        finally:
+            with self.cond:
+                self.solo = False
+                self.cond.notify_all()
+
+
+CARD = Card()
+
+
+def _cuda():
+    """torch, once a model has imported it and when there is a card; else None (never imports it)."""
+    torch = sys.modules.get("torch")
+    try:
+        return torch if torch is not None and torch.cuda.is_available() else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _out_of_memory(e: BaseException) -> bool:
+    return type(e).__name__ == "OutOfMemoryError" or "out of memory" in str(e).lower()
+
+
+def _free() -> None:
+    """Hand back what PyTorch keeps cached from the last request: a long song's buffers, kept for the
+    next song, piled up song after song until the card was full."""
+    torch = _cuda()
+    if torch is not None:
+        try:
+            torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _card_use() -> str:
+    torch = _cuda()
+    if torch is None:
+        return ""
+    try:
+        return f" (card: {torch.cuda.memory_reserved() / 2**30:.1f} GB held)"
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 # -- the models: how each loads, and how it answers (as its own worker module did) -----------------------
