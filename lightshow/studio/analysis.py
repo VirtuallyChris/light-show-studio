@@ -453,9 +453,13 @@ def hook_drops(a: dict) -> list:
             out.append(s)
             continue
         hs = inside(s)
-        if not hs:                                    # a drop the hook never plays in, nor the backbeat: a verse
-            if all(inside(d) for d in drops if d is not s) and len(drops) >= 2 and backbeat >= 1.0 \
-                    and snare_rate(s["start"], s["end"]) < 0.4 * backbeat and lvl(s["start"], s["end"]) < sung:
+        if not hs:                                    # a drop the hook never plays in: a verse, when...
+            no_beat = all(inside(d) for d in drops if d is not s) and len(drops) >= 2 and backbeat >= 1.0 \
+                and snare_rate(s["start"], s["end"]) < 0.4 * backbeat and lvl(s["start"], s["end"]) < sung
+            # ...the hook marks two or more other drops and this one's melody is clearly quieter than theirs
+            # (James Ivy's Last Star at 0:43 and 1:59: the hook-less part after a verse, 0.61 to 0.77)
+            quieter = len(hooked) >= 2 and lvl(s["start"], s["end"]) < 0.85 * sung
+            if no_beat or quieter:
                 out.append({**s, "type": "verse"})
                 changes.append((round(s["start"], 1), "verse (no hook)"))
                 continue

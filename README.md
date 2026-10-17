@@ -938,8 +938,9 @@ noise.
   saved ones too (so learned songs need no relearning):
   - where a song's hook (the riff it keeps coming back to) plays nearly only in
     its drops, a "drop" the hook never plays in and that has no snare backbeat is
-    a verse; a drop starts on the bar near its first hook where the melody lifts,
-    when the found start does not lift at all; and a long drop whose hook stops
+    a verse, and so is one the hook never plays in while it marks two or more
+    other drops, when its melody is clearly quieter than theirs (under 85%: James
+    Ivy's *Last Star* at 0:43 and 1:59); and a long drop whose hook stops
     for 10 bars or more while the melody falls away is two drops with a verse
     between. Coldplay's *Higher Power*: verse at 0:14 (not 0:17), no drop at 0:52,
     the chorus at 1:43 (not 1:40), the bridge at 2:05 its own verse, the last
