@@ -45,6 +45,17 @@
     ctx.restore();
   }
 
+  /** One pole segment: a rectangle, touching the ones above and below (rounded only at the pole's ends). */
+  function seg(x, y, w, h, c, bottom, top) {
+    const lum = Math.max(c[0], c[1], c[2]) / 255, r = [top ? 4 : 1, top ? 4 : 1, bottom ? 4 : 1, bottom ? 4 : 1];
+    ctx.fillStyle = '#151820'; ctx.beginPath(); ctx.roundRect(x, y + 0.5, w, h - 1, r); ctx.fill();
+    if (lum < 0.02) return;
+    ctx.save();
+    ctx.shadowColor = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.shadowBlur = 8 + 26 * lum;
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.roundRect(x, y + 0.5, w, h - 1, r); ctx.fill();
+    ctx.restore();
+  }
+
   function draw() {
     requestAnimationFrame(draw);
     const [w, h] = size();
@@ -63,7 +74,7 @@
       const x0 = pad + k * (rw + gap), x1 = x0 + rw;
       ctx.fillStyle = '#0d1016'; ctx.strokeStyle = '#1c2230'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(x0, top, rw, floor - top, 10); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#4b5263'; ctx.fillText(room.name || 'Room', x0 + 12, floor - 10);
+      ctx.fillStyle = '#4b5263'; ctx.textAlign = 'center'; ctx.fillText(room.name || 'Room', (x0 + x1) / 2, floor - 10); ctx.textAlign = 'left';
       const strings = room.lights.filter(l => l.kind !== 'short'), poles = room.lights.filter(l => l.kind === 'short');
       // the strings overhead, one row each, across the room
       strings.forEach((l, s) => {
@@ -75,10 +86,13 @@
       // the poles in the room's outer corner (the first room's left, the last room's right), bottom to top
       poles.forEach((l, q) => {
         const n = l.px.length / 3, outerLeft = k === 0 && rooms.length > 1 ? true : k === rooms.length - 1 && rooms.length > 1 ? false : q % 2 === 0;
-        const x = outerLeft ? x0 + 30 + q * 26 : x1 - 30 - q * 26, yTop = top + 110, yBot = floor - 34, step = (yBot - yTop) / Math.max(1, n - 1);
-        ctx.strokeStyle = '#1a1e28'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, yTop - 8); ctx.lineTo(x, yBot + 14); ctx.stroke(); ctx.lineWidth = 1;
-        for (let i = 0; i < n; i++) dot(x, yBot - i * step, Math.min(9, step / 2.4), rgb(l.px, i));
-        ctx.fillStyle = '#3d4352'; ctx.textAlign = outerLeft ? 'left' : 'right'; ctx.fillText(l.name, outerLeft ? x - 10 : x + 10, yTop - 16); ctx.textAlign = 'left';
+        const x = outerLeft ? x0 + 34 + q * 34 : x1 - 34 - q * 34, yTop = top + 100, yBot = floor - 30;
+        // the pole: its segments as rectangles stacked into one column, the first at the bottom
+        const segH = (yBot - 12 - yTop) / n, pw = Math.max(14, Math.min(26, segH * 0.42)), colTop = yTop;
+        ctx.fillStyle = '#1a1e28'; ctx.fillRect(x - 2, colTop + n * segH, 4, 12);                     // its foot
+        ctx.fillStyle = '#0a0c11'; ctx.beginPath(); ctx.roundRect(x - pw / 2 - 2, colTop - 2, pw + 4, n * segH + 4, 5); ctx.fill();
+        for (let i = 0; i < n; i++) seg(x - pw / 2, colTop + (n - 1 - i) * segH, pw, segH, rgb(l.px, i), i === 0, i === n - 1);
+        ctx.fillStyle = '#3d4352'; ctx.textAlign = outerLeft ? 'left' : 'right'; ctx.fillText(l.name, outerLeft ? x - pw / 2 : x + pw / 2, colTop - 10); ctx.textAlign = 'left';
       });
     });
   }
