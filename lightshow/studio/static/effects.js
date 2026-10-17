@@ -476,9 +476,10 @@ const Effects = (() => {
       const col = colorFor(c, 0.5, h.index); fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);
     } });
 
-  def({ id: 'drumhits', name: 'Drum hits', cat: 'medium', desc: 'The whole light blooms on the drums: the first color on every kick, the second on every snare, and fades between. Made for small lamps, which play the drums while the long strips move.', swatch: ['#8000ff', '#00ff00'],
+  def({ id: 'drumhits', name: 'Drum hits', cat: 'medium', desc: 'The whole light blooms on the drums: the first color on every kick, the second on every snare, and fades between. Made for small lamps, which play the drums while the long strips move. Split: with two or more small lamps (light poles in the corners), the first half of them in the room order take the kick and the rest the snare, a call and response across the room; Together: every lamp on every hit.', swatch: ['#8000ff', '#00ff00'],
     params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only' }, label: 'Follows' }, decay: P.decay(0.35),
-      floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+      floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' },
+      split: { type: 'select', def: 'together', options: { together: 'every lamp on every hit', split: 'kick one side, snare the other' }, label: 'Lamps' } },
     render(c) {
       clear(c.out); const m = c.music || {}, tau = c.p.decay * 0.4 + 0.03;
       let ek, es;
@@ -486,6 +487,10 @@ const Effects = (() => {
         const hit = h => (h && h.index >= 0 ? Math.exp(-h.age / tau) * (0.6 + 0.4 * h.strength) : 0);
         ek = hit(m.kick); es = c.p.follow === 'drums' ? hit(m.snare) : 0;
       } else { ek = Math.exp(-c.phase * c.beatSec / tau); es = 0; }      // no drums known: on the beat
+      if (c.p.split === 'split' && es !== 0 && c.room && c.room.kinds) {   // this lamp's side among the small lamps
+        const shorts = c.room.kinds.map((k, i) => (k === 'short' ? i : -1)).filter(i => i >= 0), at = shorts.indexOf(c.room.i);
+        if (shorts.length >= 2 && at >= 0) { if (at < shorts.length / 2) es = 0; else ek = 0; }
+      }
       const col = ek >= es ? c.pal[0] : c.pal[1 % c.pal.length], v = Math.max(c.p.floor, ek, es);
       fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);
     } });

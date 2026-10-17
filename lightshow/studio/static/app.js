@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 12;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops
+  const SHOW_VERSION = 13;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2095,7 +2095,10 @@
           clip(0, 'colorwash', c.start, c.len, { speed: 8, intensity: 0.55 }, { target: 'short', palette: c.palette });
       }
       if (zoneBuild || s.type === 'buildup') { /* in a buildup the lamps are stretches of the room's hits */ }
-      else if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0 }, { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
+      // the corner poles as a stereo pair, as a stage rig: in a drop both on every hit (the room as one);
+      // elsewhere the kick on one side and the snare on the other, a call and response, each half as busy
+      else if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0, split: s.type === 'drop' && !chill ? 'together' : 'split' },
+                              { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
       else if (!chill && noDrums() && ['drop', 'verse'].includes(s.type) && ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end).length) >= 0.4 * len)
         clip(6, 'basshits', b0, len, { decay: 0.45 }, { target: 'short', blend: 'add', opacity: s.type === 'drop' ? 0.85 : 0.5 });   // no drums: the bass keeps time
       else clip(6, 'breathe', b0, len, { speed: 4, floor: 0.15 }, { target: 'short', opacity: 0.6, palette: S.contrastPal });

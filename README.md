@@ -899,7 +899,10 @@ noise.
   things that travel (comets, chases, sparkles, scanners) run on the long strips,
   where they have room to move, and the lamps play the drums: **Drum hits** makes
   the whole lamp bloom in the first color on every kick and the second on every
-  snare. Where there are no drums the lamps breathe slowly in the other color.
+  snare. Two or more lamps (light poles in the room's corners) are a stereo pair,
+  as on a stage: in a drop both hit together on everything, and elsewhere the
+  first half of them (in the light order) take the kick and the rest the snare, a
+  call and response across the room, each half as busy. Where there are no drums the lamps breathe slowly in the other color.
   When a drop's base itself travels, the lamps get a color wash of their own
   under the drums. A clip for one kind of light is drawn in its half of the
   layer (strips on top, lamps below), and the clip inspector's **Lights** sets
