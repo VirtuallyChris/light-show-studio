@@ -386,6 +386,7 @@ class FetchAhead:
                     continue
                 self.busy["download"] = track
             folder = tempfile.mkdtemp(prefix="lss-ahead-")
+            t_dl = self.clock()
             try:
                 kept = self.kept_copy(track)
                 if kept:                                 # kept from before (jam_keep_youtube_copies): no download
@@ -424,6 +425,7 @@ class FetchAhead:
                     if abs(n - float(track.duration)) > LENGTH_SLACK_S:
                         raise ValueError(f"no copy of Spotify's length ({track.duration:.0f} s) found")
                     self.log(f"[learn ahead] {track.label}: spotDL's pick was not it; using {url}")
+                self.log(f"[learn ahead] {track.label}: copy downloaded in {self.clock() - t_dl:.0f} s (the search, the download, the conversion)")
                 with self.lock:
                     self.ready.append((track, folder, path))
                     self.lock.notify_all()
