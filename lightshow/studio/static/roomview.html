@@ -26,7 +26,10 @@
   let last = null, lastAt = 0;
   const hello = () => ch.postMessage({ type: 'hello' });
   hello(); setInterval(hello, 1000);
-  ch.onmessage = e => { if (e.data && e.data.type === 'frame') { last = e.data; lastAt = performance.now(); } };
+  let dirty = true;                                         // drawn only when something changed (a frame, a resize)
+  ch.onmessage = e => { if (e.data && e.data.type === 'frame') { last = e.data; lastAt = performance.now(); dirty = true; } };
+  addEventListener('resize', () => { dirty = true; });
+  setInterval(() => { dirty = true; }, 1000);                // (so "waiting" shows when the frames stop)
 
   function size() {
     const W = Math.floor(innerWidth * devicePixelRatio), H = Math.floor(innerHeight * devicePixelRatio);
@@ -35,14 +38,16 @@
     return [innerWidth, innerHeight];
   }
   const rgb = (px, i) => [px[i * 3], px[i * 3 + 1], px[i * 3 + 2]];
+  // The glow is two soft halos drawn behind a light, not a canvas shadow blur: a blur on ~100 lights,
+  // 60 times a second on a high-resolution screen, made this window (and the studio) lag badly.
   function dot(x, y, r, c) {
-    const lum = Math.max(c[0], c[1], c[2]) / 255;
+    const lum = Math.max(c[0], c[1], c[2]) / 255, col = `rgb(${c[0]},${c[1]},${c[2]})`;
     ctx.fillStyle = '#15181f'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     if (lum < 0.02) return;
-    ctx.save();
-    ctx.shadowColor = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.shadowBlur = 6 + 22 * lum;
-    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
+    ctx.fillStyle = col;
+    ctx.globalAlpha = 0.12 * lum; ctx.beginPath(); ctx.arc(x, y, r * 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.25 * lum; ctx.beginPath(); ctx.arc(x, y, r * 1.9, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
   }
 
   /** One pole segment: a rectangle, touching the ones above and below (rounded only at the pole's ends). */
@@ -50,16 +55,18 @@
     const lum = Math.max(c[0], c[1], c[2]) / 255, r = [top ? 4 : 1, top ? 4 : 1, bottom ? 4 : 1, bottom ? 4 : 1];
     ctx.fillStyle = '#151820'; ctx.beginPath(); ctx.roundRect(x, y + 0.5, w, h - 1, r); ctx.fill();
     if (lum < 0.02) return;
-    ctx.save();
-    ctx.shadowColor = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.shadowBlur = 8 + 26 * lum;
-    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.roundRect(x, y + 0.5, w, h - 1, r); ctx.fill();
-    ctx.restore();
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+    ctx.globalAlpha = 0.1 * lum; ctx.fillRect(x - w * 0.9, y - h * 0.15, w * 2.8, h * 1.3);
+    ctx.globalAlpha = 0.22 * lum; ctx.fillRect(x - w * 0.4, y, w * 1.8, h);
+    ctx.globalAlpha = 1; ctx.beginPath(); ctx.roundRect(x, y + 0.5, w, h - 1, r); ctx.fill();
   }
 
   function draw() {
     requestAnimationFrame(draw);
+    if (!dirty) return;
+    dirty = false;
     const [w, h] = size();
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg'); ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#07080b'; ctx.fillRect(0, 0, w, h);
     const live = last && performance.now() - lastAt < 2000;
     note.style.display = live && last.lights.length ? 'none' : 'block';
     if (live && !last.lights.length) note.textContent = 'No party rooms set up: give the living room and game room their lights in the studio’s Rooms.';
