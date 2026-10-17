@@ -792,6 +792,11 @@ class Studio:
                 self.jam.close_player()
             except Exception:  # noqa: BLE001
                 pass
+            try:                                          # the models and the learn-ahead process, at once
+                from .model_worker import kill_all
+                kill_all()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             await asyncio.wait_for(loop.run_in_executor(None, shut), timeout=6)
         except Exception:  # noqa: BLE001

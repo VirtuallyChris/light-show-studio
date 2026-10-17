@@ -52,6 +52,18 @@ def note(msg: str) -> None:
         pass
 
 
+WORKERS: list = []                     # every model worker made (see kill_all)
+
+
+def kill_all() -> None:
+    """Stop every model worker and all it started, at once (the studio is closing)."""
+    for w in list(WORKERS):
+        try:
+            w.kill()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class ModelWorker:
     def __init__(self, module: str, answer_key: str, start_timeout: float = 900.0, request_timeout: float = 600.0):
         self.module, self.answer_key = module, answer_key
@@ -62,6 +74,7 @@ class ModelWorker:
         self.failed_at = 0.0
         self.name = module.rsplit(".", 1)[-1]
         self.last_error = ""          # why the last request failed
+        WORKERS.append(self)          # so the studio can stop them all when it closes (kill_all)
 
     def python(self) -> str:
         """The Python the worker runs in: the model environment's (a subclass may run elsewhere)."""
@@ -153,6 +166,22 @@ class ModelWorker:
     def ask_audio(self, y: np.ndarray, sr: int):
         y = np.ascontiguousarray(y, dtype=np.float32)
         return self._ask({"samples": int(len(y)), "sr": int(sr)}, y.tobytes())
+
+    def kill(self) -> None:
+        """Stop at once, with everything it started: the studio is closing. (A venv's python.exe is a
+        launcher that starts the real interpreter, and the analysis worker starts the models' own: the
+        whole tree goes, or the real ones run on until their current song is done, minutes later.)"""
+        p, self.proc = self.proc, None
+        if not p or p.poll() is not None:
+            return
+        try:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True, timeout=5,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            else:
+                p.kill()
+        except Exception:  # noqa: BLE001
+            p.kill()
 
     def stop(self) -> None:
         p, self.proc = self.proc, None
