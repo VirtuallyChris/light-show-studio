@@ -891,7 +891,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 28         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 29         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
