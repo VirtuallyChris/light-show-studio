@@ -420,6 +420,85 @@ def drumless_drops(a: dict) -> list:
     return changes
 
 
+def drop_landings(a: dict) -> list:
+    """A drop lands where the bass comes back and the drums go full after a build without bass. A bar line
+    where the two bars before have no bass (under 0.1), and the two after have it (0.2 or more), the drums
+    at full (0.85, from under 0.8) and the song louder (by 0.06) is a landing:
+
+    - a drop with one inside it, more than 4 s in, starts there; what comes before is its buildup (a snare
+      roll: 1.5 snares a beat or more) or else a verse (Forester's All I Need: the drop was put at 2:07,
+      where the roll starts, and lands at 2:22.9, where everything comes in);
+    - a verse or breakdown with one, and full drums (0.8 or more, two bars at a time) for 8 bars after, has
+      a drop there, to where the drums fall away (under 0.5), and its buildup is the snare roll before it,
+      up to 8 bars (the same song's first drop, at 1:03.5, was inside an 87 s verse).
+
+    Changes the analysis in place; returns what changed."""
+    secs = a.get("sections") or []
+    bass, dp = _curve(a, "bass"), _curve(a, "drums_present")
+    en = np.asarray(a.get("energy") or [], dtype=float)
+    bars = sorted(float(b) for b in (a.get("downbeats") or []))
+    if not secs or bass is None or dp is None or len(en) == 0 or len(bars) < 8 or not a.get("bpm"):
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    beat = 60.0 / float(a["bpm"])
+    two = 8 * beat
+
+    def mean(c, t0, t1):
+        i0, i1 = max(0, int(t0 * fps)), int(t1 * fps)
+        return float(c[i0:max(i0 + 1, i1)].mean()) if i0 < len(c) else 0.0
+    ev = a.get("events") or {}
+    snares = np.array(sorted(float(e[0]) for e in (ev.get("snare") or []) + (ev.get("roll") or [])))
+    rolling = lambda t0, t1: float(((snares >= t0) & (snares < t1)).sum()) / max(1e-6, (t1 - t0) / beat) >= 1.5
+
+    def lands(t):
+        return (mean(bass, t - two, t) < 0.1 and mean(bass, t, t + two) >= 0.2 and mean(dp, t, t + two) >= 0.85
+                and mean(dp, t - two, t) < 0.8 and mean(en, t, t + two) - mean(en, t - two, t) >= 0.06)
+
+    out, changes = [], []
+    for s in secs:
+        start, end, kind = float(s["start"]), float(s["end"]), s.get("type")
+        if kind == "drop":
+            t = next((b for b in bars if start + 4 < b < min(end - two, start + 40) and lands(b)), None)
+            if t is None:
+                out.append(s)
+                continue
+            out.append({**s, "end": t, "type": "buildup" if rolling(max(start, t - two), t) else "verse"})
+            out.append({**s, "start": t})
+            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (start - 0.5 <= d < end)] + [round(t, 3)])
+            changes.append((round(start, 1), "drop lands at", round(t, 1)))
+            continue
+        if kind not in ("verse", "breakdown"):
+            out.append(s)
+            continue
+        cur = s
+        for b in bars:
+            c0, c1 = float(cur["start"]), float(cur["end"])
+            if not (c0 + two <= b < c1 - 4 * two) or not lands(b):
+                continue
+            if not all(mean(dp, b + k * two, b + (k + 1) * two) >= 0.8 for k in range(4)):
+                continue
+            e1 = next((x for x in bars if b + 4 * two <= x < c1 and mean(dp, x, x + two) < 0.5), c1)
+            b0 = b
+            while b0 - two >= c0 and b - b0 < 4 * two and rolling(b0 - two, b0) and mean(bass, b0 - two, b0) < 0.15:
+                b0 -= two
+            b0 = min(bars, key=lambda x: abs(x - b0))
+            if b0 > c0 + 1:
+                out.append({**cur, "end": b0})
+            if b - b0 > 1:
+                out.append({**cur, "start": b0, "end": b, "type": "buildup"})
+            out.append({**cur, "start": b, "end": e1, "type": "drop"})
+            a["drops"] = sorted((a.get("drops") or []) + [round(b, 3)])
+            changes.append((round(b, 1), f"drop in a {kind}", round(b0, 1), round(e1, 1)))
+            cur = {**cur, "start": e1}
+            if e1 >= c1 - 1:
+                cur = None
+                break
+        if cur is not None:
+            out.append(cur)
+    a["sections"] = out
+    return changes
+
+
 def _curve(a: dict, name: str):
     c = (a.get("curves") or {}).get(name)
     return np.asarray(c, dtype=float) if c else None
@@ -435,7 +514,7 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    return (drumless_drops(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    return (drumless_drops(a) + drop_landings(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
             + drummed_breakdowns(a) + repeated_drops(a) + gap_before_section(a) + outro_where_it_rings_out(a)
             + sections_on_bar_lines(a))
 

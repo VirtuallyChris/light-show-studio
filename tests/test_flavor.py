@@ -153,6 +153,30 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual(len(a["drops"]), 2)
         self.assertEqual(hook_drops(a), [])                                         # and again: nothing more to change
 
+    def test_a_drop_lands_where_the_bass_and_full_drums_come_back(self):
+        """Forester's All I Need: a snare roll without bass, then bass and full drums on the bar: the drop."""
+        from lightshow.studio.analysis import drop_landings
+        fps, bpm = 30, 120.0
+        a = self._song(120, fps, bpm); bar = 2.0
+        a["downbeats"] = [i * bar for i in range(60)]
+        n = 120 * fps
+        bass, dp, en = np.full(n, 0.3), np.full(n, 0.5), np.full(n, 0.55)
+        for t0, t1 in ((24, 32), (64, 72)):                        # the rolls: no bass
+            bass[t0 * fps:t1 * fps] = 0.0
+        for t0, t1 in ((32, 48), (72, 96)):                        # the drops: bass, full drums, louder
+            bass[t0 * fps:t1 * fps], dp[t0 * fps:t1 * fps], en[t0 * fps:t1 * fps] = 0.4, 1.0, 0.7
+        dp[48 * fps:64 * fps] = 0.2                                 # the verse between: the drums fall away
+        a["curves"] = {"bass": list(bass), "drums_present": list(dp)}
+        a["energy"] = list(en)
+        a["events"] = {"snare": [[t, 1.0, 0] for t in np.arange(24, 32, 0.25)] + [[t, 1.0, 0] for t in np.arange(64, 72, 0.25)]}
+        a["sections"] = [{"start": 0.0, "end": 64.0, "type": "verse"}, {"start": 64.0, "end": 110.0, "type": "drop"},
+                         {"start": 110.0, "end": 120.0, "type": "outro"}]
+        a["drops"] = [64.0]
+        self.assertTrue(drop_landings(a))
+        got = [(s["type"], round(s["start"])) for s in a["sections"]]
+        self.assertEqual(got, [("verse", 0), ("buildup", 24), ("drop", 32), ("verse", 48), ("buildup", 64), ("drop", 72), ("outro", 110)])
+        self.assertEqual(a["drops"], [32.0, 72.0])
+
     def test_a_drop_out_of_a_pause_starts_at_the_hit(self):
         from lightshow.studio.analysis import drop_after_pause
         a = self._song(80); fps = 30
