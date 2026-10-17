@@ -57,11 +57,26 @@ class Model:
                 self.state = LOADERS[self.name]()        # library at once (transformers) break each other
             _log(f"{self.name} loaded in {time.time() - t0:.1f} s")
             self.load_error = ""
+            self._warm_up()
             return True
         except Exception as e:  # noqa: BLE001
             self.load_error = f"{type(e).__name__}: {e}"
             _log(f"{self.name} would not load: {self.load_error}\n{traceback.format_exc()}")
             return False
+
+    def _warm_up(self):
+        """One practice run on a few seconds of quiet noise, right after loading: a GPU model's first run or
+        two pay the card's setting up (kernels chosen, memory laid out), 8-12 s for SongFormer where a warm
+        run takes 2.5, and that used to land on the first songs learned after the studio opened."""
+        import numpy as np
+        sr, secs = WARM_AUDIO.get(self.name, (22050, 10))
+        y = (0.01 * np.random.default_rng(0).standard_normal(int(sr * secs))).astype(np.float32)
+        t0 = time.time()
+        try:
+            HANDLERS[self.name](self.state, {"samples": len(y), "sr": sr}, y.tobytes())
+            _log(f"{self.name} warmed up in {time.time() - t0:.1f} s")
+        except Exception as e:  # noqa: BLE001 - a warm-up that fails costs nothing
+            _log(f"{self.name} warm-up skipped: {type(e).__name__}: {e}")
 
     def _run(self):
         while True:
@@ -179,6 +194,8 @@ LOADERS = {"songformer_infer": _load_sections, "stems_infer": _load_stems, "genr
 HANDLERS = {"songformer_infer": _sections, "stems_infer": _stems, "genre_infer": _genre, "beats_infer": _beats,
             "drums_infer": _drums}
 LOAD_LOCK = threading.Lock()
+WARM_AUDIO = {"songformer_infer": (24000, 60), "stems_infer": (22050, 30), "genre_infer": (16000, 6),   # (rate, seconds)
+              "beats_infer": (22050, 8), "drums_infer": (44100, 8)}
 MODELS: dict[str, Model] = {}
 MODELS_LOCK = threading.Lock()
 
