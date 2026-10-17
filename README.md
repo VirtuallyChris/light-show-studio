@@ -325,7 +325,9 @@ All five models (SongFormer, the stems, the genre model, Beat This, ADTOF) run i
 process** (`models_host.py`), started by the studio with the model environment's own
 interpreter (no launcher, no console window) and shared with the learn-ahead process, so
 each model loads once for the whole app (about 5 GB of memory, 10 s to load them all).
-It exits when the studio does, and closing the studio stops it at once.
+It exits when the studio does, and closing the studio stops it at once. With learn ahead
+on, every model loads (and warms up) the moment the studio opens: a "Loading models…" card
+shows each one's progress and closes itself once all are ready.
 
 The weights download automatically on first use. The environment lives in the
 project folder (`.venv-songformer`, not in git), the folder the studio runs from, and

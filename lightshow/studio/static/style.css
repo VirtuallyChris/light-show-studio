@@ -89,6 +89,14 @@ main { display: grid; grid-template-columns: 19.38rem 1fr 20.92rem; grid-templat
 
 /* ---------- workspace -------------------------------------------------- */
 .workspace { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.boot-models { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: rgba(8,9,12,.92); }
+.boot-models[hidden] { display: none; }
+.boot-card { width: min(26rem, 90vw); padding: 1.4rem 1.6rem; background: var(--bg2, #14161b); border: 1px solid var(--line, #232733); border-radius: 12px; box-shadow: 0 1rem 3rem rgba(0,0,0,.5); }
+.boot-title { font-weight: 600; margin-bottom: .8rem; }
+.boot-bar { height: 6px; border-radius: 3px; background: var(--bg4, #262a35); overflow: hidden; }
+.boot-bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent, #6c8cff), var(--accent2, #b06cff)); transition: width .4s ease; }
+.boot-list { margin-top: .8rem; display: grid; grid-template-columns: 1fr auto; gap: .25rem .8rem; font-size: .92em; color: var(--muted, #8b93a7); }
+.boot-list .ok { color: #4ade80; } .boot-list .bad { color: #f87171; }
 .preview-wrap { height: 9.231rem; background: #08090c; border-bottom: 1px solid var(--line); position: relative; }
 .room-view-btn { position: absolute; top: .3rem; right: .4rem; opacity: .55; padding: .1rem .45rem; font-size: 1rem; background: transparent; border-color: transparent; }
 .room-view-btn:hover { opacity: 1; }

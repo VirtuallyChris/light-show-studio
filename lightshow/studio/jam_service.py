@@ -168,6 +168,8 @@ class JamService:
         (42 s later, last time, and the first song of the jam waited for it). The real studio only."""
         if self._fetch_on():
             from .fetch_ahead import ANALYSER
+            from .model_worker import HOST
+            threading.Thread(target=HOST.warm_all, daemon=True, name="models-warm").start()     # the models, at once
             threading.Thread(target=ANALYSER.warm, daemon=True, name="analyser-warm").start()
 
     def _fetch_on(self) -> bool:

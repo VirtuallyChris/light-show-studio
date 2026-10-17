@@ -2569,6 +2569,30 @@
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {};
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
+  bootModels();
+  /** As the studio opens, the models load (and warm up) in the model host: a card over the app shows them
+   *  coming up, and goes when all are ready (or one fails: the analysis carries on without it). Nothing to
+   *  wait for (no models installed, learn ahead off, a test copy): no card. */
+  async function bootModels() {
+    const NAMES = { songformer_infer: 'Sections', stems_infer: 'Stems', genre_infer: 'Genre', beats_infer: 'Beats', drums_infer: 'Drums' };
+    const WORDS = { waiting: 'waiting', loading: 'loading…', warming: 'warming up…', ready: 'ready', failed: 'could not load' };
+    const card = $('#bootModels'), t0 = performance.now();
+    for (;;) {
+      let d = null;
+      try { d = await (await fetch('/api/models')).json(); } catch (e) { /* the server is starting */ }
+      if (d && !d.expected) break;                                      // no models to wait for
+      const m = (d && d.models) || null, names = Object.keys(NAMES);
+      const done = m && names.every(n => m[n] === 'ready' || m[n] === 'failed');
+      if (done || performance.now() - t0 > 120000) break;               // (never longer than two minutes)
+      card.hidden = false;
+      const score = { waiting: 0, loading: 0.25, warming: 0.7, ready: 1, failed: 1 };
+      $('#bootBar').style.width = `${Math.round(100 * names.reduce((k, n) => k + (score[(m || {})[n]] || 0), 0) / names.length)}%`;
+      $('#bootList').innerHTML = names.map(n => { const st = (m || {})[n] || 'waiting';
+        return `<span>${NAMES[n]}</span><span class="${st === 'ready' ? 'ok' : st === 'failed' ? 'bad' : ''}">${WORDS[st] || st}</span>`; }).join('');
+      await new Promise(r => setTimeout(r, 400));
+    }
+    card.hidden = true;
+  }
   window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels };
 })();

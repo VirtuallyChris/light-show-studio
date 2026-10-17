@@ -46,6 +46,7 @@ class Model:
     def __init__(self, name: str):
         self.name, self.q = name, queue.Queue()
         self.state, self.load_error = None, ""
+        self.phase = "loading"                                # loading -> warming -> ready (or failed)
         threading.Thread(target=self._run, daemon=True, name=f"model-{name}").start()
 
     def _load(self):
@@ -57,10 +58,13 @@ class Model:
                 self.state = LOADERS[self.name]()        # library at once (transformers) break each other
             _log(f"{self.name} loaded in {time.time() - t0:.1f} s")
             self.load_error = ""
+            self.phase = "warming"
             self._warm_up()
+            self.phase = "ready"
             return True
         except Exception as e:  # noqa: BLE001
             self.load_error = f"{type(e).__name__}: {e}"
+            self.phase = "failed"
             _log(f"{self.name} would not load: {self.load_error}\n{traceback.format_exc()}")
             return False
 
@@ -246,6 +250,11 @@ def _serve(conn: socket.socket, token: str) -> None:
                 except OSError:
                     pass                                 # the asker went away
 
+            if name == "host" and req.get("op") == "status":    # where each model stands (the studio's loading screen)
+                with MODELS_LOCK:
+                    have = dict(MODELS)
+                answer({"models": {n: (have[n].phase if n in have else "waiting") for n in LOADERS}})
+                continue
             if name not in LOADERS:
                 answer({"error": f"no model {name!r}"})
                 continue

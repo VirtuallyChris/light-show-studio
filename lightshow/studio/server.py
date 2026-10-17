@@ -523,6 +523,7 @@ class Studio:
             web.get("/ws", self.websocket),
             web.post("/api/closing", self.closing),
             web.get("/api/settings", self.settings),
+            web.get("/api/models", self.models_status),
             web.post("/api/settings/light_offset", self.set_light_offset),
             web.get("/api/cast/devices", self.cast_devices),
             web.post("/api/cast/connect", self.cast_connect),
@@ -815,6 +816,15 @@ class Studio:
                 await self._quit("Studio window closed. Stopping.")
         self._closing_task = asyncio.create_task(later())
         return web.json_response({"ok": True})
+
+    async def models_status(self, request):
+        """The models loading as the studio opens: {"models": {name: waiting|loading|warming|ready|failed}},
+        or {"models": null} when there are none to wait for (not installed, learn ahead off, a test copy)."""
+        from .model_worker import HOST
+        loop = asyncio.get_running_loop()
+        expected = (not self.read_only) and self.jam._fetch_on()       # models to wait for at all
+        got = await loop.run_in_executor(None, HOST.status) if expected else None
+        return web.json_response({"models": got, "expected": expected})
 
     # -- pages ------------------------------------------------------------------
     async def index(self, request):

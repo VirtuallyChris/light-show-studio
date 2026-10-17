@@ -226,6 +226,22 @@ class ModelHost:
             return None, b""
         return slot[1], slot[2]
 
+    def status(self) -> dict | None:
+        """Where each model stands ({name: waiting|loading|warming|ready|failed}), or None while there is
+        no host (not started, or the models are not installed). Never starts one."""
+        if self.sock is None:
+            return None
+        r, _ = self.ask("host", {"op": "status"}, timeout=2.0)
+        return (r or {}).get("models")
+
+    def warm_all(self) -> None:
+        """Start the host and have it load (and warm up) every model now, side by side with the rest of
+        the studio starting: the first song of a jam should find them ready."""
+        if not self.connect():
+            return
+        for name in MODEL_NAMES:
+            threading.Thread(target=self.ask, args=(name, {"op": "load"}), kwargs={"timeout": 900.0}, daemon=True).start()
+
     def kill(self) -> None:
         with self.lock:
             sock, self.sock = self.sock, None
@@ -250,6 +266,7 @@ def _read_exactly(f, n: int) -> bytes | None:
 
 
 HOST = ModelHost()
+MODEL_NAMES = ("songformer_infer", "stems_infer", "genre_infer", "beats_infer", "drums_infer")
 DETACHED_PROCESS = 0x00000008                              # no console (and no console host process) at all
 
 
