@@ -80,7 +80,8 @@ class Model:
 
     def _run(self):
         while True:
-            req, payload, answer = self.q.get()
+            req, payload, answer, queued = self.q.get()
+            waited = time.time() - queued
             if not self._load():
                 answer({"error": self.load_error, "load_failed": True})
                 continue
@@ -90,7 +91,10 @@ class Model:
             t0 = time.time()
             try:
                 obj, out = HANDLERS[self.name](self.state, req, payload)
-                answer({**obj, "seconds": round(time.time() - t0, 2)}, out)
+                took = time.time() - t0
+                if took > 5 or waited > 2:                   # (a slow song learned: which model, and why)
+                    _log(f"{time.strftime('%H:%M:%S')} {self.name}: waited {waited:.1f} s in its queue, ran {took:.1f} s")
+                answer({**obj, "seconds": round(took, 2)}, out)
             except Exception as e:  # noqa: BLE001 - one bad request must not end the model
                 answer({"error": f"{type(e).__name__}: {e}"})
 
@@ -245,7 +249,7 @@ def _serve(conn: socket.socket, token: str) -> None:
             if name not in LOADERS:
                 answer({"error": f"no model {name!r}"})
                 continue
-            model(name).q.put((req, payload, answer))
+            model(name).q.put((req, payload, answer, time.time()))
     except (OSError, ValueError):
         return
     finally:
@@ -289,6 +293,13 @@ def main() -> int:
 
     real_stdout.write(json.dumps({"ready": True, "port": port, "pid": os.getpid()}) + "\n")
     real_stdout.flush()
+    # Nothing reads the owner's pipe after this line: anything a library writes to the process's own stdout
+    # from native code (not through Python) would fill it and freeze that thread, silently, mid-request.
+    # From here on the process's stdout is its log file.
+    try:
+        os.dup2(sys.stderr.fileno(), 1)
+    except OSError:
+        pass
     _log(f"serving on 127.0.0.1:{port}")
     while True:
         conn, _ = srv.accept()

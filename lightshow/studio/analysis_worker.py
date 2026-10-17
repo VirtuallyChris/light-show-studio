@@ -16,7 +16,14 @@ import sys
 
 
 def main() -> None:
-    out = sys.stdout
+    # The replies go out on a copy of the process's stdout; the process's own stdout becomes its log (stderr),
+    # so nothing printed from native code can land in the replies, or fill the pipe and freeze the analysis.
+    import os
+    out = os.fdopen(os.dup(sys.stdout.fileno()), "w", encoding="utf-8")
+    try:
+        os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    except OSError:
+        pass
     sys.stdout = sys.stderr                              # the analysis prints as it goes: never into the replies
 
     def reply(obj: dict) -> None:
@@ -37,6 +44,9 @@ def main() -> None:
             continue
         try:
             req = json.loads(line)
+            import time as _t
+            print(f"{_t.strftime('%H:%M:%S')} [worker] got {os.path.basename(req.get('path', ''))}{' (playing now: urgent)' if req.get('urgent') else ''}",
+                  file=sys.stderr, flush=True)
             # the song playing now, not yet learned: above normal priority until it is done (the lights only
             # glow meanwhile); every other song below normal, so the lights and the music come first
             priority.process(priority.ABOVE_NORMAL if req.get("urgent") else priority.BELOW_NORMAL)
