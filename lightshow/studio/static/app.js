@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 9;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out
+  const SHOW_VERSION = 10;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1734,6 +1734,8 @@
       drops: order(l => l.drops, r => r.base[0]),                    // in the song's own order; the first that fit are used
     };
     S.stepOrder = ['run', 'bounce', 'random'][Math.floor(rnd() * 3)];          // how this song's stage steps go
+    const tint = rnd();                                                         // its stars: white half the time
+    S.starTint = tint < 0.5 ? 'white' : tint < 0.8 ? 'palette' : 'warm';
     // what drifts over its intro, breakdowns and outro (it used to be meteors in every song)
     S.drift = [['meteors', { every: 4, chance: 0.35, travel: 4 }], ['steps', { zones: 8, every: 2, decay: 2.5, order: 'random' }, { opacity: 0.6 }],
                ['sparkle', { density: 0.05, life: 0.4 }, { opacity: 0.8 }]][Math.floor(rnd() * 3)];
@@ -2003,14 +2005,14 @@
     switch (s.type) {
       case 'intro':
         clip(0, starBed(look.intro)[0], b0, len, starBed(look.intro)[1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.08, life: 4 }, { blend: 'add' });   // a calm song: the stars come out
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.08, life: 4, tint: S.starTint || 'white' }, { blend: 'add' });   // a calm song: the stars come out
         else top(S.drift, { opacity: ((S.drift || [])[2] || {}).opacity || 1 });
         drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
         if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
         else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.12, life: 3 }, { blend: 'add' });   // single white stars, twinkling here and there
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.12, life: 3, tint: S.starTint || 'white' }, { blend: 'add' });   // single white stars, twinkling here and there
         else top(look.verseTop[v]);                                     // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
         if (!chill && drumsHere && longStrips && snaresHere >= len / 8)   // the snare lands on a quarter of the ceiling, in turn
@@ -2019,7 +2021,10 @@
       case 'buildup':
         // every crazy snare build, and every other buildup of a hard song, jumps around the room
         zoneBuild = hard && len >= 8 && longStrips && (snaresHere >= 8 || (style === 'rave' && variant % 2 === 0));
-        clip(0, 'breathe', b0, len, { speed: 2, floor: 0.02 });
+        // a soft glow under the build that brightens toward the drop (it used to breathe down to black
+        // every bar, drums or not); the hits on top, following the snares where they pick up, build it
+        clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.3 });
+        clip(1, 'colorwash', b0, len, { speed: 8, intensity: 0.45 }, { blend: 'add', fadeIn: Math.max(1, Math.round(len * 0.85)) });
         // The build is felt all around the room: every snare (else every hit, else a build of beats,
         // eighths and sixteenths) lights random stretches of the strips and lamps, more of them,
         // brighter and snappier as it goes. A hard song's crazier builds start out in the dark, so the
@@ -2046,7 +2051,7 @@
                                                                                  { ...(r.top[2] || {}), opacity: ((r.top[2] || {}).opacity || 1) * 0.6 }]);
           else top(r.top);
         }
-        if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 2 }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
+        if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 2, tint: S.starTint || 'white' }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
         drums(chill ? 0.8 : 1, 0.85);
         // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
         const pump = chill ? 0 : style === 'rave' ? 0.5 : style === 'dance' ? 0.4 : 0.3;
@@ -2067,13 +2072,13 @@
       }
       case 'breakdown':
         clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 4 }, { blend: 'add' });
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 4, tint: S.starTint || 'white' }, { blend: 'add' });
         else top(S.drift, { opacity: 0.85 * (((S.drift || [])[2] || {}).opacity || 1) });
         drums(0.5, 0.5);
         break;
       case 'outro':
         clip(0, look.outro[0], b0, len, look.outro[1]);
-        if (stars) clip(1, 'starlight', b0, len, { density: 0.06, life: 5 }, { blend: 'add' });   // and go out again, one by one
+        if (stars) clip(1, 'starlight', b0, len, { density: 0.06, life: 5, tint: S.starTint || 'white' }, { blend: 'add' });   // and go out again, one by one
         else top(S.drift, { opacity: ((S.drift || [])[2] || {}).opacity || 1 });
         drums(0.45, 0.55);
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
@@ -2317,11 +2322,11 @@
    *  full-length layer just adds noise. And it belongs where the music is big:
    *  drops and hyped verses get the accents, quiet sections stay quiet.
    */
-  // How many accents a section may carry on top of its drums and its base: one-shots on the biggest
-  // lead moments, and texture (the lead traced, ghost-note sparks). Every style used to get nearly the
-  // same pile (a drop of a chill song had riff strikes, sweeps, color slams, sparks and the lead traced
-  // all at once), so every show felt like a rave; now the calmer the style, the fewer.
-  const ACCENTS = { chill: { shots: 0, texture: 0 }, groove: { shots: 2, texture: 1 }, dance: { shots: 3, texture: 1 }, rave: { shots: 5, texture: 2 } };
+  // How much texture a section may carry on top of its drums and its base (the lead traced, ghost-note
+  // sparks): the calmer the style, the less. One-hits are not rationed: every strong lead moment of a
+  // drop or a hyped verse gets one, in every style (the user: "as many fun one-hits as possible, in
+  // any genre"), a bar apart at least so each one lands; a calm song's are gentle (ripples, sweeps).
+  const ACCENTS = { chill: { texture: 0 }, groove: { texture: 1 }, dance: { texture: 1 }, rave: { texture: 2 } };
   function addSignature(s, b0, len, variant, style) {
     const hard = style === 'dance' || style === 'rave';
     const budget = ACCENTS[style] || ACCENTS.groove;
@@ -2353,13 +2358,12 @@
     }
     // one-shots sprinkled on the biggest lead moments, so a long drop keeps surprising
     const hype = loud || (s.type === 'verse' && leads.length >= 12);
-    const most = s.type === 'drop' ? budget.shots : Math.min(2, budget.shots);
-    if (hype && leads.length && most) {
-      const picks = [];
+    if (hype && leads.length) {
+      const picks = [], strong = 0.5 * Math.max(...leads.map(e => e[1]));
       for (const e of [...leads].sort((x, y) => y[1] - x[1])) {
+        if (e[1] < strong) break;
         const bt = t2b(e[0]);
-        if (bt > b0 + 3 && bt < b0 + len - 3 && picks.every(q => Math.abs(q - bt) >= 8)) picks.push(bt);
-        if (picks.length >= most) break;
+        if (bt > b0 + 3 && bt < b0 + len - 3 && picks.every(q => Math.abs(q - bt) >= 4)) picks.push(bt);
       }
       const shots = hard ? ['sweepout', 'colorslam', 'whiteflash'] : style === 'chill' ? ['ripple', 'sweepout'] : ['sweepout', 'colorslam', 'ripple'];
       picks.sort((x, y) => x - y).forEach((bt, k) => {

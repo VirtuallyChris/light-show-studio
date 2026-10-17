@@ -877,7 +877,12 @@ noise.
   eighths, each flashing in turn and fading, along the strip, back and forth or
   at random (each song its own order). What drifts over a song's intro,
   breakdowns and outro is drawn too: meteors, slow random stage steps, or a few
-  sparkles. The hyper chase is for dance and rave drops only. Motions that
+  sparkles. The hyper chase is for dance and rave drops only. Every strong lead
+  moment of a drop or a hyped verse gets a one-hit (a sweep, a color slam, a
+  white flash; ripples and sweeps in a calm song), in every style, a bar apart at
+  least. A song's stars are white half the time, else its own colors or warm
+  white. A buildup glows softly and brightens toward the drop (it never drops to
+  black), with the build's hits on top. Motions that
   sweep the strip (comets, a scanner, a bounce, meteors, an orbit) are drawn half
   as often as the others, and stage steps a little less: over 57 songs, sweeps
   are 4 in 10 drop motions, and 7 songs got two.
