@@ -857,7 +857,10 @@
       return { name: lightLabel(fr.light), room: r ? r.name : '', kind: lightKind(fr.light), px: fr.px, at: at ? at.i : 0, n: at ? at.n : 1 };
     }) });
   }
-  function openRoomView() { window.open('/static/roomview.html', 'lss-roomview', 'width=1000,height=560'); }
+  // (opened without a link back to the studio: a window opened from a page runs on that page's thread, so the
+  // room view's drawing and the studio's own took turns and both stuttered, full screen on a 4K monitor most
+  // of all; on its own it gets its own process. The frames come over the BroadcastChannel either way.)
+  function openRoomView() { window.open('/static/roomview.html', 'lss-roomview', 'noopener,width=1000,height=560'); }
   function drawPreview(frame) {
     const W = Math.floor(pv.clientWidth * devicePixelRatio), H = Math.floor(pv.clientHeight * devicePixelRatio);
     if (pv.width !== W || pv.height !== H) { pv.width = W; pv.height = H; }

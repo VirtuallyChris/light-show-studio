@@ -31,10 +31,15 @@
   addEventListener('resize', () => { dirty = true; });
   setInterval(() => { dirty = true; }, 1000);                // (so "waiting" shows when the frames stop)
 
+  // Drawn at most at about 1080p and stretched to the window: full screen on a 4K monitor is ~8 million
+  // pixels a frame, and clearing and painting the glows at that size lagged. The lights are soft glows, so
+  // the stretch does not show.
+  const MAX_PIXELS = 2.1e6;
   function size() {
-    const W = Math.floor(innerWidth * devicePixelRatio), H = Math.floor(innerHeight * devicePixelRatio);
+    const k = Math.min(devicePixelRatio, Math.sqrt(MAX_PIXELS / Math.max(1, innerWidth * innerHeight)));
+    const W = Math.floor(innerWidth * k), H = Math.floor(innerHeight * k);
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.setTransform(k, 0, 0, k, 0, 0);
     return [innerWidth, innerHeight];
   }
   const rgb = (px, i) => [px[i * 3], px[i * 3 + 1], px[i * 3 + 2]];
