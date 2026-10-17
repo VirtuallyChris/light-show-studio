@@ -72,8 +72,36 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
             from . import beats_model
             got = beats_model.model_grid(y, sr, duration) if beats_model.available() else None
             if got:
-                bpm, beats, phases = got
-                beat_source = "beat this"
+                # the model's tempo, librosa's fit of the beats to the onsets at that tempo, the model's
+                # bar lines on the result (see beats_model.py)
+                m_bpm, m_beats, m_phases, m_down, m_raw = got
+                f_bpm, _ = fit_grid(onset, onset_times, m_bpm)
+                f_per = 60.0 / f_bpm
+                # where the beats sit: the model's (the onsets' strongest pulse can be the off-beat, half
+                # a beat away: Great Good Fine Ok, SHOTS I'M NOT CALLING), as their circular mean
+                ang = float(np.angle(np.mean(np.exp(2j * np.pi * np.asarray(m_beats, dtype=float) / f_per))))
+                f_off = (ang / (2 * np.pi) * f_per) % f_per
+                # then onto the attacks themselves: a nudge of at most 70 ms (never near the off-beat),
+                # wherever the song's onsets are strongest on the whole grid (the model sits ~20 ms early)
+                o_fps = sr / HOP
+                at = lambda off: float(np.interp(np.arange(off, duration, f_per) * o_fps, np.arange(len(onset)), onset).mean())
+                f_off = max((f_off + d for d in np.arange(-0.07, 0.0701, 0.005)), key=at) % f_per
+                f_beats = np.arange(f_off, duration, f_per)
+                # the last word on where the beats sit: if librosa's grid (same tempo) sits on the song's
+                # attacks clearly better than this one, the model is on the off-beat (Kitten's ME) and
+                # librosa's beats are taken, the model still placing the bar lines
+                if abs(bpm / f_bpm - 1) <= 0.01:
+                    mine, theirs = beats_model.fits(f_beats, onset, o_fps), beats_model.fits(beats, onset, o_fps)
+                    if mine < 0.5 and theirs >= mine + 0.4:
+                        f_beats = np.asarray(beats, dtype=float)
+                        print(f"[beats] the model's beats sit off the attacks ({mine:.2f} vs {theirs:.2f}): librosa's taken")
+                f_phases = beats_model.bar_places(f_beats, m_down) if abs(f_bpm / m_bpm - 1) <= 0.015 else None
+                if f_beats is not None and len(f_beats) and np.asarray(beats).shape == f_beats.shape and np.allclose(f_beats, beats):
+                    f_phases = f_phases or [0, 1, 2, 3]          # librosa's beats: the section changes place the bar line
+                if f_phases:
+                    bpm, beats, phases, beat_source = f_bpm, f_beats, f_phases, "beat this tempo, onset fit"
+                else:
+                    bpm, beats, phases, beat_source = m_bpm, m_beats, m_phases, "beat this"
         except Exception as e:  # noqa: BLE001 - librosa's grid stands
             print(f"[beats] Beat This skipped: {type(e).__name__}: {e}")
     first = float(beats[0]) if len(beats) else first

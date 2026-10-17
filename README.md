@@ -905,10 +905,12 @@ noise.
   half, the snare on the other); groove drops flash a fifth of each strip on the
   snare; verses land each snare on a quarter of the ceiling, going round.
 - **Beats and bar lines come from Beat This.** Where the models run (a song
-  file, a copy learned ahead), the beat grid is fitted through the beats a
-  trained model (Beat This, CPJKU) hears: one steady tempo, each beat numbered
-  from the gap to the one before so a beat it skips or doubles in a break cannot
-  slide the count. The bar lines (the yellow marks, every 4 beats: all songs are
+  file, a copy learned ahead), a trained model (Beat This, CPJKU) sets the tempo
+  (fitted through the beats it hears: one steady tempo from its longest steady
+  run, so a stretch it counts in double time cannot stretch it), the onsets then
+  refine that tempo, the beats sit where the model hears them, nudged at most
+  70 ms onto the attacks, and if they still sit clearly worse on the attacks than
+  librosa's (the model on the off-beat) librosa's beats are taken. The bar lines (the yellow marks, every 4 beats: all songs are
   in four) are where most of the model's downbeats land. Past 135 bpm every other
   beat is kept, the half the downbeats are on (a beat is the pulse you nod to).
   librosa's tracker stands only when the model cannot run or hears no steady
