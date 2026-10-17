@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 10;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow
+  const SHOW_VERSION = 11;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1702,7 +1702,7 @@
     rock: { name: 'Rock show', intro: ['breathe', { speed: 4, floor: 0.05 }], verse: [['gradient', { speed: 16, intensity: 0.4 }], ['breathe', { speed: 2, floor: 0.1 }]],
       verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['bounce', { speed: 2, tail: 0.3 }], ['steps', { zones: 8, every: 1, decay: 0.75, order: 'run' }, { opacity: 0.75 }]],
       breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['breathe', { speed: 4, floor: 0.05 }], motion: ['scanner', 'comets', 'bounce', 'steps'],
-      drops: [{ base: ['alternate', { every: 1, size: 2 }], top: 'motion' }, { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
+      drops: [{ base: ['halves', { every: 2, dim: 0.2 }], top: 'motion' },   // (Alternate's stripes only flip: on a strip they read as lights stuck on) { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
               { base: ['scanner', { speed: 1, size: 0.2, floor: 0.15 }], top: ['flash', { every: 2, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true }] },
     storm: { name: 'Storm', intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.9 }], verse: [['battle', { speed: 16, surge: 0.1 }], ['halves', { every: 2, dim: 0.15 }]],
       verseTop: [['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.25 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }], ['steps', { zones: 8, every: 1, decay: 0.6, order: 'random' }, { opacity: 0.8 }]],
