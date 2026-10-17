@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 16;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only
+  const SHOW_VERSION = 17;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1770,7 +1770,7 @@
     rock: { name: 'Rock show', intro: ['breathe', { speed: 4, floor: 0.05 }], verse: [['gradient', { speed: 16, intensity: 0.4 }], ['breathe', { speed: 2, floor: 0.1 }]],
       verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['bounce', { speed: 2, tail: 0.3 }], ['steps', { zones: 8, every: 1, decay: 0.75, order: 'run' }, { opacity: 0.75 }]],
       breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['breathe', { speed: 4, floor: 0.05 }], motion: ['scanner', 'comets', 'bounce', 'steps'],
-      drops: [{ base: ['meter', { direction: 'out', low: 0.45, gain: 1.1, floor: 0.12, color: 'cycle' }], top: 'motion' },   // a VU meter from the center, bouncing with every hit { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
+      drops: [{ base: ['meter', { direction: 'out', low: 0.45, gain: 1.1, floor: 0.12, color: 'cycle' }], top: 'motion', fast: true },   // (dance and rave: in groove it flickers)   // a VU meter from the center, bouncing with every hit { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
               { base: ['scanner', { speed: 1, size: 0.2, floor: 0.15 }], top: ['flash', { every: 2, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true }] },
     storm: { name: 'Storm', intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.9 }], verse: [['battle', { speed: 16, surge: 0.1 }], ['halves', { every: 2, dim: 0.15 }]],
       verseTop: [['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.25 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }], ['steps', { zones: 8, every: 1, decay: 0.6, order: 'random' }, { opacity: 0.8 }]],
@@ -1786,6 +1786,7 @@
   function pickLook() {
     const a0 = S.analysis || {}, w = lookWeights();
     const seed = Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100);
+    S.lookSeed = seed;
     let n = 0; const rnd = () => Effects.hash(seed + 7919 * ++n);
     // a weighted draw without repeats: each family's entries as likely as the family suits the song
     // (Efraimidis-Spirakis keys), one entry per effect so two picks are never the same thing twice
@@ -1991,7 +1992,14 @@
   // (orange and red at Halloween): little extras, never the base, the comets or the drums.
   const EXTRAS = new Set(['hookstrike', 'sweepout', 'colorslam', 'ghostspark', 'fillrush', 'sparkle', 'meteors', 'ripple', 'whiteflash']);
   const extraHere = (effect, start) => S.pairMode && S.jamExtras && EXTRAS.has(effect) && Effects.hash(Math.round(start * 4) * 7919 + effect.length * 104729) < 0.35;
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
+  /** Where an effect that opens from a point starts, mixed up clip by clip (the same on every rebuild):
+   *  the middle a little under half the time, else an end or a quarter of the way along. */
+  function originFor(effect, start) {
+    const e = Effects.byId[effect]; if (!e || !e.params.origin) return {};
+    const h = Effects.hash(Math.round(start * 4) * 7919 + effect.length * 131 + effect.charCodeAt(0) * 17 + (S.lookSeed || 0));
+    return { origin: h < 0.4 ? 0.5 : [0, 1, 0.25, 0.75][Math.floor((h - 0.4) / 0.6 * 4)] };
+  }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
@@ -2045,11 +2053,14 @@
       if (fam === 'orbit') return clip(1, 'orbit', b0, len, { speed: sp(2), count: 3 }, { opacity: 0.9, ...extra });
       if (fam === 'ripples') return clip(1, 'ripple', b0, len, { every: sp(1), travel: sp(1.5), width: 0.12 }, { opacity: 0.9, ...extra });
       if (fam === 'bounce') return clip(1, 'bounce', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
+      if (fam === 'scanner' && acrossRooms()) return clip(1, 'roomscan', b0, len, { speed: sp(8), width: 0.7 }, { opacity: 0.9, ...extra });   // slower, across both rooms
       if (fam === 'scanner') return clip(1, 'scanner', b0, len, { speed: sp(2), size: 0.15, floor: 0 }, { opacity: 0.85, ...extra });
       if (fam === 'steps') return clip(1, 'steps', b0, len, { zones: 8, every: sp(1), decay: Math.max(0.5, sp(1)) * 0.8, order: S.stepOrder || 'run' }, { opacity: 0.95, ...extra });
       return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
     };
     const look = S.mix;                                                // the song's own mix (pickLook)
+    // a scanner goes across both rooms (slowly) in about half the sections that have one, when there are rooms to cross
+    const acrossRooms = () => room && Effects.hash(b0 * 31 + 5 + (S.lookSeed || 0)) < 0.5;
     // long strips (more than a dozen segments) run the length of a ceiling: room for hits on part of them
     const longStrips = showLights().some(l => lightKind(l) === 'long');
     let zoneBuild = false;
@@ -2081,6 +2092,7 @@
         if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
         else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
         if (stars) clip(1, 'starlight', b0, len, { density: 0.12, life: 3, tint: S.starTint || 'white' }, { blend: 'add' });   // single white stars, twinkling here and there
+        else if (look.verseTop[v] && look.verseTop[v][0] === 'scanner' && acrossRooms()) clip(1, 'roomscan', b0, len, { speed: 16, width: 0.7 }, { opacity: 0.75 });
         else top(look.verseTop[v]);                                     // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
         if (!chill && drumsHere && longStrips && snaresHere >= len / 8)   // the snare lands on a quarter of the ceiling, in turn

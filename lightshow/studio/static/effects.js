@@ -83,11 +83,14 @@ const Effects = (() => {
   function dirX(c, x) {
     switch (c.p.direction) {
       case 'rev': return 1 - x;
-      case 'out': return Math.abs(x - 0.5) * 2;      // center = 0, ends = 1
-      case 'in': return 1 - Math.abs(x - 0.5) * 2;   // ends = 0, center = 1
+      case 'out': return away(c, x);                 // the starting point = 0, the far end = 1
+      case 'in': return 1 - away(c, x);              // the ends = 0, the starting point = 1
       default: return x;
     }
   }
+  /** How far x is from where the effect starts (its "Starts from": the middle unless set), 0..1, 1 at the
+   *  farther end: from the middle it opens both ways, from an end it runs the whole strip one way. */
+  function away(c, x) { const o = c.p.origin ?? 0.5; return Math.abs(x - o) / Math.max(o, 1 - o, 1e-3); }
   const DIRS = { fwd: 'forward', rev: 'reverse', out: 'center out', in: 'ends in' };
 
   // common param definitions
@@ -98,6 +101,7 @@ const Effects = (() => {
     direction: (def = 'fwd') => ({ type: 'select', def, options: DIRS, label: 'Direction' }),
     color: () => ({ type: 'select', def: 'cycle', options: { cycle: 'palette cycle', gradient: 'palette gradient', first: 'first color', second: 'second color' }, label: 'Color' }),
     decay: (def = 0.5) => ({ type: 'range', def, min: 0.05, max: 1, step: 0.01, label: 'Decay' }),
+    origin: () => ({ type: 'range', def: 0.5, min: 0, max: 1, step: 0.05, label: 'Starts from (0 left, 1 right)' }),
     count: (def = 2, max = 8) => ({ type: 'range', def, min: 1, max, step: 1, label: 'Count' }),
     bool: (label, def = false) => ({ type: 'bool', def, label }),
   };
@@ -113,7 +117,13 @@ const Effects = (() => {
 
   // ---------- effects ---------------------------------------------------------
   const E = [];
-  const def = (e) => E.push(e);
+  // effects that open out from a point (or come in to it): where that point is can be set, the middle by default
+  const FROM_A_POINT = new Set(['wobble', 'deep808', 'heartbeat', 'ripple', 'hookstrike', 'dropblast', 'sweepout']);
+  const def = (e) => {
+    e.params = e.params || {};
+    if ((FROM_A_POINT.has(e.id) || e.params.direction) && !e.params.origin) e.params.origin = P.origin();
+    E.push(e);
+  };
 
   // ===== SLOW =====
   def({ id: 'solid', name: 'Solid color', cat: 'slow', desc: 'One palette color, optionally cycling per N beats.', swatch: ['#ff2fa0', '#ff2fa0'],
@@ -178,7 +188,7 @@ const Effects = (() => {
       clear(c.out); const m = c.music || {}, per = (m.wobble && m.wobble.per) || parseFloat(c.p.per) || 2;
       const u = c.beat * per, env = Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * u), 1.4) * (0.45 + 0.55 * clamp((m.bassLevel ?? 0.7) * 1.2));
       const col = colorFor(c, 0.5, Math.floor(u)), half = 0.12 + 0.38 * env;
-      for (let i = 0; i < c.n; i++) { const x = Math.abs((i + 0.5) / c.n - 0.5); if (x <= half) { const v = env * (1 - 0.5 * x / Math.max(1e-3, half)); set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } }
+      for (let i = 0; i < c.n; i++) { const x = away(c, (i + 0.5) / c.n) / 2; if (x <= half) { const v = env * (1 - 0.5 * x / Math.max(1e-3, half)); set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } }
     } });
 
   def({ id: 'deep808', name: '808 glow', cat: 'medium', desc: 'On every 808 (a bass hit that holds, low and long) the whole room sinks into one deep color that dies away as slowly as the 808 does.', swatch: ['#7a0000', '#000000'],
@@ -187,7 +197,7 @@ const Effects = (() => {
       clear(c.out); const h = (c.music || {}).b808; if (!h || h.index < 0) return;
       const hold = Math.max(0.4, h.hold || 0.8), v = c.p.depth * (h.age < 0.04 ? h.age / 0.04 : Math.exp(-(h.age - 0.04) / (hold * 0.9))) * (0.6 + 0.4 * h.strength);
       if (v < 0.01) return; const col = colorFor(c, 0.5, h.index);
-      for (let i = 0; i < c.n; i++) { const x = Math.abs((i + 0.5) / c.n - 0.5) * 2, g = v * (1 - 0.35 * x); set(c.out, i, col[0] * g, col[1] * g, col[2] * g, g); }
+      for (let i = 0; i < c.n; i++) { const x = away(c, (i + 0.5) / c.n), g = v * (1 - 0.35 * x); set(c.out, i, col[0] * g, col[1] * g, col[2] * g, g); }
     } });
 
   def({ id: 'ticks', name: 'Hat ticks', cat: 'fast', desc: 'Tiny white ticks racing along the strip through a trap hi-hat roll, as fast as the roll.', swatch: ['#ffffff', '#000000'],
@@ -228,7 +238,7 @@ const Effects = (() => {
       clear(c.out); const h = (c.music || {}).kick; if (!h || h.index < 0) return;
       const a = h.age, v = Math.exp(-a / 0.11) + (a > 0.2 ? 0.55 * Math.exp(-(a - 0.2) / 0.13) : 0); if (v < 0.01) return;
       const col = colorFor(c, 0.5, 0), g = Math.min(1, v);
-      for (let i = 0; i < c.n; i++) { const x = Math.abs((i + 0.5) / c.n - 0.5) * 2, w = g * (1 - 0.5 * x); set(c.out, i, col[0] * w, col[1] * w, col[2] * w, w); }
+      for (let i = 0; i < c.n; i++) { const x = away(c, (i + 0.5) / c.n), w = g * (1 - 0.5 * x); set(c.out, i, col[0] * w, col[1] * w, col[2] * w, w); }
     } });
 
   def({ id: 'fireworks', name: 'Fireworks', cat: 'room', desc: 'Rockets climb the strip and burst into falling sparks of the palette\'s colors, a few a bar. For the last drop of a song that goes all out.', swatch: ['#ff3b3b', '#ffd23b'],
@@ -344,9 +354,9 @@ const Effects = (() => {
     params: { speed: P.speed(8, 'Battle length (beats)'), surge: { type: 'range', def: 0.15, min: 0, max: 0.5, step: 0.01, label: 'Beat surge' }, soft: { type: 'range', def: 0.08, min: 0, max: 0.5, step: 0.01, label: 'Front softness' } },
     render(c) { const a = c.pal[0], b = c.pal[1 % c.pal.length]; const u = c.beat / c.p.speed; const base = 0.5 + 0.35 * Math.sin(u * 2 * Math.PI); const side = Math.floor(c.beat) % 2 === 0 ? 1 : -1; const front = clamp(base + side * c.p.surge * c.kick, 0.02, 0.98); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const m = clamp((x - front) / (c.p.soft + 0.001) + 0.5); const glow = 1 + 0.6 * Math.exp(-1 * ((x - front) / 0.05) ** 2); set(c.out, i, lerp(a[0], b[0], m) * glow, lerp(a[1], b[1], m) * glow, lerp(a[2], b[2], m) * glow); } } });
 
-  def({ id: 'ripple', name: 'Ripples', cat: 'medium', desc: 'Rings expand from the center on every beat over a transparent background.', swatch: ['#ffffff', '#00c8ff'],
+  def({ id: 'ripple', name: 'Ripples', cat: 'medium', desc: 'Rings expand from their starting point (the middle unless set) on every beat over a transparent background.', swatch: ['#ffffff', '#00c8ff'],
     params: { every: P.speed(1, 'Every (beats)'), travel: P.speed(1, 'Travel time (beats)'), width: P.size(0.1, 'Ring width'), color: P.color() },
-    render(c) { clear(c.out); const cur = Math.floor(c.beat / c.p.every); const alive = Math.ceil(c.p.travel / c.p.every) + 1; for (let k = cur; k > cur - alive && k >= 0; k--) { const age = (c.beat - k * c.p.every) / c.p.travel; if (age < 0 || age > 1) continue; const r = age; const col = colorFor(c, age, k); const fade = 1 - 0.55 * age; for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const v = Math.exp(-1 * ((x - r) / (c.p.width)) ** 2) * fade; if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
+    render(c) { clear(c.out); const cur = Math.floor(c.beat / c.p.every); const alive = Math.ceil(c.p.travel / c.p.every) + 1; for (let k = cur; k > cur - alive && k >= 0; k--) { const age = (c.beat - k * c.p.every) / c.p.travel; if (age < 0 || age > 1) continue; const r = age; const col = colorFor(c, age, k); const fade = 1 - 0.55 * age; for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - r) / (c.p.width)) ** 2) * fade; if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
   def({ id: 'sparkle', name: 'Sparkles', cat: 'medium', desc: 'Sharp sparkles over a transparent background, denser when the music is louder.', swatch: ['#ffffff', '#000000'],
     params: { density: { type: 'range', def: 0.15, min: 0.01, max: 1, step: 0.01, label: 'Density' }, reactive: P.bool('Follow loudness', true), color: P.color(), life: { type: 'range', def: 0.12, min: 0.03, max: 0.5, step: 0.01, label: 'Life (beats)' } },
@@ -397,7 +407,7 @@ const Effects = (() => {
         const x = i / Math.max(1, c.n - 1); let v = 0;
         if (c.p.shape === 'flash') v = env;
         else if (c.p.shape === 'sweep') v = Math.exp(-1 * (((x - travel) / c.p.size) ** 2)) * env;
-        else v = Math.exp(-1 * (((Math.abs(x - 0.5) * 2 - travel) / c.p.size) ** 2)) * env;
+        else v = Math.exp(-1 * (((away(c, x) - travel) / c.p.size) ** 2)) * env;
         if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
       } } });
 
@@ -648,13 +658,7 @@ const Effects = (() => {
     render(c) {
       clear(c.out);
       const u = frac(c.clipBeat / c.p.every);                   // how far across the room this crossing is
-      let slot = 0, m = 1, small = false;
-      if (inRoom(c) && c.room.kinds) {                          // this light's place on the line across the room
-        const k = c.room.kinds, shorts = k.map((x, i) => (x === 'short' ? i : -1)).filter(i => i >= 0);
-        const longs = k.map((x, i) => (x !== 'short' ? i : -1)).filter(i => i >= 0), half = Math.ceil(shorts.length / 2);
-        const line = [...shorts.slice(0, half), ...longs, ...shorts.slice(half)];
-        m = line.length; slot = Math.max(0, line.indexOf(c.room.i)); small = k[c.room.i] === 'short';
-      }
+      const { slot, m, small } = roomLine(c);
       const w = c.p.width, pos = u * (m + w) - w / 2, col = colorFor(c, u, 0);
       for (let i = 0; i < c.n; i++) {
         const x = small ? slot + 0.5 : slot + (c.n > 1 ? i / (c.n - 1) : 0.5);   // a pole lights whole; a strip, along it
@@ -662,6 +666,27 @@ const Effects = (() => {
         if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
       }
     } });
+  def({ id: 'roomscan', name: 'Room scanner', cat: 'room', desc: 'One slow bar scans back and forth across both rooms: the left light pole, along the overhead strips, the right pole, and back. With one light, across its strip.', swatch: ['#ff0000', '#300000'],
+    params: { speed: P.speed(16, 'One crossing (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Bar width (lights)' }, color: P.color(),
+      floor: { type: 'range', def: 0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    render(c) {
+      const { slot, m, small } = roomLine(c);
+      const u = c.beat / c.p.speed, pos = (0.5 - 0.5 * Math.cos(u * Math.PI)) * m, w = c.p.width, col = colorFor(c, pos / m, Math.floor(u / 2));
+      for (let i = 0; i < c.n; i++) {
+        const x = small ? slot + 0.5 : slot + (c.n > 1 ? i / (c.n - 1) : 0.5);   // a pole lights whole; a strip, along it
+        const v = c.p.floor + Math.exp(-(((x - pos) / (w * 0.5)) ** 2));
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, Math.min(1, v));
+      }
+    } });
+  /** This light's place on the line across the rooms: the left lamps (a light pole), the long strips, the
+   *  right lamps; m places in all, a strip spanning [slot, slot + 1]. One light alone: the whole line. */
+  function roomLine(c) {
+    if (!(inRoom(c) && c.room.kinds)) return { slot: 0, m: 1, small: false };
+    const k = c.room.kinds, shorts = k.map((x, i) => (x === 'short' ? i : -1)).filter(i => i >= 0);
+    const longs = k.map((x, i) => (x !== 'short' ? i : -1)).filter(i => i >= 0), half = Math.ceil(shorts.length / 2);
+    const line = [...shorts.slice(0, half), ...longs, ...shorts.slice(half)];
+    return { slot: Math.max(0, line.indexOf(c.room.i)), m: line.length, small: k[c.room.i] === 'short' };
+  }
   def({ id: 'roomwave', name: 'Room wave', cat: 'room', desc: 'A slow swell rolls around the room from lamp to lamp, each half of the room in its own color. With one light, along its strip.', swatch: ['#8000ff', '#00ff00'],
     params: { speed: P.speed(8, 'Once round (beats)'), floor: { type: 'range', def: 0.1, min: 0, max: 1, step: 0.01, label: 'Floor' } },
     render(c) {
@@ -675,9 +700,9 @@ const Effects = (() => {
     } });
 
   // ===== ACCENTS (one-shots shaped by the clip length) =====
-  def({ id: 'dropblast', name: 'Drop blast', cat: 'accent', desc: 'White blast then a shockwave racing out from the center. Place it right on the drop.', swatch: ['#ffffff', '#ff2fa0'],
+  def({ id: 'dropblast', name: 'Drop blast', cat: 'accent', desc: 'White blast then a shockwave racing out from its starting point (the middle unless set). Place it right on the drop.', swatch: ['#ffffff', '#ff2fa0'],
     params: { flash: { type: 'range', def: 0.15, min: 0.02, max: 0.5, step: 0.01, label: 'Flash (beats)' }, ring: P.size(0.12, 'Ring width'), color: P.color() },
-    render(c) { clear(c.out); const b = c.clipBeat; if (b < c.p.flash) { fillAll(c.out, c.n, 1, 1, 1, 1); return; } const age = (b - c.p.flash) / Math.max(0.5, c.clipBeats - c.p.flash); if (age > 1) return; const col = colorFor(c, age, 0); for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const v = Math.exp(-1 * ((x - age * 1.1) / c.p.ring) ** 2) * (1 - age); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
+    render(c) { clear(c.out); const b = c.clipBeat; if (b < c.p.flash) { fillAll(c.out, c.n, 1, 1, 1, 1); return; } const age = (b - c.p.flash) / Math.max(0.5, c.clipBeats - c.p.flash); if (age > 1) return; const col = colorFor(c, age, 0); for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - age * 1.1) / c.p.ring) ** 2) * (1 - age); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   // ----- risers: everything moves in note values, counted back from the drop ------------------
   // A buildup is heard in note values: quarter notes, then eighths, then sixteenths.
@@ -726,9 +751,9 @@ const Effects = (() => {
   def({ id: 'colorslam', name: 'Slam', cat: 'accent', desc: 'Whole strip slams to a palette color and fades back out.', swatch: ['#ff0000', '#000000'],
     params: { color: P.color() }, render(c) { const v = Math.exp(-c.clipT * 4); const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], v); } });
 
-  def({ id: 'sweepout', name: 'Sweep out', cat: 'accent', desc: 'A bright bar sweeps from the center to both ends once, over the clip.', swatch: ['#ffffff', '#00c8ff'],
+  def({ id: 'sweepout', name: 'Sweep out', cat: 'accent', desc: 'A bright bar sweeps out from its starting point (the middle unless set) to the ends once, over the clip.', swatch: ['#ffffff', '#00c8ff'],
     params: { size: P.size(0.15, 'Width'), color: P.color() },
-    render(c) { clear(c.out); const col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = Math.abs(i / Math.max(1, c.n - 1) - 0.5) * 2; const v = Math.exp(-1 * ((x - c.clipT) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
+    render(c) { clear(c.out); const col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - c.clipT) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   const byId = Object.fromEntries(E.map(e => [e.id, e]));
   const CATS = { signature: 'Follows this song', room: 'Around the room', slow: 'Slow & smooth', medium: 'Groove', fast: 'Fast & intense', accent: 'Accents (one-shot)' };
