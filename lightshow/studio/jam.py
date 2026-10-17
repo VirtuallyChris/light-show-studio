@@ -694,6 +694,8 @@ class JamEngine:
         self.cue_in_stream = False        # the cue's song is played inside the stream: the speakers are never paused
         self.on_queue = None              # (tracks, now) -> None: the song playing and what is queued, as they change (learn ahead);
                                           # now: the id of the song playing unlearned (all effort goes to it), or None
+        self.on_context = None            # (tracks) -> None: the rest of the playlist or album playing, behind the queue
+        self._context_uri: str | None = None
         self.on_mismatch = None           # (track) -> None: a song learned from a copy turned out not to be what Spotify plays
         if analyse_fn is None:
             from .analysis import analyze_audio
@@ -1305,8 +1307,8 @@ class JamEngine:
     # --------------------------------------------------------------------- for the UI
     def refresh_queue(self) -> None:
         try:
-            upcoming = list(self.spotify.queue()[:12])
-            q = [self._kind_of(t) for t in upcoming]
+            upcoming = list(self.spotify.queue())        # all Spotify tells (about 20): learned ahead
+            q = [self._kind_of(t) for t in upcoming[:12]]    # (the first 12 shown)
         except Exception:  # noqa: BLE001
             return
         with self.lock:
@@ -1318,6 +1320,33 @@ class JamEngine:
                 self.on_queue(playing + upcoming, playing[0].id if playing else None)   # the song heard now first
             except Exception as e:  # noqa: BLE001
                 self.say(f"learn ahead: {type(e).__name__}: {e}")
+        if self.on_context is not None:
+            self._look_further(cur)
+
+    def _look_further(self, cur) -> None:
+        """Past the queue Spotify shows: the rest of the playlist or album it plays from, learned behind the
+        queue (from the song after this one, around to the start; any order when it shuffles). Read once
+        each time what it plays from changes."""
+        try:
+            ctx = getattr(self.spotify, "context", lambda: None)()
+        except Exception:  # noqa: BLE001
+            return
+        if not ctx or ctx[0] == self._context_uri:
+            return
+        self._context_uri = ctx[0]
+        uri, shuffled = ctx
+        here = cur.track.id if cur is not None else None
+
+        def read():
+            try:
+                tracks = list(self.spotify.context_tracks(uri))
+                at = next((i for i, t in enumerate(tracks) if t.id == here), -1)
+                if at >= 0 and not shuffled:
+                    tracks = tracks[at + 1:] + tracks[:at]
+                self.on_context(tracks)
+            except Exception as e:  # noqa: BLE001 - the queue is still learned ahead
+                self.say(f"learn ahead: the playlist could not be read ({type(e).__name__}: {e})")
+        threading.Thread(target=read, daemon=True, name="learn-further").start()
 
     def _kind_of(self, track: Track) -> dict:
         project = self.library.match_project(track)

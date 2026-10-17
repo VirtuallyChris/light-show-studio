@@ -207,6 +207,32 @@ class SpotifyClient:
             return []
         return [t for t in (parse_track(i) for i in data.get("queue", [])) if t]
 
+    def context(self) -> tuple[str, bool] | None:
+        """What Spotify is playing from (a playlist's or an album's URI) and whether it shuffles; None when
+        it plays loose songs (or something else: an artist, Liked Songs)."""
+        status, data = self._call("GET", "/me/player?additional_types=track")
+        ctx = (data or {}).get("context") or {} if status == 200 else {}
+        if ctx.get("type") not in ("playlist", "album") or not ctx.get("uri"):
+            return None
+        return ctx["uri"], bool(data.get("shuffle_state"))
+
+    def context_tracks(self, uri: str, most: int = 500) -> list[Track]:
+        """A playlist's or an album's songs, in order."""
+        kind, _, cid = uri.rpartition(":")
+        if kind.endswith("playlist"):
+            return self.playlist_tracks(cid, most)
+        out, offset = [], 0
+        while offset < most:
+            status, data = self._call("GET", f"/albums/{cid}/tracks?limit=50&offset={offset}")
+            if status != 200:
+                break
+            items = data.get("items") or []
+            out += [t for t in (parse_track(i) for i in items) if t]
+            if not data.get("next") or not items:
+                break
+            offset += 50
+        return out
+
     def playlist_tracks(self, playlist_id: str, most: int = 500) -> list[Track]:
         """A playlist's songs, in order (podcast episodes and local files left out)."""
         out, offset = [], 0

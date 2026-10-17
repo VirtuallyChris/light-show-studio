@@ -221,6 +221,22 @@ class TestSpotify(unittest.TestCase):
         self.store["refresh_token"] = "R"
         self.assertIsNone(c.now_playing().track)
 
+    def test_reads_the_playlist_or_album_it_plays_from(self):
+        tok = (200, b'{"access_token":"A","expires_in":3600}')
+        player = lambda ctx, shuffle=False: (200, json.dumps({"context": ctx, "shuffle_state": shuffle}).encode())
+        c = self.client([tok, player({"type": "playlist", "uri": "spotify:playlist:P1"}, True)])
+        self.store["refresh_token"] = "R"
+        self.assertEqual(c.context(), ("spotify:playlist:P1", True))
+        c = self.client([tok, player({"type": "artist", "uri": "spotify:artist:A1"})])
+        self.store["refresh_token"] = "R"
+        self.assertIsNone(c.context())                                     # an artist's songs: no set order to follow
+        song = lambda i: {"id": f"t{i}", "type": "track", "name": f"S{i}", "artists": [{"name": "B"}], "duration_ms": 1000, "uri": f"spotify:track:t{i}"}
+        c = self.client([tok, (200, json.dumps({"items": [song(1), song(2)], "next": "more"}).encode()),
+                         (200, json.dumps({"items": [song(3)], "next": None}).encode())])
+        self.store["refresh_token"] = "R"
+        self.assertEqual([t.id for t in c.context_tracks("spotify:album:AL")], ["t1", "t2", "t3"])
+        self.assertIn("/albums/AL/tracks?limit=50&offset=50", self.calls[-1][1])
+
 
 # ============================================================================ library
 class TestLibrary(unittest.TestCase):
@@ -605,6 +621,58 @@ class TestEngine(unittest.TestCase):
 
 
 # =========================================================================== hand-over
+class TestLookAhead(unittest.TestCase):
+    """Learn ahead gets all of Spotify's queue, then the rest of the playlist it plays from."""
+
+    def engine(self, queue, ctx, songs):
+        import threading
+        from types import SimpleNamespace
+        e = JamEngine.__new__(JamEngine)
+        e.lock, e.tracks, e.queue, e._context_uri = threading.RLock(), [], [], None
+        e.library = SimpleNamespace(match_project=lambda t: None, has_learned=lambda tid: False)
+        e.say = lambda msg: None
+        self.reads = []
+        e.spotify = SimpleNamespace(queue=lambda: list(queue), context=lambda: ctx,
+                                    context_tracks=lambda uri: self.reads.append(uri) or list(songs))
+        self.got = {"queue": None, "context": []}
+        e.on_queue = lambda tracks, now=None: self.got.__setitem__("queue", [t.id for t in tracks])
+        e.on_context = lambda tracks: self.got["context"].append([t.id for t in tracks])
+        return e
+
+    def wait(self):
+        import threading
+        import time
+        for _ in range(100):
+            if not any(t.name == "learn-further" for t in threading.enumerate()):
+                return
+            time.sleep(0.01)
+
+    def test_the_whole_queue_then_the_playlist_from_the_next_song_around(self):
+        song = lambda i: Track(f"t{i}", f"S{i}", ["B"], 100.0)
+        e = self.engine([song(i) for i in range(20)], ("spotify:playlist:P", False), [song(i) for i in range(30, 36)])
+        e.tracks = [type("JT", (), {"track": song(33), "end": None, "kind": "learned"})()]
+        e.refresh_queue()
+        self.wait()
+        self.assertEqual(len(self.got["queue"]), 20)                       # all of it, not the 12 shown
+        self.assertEqual(len(e.queue), 12)
+        self.assertEqual(self.got["context"], [["t34", "t35", "t30", "t31", "t32"]])
+        e.refresh_queue()                                                  # the same playlist: not read again
+        self.wait()
+        self.assertEqual(self.reads, ["spotify:playlist:P"])
+
+    def test_shuffled_keeps_the_playlist_order_and_loose_songs_read_nothing(self):
+        song = lambda i: Track(f"t{i}", f"S{i}", ["B"], 100.0)
+        e = self.engine([], ("spotify:album:A", True), [song(1), song(2), song(3)])
+        e.tracks = [type("JT", (), {"track": song(2), "end": None, "kind": "learned"})()]
+        e.refresh_queue()
+        self.wait()
+        self.assertEqual(self.got["context"], [["t1", "t2", "t3"]])
+        e = self.engine([], None, [song(1)])
+        e.refresh_queue()
+        self.wait()
+        self.assertEqual((self.got["context"], self.reads), ([], []))
+
+
 class TestHandover(unittest.TestCase):
     def test_opening_song_hands_over_with_the_buffer_full(self):
         d = tempfile.mkdtemp()
