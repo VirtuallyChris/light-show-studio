@@ -309,7 +309,14 @@ winget install --id Python.Python.3.12 --scope user
 .venv-songformer\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
 .venv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
 .venv-songformer\Scripts\python.exe -m pip install demucs
+.venv-songformer\Scripts\python.exe -m pip install beat_this
 ```
+
+All four models (SongFormer, the stems, the genre model, Beat This) run in **one model
+process** (`models_host.py`), started by the studio with the model environment's own
+interpreter (no launcher, no console window) and shared with the learn-ahead process, so
+each model loads once for the whole app (about 5 GB of memory, 10 s to load all four).
+It exits when the studio does, and closing the studio stops it at once.
 
 The weights download automatically on first use. The environment lives in the
 project folder (`.venv-songformer`, not in git), the folder the studio runs from, and

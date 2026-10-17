@@ -210,6 +210,14 @@ class AnalysisWorker(ModelWorker):
     a few cores at most, so the lights and the music, in the studio's process, always come first."""
 
     env_extra = {k: "4" for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS")}
+    hosted = False                                       # a process of its own (the studio's Python, not the models')
+
+    def _start(self) -> bool:
+        # the model host first, owned by this (the studio's) process: the analysis process is told its
+        # address and uses the same models instead of starting a second set of its own
+        from .model_worker import HOST
+        HOST.connect()
+        return super()._start()
 
     def python(self) -> str:
         exe = sys.executable

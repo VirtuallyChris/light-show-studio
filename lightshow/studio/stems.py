@@ -19,6 +19,17 @@ from .model_worker import ModelWorker
 
 class StemsWorker(ModelWorker):
     def _ask_stems(self, header: dict, payload: bytes = b""):
+        if self.hosted:                                  # from the model host: the tracks come after the reply
+            r, raw = self.ask_hosted(header, payload)
+            if not r or "stems" not in r:
+                return None
+            n, order = int(r["stems"]["n"]), r["stems"].get("order", ["drums", "bass"])
+            if len(raw) < n * 4 * len(order):
+                self.last_error = "the separation came back short"
+                return None
+            arr = np.frombuffer(raw, dtype=np.float32)
+            return {**{k: arr[i * n:(i + 1) * n].copy() for i, k in enumerate(order)}, "sr": int(r["stems"]["sr"]),
+                    "levels": r.get("levels", {}), "fps": r.get("fps", 30), "seconds": r.get("seconds")}
         with self.lock:
             for _ in (1, 2):                             # a worker that died is restarted once
                 if not self._start():
