@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Room view</title>
+<link rel="icon" href="/static/icon.ico">
+<style>
+  :root { --bg: #07080b; --wall: #10131a; --line: #222836; --text: #8b93a7; --dim: #4b5263; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #note { position: fixed; left: 0; right: 0; top: 46%; text-align: center; color: var(--dim); pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="note">Waiting for the studio. Keep its window open; this view follows the song as it plays.</div>
+<script>
+/* Room view: the party rooms' lights, simulated, from the studio's frames (app.js sendRoomView). The
+   rooms stand side by side in the order of the line across them: each light pole in its room's outer
+   corner (its segments bottom to top), each string light overhead along the room. Nothing here drives a
+   light: it only draws what the studio would send them. */
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d'), note = document.getElementById('note');
+  const ch = new BroadcastChannel('lss-roomview');
+  let last = null, lastAt = 0;
+  const hello = () => ch.postMessage({ type: 'hello' });
+  hello(); setInterval(hello, 1000);
+  ch.onmessage = e => { if (e.data && e.data.type === 'frame') { last = e.data; lastAt = performance.now(); } };
+
+  function size() {
+    const W = Math.floor(innerWidth * devicePixelRatio), H = Math.floor(innerHeight * devicePixelRatio);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    return [innerWidth, innerHeight];
+  }
+  const rgb = (px, i) => [px[i * 3], px[i * 3 + 1], px[i * 3 + 2]];
+  function dot(x, y, r, c) {
+    const lum = Math.max(c[0], c[1], c[2]) / 255;
+    ctx.fillStyle = '#15181f'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    if (lum < 0.02) return;
+    ctx.save();
+    ctx.shadowColor = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.shadowBlur = 6 + 22 * lum;
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function draw() {
+    requestAnimationFrame(draw);
+    const [w, h] = size();
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg'); ctx.fillRect(0, 0, w, h);
+    const live = last && performance.now() - lastAt < 2000;
+    note.style.display = live && last.lights.length ? 'none' : 'block';
+    if (live && !last.lights.length) note.textContent = 'No party rooms set up: give the living room and game room their lights in the studio’s Rooms.';
+    if (!live) note.textContent = 'Waiting for the studio. Keep its window open; this view follows the song as it plays.';
+    if (!last || !last.lights.length) return;
+    // the rooms in the order of the line across them (first room left, last right)
+    const lights = [...last.lights].sort((a, b) => a.at - b.at), rooms = [];
+    for (const l of lights) { let r = rooms.find(x => x.name === l.room); if (!r) rooms.push(r = { name: l.room, lights: [] }); r.lights.push(l); }
+    const pad = 24, top = 54, floor = h - 34, gap = 10, rw = (w - pad * 2 - gap * (rooms.length - 1)) / rooms.length;
+    ctx.fillStyle = '#5d6577'; ctx.font = '12px system-ui'; ctx.fillText(last.song ? `Room view · ${last.song}` : 'Room view', pad, 26);
+    rooms.forEach((room, k) => {
+      const x0 = pad + k * (rw + gap), x1 = x0 + rw;
+      ctx.fillStyle = '#0d1016'; ctx.strokeStyle = '#1c2230'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x0, top, rw, floor - top, 10); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#4b5263'; ctx.fillText(room.name || 'Room', x0 + 12, floor - 10);
+      const strings = room.lights.filter(l => l.kind !== 'short'), poles = room.lights.filter(l => l.kind === 'short');
+      // the strings overhead, one row each, across the room
+      strings.forEach((l, s) => {
+        const n = l.px.length / 3, y = top + 26 + s * 26, a = x0 + 26, b = x1 - 26, r = Math.max(2.5, Math.min(6, (b - a) / n / 2.6));
+        ctx.strokeStyle = '#1a1e28'; ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(b, y); ctx.stroke();
+        for (let i = 0; i < n; i++) dot(a + (n > 1 ? (b - a) * i / (n - 1) : (b - a) / 2), y, r, rgb(l.px, i));
+        ctx.fillStyle = '#3d4352'; ctx.fillText(l.name, a, y - 9);
+      });
+      // the poles in the room's outer corner (the first room's left, the last room's right), bottom to top
+      poles.forEach((l, q) => {
+        const n = l.px.length / 3, outerLeft = k === 0 && rooms.length > 1 ? true : k === rooms.length - 1 && rooms.length > 1 ? false : q % 2 === 0;
+        const x = outerLeft ? x0 + 30 + q * 26 : x1 - 30 - q * 26, yTop = top + 110, yBot = floor - 34, step = (yBot - yTop) / Math.max(1, n - 1);
+        ctx.strokeStyle = '#1a1e28'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, yTop - 8); ctx.lineTo(x, yBot + 14); ctx.stroke(); ctx.lineWidth = 1;
+        for (let i = 0; i < n; i++) dot(x, yBot - i * step, Math.min(9, step / 2.4), rgb(l.px, i));
+        ctx.fillStyle = '#3d4352'; ctx.textAlign = outerLeft ? 'left' : 'right'; ctx.fillText(l.name, outerLeft ? x - 10 : x + 10, yTop - 16); ctx.textAlign = 'left';
+      });
+    });
+  }
+  draw();
+})();
+</script>
+</body>
+</html>

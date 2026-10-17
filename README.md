@@ -904,6 +904,14 @@ noise.
   first half of them (in the light order) take the kick and the rest the snare, a
   call and response across the room, each half as busy. In a buildup both poles
   flash on every snare.
+- **Room view.** The small button at the top right of the light preview opens a
+  window of its own showing the party rooms (the living room and the game room)
+  as the party would see them, simulated: each room's light pole in its corner and
+  its string lights overhead, live with the song, whichever lights are ticked. So
+  testing on the Office strip alone, the whole party room can be watched. Shows
+  are built for every light in a room that is on, ticked or not (their parts only
+  play on them), so what the room view shows is the real show. It only draws; it
+  never drives a light.
 - **The room as one space, like a concert rig.** Most of the look is shared by every
   light, so the room feels like one thing. The effects that play the room as a
   whole place the lights by room: a light alone in its room (the Office, a test

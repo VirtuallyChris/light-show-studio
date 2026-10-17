@@ -572,6 +572,17 @@
     }
   }
   const selectedLights = () => S.lights.filter(l => l.on);
+  /** Every light the show is made for: the ticked ones and every light in a room that is on, ticked or
+   *  not. Testing on the Office strip alone, the show is still built for the poles and strings of the
+   *  party rooms (their parts only play on them), so the room view shows it as the party would see it. */
+  const showLights = () => S.lights.filter(l => l.on || (roomOf(l) && !roomOff(l)));
+  /** The party rooms' lights (rooms with two or more lights, switched on), ticked or not: what the room
+   *  view shows. A room with one light (the Office, a test room) is not part of the party. */
+  function partyLights() {
+    const inRooms = S.lights.filter(l => roomOf(l) && !roomOff(l)), per = new Map();
+    for (const l of inRooms) per.set(roomOf(l), (per.get(roomOf(l)) || 0) + 1);
+    return inRooms.filter(l => per.get(roomOf(l)) >= 2);
+  }
 
   // ------------------------------------------------------------------ rooms
   // Which lights and speakers stand in which room, and which rooms the party is in. A room switched
@@ -780,13 +791,14 @@
       || (p && (p.palettes[p.defaultPalette] || [])[0]) || '#ffffff';
     return Effects.hex2rgb(Effects.solid(hx));
   }
-  function renderFrame(t) {
+  function renderFrame(t, lights = selectedLights()) {
     const p = P(); const b = timeToBeat(t); const f = featureAt(t); const lanePal = currentPalette(b);
     const music = musicAt(t);
     const kick = Math.exp(-frac(b) * 6);
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
-    const out = [], lights = selectedLights();
-    const space = S.roomSpace && S.roomSpace.key === roomSpaceKey(lights) ? S.roomSpace : (S.roomSpace = roomSpace(lights));
+    const out = [];
+    S.roomSpaces = S.roomSpaces || {};
+    const key = roomSpaceKey(lights), space = S.roomSpaces[key] || (S.roomSpaces = { [key]: roomSpace(lights), ...S.roomSpaces })[key];
     for (const L of lights) {
       const room = space.of.get(L) || { i: 0, n: 1, side: 0, kinds: [lightKind(L)] };
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
@@ -829,6 +841,23 @@
     }
     return out;
   }
+  // The room view (roomview.html, its own window): the party rooms' lights as the party would see them,
+  // simulated, whichever lights are ticked (testing on the Office strip, it shows the living room and the
+  // game room). It says hello every second; frames go to it ~30 times a second while it does.
+  const roomViewCh = typeof BroadcastChannel === 'function' ? new BroadcastChannel('lss-roomview') : null;
+  if (roomViewCh) roomViewCh.onmessage = e => { if (e.data && e.data.type === 'hello') S.roomViewAt = performance.now(); };
+  function sendRoomView(t) {
+    if (!roomViewCh || !S.roomViewAt || performance.now() - S.roomViewAt > 3000) return;
+    if (performance.now() - (S.roomViewSent || 0) < 30) return;
+    S.roomViewSent = performance.now();
+    const lights = partyLights(), frame = lights.length ? renderFrame(t, lights) : [];
+    const space = S.roomSpaces[roomSpaceKey(lights)];
+    roomViewCh.postMessage({ type: 'frame', song: S.name || '', lights: frame.map(fr => {
+      const r = roomOf(fr.light), at = space && space.of.get(fr.light);
+      return { name: lightLabel(fr.light), room: r ? r.name : '', kind: lightKind(fr.light), px: fr.px, at: at ? at.i : 0, n: at ? at.n : 1 };
+    }) });
+  }
+  function openRoomView() { window.open('/static/roomview.html', 'lss-roomview', 'width=1000,height=560'); }
   function drawPreview(frame) {
     const W = Math.floor(pv.clientWidth * devicePixelRatio), H = Math.floor(pv.clientHeight * devicePixelRatio);
     if (pv.width !== W || pv.height !== H) { pv.width = W; pv.height = H; }
@@ -875,12 +904,14 @@
     wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => f.light.flip ? flipPx(f.px) : f.px) });
     S.forceSend = false; S.framesSent = (S.framesSent || 0) + 1; S.lastLightSend = performance.now();
   }
+  // (the room view's frames go on this clock too: it keeps ticking with the studio minimized or behind)
+  function clockTick() { outputTick(); if (S.analysis) sendRoomView(pos()); }
   (function startOutputClock() {
     try {
       const src = 'setInterval(function(){ postMessage(0); }, 16);';
       const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'application/javascript' })));
-      w.onmessage = outputTick;
-    } catch (e) { setInterval(outputTick, 16); }
+      w.onmessage = clockTick;
+    } catch (e) { setInterval(clockTick, 16); }
   })();
   function fmtTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(3).padStart(6, '0')}`; }
 
@@ -1772,7 +1803,7 @@
     // the song's own motion, and a second for every other drop
     S.motionFam = motions[0];
     S.motionFams = [motions[0], motions[1] || motions[0]];
-    const kinds = new Set(selectedLights().map(lightKind));
+    const kinds = new Set(showLights().map(lightKind));
     S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
   }
   const SWEEPS = new Set(['comets', 'scanner', 'bounce', 'meteors', 'orbit']);    // motions that travel the strip (drawn half as often)
@@ -1980,7 +2011,7 @@
     const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
     const rainbow = S.albumPalette || S.pairMode ? {} : { palette: 'Rainbow' };      // with the album's (or the jam's) colors, drops stay in them
     // Two or more lights: some moves go around the room, light to light, instead of along each strip.
-    const room = selectedLights().length >= 2;
+    const room = showLights().length >= 2;
     // The beat pulse follows the real drums (kick from the center, snare from the ends), and it is
     // only placed where there are drums to follow: a section with at least 4 kick or snare hits and
     // one every 4 beats. When the song's drums are not known yet, the quiet kinds of section get none.
@@ -2011,7 +2042,7 @@
     };
     const look = S.mix;                                                // the song's own mix (pickLook)
     // long strips (more than a dozen segments) run the length of a ceiling: room for hits on part of them
-    const longStrips = selectedLights().some(l => lightKind(l) === 'long');
+    const longStrips = showLights().some(l => lightKind(l) === 'long');
     let zoneBuild = false;
     // A long verse or breakdown (over 16 bars) is built in 8-bar stretches that alternate between the
     // look's two verse styles, so two minutes the analysis calls one verse do not look the same.
@@ -2494,6 +2525,7 @@
   $('#btnPhaseL').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 3) % 4; changed(); };
   $('#bpm').onchange = () => { if (P()) { beginChange(); P().bpm = parseFloat($('#bpm').value) || P().bpm; changed(); toast('BPM stored — press Regrid to rebuild the beat grid'); } };
   $('#beatEdit').onchange = draw; $('#snap').onchange = draw; $('#effectSearch').oninput = renderLibrary;
+  $('#roomViewBtn').onclick = openRoomView;
   $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } rememberLights(true); S.lightsArmed = false; if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
   // Closing the window stops the studio at once, speakers included (a reload comes straight back,
   // and the studio waits a moment to tell the two apart).
@@ -2527,5 +2559,5 @@
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights };
 })();
