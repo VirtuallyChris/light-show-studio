@@ -323,9 +323,10 @@ const Effects = (() => {
     params: { speed: P.speed(4, 'One wipe per (beats)'), direction: P.direction(), soft: { type: 'range', def: 0.05, min: 0, max: 0.5, step: 0.01, label: 'Soft edge' } },
     render(c) { const u = c.beat / c.p.speed; const k = Math.floor(u), ph = frac(u); const a = palIdx(c.pal, k - 1), b = palIdx(c.pal, k); for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const m = clamp((ph * (1 + c.p.soft) - x) / (c.p.soft + 0.001)); set(c.out, i, lerp(a[0], b[0], m), lerp(a[1], b[1], m), lerp(a[2], b[2], m)); } } });
 
-  def({ id: 'meter', name: 'Energy meter', cat: 'medium', desc: 'The song’s loudness fills the strip like a VU meter.', swatch: ['#00a000', '#ff0000'],
-    params: { direction: P.direction(), color: P.color(), floor: { type: 'range', def: 0.05, min: 0, max: 1, step: 0.01, label: 'Floor' }, gain: { type: 'range', def: 1, min: 0.5, max: 2, step: 0.05, label: 'Gain' } },
-    render(c) { const lvl = clamp(c.energy * c.p.gain); for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const on = x < lvl; const col = c.p.color === 'cycle' ? palAt(c.pal, x) : colorFor(c, x, 0); const v = on ? 1 : c.p.floor; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
+  def({ id: 'meter', name: 'Energy meter', cat: 'medium', desc: 'The song’s loudness fills the strip like a VU meter. Starts at: the loudness that is still empty (raise it in a loud part, so the meter bounces with every hit instead of standing full).', swatch: ['#00a000', '#ff0000'],
+    params: { direction: P.direction(), color: P.color(), floor: { type: 'range', def: 0.05, min: 0, max: 1, step: 0.01, label: 'Floor' }, gain: { type: 'range', def: 1, min: 0.5, max: 2, step: 0.05, label: 'Gain' },
+      low: { type: 'range', def: 0, min: 0, max: 0.9, step: 0.01, label: 'Starts at' } },
+    render(c) { const lvl = clamp((c.energy - (c.p.low || 0)) / (1 - (c.p.low || 0)) * c.p.gain); for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const on = x < lvl; const col = c.p.color === 'cycle' ? palAt(c.pal, x) : colorFor(c, x, 0); const v = on ? 1 : c.p.floor; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'spectrum', name: 'Spectrum', cat: 'medium', desc: 'A live spectrum analyser: bass at one end, treble at the other.', swatch: ['#ff0000', '#0000ff'],
     params: { direction: P.direction(), color: P.color(), floor: { type: 'range', def: 0.05, min: 0, max: 1, step: 0.01, label: 'Floor' } },

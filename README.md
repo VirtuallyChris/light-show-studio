@@ -869,7 +869,8 @@ noise.
   - *Dreamy* (soft and bright): color washes, aurora and twinkles, slow
     sparkles and orbits, never a flash.
   - *Rock show* (live-drum rock and indie): gradients and breathing, a scanner
-    sweeping, the halves trading and random blocks in the drops.
+    sweeping, an energy meter bouncing out from the center and random blocks in the
+    drops.
   - *Storm* (hard, minor, driving): battles and halves, lightning and meteors.
   The family that fits best carries the song, close ones often join in, and any
   other may lend a move or two, so two rock songs are two different shows. A calm
