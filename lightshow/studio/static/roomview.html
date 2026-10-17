@@ -6,107 +6,112 @@
 <title>Room view</title>
 <link rel="icon" href="/static/icon.ico">
 <style>
-  :root { --bg: #07080b; --wall: #10131a; --line: #222836; --text: #8b93a7; --dim: #4b5263; }
+  :root { --bg: #07080b; --text: #8b93a7; --dim: #4b5263; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
-  canvas { display: block; width: 100vw; height: 100vh; }
+  canvas { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; }
   #note { position: fixed; left: 0; right: 0; top: 46%; text-align: center; color: var(--dim); pointer-events: none; }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<canvas id="bg"></canvas>
+<canvas id="gl"></canvas>
 <div id="note">Waiting for the studio. Keep its window open; this view follows the song as it plays.</div>
+<script src="/static/lightgl.js"></script>
 <script>
 /* Room view: the party rooms' lights, simulated, from the studio's frames (app.js sendRoomView). The
    rooms stand side by side in the order of the line across them: each light pole in its room's outer
-   corner (its segments bottom to top), each string light overhead along the room. Nothing here drives a
-   light: it only draws what the studio would send them. */
+   corner (its segments stacked bottom to top), each string light overhead along the room. Nothing here
+   drives a light: it only draws what the studio would send them.
+
+   The lights are drawn on the GPU (lightgl.js), so full screen on a 4K monitor costs next to nothing; the
+   rooms and labels are a 2D layer beneath, drawn again only when the layout changes. */
 (() => {
-  const cv = document.getElementById('c'), ctx = cv.getContext('2d'), note = document.getElementById('note');
+  const bg = document.getElementById('bg'), bctx = bg.getContext('2d'), glc = document.getElementById('gl');
+  const note = document.getElementById('note');
+  const gpu = (() => { try { return LightGL(glc); } catch (e) { console.warn('WebGL:', e); return null; } })();
   const ch = new BroadcastChannel('lss-roomview');
-  let last = null, lastAt = 0;
+  let last = null, lastAt = 0, dirty = true, layout = null;
   const hello = () => ch.postMessage({ type: 'hello' });
   hello(); setInterval(hello, 1000);
-  let dirty = true;                                         // drawn only when something changed (a frame, a resize)
   ch.onmessage = e => { if (e.data && e.data.type === 'frame') { last = e.data; lastAt = performance.now(); dirty = true; } };
-  addEventListener('resize', () => { dirty = true; });
-  setInterval(() => { dirty = true; }, 1000);                // (so "waiting" shows when the frames stop)
+  addEventListener('resize', () => { dirty = true; layout = null; });
+  setInterval(() => { dirty = true; }, 1000);                        // (so "waiting" shows when the frames stop)
 
-  // Drawn at most at about 1080p and stretched to the window: full screen on a 4K monitor is ~8 million
-  // pixels a frame, and clearing and painting the glows at that size lagged. The lights are soft glows, so
-  // the stretch does not show.
-  const MAX_PIXELS = 2.1e6;
-  function size() {
-    const k = Math.min(devicePixelRatio, Math.sqrt(MAX_PIXELS / Math.max(1, innerWidth * innerHeight)));
-    const W = Math.floor(innerWidth * k), H = Math.floor(innerHeight * k);
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-    ctx.setTransform(k, 0, 0, k, 0, 0);
-    return [innerWidth, innerHeight];
-  }
-  const rgb = (px, i) => [px[i * 3], px[i * 3 + 1], px[i * 3 + 2]];
-  // The glow is two soft halos drawn behind a light, not a canvas shadow blur: a blur on ~100 lights,
-  // 60 times a second on a high-resolution screen, made this window (and the studio) lag badly.
-  function dot(x, y, r, c) {
-    const lum = Math.max(c[0], c[1], c[2]) / 255, col = `rgb(${c[0]},${c[1]},${c[2]})`;
-    ctx.fillStyle = '#15181f'; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    if (lum < 0.02) return;
-    ctx.fillStyle = col;
-    ctx.globalAlpha = 0.12 * lum; ctx.beginPath(); ctx.arc(x, y, r * 3.2, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 0.25 * lum; ctx.beginPath(); ctx.arc(x, y, r * 1.9, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  /** Where every light and its parts go, for the lights in this frame and this window size. */
+  function layoutFor(lights, w, h) {
+    const key = JSON.stringify([w, h, last.song, lights.map(l => [l.name, l.room, l.kind, l.px.length, l.at])]);
+    if (layout && layout.key === key) return layout;
+    const sorted = [...lights].sort((a, b) => a.at - b.at), rooms = [];
+    for (const l of sorted) { let r = rooms.find(x => x.name === l.room); if (!r) rooms.push(r = { name: l.room, lights: [] }); r.lights.push(l); }
+    const pad = 24, top = 54, floor = h - 34, gap = 10, rw = (w - pad * 2 - gap * (rooms.length - 1)) / rooms.length;
+    const spots = new Map(), labels = [], boxes = [];
+    rooms.forEach((room, k) => {
+      const x0 = pad + k * (rw + gap), x1 = x0 + rw;
+      boxes.push({ x0, x1, top, floor, name: room.name });
+      const strings = room.lights.filter(l => l.kind !== 'short'), poles = room.lights.filter(l => l.kind === 'short');
+      strings.forEach((l, s) => {          // overhead, one row each, across the room
+        const n = l.px.length / 3, y = top + 26 + s * 26, a = x0 + 26, b = x1 - 26, r = Math.max(2.5, Math.min(6, (b - a) / n / 2.6));
+        spots.set(l.name, Array.from({ length: n }, (_, i) => ({ x: a + (n > 1 ? (b - a) * i / (n - 1) : (b - a) / 2), y, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.6 })));
+        labels.push({ text: l.name, x: a, y: y - 9, align: 'left', wire: [a, y, b, y] });
+      });
+      poles.forEach((l, q) => {            // the outer corner (first room's left, last room's right), bottom to top
+        const n = l.px.length / 3, outerLeft = k === 0 && rooms.length > 1 ? true : k === rooms.length - 1 && rooms.length > 1 ? false : q % 2 === 0;
+        const x = outerLeft ? x0 + 34 + q * 34 : x1 - 34 - q * 34, yTop = top + 100, yBot = floor - 30;
+        const segH = (yBot - 12 - yTop) / n, pw = Math.max(14, Math.min(26, segH * 0.42));
+        spots.set(l.name, Array.from({ length: n }, (_, i) => ({ x, y: yTop + (n - 1 - i) * segH + segH / 2, w: pw, h: segH - 1, shape: 'rect', radius: i === 0 || i === n - 1 ? 4 : 1, glow: pw * 0.9 })));
+        labels.push({ text: l.name, x: outerLeft ? x - pw / 2 : x + pw / 2, y: yTop - 10, align: outerLeft ? 'left' : 'right', pole: { x, yTop, h: n * segH, pw } });
+      });
+    });
+    layout = { key, spots, labels, boxes, song: last.song, drawn: false };
+    return layout;
   }
 
-  /** One pole segment: a rectangle, touching the ones above and below (rounded only at the pole's ends). */
-  function seg(x, y, w, h, c, bottom, top) {
-    const lum = Math.max(c[0], c[1], c[2]) / 255, r = [top ? 4 : 1, top ? 4 : 1, bottom ? 4 : 1, bottom ? 4 : 1];
-    ctx.fillStyle = '#151820'; ctx.beginPath(); ctx.roundRect(x, y + 0.5, w, h - 1, r); ctx.fill();
-    if (lum < 0.02) return;
-    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
-    ctx.globalAlpha = 0.1 * lum; ctx.fillRect(x - w * 0.9, y - h * 0.15, w * 2.8, h * 1.3);
-    ctx.globalAlpha = 0.22 * lum; ctx.fillRect(x - w * 0.4, y, w * 1.8, h);
-    ctx.globalAlpha = 1; ctx.beginPath(); ctx.roundRect(x, y + 0.5, w, h - 1, r); ctx.fill();
+  function drawBackground(L, w, h) {
+    const dpr = devicePixelRatio || 1, W = Math.floor(w * dpr), H = Math.floor(h * dpr);
+    if (bg.width !== W || bg.height !== H) { bg.width = W; bg.height = H; }
+    const g = bctx;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#07080b'; g.fillRect(0, 0, w, h);
+    g.font = '12px system-ui';
+    g.fillStyle = '#5d6577'; g.fillText(L.song ? `Room view · ${L.song}` : 'Room view', 24, 26);
+    for (const b of L.boxes) {
+      g.fillStyle = '#0d1016'; g.strokeStyle = '#1c2230'; g.lineWidth = 1;
+      g.beginPath(); g.roundRect(b.x0, b.top, b.x1 - b.x0, b.floor - b.top, 10); g.fill(); g.stroke();
+      g.fillStyle = '#4b5263'; g.textAlign = 'center'; g.fillText(b.name || 'Room', (b.x0 + b.x1) / 2, b.floor - 10); g.textAlign = 'left';
+    }
+    for (const l of L.labels) {
+      if (l.wire) { g.strokeStyle = '#1a1e28'; g.beginPath(); g.moveTo(l.wire[0], l.wire[1]); g.lineTo(l.wire[2], l.wire[3]); g.stroke(); }
+      if (l.pole) {                        // the pole's body and foot, under its segments
+        const p = l.pole;
+        g.fillStyle = '#1a1e28'; g.fillRect(p.x - 2, p.yTop + p.h, 4, 12);
+        g.fillStyle = '#0a0c11'; g.beginPath(); g.roundRect(p.x - p.pw / 2 - 2, p.yTop - 2, p.pw + 4, p.h + 4, 5); g.fill();
+      }
+      g.fillStyle = '#3d4352'; g.textAlign = l.align; g.fillText(l.text, l.x, l.y); g.textAlign = 'left';
+    }
+    L.drawn = true;
   }
 
   function draw() {
     requestAnimationFrame(draw);
     if (!dirty) return;
     dirty = false;
-    const [w, h] = size();
-    ctx.fillStyle = '#07080b'; ctx.fillRect(0, 0, w, h);
+    const w = innerWidth, h = innerHeight;
     const live = last && performance.now() - lastAt < 2000;
     note.style.display = live && last.lights.length ? 'none' : 'block';
     if (live && !last.lights.length) note.textContent = 'No party rooms set up: give the living room and game room their lights in the studio’s Rooms.';
     if (!live) note.textContent = 'Waiting for the studio. Keep its window open; this view follows the song as it plays.';
-    if (!last || !last.lights.length) return;
-    // the rooms in the order of the line across them (first room left, last right)
-    const lights = [...last.lights].sort((a, b) => a.at - b.at), rooms = [];
-    for (const l of lights) { let r = rooms.find(x => x.name === l.room); if (!r) rooms.push(r = { name: l.room, lights: [] }); r.lights.push(l); }
-    const pad = 24, top = 54, floor = h - 34, gap = 10, rw = (w - pad * 2 - gap * (rooms.length - 1)) / rooms.length;
-    ctx.fillStyle = '#5d6577'; ctx.font = '12px system-ui'; ctx.fillText(last.song ? `Room view · ${last.song}` : 'Room view', pad, 26);
-    rooms.forEach((room, k) => {
-      const x0 = pad + k * (rw + gap), x1 = x0 + rw;
-      ctx.fillStyle = '#0d1016'; ctx.strokeStyle = '#1c2230'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(x0, top, rw, floor - top, 10); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#4b5263'; ctx.textAlign = 'center'; ctx.fillText(room.name || 'Room', (x0 + x1) / 2, floor - 10); ctx.textAlign = 'left';
-      const strings = room.lights.filter(l => l.kind !== 'short'), poles = room.lights.filter(l => l.kind === 'short');
-      // the strings overhead, one row each, across the room
-      strings.forEach((l, s) => {
-        const n = l.px.length / 3, y = top + 26 + s * 26, a = x0 + 26, b = x1 - 26, r = Math.max(2.5, Math.min(6, (b - a) / n / 2.6));
-        ctx.strokeStyle = '#1a1e28'; ctx.beginPath(); ctx.moveTo(a, y); ctx.lineTo(b, y); ctx.stroke();
-        for (let i = 0; i < n; i++) dot(a + (n > 1 ? (b - a) * i / (n - 1) : (b - a) / 2), y, r, rgb(l.px, i));
-        ctx.fillStyle = '#3d4352'; ctx.fillText(l.name, a, y - 9);
-      });
-      // the poles in the room's outer corner (the first room's left, the last room's right), bottom to top
-      poles.forEach((l, q) => {
-        const n = l.px.length / 3, outerLeft = k === 0 && rooms.length > 1 ? true : k === rooms.length - 1 && rooms.length > 1 ? false : q % 2 === 0;
-        const x = outerLeft ? x0 + 34 + q * 34 : x1 - 34 - q * 34, yTop = top + 100, yBot = floor - 30;
-        // the pole: its segments as rectangles stacked into one column, the first at the bottom
-        const segH = (yBot - 12 - yTop) / n, pw = Math.max(14, Math.min(26, segH * 0.42)), colTop = yTop;
-        ctx.fillStyle = '#1a1e28'; ctx.fillRect(x - 2, colTop + n * segH, 4, 12);                     // its foot
-        ctx.fillStyle = '#0a0c11'; ctx.beginPath(); ctx.roundRect(x - pw / 2 - 2, colTop - 2, pw + 4, n * segH + 4, 5); ctx.fill();
-        for (let i = 0; i < n; i++) seg(x - pw / 2, colTop + (n - 1 - i) * segH, pw, segH, rgb(l.px, i), i === 0, i === n - 1);
-        ctx.fillStyle = '#3d4352'; ctx.textAlign = outerLeft ? 'left' : 'right'; ctx.fillText(l.name, outerLeft ? x - pw / 2 : x + pw / 2, colTop - 10); ctx.textAlign = 'left';
-      });
-    });
+    if (!last || !last.lights.length) { bctx.clearRect(0, 0, bg.width, bg.height); if (gpu) gpu.draw([], w, h); return; }
+    const L = layoutFor(last.lights, w, h);
+    if (!L.drawn) drawBackground(L, w, h);
+    const lights = [];
+    for (const l of last.lights) {
+      const spots = L.spots.get(l.name); if (!spots) continue;
+      spots.forEach((s, i) => lights.push({ ...s, r: l.px[i * 3], g: l.px[i * 3 + 1], b: l.px[i * 3 + 2] }));
+    }
+    if (gpu) { gpu.draw(lights, w, h); return; }
+    // no WebGL: plain shapes on the 2D layer, no glow
+    drawBackground(L, w, h);
+    for (const s of lights) { bctx.fillStyle = `rgb(${s.r},${s.g},${s.b})`; bctx.beginPath(); bctx.roundRect(s.x - s.w / 2, s.y - s.h / 2, s.w, s.h, s.shape === 'dot' ? s.w / 2 : 2); bctx.fill(); }
   }
   draw();
 })();
