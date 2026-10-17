@@ -33,7 +33,19 @@
   let last = null, lastAt = 0, dirty = true, layout = null;
   const hello = () => ch.postMessage({ type: 'hello' });
   hello(); setInterval(hello, 1000);
-  ch.onmessage = e => { if (e.data && e.data.type === 'frame') { last = e.data; lastAt = performance.now(); dirty = true; } };
+  // The studio closing closes this too: it says goodbye as its window closes (a few seconds' grace, so the
+  // studio reloading does not), and it answers every hello: six seconds without an answer, it is gone.
+  let aliveAt = performance.now(), byeAt = 0;
+  ch.onmessage = e => {
+    const m = e.data || {};
+    if (m.type === 'frame') { last = m; lastAt = aliveAt = performance.now(); dirty = true; byeAt = 0; }
+    else if (m.type === 'alive') { aliveAt = performance.now(); byeAt = 0; }
+    else if (m.type === 'bye') byeAt = performance.now();
+  };
+  setInterval(() => {
+    const now = performance.now();
+    if ((byeAt && now - byeAt > 4000 && now - aliveAt > 3000) || now - aliveAt > 6000) window.close();
+  }, 500);
   addEventListener('resize', () => { dirty = true; layout = null; });
   setInterval(() => { dirty = true; }, 1000);                        // (so "waiting" shows when the frames stop)
 

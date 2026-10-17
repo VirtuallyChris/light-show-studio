@@ -845,7 +845,12 @@
   // simulated, whichever lights are ticked (testing on the Office strip, it shows the living room and the
   // game room). It says hello every second; frames go to it ~30 times a second while it does.
   const roomViewCh = typeof BroadcastChannel === 'function' ? new BroadcastChannel('lss-roomview') : null;
-  if (roomViewCh) roomViewCh.onmessage = e => { if (e.data && e.data.type === 'hello') S.roomViewAt = performance.now(); };
+  if (roomViewCh) {
+    // it says hello every second: the studio answers whether or not a song is open (the room view closes
+    // itself when the studio stops answering), and says goodbye as its window closes
+    roomViewCh.onmessage = e => { if (e.data && e.data.type === 'hello') { S.roomViewAt = performance.now(); roomViewCh.postMessage({ type: 'alive' }); } };
+    addEventListener('pagehide', () => { try { roomViewCh.postMessage({ type: 'bye' }); } catch (e) { /* closing anyway */ } });
+  }
   function sendRoomView(t) {
     if (!roomViewCh || !S.roomViewAt || performance.now() - S.roomViewAt > 3000) return;
     if (performance.now() - (S.roomViewSent || 0) < 30) return;
