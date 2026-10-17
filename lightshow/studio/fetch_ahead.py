@@ -54,6 +54,7 @@ def _download(track, folder: str) -> str:
     env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
     r = subprocess.run([SPOTDL, "download", f"https://open.spotify.com/track/{track.id}", "--output",
                         os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
+                        "--lyrics", "--skip-album-art",      # (no lyrics searched, no art: not needed, and seconds a song)
                         "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
     got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
     if not got:
@@ -169,14 +170,29 @@ def _search_youtube(track) -> list[dict]:
 
 
 def _download_from(track, folder: str, url: str) -> str:
-    """spotDL with the YouTube video chosen here instead of its own pick ("youtube url|spotify url")."""
+    """The YouTube video chosen here (not spotDL's pick), its audio as it comes. With yt-dlp itself (spotDL's
+    own downloader, in its environment): 2.3 s for a 3-minute song, where spotDL took 17 s (it also looks the
+    track up on Spotify, searches lyric sites and fetches and embeds the album art, none of it needed here).
+    spotDL ("youtube url|spotify url") only if yt-dlp cannot."""
     for p in glob.glob(os.path.join(folder, track.id + ".*")):
         os.remove(p)
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
+    # Deno (installed with `spotdl --download-deno`) lets YouTube's downloader get the copies that need it
     env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
+    try:
+        subprocess.run([_spotdl_python(), "-m", "yt_dlp", "-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist", "--no-progress", "-q",
+                        "-o", os.path.join(folder, track.id + ".%(ext)s"), url],
+                       capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
+    if got:
+        return got[0]
+    for p in glob.glob(os.path.join(folder, track.id + ".*")):
+        os.remove(p)
     r = subprocess.run([SPOTDL, "download", f"{url}|https://open.spotify.com/track/{track.id}", "--output",
                         os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
-                        "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
+                        "--lyrics", "--skip-album-art", "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
     got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
     if not got:
         tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or ["the chosen copy did not download"]
