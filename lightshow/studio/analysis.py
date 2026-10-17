@@ -108,14 +108,8 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                 at = lambda off: float(np.interp(np.arange(off, duration, f_per) * o_fps, np.arange(len(onset)), onset).mean())
                 f_off = max((f_off + d for d in np.arange(-0.07, 0.0701, 0.005)), key=at) % f_per
                 f_beats = np.arange(f_off, duration, f_per)
-                # the last word on where the beats sit: if librosa's grid (same tempo) sits on the song's
-                # attacks clearly better than this one, the model is on the off-beat (Kitten's ME) and
-                # librosa's beats are taken, the model still placing the bar lines
-                if abs(bpm / f_bpm - 1) <= 0.01:
-                    mine, theirs = beats_model.fits(f_beats, onset, o_fps), beats_model.fits(beats, onset, o_fps)
-                    if mine < 0.5 and theirs >= mine + 0.4:
-                        f_beats = np.asarray(beats, dtype=float)
-                        print(f"[beats] the model's beats sit off the attacks ({mine:.2f} vs {theirs:.2f}): librosa's taken")
+                # (no second opinion from the onsets on where the beats sit: a song with strong hits on the
+                # off-beats fools it, and it swapped Kitten's ME onto the off-beat, its drop half a beat late)
                 f_phases = beats_model.bar_places(f_beats, m_down) if abs(f_bpm / m_bpm - 1) <= 0.015 else None
                 if f_beats is not None and len(f_beats) and np.asarray(beats).shape == f_beats.shape and np.allclose(f_beats, beats):
                     f_phases = f_phases or [0, 1, 2, 3]          # librosa's beats: the section changes place the bar line
@@ -433,6 +427,8 @@ def hook_drops(a: dict) -> list:
     if mel is None:
         return []
     lvl = lambda t0, t1: float(mel[max(0, int(t0 * fps)):max(int(t0 * fps) + 1, int(t1 * fps))].mean()) if int(t0 * fps) < len(mel) else 0.0
+    en = np.asarray(a.get("energy") or [0.0], dtype=float)
+    loud = lambda t0, t1: float(en[max(0, int(t0 * fps)):max(int(t0 * fps) + 1, int(t1 * fps))].mean()) if int(t0 * fps) < len(en) else 0.0
     drops = [s for s in secs if s.get("type") == "drop"]
     inside = lambda s: [t for t in times if s["start"] - 0.5 <= t < s["end"]]
     in_drops = sum(len(inside(s)) for s in drops)
@@ -458,7 +454,10 @@ def hook_drops(a: dict) -> list:
                 and snare_rate(s["start"], s["end"]) < 0.4 * backbeat and lvl(s["start"], s["end"]) < sung
             # ...the hook marks two or more other drops and this one's melody is clearly quieter than theirs
             # (James Ivy's Last Star at 0:43 and 1:59: the hook-less part after a verse, 0.61 to 0.77)
-            quieter = len(hooked) >= 2 and lvl(s["start"], s["end"]) < 0.85 * sung
+            prev = out[-1] if out else None
+            lifts = prev is not None and loud(s["start"], s["end"]) - loud(prev["start"], prev["end"]) >= 0.1
+            quieter = len(hooked) >= 2 and lvl(s["start"], s["end"]) < 0.85 * sung and not lifts
+            # (but one that leaps out of what came before stays a drop: Kitten's ME at 0:48, 0.3 to 0.8)
             if no_beat or quieter:
                 out.append({**s, "type": "verse"})
                 changes.append((round(s["start"], 1), "verse (no hook)"))
@@ -917,7 +916,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 29         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 30         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
