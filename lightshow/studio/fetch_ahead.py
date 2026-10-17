@@ -199,9 +199,18 @@ def _length(path: str) -> float:
 
 def analyze_here(path: str, cache_dir: str) -> dict:
     """The full analysis of a copy (what the analysis worker runs), with the whole song's fingerprint."""
-    from .analysis import analyze_cached
-    a = dict(analyze_cached(path, cache_dir))
+    import time as _t
+    from . import analysis
+    t0 = _t.perf_counter()
+    analysis.LAPS = None
+    a = dict(analysis.analyze_cached(path, cache_dir))
+    t1 = _t.perf_counter()
     a["align_bands"] = whole_fingerprint(path)
+    laps = analysis.LAPS
+    # one line per song in models.log: where the time went (the analysis worker's prints go there)
+    print(f"{_t.strftime('%H:%M:%S')} [timing] {os.path.basename(path)}: {_t.perf_counter() - t0:.1f} s in all"
+          + (f"; analysis {laps.line()}" if laps else "") + f"; genre and the rest {t1 - t0 - (sum(v for _, v in laps.steps) if laps else 0):.1f}"
+          + f"; fingerprint {_t.perf_counter() - t1:.1f}", file=sys.stderr, flush=True)
     return a
 
 

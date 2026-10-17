@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 import os
 
 import numpy as np
@@ -35,6 +36,27 @@ def analyze(path: str, cache_dir: str | None = None, use_model: bool = True) -> 
     return analyze_audio(y, sr, path=path, cache_dir=cache_dir, use_model=use_model)
 
 
+class Laps:
+    """Where an analysis spends its time, step by step: one line in models.log per song learned ahead
+    (Run It once took 414 s instead of ~40, and nothing said where the time went)."""
+
+    def __init__(self):
+        self.t0 = self.t = time.perf_counter()
+        self.steps: list[tuple[str, float]] = []
+
+    def __call__(self, step: str) -> None:
+        now = time.perf_counter()
+        self.steps.append((step, now - self.t))
+        self.t = now
+
+    def line(self) -> str:
+        total = time.perf_counter() - self.t0
+        return f"{total:.1f} s: " + ", ".join(f"{k} {v:.1f}" for k, v in self.steps if v >= 0.05)
+
+
+LAPS: Laps | None = None                                   # the analysis running now (analyze_audio)
+
+
 def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_dir: str | None = None,
                   use_model: bool = False, events: bool = True, bpm_hint: float | None = None, segment_fn=None,
                   separate: bool | None = None) -> dict:
@@ -51,6 +73,8 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     duration = float(len(y) / sr)
     if duration < 5:
         raise ValueError("song is too short to analyse")
+    global LAPS
+    LAPS = lap = Laps()
 
     # The models (the stems, the sections, the beats: each its own process, on the GPU) are all asked at
     # once, side by side, while the CPU work below goes on; each answer is waited for only where it is
@@ -121,6 +145,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
             print(f"[beats] Beat This skipped: {type(e).__name__}: {e}")
     first = float(beats[0]) if len(beats) else first
 
+    lap("beats")
     # --- frame features ---------------------------------------------------------------
     rms = librosa.feature.rms(y=y, hop_length=HOP)[0]
     mel = librosa.feature.melspectrogram(y=y, sr=sr, hop_length=HOP, n_mels=N_BANDS, fmin=40, fmax=11000)
@@ -141,7 +166,9 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     peaks = peaks / (peaks.max() + 1e-9)
 
     # --- structure and downbeats -------------------------------------------------------
+    lap("features")
     phase, sections, drops = find_structure(y, sr, beats, rms, duration, phases)
+    lap("structure")
     downbeats = beats[phase::4]
     # the loudness detector says what each part is; SongFormer, when it can run, says
     # exactly when each part starts (see structure_model.py for the measurements)
@@ -161,6 +188,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         sections, drops, _ = structure_model.time_with_songformer(sections, drops, segs, [float(b) for b in beats], phase, duration)
         structure_source, structure_error = "loudness+songformer", ""
 
+    lap("sections model")
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=HOP)[0]
     mood = song_mood(y, sr, energy, centroid)
     ev = {"events": {}, "fills": [], "hook": None, "curves": {}, "stereo": False}
@@ -183,6 +211,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
             problems.append(f"the stems could not be separated ({type(e).__name__}: {e})")
     # The kicks and snares, heard by the drum transcriber in the separated drums (ADTOF; see drum_model.py).
     # Without it (the model environment not set up, or it failed) the pattern finder in events.py finds them.
+    lap("mood + stems")
     drum_hits = None
     if events and stems:
         try:
@@ -193,6 +222,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         except Exception as e:  # noqa: BLE001 - the pattern finder stands in
             print(f"[drums] skipped: {type(e).__name__}: {e}")
             problems.append(f"the drum model could not run ({type(e).__name__}: {e})")
+    lap("drum model")
     if events:
         try:
             from .events import detect_events
@@ -209,6 +239,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                 print(f"[structure] drops moved to where the bass comes in: {moved}")
         except Exception as e:  # noqa: BLE001 - the found drops stand
             print(f"[structure] drop timing skipped: {type(e).__name__}: {e}")
+    lap("drums + instruments")
     if ev.get("rolls"):
         sections, _ = buildups_from_rolls(sections, ev["rolls"], beats, phase)
 
@@ -250,7 +281,9 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "builtin_sections": builtin_sections,
         "builtin_drops": builtin_drops,
     }
+    lap("output")
     moved = settle_sections(out)
+    lap("section rules")
     if moved:
         print(f"[structure] sections settled by the drums and the hook: {moved}")
     if pool:
