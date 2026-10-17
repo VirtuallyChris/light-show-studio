@@ -1,5 +1,5 @@
-"""All the studio's models in one process: SongFormer (sections), Demucs (stems), the genre model and
-Beat This (beats), in the model environment (CUDA PyTorch).
+"""All the studio's models in one process: SongFormer (sections), Demucs (stems), the genre model,
+Beat This (beats) and ADTOF (drum hits), in the model environment (CUDA PyTorch).
 
 Each model used to be a process of its own, and the learn-ahead process started its own set again:
 with the venv's launcher and a console host for every one, Task Manager showed a couple of dozen
@@ -16,7 +16,7 @@ was given (a random token, never written anywhere):
              N, "sr": ..., "channels": ...}); or {"id": 7, "model": "beats", "op": "load"}
     reply    one JSON line {"id": 7, ..., "payload": nbytes} then nbytes (the stems' audio), the
              reply fields as each worker gave them ({"segments": ...}, {"labels": ...}, {"beats":
-             ...}, {"stems": ...}), or {"id": 7, "error": "...", "load_failed": true/false}
+             ...}, {"stems": ...}, {"hits": ...}), or {"id": 7, "error": "...", "load_failed": true/false}
 
 Each model answers one request at a time on a thread of its own, so different models run side by
 side, as the analysis asks them. A model is loaded when first asked (or when warmed with "load").
@@ -178,8 +178,21 @@ def _beats(model, req, payload):
     return {"beats": beats_infer.find(model, y)}, b""
 
 
-LOADERS = {"songformer_infer": _load_sections, "stems_infer": _load_stems, "genre_infer": _load_genre, "beats_infer": _load_beats}
-HANDLERS = {"songformer_infer": _sections, "stems_infer": _stems, "genre_infer": _genre, "beats_infer": _beats}
+def _load_drums():
+    from . import drums_infer
+    return drums_infer.load_model()
+
+
+def _drums(state, req, payload):
+    from . import drums_infer
+    y, _ = _audio(req, payload, drums_infer.SR)
+    return {"hits": drums_infer.find(state, y)}, b""
+
+
+LOADERS = {"songformer_infer": _load_sections, "stems_infer": _load_stems, "genre_infer": _load_genre, "beats_infer": _load_beats,
+           "drums_infer": _load_drums}
+HANDLERS = {"songformer_infer": _sections, "stems_infer": _stems, "genre_infer": _genre, "beats_infer": _beats,
+            "drums_infer": _drums}
 LOAD_LOCK = threading.Lock()
 MODELS: dict[str, Model] = {}
 MODELS_LOCK = threading.Lock()

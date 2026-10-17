@@ -181,11 +181,24 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         except Exception as e:  # noqa: BLE001 - without stems the drums come from the mix, as before
             print(f"[stems] skipped: {type(e).__name__}: {e}")
             problems.append(f"the stems could not be separated ({type(e).__name__}: {e})")
+    # The kicks and snares, heard by the drum transcriber in the separated drums (ADTOF; see drum_model.py).
+    # Without it (the model environment not set up, or it failed) the pattern finder in events.py finds them.
+    drum_hits = None
+    if events and stems:
+        try:
+            from . import drum_model
+            drum_hits = drum_model.hits(stems)
+            if drum_hits is None:
+                problems.append(f"the drum model could not run ({drum_model.WORKER.failed or drum_model.WORKER.last_error or 'no answer'})")
+        except Exception as e:  # noqa: BLE001 - the pattern finder stands in
+            print(f"[drums] skipped: {type(e).__name__}: {e}")
+            problems.append(f"the drum model could not run ({type(e).__name__}: {e})")
     if events:
         try:
             from .events import detect_events
             ev = detect_events(path, [float(b) for b in beats], duration, phase, SR, HOP, FEATURE_FPS,
-                               audio=(stereo if stereo is not None else y, sr) if path is None else None, stems=stems)
+                               audio=(stereo if stereo is not None else y, sr) if path is None else None, stems=stems,
+                               drum_hits=drum_hits)
         except Exception as e:  # noqa: BLE001 - a show without flair is better than no show
             print(f"[events] skipped: {type(e).__name__}: {e}")
             problems.append(f"the drums and instruments could not be found ({type(e).__name__}: {e})")
@@ -916,7 +929,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 30         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 31         # bumped when saved analyses (the cache, learned jam songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup

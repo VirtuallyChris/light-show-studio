@@ -28,8 +28,8 @@ def main() -> None:
     # load the models now, while the jam's first song plays: loaded at the first song to learn they
     # took minutes, and that song's show came at its end (a request waits for its model's load)
     import threading
-    from . import beats_model, genre, stems, structure_model
-    for w in (structure_model.WORKER, stems.WORKER, genre.WORKER, beats_model.WORKER):
+    from . import beats_model, drum_model, genre, stems, structure_model
+    for w in (structure_model.WORKER, stems.WORKER, genre.WORKER, beats_model.WORKER, drum_model.WORKER):
         threading.Thread(target=w.warm, daemon=True).start()
     for line in sys.stdin.buffer:
         if not line.strip():

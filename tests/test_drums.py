@@ -154,6 +154,63 @@ class TestLayoutsAndStems(unittest.TestCase):
         self.assertLess(extra, len(K) * 0.15)
 
 
+class TestDrumModel(unittest.TestCase):
+    """The drum transcriber's hits (drum_model.hits: ADTOF in the model environment), where it ran."""
+
+    def song(self):
+        drums, beats, dur, K, Sn = pattern_song(100, 16, 4, kicks_at=(0, 2), snares_at=(1, 3), hats_per_beat=2)
+        drums[: int(6 * SR)] = 0.0                            # a drumless intro
+        return drums, beats, dur, K, Sn
+
+    def test_its_kicks_and_snares_are_the_ones_used(self):
+        drums, beats, dur, K, Sn = self.song()
+        hits = {"kick": [(float(t), 0.9) for t in K], "snare": [(float(t), 0.8) for t in Sn], "hat": []}
+        out = detect_events(None, beats, dur, audio=(drums, SR), stems={"drums": drums, "bass": drums * 0, "sr": SR},
+                            drum_hits=hits)
+        cal = out["drum_calibration"]
+        self.assertEqual((cal["kick_source"], cal["snare_source"]), ("adtof", "adtof"))
+        self.assertIn("kick_band", cal)                       # the pattern finder's calibration is still there
+        kept = [k for k in K if k > 6.0]                      # (the intro's hits: no drums there)
+        self.assertEqual([round(e[0], 3) for e in out["events"]["kick"]], [round(float(t), 3) for t in kept])
+        self.assertEqual(out["events"]["kick"][0][1], 0.9)
+        self.assertEqual(len(out["events"]["snare"]), sum(1 for s in Sn if s > 6.0))
+
+    def test_a_hit_where_the_drum_track_is_silent_is_dropped(self):
+        drums, beats, dur, K, Sn = self.song()
+        hits = {"kick": [(1.0, 1.0), (2.0, 1.0)] + [(float(t), 0.9) for t in K], "snare": []}
+        out = detect_events(None, beats, dur, audio=(drums, SR), stems={"drums": drums, "bass": drums * 0, "sr": SR},
+                            drum_hits=hits)
+        self.assertGreater(min(e[0] for e in out["events"]["kick"]), 5.5)
+
+    def test_without_the_model_the_pattern_finder_stands_in(self):
+        drums, beats, dur, K, _ = self.song()
+        out = detect_events(None, beats, dur, audio=(drums, SR), stems={"drums": drums, "bass": drums * 0, "sr": SR})
+        self.assertIn(out["drum_calibration"]["kick_source"], ("stem", "mix"))
+        recall, _ = score(out["events"]["kick"], K[K > 6.5])
+        self.assertGreater(recall, 0.9)
+
+    def test_no_drums_in_the_drum_track_still_means_no_drums(self):
+        t = np.arange(int(40 * SR)) / SR
+        mix = (0.3 * np.sin(2 * np.pi * 110 * t)).astype(np.float32)
+        quiet = (0.002 * np.random.default_rng(1).standard_normal(len(t))).astype(np.float32)
+        out = detect_events(None, list(np.arange(0.5, 39, 0.5)), 40.0, audio=(mix, SR),
+                            stems={"drums": quiet, "bass": mix, "sr": SR}, drum_hits={"kick": [(5.0, 0.3)], "snare": []})
+        self.assertFalse(out["drum_calibration"]["has_drums"])
+        self.assertEqual(out["events"]["kick"], [])
+
+    def test_strengths_are_against_the_songs_own_strong_hits(self):
+        from unittest import mock
+        from lightshow.studio import drum_model
+        reply = {"kick": [[1.0, 0.4], [2.0, 0.8], [3.0, 0.8]], "snare": []}
+        with mock.patch.object(drum_model.WORKER, "ask_audio", return_value=reply):
+            got = drum_model.hits({"drums": np.zeros(SR, np.float32), "sr": SR})
+        self.assertEqual([round(v, 2) for _, v in got["kick"]], [0.5, 1.0, 1.0])
+        self.assertEqual(got["snare"], [])
+        with mock.patch.object(drum_model.WORKER, "ask_audio", return_value=None):
+            self.assertIsNone(drum_model.hits({"drums": np.zeros(SR, np.float32), "sr": SR}))
+        self.assertIsNone(drum_model.hits(None))
+
+
 class TestRolls(unittest.TestCase):
     def test_a_snare_roll_is_found_and_becomes_the_buildup(self):
         import librosa

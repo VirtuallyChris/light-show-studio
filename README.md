@@ -310,12 +310,13 @@ winget install --id Python.Python.3.12 --scope user
 .venv-songformer\Scripts\python.exe -m pip install "transformers==4.51.1" huggingface_hub librosa soundfile scipy numpy ema-pytorch loguru muq omegaconf tqdm x-transformers einops nnAudio
 .venv-songformer\Scripts\python.exe -m pip install demucs
 .venv-songformer\Scripts\python.exe -m pip install beat_this
+.venv-songformer\Scripts\python.exe -m pip install git+https://github.com/xavriley/ADTOF-pytorch@85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9
 ```
 
-All four models (SongFormer, the stems, the genre model, Beat This) run in **one model
+All five models (SongFormer, the stems, the genre model, Beat This, ADTOF) run in **one model
 process** (`models_host.py`), started by the studio with the model environment's own
 interpreter (no launcher, no console window) and shared with the learn-ahead process, so
-each model loads once for the whole app (about 5 GB of memory, 10 s to load all four).
+each model loads once for the whole app (about 5 GB of memory, 10 s to load them all).
 It exits when the studio does, and closing the studio stops it at once.
 
 The weights download automatically on first use. The environment lives in the
@@ -811,6 +812,22 @@ noise.
   Over 18 songs that was mostly intros, outros and the odd breakdown; songs that
   never go quiet (COIN, ELEY, The 1975) get none. Over 20 songs, 18 drum songs were all at 39% or more and the two drumless
   ones at 1-2%. Without the model environment the drums come from the mix alone.
+  **The kicks and snares come from a drum transcriber.** Where the models run, ADTOF
+  (Zehren et al., a small network trained on real songs with crowdsourced drum charts, in its
+  PyTorch port, 3.6 MB; `drums_infer.py`, `drum_model.py`) hears the separated drum track and
+  gives every kick, snare, hi-hat, tom and cymbal with the moment it starts; the kicks and
+  snares are used, where the drum track is playing. On 79 drum songs (Oct 2026, 57 of them
+  learned in Jam mode) it agreed with a second, differently built transcriber (ADT_STR, 2026)
+  at a median F 0.90 on kicks and 0.81 on snares, against 0.84 and 0.55 for the pattern
+  finder below: better snares on 75 songs and worse on none, better kicks on 44 and worse on
+  one (*Unfold*, 0.74 against 0.78). Its hits are on the attack, where the pattern finder's
+  came a median 17 ms (kicks) and 34 ms (snares) late, up to a sixteenth; and it hears drums
+  the pattern finder skipped (Hastings' *Take Mine*: no kick in the first 32 s; the snares in
+  *Unfold*'s drop; Your Neighbors' *Fallin'*: 197 s of drums without a snare, now 26 s).
+  It takes well under a second a song.
+  The pattern finder still runs: its calibration (the kick's band, the cycle) is what the
+  roll finder and `drum_calibration` read, and it finds the hits wherever the model cannot
+  run (`kick_source` says which: `adtof`, `stem`, `mix`).
   The drum pattern is learned per song, in the song's own meter: four beats or
   three, in sixteenths or triplets (a shuffle, 6/8), decided from how tightly all
   its percussion gathers on each division of the beat and whether the kick's

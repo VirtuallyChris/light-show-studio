@@ -614,12 +614,17 @@ def find_rolls(S_d, freqs, sr, hop, duration, beats, kick_band=(30, 150)):
     return hits, [[round(a, 3), round(b, 3)] for a, b in spans]
 
 
-def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
+def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems, model_hits=None):
     """Kicks and snares from the full mix and from the separated drum track, keeping for each drum
     whichever is more believable. Separation makes most drums far clearer, but not all: a clap can
     land in "other", and strums can leak into the drum track. The separated drums also tell whether
     the song has drums at all (quieter than 10% of the song: no drums), and when they are playing:
-    a hit from the mix at a moment the drum track is silent is dropped."""
+    a hit from the mix at a moment the drum track is silent is dropped.
+
+    `model_hits` are the drum transcriber's (drum_model.hits: ADTOF on the drum track): where given,
+    its kicks and snares are the ones used (on the attack, and found in quiet verses and broken beats
+    alike); the pattern finders above still run, for the calibration the rest of the analysis reads
+    (the kick's band, the cycle), and are the fallback where the model cannot run."""
     import librosa
     d = np.asarray(stems["drums"], dtype=np.float32)
     if stems.get("sr", sr) != sr:
@@ -640,13 +645,19 @@ def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems):
     playing = lambda t: present[min(len(present) - 1, int(t * sr / hop))] >= 0.15
     kicks = [h for h in kicks if playing(h[0])]
     snares = [h for h in snares if playing(h[0])]
-    if not kicks and not snares:                         # drums, but no pattern to calibrate on: their attacks
+    cal_src = k_src                                      # whose calibration the analysis keeps
+    if model_hits is not None:                           # the transcriber's, where it ran
+        kicks = [h for h in model_hits.get("kick", []) if 0.02 < h[0] < duration and playing(h[0])]
+        snares = [h for h in model_hits.get("snare", []) if 0.02 < h[0] < duration and playing(h[0])]
+        k_src = s_src = "adtof"
+    elif not kicks and not snares:                       # drums, but no pattern to calibrate on: their attacks
         ak, asn = stem_attack_hits(S_d, freqs, sr, hop)
         kicks, snares = [h for h in ak if playing(h[0])], [h for h in asn if playing(h[0])]
         k_src = s_src = "stem attacks"
+        cal_src = "mix"
     cal = {"has_drums": True, "drum_level": round(level, 3), "kick_source": k_src, "snare_source": s_src,
            "quality": {f"{a}_{b}": round(v, 2) for (a, b), v in q.items()},
-           **((scal if k_src == "stem" else mcal) or {}), "mix": mcal, "stem": scal}
+           **((scal if cal_src == "stem" else mcal) or {}), "mix": mcal, "stem": scal}
     cal["has_drums"] = True
     roll_hits, rolls = find_rolls(S_d, freqs, sr, hop, duration, beats, tuple(cal.get("kick_band") or (30, 150)))
     roll_hits = [h for h in roll_hits if playing(h[0])]
@@ -761,8 +772,10 @@ def find_entries(level, fps, beats, phase):
     return out
 
 
-def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None, stems=None) -> dict:
-    """`audio` is (array, sr) already in memory, mono or (2, n); otherwise `path` is loaded."""
+def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feature_fps=30.0, audio=None, stems=None,
+                  drum_hits=None) -> dict:
+    """`audio` is (array, sr) already in memory, mono or (2, n); otherwise `path` is loaded. `drum_hits`
+    are the drum transcriber's hits in the stems' drum track (drum_model.hits), if it ran."""
     import librosa
 
     out_times = np.arange(0, duration, 1.0 / feature_fps)
@@ -813,7 +826,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     env_drum, idx_drum, _ = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
     present = None
     if stems:
-        kick, snare, drum_cal, present = find_drums_both(S_p, freqs, sr, hop, duration, beats, phase, mid, stems)
+        kick, snare, drum_cal, present = find_drums_both(S_p, freqs, sr, hop, duration, beats, phase, mid, stems, drum_hits)
     else:
         kick, snare, drum_cal = find_drums(S_p, freqs, sr, hop, duration, beats, phase)
 
