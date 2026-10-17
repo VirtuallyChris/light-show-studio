@@ -52,6 +52,27 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     if duration < 5:
         raise ValueError("song is too short to analyse")
 
+    # The models (the stems, the sections, the beats: each its own process, on the GPU) are all asked at
+    # once, side by side, while the CPU work below goes on; each answer is waited for only where it is
+    # needed. One after another they cost ~7 s of a ~23 s analysis.
+    want_models = bool(use_model or segment_fn is not None)
+    if separate is None:
+        separate = want_models
+    pending, pool = {}, None
+    if want_models:
+        from concurrent.futures import ThreadPoolExecutor
+        from . import beats_model as _bm, stems as _st, structure_model as _sm
+        pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="models")
+        if _bm.available():
+            pending["beats"] = pool.submit(_bm.model_grid, y, sr, duration)
+        if use_model and path:
+            pending["segs"] = pool.submit(_sm.run_model, path, cache_dir)
+        elif segment_fn is not None:
+            pending["segs"] = pool.submit(segment_fn, y, sr)
+        if events and separate:
+            pending["stems"] = (pool.submit(_st.separate_file, path) if path
+                                else pool.submit(_st.separate_audio, stereo if stereo is not None else y, sr))
+
     # --- tempo and beat grid --------------------------------------------------------
     onset = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP)
     onset_times = librosa.frames_to_time(np.arange(len(onset)), sr=sr, hop_length=HOP)
@@ -70,7 +91,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     if use_model or segment_fn is not None:
         try:
             from . import beats_model
-            got = beats_model.model_grid(y, sr, duration) if beats_model.available() else None
+            got = pending["beats"].result() if "beats" in pending else None
             if got:
                 # the model's tempo, librosa's fit of the beats to the onsets at that tempo, the model's
                 # bar lines on the result (see beats_model.py)
@@ -135,10 +156,10 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     builtin_sections, builtin_drops = sections, drops
     structure_source, structure_error, segs = "loudness", "SongFormer was not asked", None
     if use_model and path:
-        segs, structure_error = structure_model.run_model(path, cache_dir)
+        segs, structure_error = pending["segs"].result()
     elif segment_fn is not None:
         try:
-            segs = segment_fn(y, sr)
+            segs = pending["segs"].result()
             structure_error = "" if segs else f"SongFormer failed: {structure_model.WORKER.last_error or 'no answer'}"
         except Exception as e:  # noqa: BLE001
             structure_error = f"SongFormer failed: {type(e).__name__}: {e}"
@@ -156,12 +177,11 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     problems = []                                            # whatever failed along the way (the show is made regardless)
     if structure_error and structure_error != "SongFormer was not asked":
         problems.append(structure_error)
-    if separate is None:
-        separate = bool(use_model or segment_fn is not None)
     if events and separate:
         try:
             from . import stems as stems_mod
-            stems = stems_mod.separate_file(path) if path else stems_mod.separate_audio(stereo if stereo is not None else y, sr)
+            stems = pending["stems"].result() if "stems" in pending else (
+                stems_mod.separate_file(path) if path else stems_mod.separate_audio(stereo if stereo is not None else y, sr))
             if stems is None:
                 problems.append(f"the stems could not be separated ({stems_mod.WORKER.failed or stems_mod.WORKER.last_error or 'no answer'})")
         except Exception as e:  # noqa: BLE001 - without stems the drums come from the mix, as before
@@ -226,6 +246,8 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     moved = settle_sections(out)
     if moved:
         print(f"[structure] sections settled by the drums and the hook: {moved}")
+    if pool:
+        pool.shutdown(wait=False)
     return out
 
 
