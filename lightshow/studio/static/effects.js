@@ -477,7 +477,7 @@ const Effects = (() => {
     } });
 
   def({ id: 'drumhits', name: 'Drum hits', cat: 'medium', desc: 'The whole light blooms on the drums: the first color on every kick, the second on every snare, and fades between. Made for small lamps, which play the drums while the long strips move. Split: with two or more small lamps (light poles in the corners), the first half of them in the room order take the kick and the rest the snare, a call and response across the room; Together: every lamp on every hit.', swatch: ['#8000ff', '#00ff00'],
-    params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only' }, label: 'Follows' }, decay: P.decay(0.35),
+    params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only', snare: 'snare only' }, label: 'Follows' }, decay: P.decay(0.35),
       floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' },
       split: { type: 'select', def: 'together', options: { together: 'every lamp on every hit', split: 'kick one side, snare the other' }, label: 'Lamps' } },
     render(c) {
@@ -485,7 +485,7 @@ const Effects = (() => {
       let ek, es;
       if (m.hasDrums) {
         const hit = h => (h && h.index >= 0 ? Math.exp(-h.age / tau) * (0.6 + 0.4 * h.strength) : 0);
-        ek = hit(m.kick); es = c.p.follow === 'drums' ? hit(m.snare) : 0;
+        ek = c.p.follow === 'snare' ? 0 : hit(m.kick); es = c.p.follow === 'kick' ? 0 : hit(m.snare);
       } else { ek = Math.exp(-c.phase * c.beatSec / tau); es = 0; }      // no drums known: on the beat
       if (c.p.split === 'split' && es !== 0 && c.room && c.room.kinds) {   // this lamp's side among the small lamps
         const shorts = c.room.kinds.map((k, i) => (k === 'short' ? i : -1)).filter(i => i >= 0), at = shorts.indexOf(c.room.i);
@@ -641,6 +641,25 @@ const Effects = (() => {
         const lit = inRoom(c) ? (step % c.room.n) === c.room.i : Math.floor(i / c.n * 4) === step % 4;
         const v = lit ? Math.max(c.p.floor, env) : c.p.floor;
         set(c.out, i, col[0] * v, col[1] * v, col[2] * v, lit ? 1 : (c.p.floor > 0 ? 1 : 0));
+      }
+    } });
+  def({ id: 'roomsweep', name: 'Room sweep', cat: 'room', desc: 'A bright band crosses the room: the left light pole, then along the overhead strips, then the right pole (the small lamps split into left and right by the light order, the long strips between). With one light, it crosses the strip.', swatch: ['#ffffff', '#000000'],
+    params: { every: P.speed(2, 'One crossing every (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Band width (lights)' }, color: P.color() },
+    render(c) {
+      clear(c.out);
+      const u = frac(c.clipBeat / c.p.every);                   // how far across the room this crossing is
+      let slot = 0, m = 1, small = false;
+      if (inRoom(c) && c.room.kinds) {                          // this light's place on the line across the room
+        const k = c.room.kinds, shorts = k.map((x, i) => (x === 'short' ? i : -1)).filter(i => i >= 0);
+        const longs = k.map((x, i) => (x !== 'short' ? i : -1)).filter(i => i >= 0), half = Math.ceil(shorts.length / 2);
+        const line = [...shorts.slice(0, half), ...longs, ...shorts.slice(half)];
+        m = line.length; slot = Math.max(0, line.indexOf(c.room.i)); small = k[c.room.i] === 'short';
+      }
+      const w = c.p.width, pos = u * (m + w) - w / 2, col = colorFor(c, u, 0);
+      for (let i = 0; i < c.n; i++) {
+        const x = small ? slot + 0.5 : slot + (c.n > 1 ? i / (c.n - 1) : 0.5);   // a pole lights whole; a strip, along it
+        const v = Math.exp(-(((x - pos) / (w * 0.5)) ** 2));
+        if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
       }
     } });
   def({ id: 'roomwave', name: 'Room wave', cat: 'room', desc: 'A slow swell rolls around the room from lamp to lamp, each half of the room in its own color. With one light, along its strip.', swatch: ['#8000ff', '#00ff00'],

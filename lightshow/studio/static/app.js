@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 13;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair
+  const SHOW_VERSION = 14;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -580,6 +580,35 @@
   S.rooms = S.rooms || [];
   function keysOf(l) { return [l.mac, l.device_id, l.ip].filter(Boolean); }
   function roomOf(l) { return (S.rooms || []).find(r => r.lights.some(k => keysOf(l).includes(k))) || null; }
+  /** Where each light stands, for the effects that play the room as a whole (sweeps, the poles' call and
+   *  response, halves): { of: Map(light -> { i, n, side, kinds }) }. A light alone in its room (the Office,
+   *  a test room no one else can see) plays them by itself. The others are the party space, rooms next to
+   *  each other, ordered as a line across them: the first room's lamps (a light pole in its corner), its
+   *  long strips (overhead), then the next room's strips and lamps, so a sweep crosses from one corner to
+   *  the other and the first room is one side, the last the other. Rooms switched off are left out (a
+   *  chase never runs into one that is off). Without rooms set up, every light is one space, in list order. */
+  function roomSpace(lights) {
+    const on = lights.filter(l => !roomOff(l)), of = new Map(), rooms = S.rooms || [];
+    const roomIx = l => rooms.indexOf(roomOf(l));
+    const count = new Map();
+    for (const l of on) count.set(roomIx(l), (count.get(roomIx(l)) || 0) + 1);
+    const alone = l => rooms.length && roomIx(l) >= 0 && count.get(roomIx(l)) === 1;
+    for (const l of on) if (alone(l)) of.set(l, { i: 0, n: 1, side: 0, kinds: [lightKind(l)] });
+    const party = on.filter(l => !alone(l));
+    const ids = [...new Set(party.map(roomIx))].sort((a, b) => a - b);
+    const line = [];
+    ids.forEach((r, k) => {
+      const here = party.filter(l => roomIx(l) === r), lamps = here.filter(l => lightKind(l) === 'short'), strips = here.filter(l => lightKind(l) !== 'short');
+      line.push(...(k === 0 && ids.length > 1 ? [...lamps, ...strips] : [...strips, ...lamps]));   // the corners at the ends
+    });
+    const kinds = line.map(lightKind);
+    line.forEach((l, i) => {
+      const k = ids.indexOf(roomIx(l));
+      of.set(l, { i, n: line.length, kinds, side: ids.length > 1 ? (k < ids.length / 2 ? 0 : 1) : (i < Math.ceil(line.length / 2) ? 0 : 1) });
+    });
+    return { of, key: roomSpaceKey(lights) };
+  }
+  const roomSpaceKey = lights => JSON.stringify([lights.map(l => l.ip + (roomOff(l) ? '-' : '+')), (S.rooms || []).map(r => [r.id, r.lights])]);
   function roomOff(l) { const r = roomOf(l); return !!(r && !r.on); }
   async function loadRooms() {
     try {
@@ -756,11 +785,10 @@
     const music = musicAt(t);
     const kick = Math.exp(-frac(b) * 6);
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
-    const out = [], lights = selectedLights(), inRoom = lights.filter(l => !roomOff(l)); let roomKinds = null;
+    const out = [], lights = selectedLights();
+    const space = S.roomSpace && S.roomSpace.key === roomSpaceKey(lights) ? S.roomSpace : (S.roomSpace = roomSpace(lights));
     for (const L of lights) {
-      // the order around the room counts only the rooms in the party, so a chase never runs into one that is off
-      const ri = Math.max(0, inRoom.indexOf(L)), rn = Math.max(1, inRoom.length);
-      const room = { i: ri, n: rn, side: ri < Math.ceil(rn / 2) ? 0 : 1, kinds: roomKinds || (roomKinds = inRoom.map(lightKind)) };
+      const room = space.of.get(L) || { i: 0, n: 1, side: 0, kinds: [lightKind(L)] };
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
       const kind = lightKind(L);
       p.lanes.forEach((lane, li) => {
@@ -2033,6 +2061,8 @@
         clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
+        // and the build's last bar crosses the room (left pole, along the ceiling, right pole), twice, into the drop
+        if (!chill && len >= 8) clip(8, 'roomsweep', b0 + len - 5, 4, { every: 2, width: 0.7 }, { blend: 'add', opacity: 0.95 });
         break;
       case 'drop': {
         const kind = variant % 4;
@@ -2068,9 +2098,20 @@
           clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'each', zones: 5, decay: 0.25 }, { opacity: style === 'dance' ? 0.65 : 0.55, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
         else if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
+        // big white hits, as a rig's blinders, for rock and electronic songs (never a calm or a pop one): the
+        // whole room on the drop's first hit, then on each 8-bar phrase a strong kick or snare opens (the crash)
+        if (!chill && (hard || /rock|punk|metal|grunge|alternative/.test(genreWords()))) {
+          clip(9, 'whiteflash', b0, 2, {}, { palette: ['#ffffff'], opacity: 1 });
+          const strong = [...(ev.kick || []), ...(ev.snare || [])].filter(e => e[1] >= 0.6);
+          for (let bt = b0 + 32; bt < b0 + len - 4; bt += 32)
+            if (strong.some(e => Math.abs(e[0] - beatToTime(bt)) < 0.12)) clip(9, 'whiteflash', bt, 1, {}, { palette: ['#ffffff'], opacity: 0.9 });
+        }
         break;
       }
       case 'breakdown':
+        // a moody moment: in a long breakdown the overhead strings fade out for its first half and the
+        // corner poles carry it alone, then the strings come back for the build
+        if (S.mixedLights && len >= 16) clip(9, 'dark', b0, Math.round(len / 2), {}, { target: 'long', fadeIn: 2, fadeOut: 4 });
         clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
         if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 4, tint: S.starTint || 'white' }, { blend: 'add' });
         else top(S.drift, { opacity: 0.85 * (((S.drift || [])[2] || {}).opacity || 1) });
@@ -2094,7 +2135,9 @@
         if (p.lanes[0].clips.includes(c))                  // it was the base: the lamps get a wash of their own beneath the drums
           clip(0, 'colorwash', c.start, c.len, { speed: 8, intensity: 0.55 }, { target: 'short', palette: c.palette });
       }
-      if (zoneBuild || s.type === 'buildup') { /* in a buildup the lamps are stretches of the room's hits */ }
+      if (s.type === 'buildup' && !chill && snaresHere >= 4)            // in a build both poles flash on every snare
+        clip(6, 'drumhits', b0, len, { follow: 'snare', split: 'together', decay: 0.3, floor: 0 }, { target: 'short', blend: 'add', opacity: 0.95 });
+      else if (zoneBuild || s.type === 'buildup') { /* in a buildup the lamps are stretches of the room's hits */ }
       // the corner poles as a stereo pair, as a stage rig: in a drop both on every hit (the room as one);
       // elsewhere the kick on one side and the snare on the other, a call and response, each half as busy
       else if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0, split: s.type === 'drop' && !chill ? 'together' : 'split' },
@@ -2484,5 +2527,5 @@
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved };
+    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace };
 })();

@@ -902,7 +902,20 @@ noise.
   snare. Two or more lamps (light poles in the room's corners) are a stereo pair,
   as on a stage: in a drop both hit together on everything, and elsewhere the
   first half of them (in the light order) take the kick and the rest the snare, a
-  call and response across the room, each half as busy. Where there are no drums the lamps breathe slowly in the other color.
+  call and response across the room, each half as busy. In a buildup both poles
+  flash on every snare.
+- **The room as one space, like a concert rig.** Most of the look is shared by every
+  light, so the room feels like one thing. The effects that play the room as a
+  whole place the lights by room: a light alone in its room (the Office, a test
+  room) plays them by itself; the other rooms, next to each other, form the party
+  space, a line from the first room's light pole in its corner, along its string
+  lights overhead, to the next room's strings and its pole in the far corner (the
+  first room is one side, the last the other). **Room sweep** sends a bright band
+  across that line: the last bar of every buildup crosses the room twice into the
+  drop. Rock and electronic songs get **big white hits**: the whole room white on
+  the drop's first hit and on each 8-bar phrase a strong hit opens (never in a calm
+  or a pop song). A long breakdown has a moody start: the overhead strings fade out
+  for its first half and the poles carry it alone. Where there are no drums the lamps breathe slowly in the other color.
   When a drop's base itself travels, the lamps get a color wash of their own
   under the drums. A clip for one kind of light is drawn in its half of the
   layer (strips on top, lamps below), and the clip inspector's **Lights** sets
