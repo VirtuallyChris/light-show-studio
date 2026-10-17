@@ -49,10 +49,32 @@ def note(msg: str) -> None:
     """A line for models.log (and the studio's own log): a studio started without a console prints nowhere."""
     print(msg)
     try:
-        with open(MODELS_LOG, "a", encoding="utf-8") as fh:
+        with append_only(MODELS_LOG) as fh:
             fh.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
     except OSError:
         pass
+
+
+def append_only(path: str):
+    """The log file, for a child process to write to (its stderr), opened so that every write lands at
+    the file's end. A file opened the usual way and handed to a child keeps a position of its own in it:
+    the model host, the analysis process and the studio each wrote at their own position and wrote over
+    one another (the host's start-up lines and the card's memory line were lost under the analysis's).
+    On Windows a handle with the right to append but not to write anywhere else always writes at the end."""
+    if sys.platform != "win32":
+        return open(path, "a", encoding="utf-8")
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                                wintypes.DWORD, wintypes.HANDLE]
+    FILE_APPEND_DATA, SHARE_ALL, OPEN_ALWAYS, NORMAL = 0x0004, 0x0007, 4, 0x80
+    h = k32.CreateFileW(path, FILE_APPEND_DATA, SHARE_ALL, None, OPEN_ALWAYS, NORMAL, None)
+    if not h or h == wintypes.HANDLE(-1).value:
+        return open(path, "a", encoding="utf-8")
+    return open(msvcrt.open_osfhandle(h, os.O_APPEND | os.O_WRONLY), "a", encoding="utf-8")
 
 
 WORKERS: list = []                     # every model worker made (see kill_all)
@@ -133,7 +155,7 @@ class ModelHost:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", "LSS_MODELS_TOKEN": token, "LSS_MODELS_OWNER": str(os.getpid())}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
         try:
-            err = open(MODELS_LOG, "a", encoding="utf-8")
+            err = append_only(MODELS_LOG)
             err.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} lightshow.studio.models_host starting\n")
             err.flush()
         except OSError:
@@ -312,7 +334,7 @@ class ModelWorker:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", **self.env_extra}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
         try:
-            err = open(MODELS_LOG, "a", encoding="utf-8")
+            err = append_only(MODELS_LOG)
             err.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} {self.module} starting\n")
             err.flush()
         except OSError:
