@@ -100,25 +100,15 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     # --- tempo and beat grid --------------------------------------------------------
     onset = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP)
     onset_times = librosa.frames_to_time(np.arange(len(onset)), sr=sr, hop_length=HOP)
-    tempo, beat_frames = librosa.beat.beat_track(onset_envelope=onset, sr=sr, hop_length=HOP, trim=False)
-    tracked = librosa.frames_to_time(beat_frames, sr=sr, hop_length=HOP)
-    bpm, offset = fit_grid(onset, onset_times, bpm_hint)
-    period = 60.0 / bpm
-    first = offset - period * math.floor(offset / period)  # first beat at or after 0
-    beats = np.arange(first, duration, period)
-    if bpm_hint is None:
-        bpm, beats = fix_half_tempo(y, sr, bpm, beats)
-    bpm, beats = cap_tempo(y, sr, bpm, beats)
-    # Beat This, where the models are in use (a song file; a copy learned ahead): its beats and bar
-    # lines are the grid (see beats_model.py); librosa's stays when it cannot run or hears no pulse
-    phases, beat_source = None, "librosa"
-    if use_model or segment_fn is not None:
+    # Beat This, where the models are in use (a song file; a copy learned ahead): its tempo, the onsets'
+    # precise fit at that tempo, its beats and bar lines (see beats_model.py). librosa's own tempo search
+    # and grid run only when it cannot (no models, or no steady pulse heard): they cost seconds a song.
+    beats, phases, beat_source = None, None, "librosa"
+    if (use_model or segment_fn is not None) and "beats" in pending:
         try:
             from . import beats_model
-            got = pending["beats"].result() if "beats" in pending else None
+            got = pending["beats"].result()
             if got:
-                # the model's tempo, librosa's fit of the beats to the onsets at that tempo, the model's
-                # bar lines on the result (see beats_model.py)
                 m_bpm, m_beats, m_phases, m_down, m_raw = got
                 f_bpm, _ = fit_grid(onset, onset_times, m_bpm)
                 f_per = 60.0 / f_bpm
@@ -135,15 +125,20 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                 # (no second opinion from the onsets on where the beats sit: a song with strong hits on the
                 # off-beats fools it, and it swapped Kitten's ME onto the off-beat, its drop half a beat late)
                 f_phases = beats_model.bar_places(f_beats, m_down) if abs(f_bpm / m_bpm - 1) <= 0.015 else None
-                if f_beats is not None and len(f_beats) and np.asarray(beats).shape == f_beats.shape and np.allclose(f_beats, beats):
-                    f_phases = f_phases or [0, 1, 2, 3]          # librosa's beats: the section changes place the bar line
                 if f_phases:
                     bpm, beats, phases, beat_source = f_bpm, f_beats, f_phases, "beat this tempo, onset fit"
                 else:
-                    bpm, beats, phases, beat_source = m_bpm, m_beats, m_phases, "beat this"
-        except Exception as e:  # noqa: BLE001 - librosa's grid stands
+                    bpm, beats, phases, beat_source = m_bpm, np.asarray(m_beats, dtype=float), m_phases, "beat this"
+        except Exception as e:  # noqa: BLE001 - librosa's grid stands in
             print(f"[beats] Beat This skipped: {type(e).__name__}: {e}")
-    first = float(beats[0]) if len(beats) else first
+    if beats is None:                                     # librosa's grid: the tempo search, half time fixed
+        bpm, offset = fit_grid(onset, onset_times, bpm_hint)
+        period = 60.0 / bpm
+        beats = np.arange(offset - period * math.floor(offset / period), duration, period)
+        if bpm_hint is None:
+            bpm, beats = fix_half_tempo(y, sr, bpm, beats)
+        bpm, beats = cap_tempo(y, sr, bpm, beats)
+    first = float(beats[0]) if len(beats) else 0.0
 
     lap("beats")
     # --- frame features ---------------------------------------------------------------
@@ -267,7 +262,6 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "beat_source": beat_source,
         "beats": [round(float(b), 4) for b in beats],
         "downbeats": [round(float(b), 4) for b in downbeats],
-        "tracked_beats": [round(float(b), 4) for b in tracked],
         "feature_fps": FEATURE_FPS,
         "energy": [round(float(e), 4) for e in energy],
         "bands": [[round(float(v), 3) for v in row] for row in bands.T],

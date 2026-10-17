@@ -614,7 +614,7 @@ def find_rolls(S_d, freqs, sr, hop, duration, beats, kick_band=(30, 150)):
     return hits, [[round(a, 3), round(b, 3)] for a, b in spans]
 
 
-def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems, model_hits=None):
+def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems, model_hits=None, S_d=None):
     """Kicks and snares from the full mix and from the separated drum track, keeping for each drum
     whichever is more believable. Separation makes most drums far clearer, but not all: a clap can
     land in "other", and strums can leak into the drum track. The separated drums also tell whether
@@ -634,8 +634,11 @@ def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems, m
     if level < DRUMS_PRESENT_BELOW:
         return [], [], {"has_drums": False, "drum_level": round(level, 3), "source": "stems"}, np.zeros(S_mix.shape[1])
     present = drums_present(d, sr, hop, S_mix.shape[1])
-    S_d = np.abs(librosa.stft(d, hop_length=hop))
-    mk, ms, mcal = find_drums(S_mix, freqs, sr, hop, duration, beats, phase)
+    if S_d is None:
+        S_d = np.abs(librosa.stft(d, hop_length=hop))
+    # with the drum model's hits, only the drum track's calibration is read (the kick's band, the cycle):
+    # the mix's pattern pass, a fallback for the hits themselves, is not run
+    mk, ms, mcal = ([], [], None) if model_hits is not None else find_drums(S_mix, freqs, sr, hop, duration, beats, phase)
     sk, ss, scal = find_drums(S_d, freqs, sr, hop, duration, beats, phase)
     q = {("kick", "mix"): _hit_quality(mk, mcal, beats, phase, "kick"), ("kick", "stem"): _hit_quality(sk, scal, beats, phase, "kick"),
          ("snare", "mix"): _hit_quality(ms, mcal, beats, phase, "snare"), ("snare", "stem"): _hit_quality(ss, scal, beats, phase, "snare")}
@@ -796,9 +799,21 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         side = librosa.effects.harmonic(mid, margin=3.0)
 
     S_side = np.abs(librosa.stft(side, hop_length=hop))
-    mono_h, mono_p = librosa.effects.hpss(mid)
-    S_h, S_p = np.abs(librosa.stft(mono_h, hop_length=hop)), np.abs(librosa.stft(mono_p, hop_length=hop))
     freqs = librosa.fft_frequencies(sr=sr)
+    # The percussive part: the separated drum track itself where the drum model has heard it (cleaner than
+    # pulling the percussion out of the mix, and the mix's separation, ~7 s a song, is not needed at all);
+    # else the mix's, as before (the pattern finders then read both, see find_drums_both).
+    S_d = None
+    if stems and stems.get("drums") is not None and drum_hits is not None:
+        d = np.asarray(stems["drums"], dtype=np.float32)
+        if stems.get("sr", sr) != sr:
+            d = librosa.resample(d, orig_sr=stems["sr"], target_sr=sr)
+        d = np.pad(d, (0, max(0, len(mid) - len(d))))[: len(mid)]
+        S_d = S_p = np.abs(librosa.stft(d, hop_length=hop))
+        S_h = None                                       # (the bass comes from its own track)
+    else:
+        mono_h, mono_p = librosa.effects.hpss(mid)
+        S_h, S_p = np.abs(librosa.stft(mono_h, hop_length=hop)), np.abs(librosa.stft(mono_p, hop_length=hop))
 
     # wide instruments (synth lead, horns, stabs) - vocals and kick are centre and mostly gone
     # Deliberately sparse: a light that marks every note is a strobe, one that marks
@@ -822,11 +837,13 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
             b = librosa.resample(b, orig_sr=stems["sr"], target_sr=sr)
         b = np.pad(b, (0, max(0, len(mid) - len(b))))[: len(mid)]
         S_b, bass_smooth = np.abs(librosa.stft(b, hop_length=hop)), 0.12      # quick enough to follow a wobble
+    if S_b is None:                                      # no bass track after all: the mix's harmonic part
+        S_b = np.abs(librosa.stft(librosa.effects.harmonic(mid), hop_length=hop))
     env_bass, idx_bass, _ = _band_onsets(S_b, freqs, 35, 250, sr, hop, 0.30, 2.8)
     env_drum, idx_drum, _ = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
     present = None
     if stems:
-        kick, snare, drum_cal, present = find_drums_both(S_p, freqs, sr, hop, duration, beats, phase, mid, stems, drum_hits)
+        kick, snare, drum_cal, present = find_drums_both(S_p, freqs, sr, hop, duration, beats, phase, mid, stems, drum_hits, S_d=S_d)
     else:
         kick, snare, drum_cal = find_drums(S_p, freqs, sr, hop, duration, beats, phase)
 
