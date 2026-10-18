@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 19;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds
+  const SHOW_VERSION = 20;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2184,22 +2184,25 @@
         zoneBuild = hard && len >= 8 && longStrips && (snaresHere >= 8 || (style === 'rave' && variant % 2 === 0));
         // a soft glow under the build that brightens toward the drop (it used to breathe down to black
         // every bar, drums or not); the hits on top, following the snares where they pick up, build it
-        clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.3 });
-        clip(1, 'colorwash', b0, len, { speed: 8, intensity: 0.45 }, { blend: 'add', fadeIn: Math.max(1, Math.round(len * 0.85)) });
+        // (a clear EDM snare build has its white strobe alone: nothing under it or over it, see below)
+        const strobeBuild = !chill && len >= 8 && edmBuild(s);
+        if (!strobeBuild) clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.3 });
+        if (!strobeBuild) clip(1, 'colorwash', b0, len, { speed: 8, intensity: 0.45 }, { blend: 'add', fadeIn: Math.max(1, Math.round(len * 0.85)) });
         // The build is felt all around the room: every snare (else every hit, else a build of beats,
         // eighths and sixteenths) lights random stretches of the strips and lamps, more of them,
         // brighter and snappier as it goes. A hard song's crazier builds start out in the dark, so the
         // light jumps around the room; a calm song's build is gentle, on the beat, two at most.
         const follow = chill ? 'beat' : snaresHere >= 4 ? 'snare' : drumsHere ? 'drums' : 'build';
-        clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
+        if (!strobeBuild) clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
         // A clear EDM snare build (a steady snare that doubles and doubles again: quarters, eighths, sixteenths)
         // in a dance, rave or electronic song: the whole room strobes white on every snare, faint at first, full
-        // into the drop. Gold Skies' two builds (1, 1, 2, 3-5 snares a beat by quarter); 3 of 55 learned builds.
-        if (!chill && len >= 8 && edmBuild(s)) clip(4, 'drumstrobe', b0, len - 1, { follow: 'snare', white: true, grows: true, length: 0.05 }, { blend: 'add', opacity: 1 });
+        // into the drop, and nothing else: black between the snares, or the flashes are lost (strobeAlone).
+        // Gold Skies' two builds (1, 1, 2, 3-5 snares a beat by quarter); 3 of 55 learned builds.
+        if (strobeBuild) clip(4, 'drumstrobe', b0, len - 1, { follow: 'snare', white: true, grows: true, length: 0.05 }, { blend: 'add', opacity: 1, alone: true });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         // and the build's last bar crosses the room (left pole, along the ceiling, right pole), twice, into the drop
-        if (!chill && len >= 8) clip(8, 'roomsweep', b0 + len - 5, 4, { every: 2, width: 0.7 }, { blend: 'add', opacity: 0.95 });
+        if (!chill && len >= 8 && !strobeBuild) clip(8, 'roomsweep', b0 + len - 5, 4, { every: 2, width: 0.7 }, { blend: 'add', opacity: 0.95 });
         break;
       case 'drop': {
         const kind = variant % 4;
@@ -2313,7 +2316,27 @@
    *  - the finale: the last drop gets everything (fireworks in a song that goes all out), and the
    *    song's last hit holds in its main color and fades away slowly;
    *  - an electronic song's stutter edits (the music cut for a moment, mid-phrase): a glitch. */
-  function addFlavor(fromBeat = -Infinity) {
+  function addFlavor(fromBeat = -Infinity) { addFlavorHere(fromBeat); strobeAlone(); }
+  /** A clip that plays alone (a clear EDM build's white strobe): every other clip over its stretch is taken
+   *  out of it (cut short, started after it, or split around it), the beat of black into the drop kept.
+   *  Runs after the moments and the flavor, which are added on top of the sections. */
+  function strobeAlone() {
+    const p = P(); if (!p) return;
+    for (const solo of p.lanes.flatMap(l => l.clips).filter(c => c.alone)) {
+      const s0 = solo.start, s1 = solo.start + solo.len;
+      for (const lane of p.lanes) {
+        const keep = [];
+        for (const c of lane.clips) {
+          const c1 = c.start + c.len;
+          if (c === solo || c.alone || c.effect === 'dark' || c1 <= s0 || c.start >= s1) { keep.push(c); continue; }
+          if (c.start < s0) keep.push({ ...c, len: s0 - c.start });                       // the part before it
+          if (c1 > s1) keep.push({ ...c, id: c.start < s0 ? uid() : c.id, start: s1, len: c1 - s1 });   // and after it
+        }
+        lane.clips = keep;
+      }
+    }
+  }
+  function addFlavorHere(fromBeat = -Infinity) {
     const p = P(), a = S.analysis || {}, ev = a.events || {}, style = showStyle(), chill = style === 'chill', hard = style === 'dance' || style === 'rave';
     // A jam's first listen calls this after every pass: only what is still ahead of the room is added,
     // nothing twice, and what needs the whole song (the finale, a key change) waits until it is heard.
@@ -2439,7 +2462,7 @@
     const energyOf = s => { let sum = 0, n = 0; for (let i = Math.floor(s.start * fps); i < Math.min(a.energy.length, s.end * fps); i++) { sum += a.energy[i]; n++; } return n ? sum / n : 0; };
     const lightOf = s => { let sum = 0, n = 0; for (let t = s.start + 0.25; t < s.end; t += 0.5) for (const f of renderFrame(t)) { for (const v of f.px) sum += v; n += f.px.length; } return n ? sum / n : 0; };
     // a section's clips, on the same whole beats it was built on
-    const inSec = s => { const b0 = Math.round(timeToBeat(s.start)) - 0.01, b1 = Math.round(timeToBeat(s.end)) - 0.01; return p.lanes.flatMap(l => l.clips.filter(c => c.start >= b0 && c.start < b1 && !FREE.has(c.effect))); };
+    const inSec = s => { const b0 = Math.round(timeToBeat(s.start)) - 0.01, b1 = Math.round(timeToBeat(s.end)) - 0.01; return p.lanes.flatMap(l => l.clips.filter(c => c.start >= b0 && c.start < b1 && !FREE.has(c.effect) && !c.alone)); };
     // every drop gets most of the light of the brightest (a quieter drop a little less), and at least a
     // fair share: a dim one has its bed turned up, and a bed that sinks to black (a wave) a floor raised
     const Ld = new Map(drops.map(s => [s, lightOf(s)])), Emax = Math.max(...drops.map(energyOf)) || 1, Lmax = Math.max(...Ld.values());
