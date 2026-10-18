@@ -426,6 +426,27 @@ class TestAutoSync(unittest.TestCase):
             _t.sleep(0.02)
         self.assertEqual(len(runs), 2)
 
+        # a muted microphone: listened to again every SILENT_RETRY_S for the same stream, said once
+        svc._run_sync = lambda: runs.append(1) or setattr(svc, "sync_warning", "muted") or {"mic_silent": True}
+        e.output.started_at = _t.monotonic() - 10
+        svc._maybe_auto_sync(e)
+        for _ in range(50):
+            if len(runs) == 3 and not svc._syncing:
+                break
+            _t.sleep(0.02)
+        self.assertGreater(svc._sync_retry_at, _t.monotonic())
+        svc._maybe_auto_sync(e)
+        _t.sleep(0.05)
+        self.assertEqual(len(runs), 3)                                # not before the retry is due
+        svc._sync_retry_at = _t.monotonic() - 1
+        svc._maybe_auto_sync(e)
+        for _ in range(50):
+            if len(runs) == 4 and not svc._syncing:
+                break
+            _t.sleep(0.02)
+        self.assertEqual(len(runs), 4)
+        self.assertEqual(sum("heard nothing" in m for m in e.log), 1)
+
 
 class TestTaskbarIdentity(unittest.TestCase):
     def test_a_pinned_studio_starts_the_studio_with_its_own_icon(self):

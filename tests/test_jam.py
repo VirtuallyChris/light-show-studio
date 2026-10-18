@@ -811,6 +811,7 @@ class TestSpeakerPause(unittest.TestCase):
         cast = SimpleNamespace(state=state, resume=lambda: self.calls.append("resume"), name="Speaker")
         e = JamEngine.__new__(JamEngine)
         e.lock, e.streaming, e.cue_hold, e._streamed_at = threading.RLock(), True, False, -1e9
+        e._paused_room, e._speaker_dropped = None, False
         e.gate, e.cfg, e.clock, e.log = SimpleNamespace(paused=False), SimpleNamespace(target_delay=5.0), lambda: 100.0, []
         e.say = lambda m: e.log.append(m)
         e.output = CastOutput(cast, lambda sid: "http://x")
@@ -839,6 +840,27 @@ class TestSpeakerPause(unittest.TestCase):
         self.assertEqual(self.calls, ["fresh stream"])
         cast.state = "PLAYING"
         self.assertIsNone(e.keep_playing())
+
+    def test_a_speaker_that_let_go_during_a_long_pause_restarts_where_the_room_stopped(self):
+        e, cast = self.engine("PAUSED")
+        e.output.start_stream = lambda stream: self.calls.append(("fresh stream", stream[1]))
+        e.gate.paused, e._paused_room = True, 42.0                     # Spotify paused, the room stopped at 42 s
+        self.assertIsNone(e.keep_playing())
+        self.assertFalse(e._speaker_dropped)                          # still paused on the speaker: nothing to do
+        cast.state = "UNKNOWN"                                        # its Cast session ended (the chime)
+        e.keep_playing()
+        self.assertTrue(e._speaker_dropped)
+        e.gate.paused = False
+        e._resume_output()
+        self.assertEqual(self.calls, [("fresh stream", 42.0)])         # a new stream: a new sync check follows
+        self.assertFalse(e._speaker_dropped)
+
+    def test_a_short_pause_just_resumes(self):
+        e, cast = self.engine("PAUSED")
+        e.output.resume = lambda: self.calls.append("resume")
+        e._paused_room = 42.0
+        e._resume_output()
+        self.assertEqual(self.calls, ["resume"])
 
 
 class TestClosingHush(unittest.TestCase):
@@ -1214,6 +1236,27 @@ class TestRelaySyncCheck(unittest.TestCase):
             r = relay_sync_check(sim.engine, seconds=7.0, recorder=FakeMic(sim, 0.31), log=lambda *_: None)
             self.assertAlmostEqual(r["offset_ms"], 310, delta=25)
             self.assertGreaterEqual(r["confidence"], 0.5)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_a_muted_microphone_is_told_apart_from_a_hard_song(self):
+        from lightshow.studio.calibrate import relay_sync_check
+
+        class MutedMic(FakeMic):
+            def audio(self):
+                y, t0 = super().audio()
+                return np.zeros_like(y), t0                            # what Windows sends from a muted mic
+
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=20.0)
+            sim.play(a, ta)
+            sim.run(45, analyse=False)
+            r = relay_sync_check(sim.engine, seconds=7.0, recorder=MutedMic(sim, 0.31), log=lambda *_: None)
+            self.assertTrue(r["mic_silent"])
+            self.assertEqual(r["confidence"], 0.0)
+            self.assertEqual(r["listens"], 1)                          # no point listening six times to nothing
         finally:
             shutil.rmtree(d, ignore_errors=True)
 

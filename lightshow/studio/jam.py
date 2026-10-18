@@ -643,6 +643,8 @@ class JamEngine:
         self.flushes = 0
         self.gaps_added = 0.0
         self._streamed_at = -1e9                       # when the speakers last got a fresh stream (keep_delay)
+        self._paused_room: float | None = None         # where the room was when Spotify paused
+        self._speaker_dropped = False                  # the speaker ended its Cast session during that pause
         self.error = ""
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
@@ -727,13 +729,14 @@ class JamEngine:
                     cut = self.relay.trim_tail_silence(keep_after=keep)
                     self.say(f"paused on the phone: holding the buffer (trimmed {cut:.1f}s of silence)")
                     if self.streaming:
+                        self._paused_room, self._speaker_dropped = self.room_capture_time(), False
                         self.output.pause()
                 return
             if self.gate.paused and not self.cue_hold:
                 self.gate.paused = False
                 self.say("resumed")
                 if self.streaming and not self.cue_in_stream:
-                    self.output.resume()
+                    self._resume_output()
                 self.cue_in_stream = False
                 head = self.relay.capture_time
 
@@ -867,6 +870,22 @@ class JamEngine:
             self.say(f"the room had drifted {d:.0f}s behind: jumped back to {to:.0f}s")
             return f"delay {d:.0f}s -> {to:.0f}s"
 
+    SPEAKER_LIVE = ("PLAYING", "PAUSED", "BUFFERING")
+
+    def _resume_output(self) -> None:
+        """Spotify plays again: so does the room. A speaker left paused for a while ends its Cast session
+        (it chimes as it does): there is nothing left on it to resume, so it gets a fresh stream from where
+        the room stopped, and with it a new sync check (jam_service._maybe_auto_sync)."""
+        cast = getattr(self.output, "cast", None)
+        if cast is not None and (self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE):
+            at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
+            self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, at), pace=True))
+            self._streamed_at = self.clock()
+            self.say("the speaker had ended its session during the pause: a fresh stream, then a sync check")
+        else:
+            self.output.resume()
+        self._speaker_dropped, self._paused_room = False, None
+
     def keep_playing(self) -> str | None:
         """The speaker's own pause (tapped on the speaker, or the Cast controls on a phone) paused the party
         for everyone: it plays on at once. Pausing the party is Spotify's to do (the phone, the Party Hub):
@@ -876,6 +895,10 @@ class JamEngine:
         jam_service.stream.)"""
         cast = getattr(self.output, "cast", None)
         with self.lock:
+            if (cast is not None and self.streaming and self.gate.paused and not self.cue_hold and not self._speaker_dropped
+                    and self._paused_room is not None and getattr(cast, "state", "") not in self.SPEAKER_LIVE):
+                self._speaker_dropped = True              # paused long enough for the speaker to let go (_resume_output)
+                self.say("the speaker ended its Cast session during the pause: it restarts when the music does")
             if cast is None or not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
                 self._idle_seen = 0
                 return None

@@ -230,6 +230,9 @@ def measure_offset(heard, reference, sr: int, used_margin: float, margin: float,
     return {"offset_ms": int(round(offset * 1000)), "peak": round(m["peak"], 3), "z": round(m["z"], 1), "edge": round(m["edge"], 3)}
 
 
+SILENT_DB = -70.0     # a microphone this quiet with the party playing is muted (Windows sends pure zeros)
+
+
 def _relay_pass(engine, seconds, mic_device, margin, recorder) -> dict:
     SRC = 22050
     if engine.room_capture_time() is None:
@@ -244,6 +247,9 @@ def _relay_pass(engine, seconds, mic_device, margin, recorder) -> dict:
         heard, first_at = rec.audio()
     if rc0 is None or len(heard) < SRC:
         raise RuntimeError("the microphone recorded nothing")
+    level_db = round(float(20 * np.log10(np.sqrt(np.mean(np.square(heard, dtype=np.float64))) + 1e-12)), 1)
+    if level_db < SILENT_DB:
+        return {"silent": True, "level_db": level_db}
     believed = rc0 + (first_at - t0)                    # capture time the room was believed to be on when recording began
     ref_start = max(engine.relay.oldest_time, believed - margin)
     ref = engine.relay.audio(ref_start, believed + seconds + margin, SRC, mono=True)
@@ -272,7 +278,12 @@ def relay_sync_check(engine, seconds: float = 6.0, mic_device=None, margin: floa
 
     runs, clear, best = [], [], []
     for _ in range(max(2, repeats) + 4):
-        runs.append(_relay_pass(engine, seconds, mic_device, margin, recorder or MicRecorder))
+        r = _relay_pass(engine, seconds, mic_device, margin, recorder or MicRecorder)
+        if r.get("silent"):
+            log(f"  jam sync: the microphone heard nothing ({r['level_db']} dB)")
+            return {"offset_ms": 0, "confidence": 0.0, "mic_silent": True, "level_db": r["level_db"], "listens": len(runs) + 1,
+                    "reason": "the microphone heard nothing: is it muted?"}
+        runs.append(r)
         clear = [r["offset_ms"] for r in runs if r["edge"] >= CLEAR_EDGE]
         best = max(([o for o in clear if abs(o - c) <= 60] for c in clear), key=len, default=[])
         if len(best) >= 2:

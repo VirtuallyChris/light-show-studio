@@ -536,6 +536,8 @@ class JamService:
             st["output_error"] = out_error
         out = self.engine.output
         st["output_kind"] = self._output_kind(out)
+        if getattr(self, "sync_warning", "") and st["output_kind"] == "cast":
+            st["sync_warning"] = self.sync_warning
         if self.capture is not None and getattr(self.capture, "lost", 0):
             st["capture"]["lost_s"] = round(self.capture.lost, 2)
         played = [st.get("room"), st.get("ahead"), *(st.get("queue") or [])]
@@ -616,6 +618,8 @@ class JamService:
         """Listen to the room, measure how late the Cast speaker really is, and keep a confident answer."""
         from .calibrate import relay_sync_check
         r = relay_sync_check(self.engine, log=lambda *a: None)
+        # a muted microphone hears pure silence: said on screen and on the phone until a check hears the room
+        self.sync_warning = "The sync check heard nothing from the microphone. Is it muted?" if r.get("mic_silent") else ""
         name = self.studio.cast.name
         if name and r["confidence"] >= 0.5 and abs(r["offset_ms"]) <= 1500:   # the correction is relative: add it
             cfg = self.load_config()
@@ -626,6 +630,7 @@ class JamService:
         return r
 
     AUTO_SYNC_AFTER_S = 8.0
+    SILENT_RETRY_S = 30.0        # a muted microphone: listen again this often until it hears the room
 
     def _maybe_auto_sync(self, e) -> None:
         """Once a Cast speaker has been playing the jam for a few seconds (a new cast, a reconnect, a
@@ -635,23 +640,30 @@ class JamService:
         if not isinstance(out, CastOutput) or getattr(self, "_auto_sync_off", False) or getattr(self, "_syncing", False):
             return
         started = getattr(out, "started_at", 0.0)
-        if not started or started == getattr(self, "_synced_start", None) or e.gate.paused:
+        retry = getattr(self, "_sync_retry_at", 0.0)
+        if not started or e.gate.paused or (started == getattr(self, "_synced_start", None) and not (retry and time.monotonic() >= retry)):
             return
         status = getattr(self.studio.cast, "status", None)
         if time.monotonic() - started < self.AUTO_SYNC_AFTER_S or not callable(status) or status().get("state") != "PLAYING":
             return
-        self._synced_start, self._syncing = started, True
+        self._synced_start, self._syncing, self._sync_retry_at = started, True, 0.0
 
         def run():
             name = self.studio.cast.name or "the speaker"
             try:
+                was = getattr(self, "sync_warning", "")
                 r = self._run_sync()
-                if r.get("saved_for"):
+                if r.get("mic_silent"):
+                    self._sync_retry_at = time.monotonic() + self.SILENT_RETRY_S
+                    if not was:
+                        e.say("sync check: the microphone heard nothing (muted?); listening again every 30 s")
+                elif r.get("saved_for"):
                     e.say(f"sync check: {name} is {r['speaker_offset_ms']} ms behind (corrected by {r['offset_ms']:+d} ms)")
                 else:
                     e.say(f"sync check: could not hear {name} clearly enough; keeping its delay")
             except Exception as ex:  # noqa: BLE001 - no microphone, or it is busy: say so once and stop trying
                 self._auto_sync_off = True
+                self.sync_warning = f"The sync check could not use the microphone ({type(ex).__name__})."
                 e.say(f"automatic sync check is off: the microphone could not be used ({type(ex).__name__})")
             finally:
                 self._syncing = False
@@ -973,6 +985,7 @@ class JamService:
         up = ([ahead] if ahead and (not room or ahead.get("key") != room.get("key")) else []) + list(st.get("queue") or [])
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
                 "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
+                "sync_warning": st.get("sync_warning", ""),
                 "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
                 "color_source": "album" if not jc.get("on", True) else "wild" if jc.get("wild") else "album" if jc.get("mode") not in ("pick", "mix") else "party",
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),

@@ -232,6 +232,7 @@
         ${st.handover ? `<div class="hint">${st.handover === 'armed' ? 'Spotify is held until your opening song is nearly over.' : 'Filling the buffer behind the opening song…'}</div>` : ''}
         ${st.capture && st.capture.error ? `<div class="warn">Capture: ${esc(st.capture.error)}</div>` : ''}
         ${st.output_error ? `<div class="warn">Playback: ${esc(st.output_error)}</div>` : ''}
+        ${st.sync_warning ? `<div class="warn">${esc(st.sync_warning)}</div>` : ''}
         ${sp.error ? `<div class="warn">Spotify: ${esc(sp.error)}</div>` : ''}</div>
       ${colorsSection(st)}
       <div class="jam-sec"><h4>Up next${fetchLine(st)}</h4>${(st.queue || []).slice(0, 8).map(q => `<div class="jam-q"><span>${esc(q.label)}</span>${pairPicker(q)}${badge(q.kind, q)}</div>`).join('') || '<div class="hint">Nothing queued.</div>'}</div>
