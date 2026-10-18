@@ -385,6 +385,20 @@ class LightOutput:
                 d.turn(False)
         self.active = False
 
+    def keep_full_brightness(self) -> list[str]:
+        """Ask the lights the show drives how bright they are, and put any below 100% back to 100% (a home
+        automation dimming a strip mid-show dims the show with it). Returns the addresses set back."""
+        if not (self.enabled and self.active and self.devices):
+            return []
+        devs = [d for d in self.devices if d.ip not in self.leaving]
+        got = govee_lan.statuses(devs, timeout=0.8)
+        low = [d for d in devs if (got.get(d.ip) or {}).get("onOff", 1) and int((got.get(d.ip) or {}).get("brightness", 100)) < 100]
+        for _ in range(2):                                   # UDP: say it twice
+            for d in low:
+                d.brightness(100)
+            time.sleep(0.1)
+        return [d.ip for d in low]
+
     def _rearm(self, now: float, wake: bool = False) -> None:
         self.last_rearm = now
         for d in self.devices + [f["dev"] for f in self.leaving.values()]:
@@ -548,6 +562,7 @@ class Studio:
             self.app.on_startup.append(self._start_quit_watchdog)
         self.app.on_startup.append(self._rooms_at_start)
         self.app.on_startup.append(self._doorbell_at_start)
+        self.app.on_startup.append(self._start_brightness_keeper)
         self.app.on_shutdown.append(self._close_player)
 
     async def _close_player(self, app):
@@ -766,6 +781,23 @@ class Studio:
     # The studio quits when its window is closed, like a desktop app would. The page's
     # WebSocket is the signal: relying on the browser process is unreliable because a
     # Chromium launcher hands the URL to an already-running instance and exits at once.
+    async def _start_brightness_keeper(self, app):
+        """While a show drives the lights, every 10 s: any of them below 100% brightness goes back to 100%."""
+        async def keep():
+            loop = asyncio.get_running_loop()
+            while True:
+                await asyncio.sleep(10.0)
+                if not (self.output.enabled and self.output.active):
+                    continue
+                try:
+                    async with self.scan_lock:              # the replies come in on the scans' port
+                        fixed = await loop.run_in_executor(None, self.output.keep_full_brightness)
+                    if fixed:
+                        print(f"[lights] brightness back to 100%: {', '.join(fixed)}")
+                except Exception as e:  # noqa: BLE001 - looked at again in 10 s
+                    print(f"[lights] brightness check: {type(e).__name__}: {e}")
+        self._brightness_task = asyncio.create_task(keep())
+
     async def _start_quit_watchdog(self, app):
         async def watch():
             seen = False

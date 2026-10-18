@@ -296,3 +296,22 @@ class TestKeptLevels(unittest.TestCase):
         self.t += 0.0
         self.assertEqual(self.rooms.keep_levels(["Living Room"], clock=lambda: self.t + 1), [])
         self.assertNotIn("Party", self.rooms.levels())
+
+
+class TestFullBrightness(unittest.TestCase):
+    """A light dimmed mid-show (a home automation) goes back to 100%; nothing else is touched."""
+
+    def test_a_dimmed_strip_goes_back_to_full(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from lightshow.studio import server
+        sent = []
+        dev = lambda ip: SimpleNamespace(ip=ip, brightness=lambda v, ip=ip: sent.append((ip, v)))
+        out = server.LightOutput(enabled=True)
+        out.devices, out.active = [dev("dimmed"), dev("full"), dev("off")], True
+        replies = {"dimmed": {"onOff": 1, "brightness": 40}, "full": {"onOff": 1, "brightness": 100}, "off": {"onOff": 0, "brightness": 20}}
+        with mock.patch.object(server.govee_lan, "statuses", lambda devs, timeout=0.8: dict(replies)), mock.patch.object(server.time, "sleep", lambda s: None):
+            self.assertEqual(out.keep_full_brightness(), ["dimmed"])
+        self.assertEqual(sent, [("dimmed", 100), ("dimmed", 100)])        # said twice (UDP); the off one left off
+        out.active = False
+        self.assertEqual(out.keep_full_brightness(), [])                  # no show: the lights are left alone
