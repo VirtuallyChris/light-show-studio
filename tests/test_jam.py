@@ -704,6 +704,47 @@ class TestLookAhead(unittest.TestCase):
         self.assertEqual((self.got["context"], self.reads), ([], []))
 
 
+class TestSpeakerPause(unittest.TestCase):
+    """A pause on the speaker itself does not pause the party; Spotify's pause, a cue or closing does."""
+
+    def engine(self, state):
+        import threading
+        from types import SimpleNamespace
+        from lightshow.studio.jam import CastOutput
+        self.calls = []
+        cast = SimpleNamespace(state=state, resume=lambda: self.calls.append("resume"), name="Speaker")
+        e = JamEngine.__new__(JamEngine)
+        e.lock, e.streaming, e.cue_hold, e._streamed_at = threading.RLock(), True, False, -1e9
+        e.gate, e.cfg, e.clock, e.log = SimpleNamespace(paused=False), SimpleNamespace(target_delay=5.0), lambda: 100.0, []
+        e.say = lambda m: e.log.append(m)
+        e.output = CastOutput(cast, lambda sid: "http://x")
+        e.output.stream = object()
+        e.output.start_stream = lambda stream: self.calls.append("fresh stream")
+        e.relay = SimpleNamespace(oldest_time=0.0, capture_time=60.0, open_stream=lambda t, pace=True: ("stream", t))
+        return e, cast
+
+    def test_paused_on_the_speaker_plays_on(self):
+        e, cast = self.engine("PAUSED")
+        self.assertEqual(e.keep_playing(), "resumed the speaker")
+        self.assertEqual(self.calls, ["resume"])
+
+    def test_the_party_paused_on_spotify_or_by_a_cue_stays_paused(self):
+        e, cast = self.engine("PAUSED")
+        e.gate.paused = True
+        self.assertIsNone(e.keep_playing())
+        e.gate.paused, e.cue_hold = False, True
+        self.assertIsNone(e.keep_playing())
+        self.assertEqual(self.calls, [])
+
+    def test_stopped_on_the_speaker_gets_a_fresh_stream(self):
+        e, cast = self.engine("IDLE")
+        self.assertIsNone(e.keep_playing()); self.assertIsNone(e.keep_playing())
+        self.assertEqual(e.keep_playing(), "restarted the speaker")
+        self.assertEqual(self.calls, ["fresh stream"])
+        cast.state = "PLAYING"
+        self.assertIsNone(e.keep_playing())
+
+
 class TestClosingHush(unittest.TestCase):
     """Closing the studio stops the music at once; a reload brings it back."""
 

@@ -960,6 +960,38 @@ class JamEngine:
             self.say(f"the room had drifted {d:.0f}s behind: jumped back to {to:.0f}s")
             return f"delay {d:.0f}s -> {to:.0f}s"
 
+    def keep_playing(self) -> str | None:
+        """The speaker's own pause (tapped on the speaker, or the Cast controls on a phone) paused the party
+        for everyone: it plays on at once. Pausing the party is Spotify's to do (the phone, the Party Hub):
+        then, as for a cue or the studio closing, the speakers are left paused. A speaker stopped there (its
+        session ended) for 3 s gets a fresh stream, back at the target delay."""
+        cast = getattr(self.output, "cast", None)
+        with self.lock:
+            if cast is None or not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
+                self._idle_seen = 0
+                return None
+            state = getattr(cast, "state", "")
+            if state == "PAUSED":
+                self._idle_seen = 0
+                try:
+                    cast.resume()
+                except Exception:  # noqa: BLE001 - tried again in a second
+                    return None
+                self.say("paused on the speaker: playing on (the party is paused on Spotify)")
+                return "resumed the speaker"
+            if state == "IDLE" and self.clock() - self._streamed_at > 20.0:
+                self._idle_seen = getattr(self, "_idle_seen", 0) + 1
+                if self._idle_seen >= 3:
+                    self._idle_seen = 0
+                    to = self.cfg.target_delay + 1.0
+                    self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, self.relay.capture_time - to), pace=True))
+                    self._streamed_at = self.clock()
+                    self.say("stopped on the speaker: playing again")
+                    return "restarted the speaker"
+                return None
+            self._idle_seen = 0
+            return None
+
     def _quietest_near(self, t: float, reach: float = 1.2) -> float:
         """The quietest moment around a song boundary, so inserted silence lands in the seam."""
         t0, t1 = max(self.relay.oldest_time, t - reach), min(self.relay.capture_time, t + reach)
@@ -1551,6 +1583,7 @@ class JamRunner:
             try:
                 e.poll()
                 e.keep_delay()
+                e.keep_playing()
                 n += 1
                 if n % 6 == 1:
                     e.refresh_queue()
