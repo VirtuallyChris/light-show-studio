@@ -44,6 +44,7 @@
     const st = J.state || {}, own = track && (st.track_colors || {})[track.id], jc = st.jam_colors || {};
     if (!themeOn() || (own && own.off)) return null;
     if (own) return [own.primary, own.secondary];
+    if (jc.wild) return null;                                       // No Limits: the show picks its colors section by section
     if (jc.mode === 'pick') return [jc.primary, jc.secondary];
     if (jc.mode === 'mix') return (st.assigned_colors || {})[track.id] || (jc.pairs || [])[0] || null;
     return null;
@@ -65,6 +66,10 @@
       return '#' + [f(5), f(3), f(1)].map(x => x.toString(16).padStart(2, '0')).join(''); };
     return [hex((start + span * 0.38) % 360), hex((start + span * 0.62) % 360)];
   }
+  /** No Limits Colors: every section in the stage colors that suit it (app.js stageScheme), for every song
+   *  but one given its own colors (or its cover's) by hand */
+  const wildOn = track => { const jc = (J.state || {}).jam_colors || {}, own = track && ((J.state || {}).track_colors || {})[track.id];
+    return themeOn() && !!jc.wild && !own; };
   /** rainbow drops for the songs that go all out, in "a different pair each song" */
   const rainbowOn = track => { const jc = (J.state || {}).jam_colors || {}; return themeOn() && jc.mode === 'mix' && !!jc.rainbow && !onlyTwo(track); };
   function shownColors(t) {
@@ -131,7 +136,10 @@
   function colorsSection(st) {
     const jc = st.jam_colors || {};
     if (jc.on === false) return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn"></label></h4></div>`;
+    const wild = `<div class="jam-row"><label title="Every section gets its own stage colors, picked for the song: a red buildup, red and blue drops (the same pair every drop), a blue verse. Songs given their own colors keep them.">No Limits Colors</label><span class="jam-pair"><input type="checkbox" id="jamWild" ${jc.wild ? 'checked' : ''}></span></div>`;
+    if (jc.wild) return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn" checked></label></h4>${wild}</div>`;
     return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn" checked></label></h4>
+        ${wild}
         <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option><option value="album" ${jc.mode !== 'pick' && jc.mode !== 'mix' ? 'selected' : ''}>Its album cover's colors</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
         ${jc.mode === 'mix' ? `<div class="jam-row"><label title="Each song gets one of these, chosen by its vibe, never the same pair twice in a row">Pairs</label><span class="jam-pairs">${(jc.pairs || []).map((p, i) => `<span class="jam-pair"><input type="color" class="mx-a" data-i="${i}" value="${esc(p[0])}"><input type="color" class="mx-b" data-i="${i}" value="${esc(p[1])}"></span>`).join('')}</span></div>
         <div class="jam-row"><label title="A song that goes all out gets rainbow drops">Rainbow for epic songs</label><input type="checkbox" id="jamRainbow" ${jc.rainbow ? 'checked' : ''}></div>` : ''}
@@ -143,7 +151,7 @@
   const trackGenre = t => { const k = t && ((J.state || {}).track_genres || {})[t.id]; return k && ((J.state || {}).genre_choices || []).find(g => g.key === k) || null; };
   const levelStyle = lv => lv < 0.7 ? 'chill' : lv < 1.6 ? 'groove' : lv < 2.4 ? 'dance' : 'rave';
   const trackStyle = t => (t && ((J.state || {}).track_styles || {})[t.id]) || (trackGenre(t) ? levelStyle(trackGenre(t).level) : null);
-  const colorSig = () => { const t = J.doc && J.doc.track; return JSON.stringify([colorsFor(t), extrasFor(colorsFor(t), t), rainbowOn(t), trackStyle(t), (trackGenre(t) || {}).key]); };
+  const colorSig = () => { const t = J.doc && J.doc.track; return JSON.stringify([colorsFor(t), extrasFor(colorsFor(t), t), rainbowOn(t), wildOn(t), trackStyle(t), (trackGenre(t) || {}).key]); };
   function applyStyle(t) {
     const p = St.P(); if (!p) return;
     p.settings = { ...(p.settings || {}) };
@@ -161,7 +169,7 @@
     // not while the song's show is still being loaded (a cover can arrive half way): the load uses it itself
     if (!St.P() || J.key !== J.doc.key) return;
     if (J.doc.light) { S.jamColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
-    S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); J.colorSig = colorSig();
+    S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); S.noLimits = wildOn(J.doc.track); J.colorSig = colorSig();
     const restyle = (St.P().settings || {}).style !== (trackStyle(J.doc.track) || undefined);
     applyStyle(J.doc.track);
     if (restyle) { St.pickLook(); J.style = St.showStyle(); }
@@ -305,6 +313,7 @@
       saveJam({ pairs }).catch(err => toast(err.message, true));
     };
     const rb = $('#jamRainbow'); if (rb) rb.onchange = () => saveJam({ rainbow: rb.checked }).catch(err => toast(err.message, true));
+    const wl = $('#jamWild'); if (wl) wl.onchange = () => saveJam({ wild: wl.checked }).catch(err => toast(err.message, true));
     const ex = $('#jamExtras'); if (ex) ex.onchange = () => saveJam({ extras: ex.checked }).catch(err => toast(err.message, true));
     for (const box of el2.querySelectorAll('.jam-pair[data-id]')) {
       const id = box.dataset.id, a = box.querySelector('.jp-a'), b = box.querySelector('.jp-b'), reset = box.querySelector('.jp-reset'), theme = box.querySelector('.jp-theme');
@@ -392,7 +401,7 @@
     // the jam's show is kept as it is, to take up again the moment the cue is over (not loaded again)
     C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing,
                key: J.key, doc: J.doc, version: J.version, built: J.built, style: J.style, drums: J.drums,
-               palette: S.albumPalette, colors: S.jamColors, extras: S.jamExtras, rainbow: S.jamRainbow };
+               palette: S.albumPalette, colors: S.jamColors, extras: S.jamExtras, rainbow: S.jamRainbow, wild: S.noLimits };
     J.live = false; J.key = null;                                   // the jam steps aside; the room is held
     // how far into the show the server already is (the page looks once a second), kept up to date below
     const asked = performance.now(), into = (cue.progress || 0) * (cue.dur || 0);
@@ -438,7 +447,7 @@
     if (p.jam) {
       // the jam's show again, as it was: the next tick anchors it to the room, nothing is loaded
       J.live = true; J.key = p.key; J.doc = p.doc; J.version = p.version; J.built = p.built; J.style = p.style; J.drums = p.drums;
-      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamExtras = p.extras; S.jamRainbow = p.rainbow;
+      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamExtras = p.extras; S.jamRainbow = p.rainbow; S.noLimits = p.wild;
       S.forceSend = true;
       setTimeout(tick, 0);                                           // where the room is now, not a second from now
     }
@@ -546,7 +555,7 @@
     J.live = true; J.doc = doc;
     S.albumPalette = await albumPalette(doc.track);
     S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
-    S.jamExtras = extrasFor(S.jamColors, doc.track); S.jamRainbow = rainbowOn(doc.track); J.colorSig = colorSig();
+    S.jamExtras = extrasFor(S.jamColors, doc.track); S.jamRainbow = rainbowOn(doc.track); S.noLimits = doc.kind !== 'custom' && wildOn(doc.track); J.colorSig = colorSig();
     if (doc.kind === 'custom' && doc.project) {
       const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
@@ -692,7 +701,7 @@
   }
 
   function leave() {
-    S.albumPalette = null; S.jamColors = null; S.jamExtras = null; S.jamRainbow = false; J.doc = null;
+    S.albumPalette = null; S.jamColors = null; S.jamExtras = null; S.jamRainbow = false; S.noLimits = false; J.doc = null;
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;
     St.updateTransport(); St.stopOutput(); St.draw();

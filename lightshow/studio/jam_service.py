@@ -782,7 +782,8 @@ class JamService:
     DEFAULT_COLORS = {"on": True, "mode": "album", "primary": "#8000ff", "secondary": "#00ff00", "extras": False, "accent1": "#ff6000", "accent2": "#ff0000",
                       # "mix": each song gets one of these pairs, by its vibe, never the same pair twice in a row
                       "pairs": [["#8000ff", "#00ff00"], ["#8000ff", "#ff6000"], ["#00ff00", "#ff6000"], ["#ff0000", "#0040ff"]],
-                      "rainbow": True}                     # in "mix", a song that goes all out gets rainbow drops
+                      "rainbow": True,                     # in "mix", a song that goes all out gets rainbow drops
+                      "wild": False}                       # No Limits Colors: each section its own stage colors (app.js stageScheme)
 
     def _found(self, t: dict) -> dict:
         """What a learned song's analysis found of its genre (read once: a learned file is megabytes)."""
@@ -1075,10 +1076,10 @@ class JamService:
 
     # The party's colors, as kept: what every song plays in ("pick": two colors; "mix": a pair for each song;
     # "album": its cover's), and named sets of them (a Halloween set...) to switch between.
-    SET_KEYS = ("mode", "primary", "secondary", "pairs", "rainbow")
+    SET_KEYS = ("mode", "primary", "secondary", "pairs", "rainbow", "wild")
 
     def _set_jam_colors(self, body: dict) -> None:
-        """Change the party's colors: {on}, {mode}, {primary, secondary}, {pairs}, {extras}, {rainbow}; and the
+        """Change the party's colors: {on}, {mode}, {primary, secondary}, {pairs}, {extras}, {rainbow}, {wild}; and the
         named sets: {use: name} puts one on, {save_as: name} keeps the colors as they are under a name,
         {save: true} keeps them in the set they came from, {delete: name} forgets one."""
         hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
@@ -1099,6 +1100,8 @@ class JamService:
             cur["extras"] = bool(body["extras"])
         if "rainbow" in body:
             cur["rainbow"] = bool(body["rainbow"])
+        if "wild" in body:
+            cur["wild"] = bool(body["wild"])
         if isinstance(body.get("pairs"), list):
             pairs = [[hexcolor(p[0]), hexcolor(p[1])] for p in body["pairs"][:8] if isinstance(p, list) and len(p) == 2]
             if pairs and all(a and b for a, b in pairs):

@@ -1915,8 +1915,10 @@
     const mood = S.analysis.mood || {};
     S.songPals = (mood.palettes || [mood.palette]).filter(n => p.palettes[n]);
     // Jam mode's two colors (the jam's, or the ones picked for this track in the queue) come first
-    S.pairMode = !!(S.jamColors && S.jamColors.length === 2);
-    if (S.pairMode) { p.palettes.Jam = Effects.solidPalette(S.jamColors); S.songPals = ['Jam']; }
+    S.pairMode = !S.noLimits && !!(S.jamColors && S.jamColors.length === 2);
+    if (S.noLimits) { S.lookSeed = Math.round((S.analysis.duration || 0) * 10) + Math.round((S.analysis.bpm || 0) * 100); S.scheme = stageScheme();
+      p.palettes['No limits'] = Effects.solidPalette([S.scheme.hot, S.scheme.cool, S.scheme.accent]); S.songPals = ['No limits']; }
+    else if (S.pairMode) { p.palettes.Jam = Effects.solidPalette(S.jamColors); S.songPals = ['Jam']; }
     else if (p.settings && p.settings.mainColor) { p.palettes.Main = mainPalette(p.settings.mainColor); S.songPals = ['Main']; }   // chosen by hand
     else if (S.albumPalette && S.albumPalette.length) { p.palettes.Album = Effects.solidPalette(S.albumPalette); S.songPals = ['Album']; }   // the cover's own colors
     if (!S.songPals.length) S.songPals = [p.defaultPalette];
@@ -1927,6 +1929,7 @@
     const a0 = S.analysis || {};
     pickLook();
     S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
+    S.dropCount = p.sections.filter(s => s.type === 'drop').length;
     S.cute = cuteParts();
     const counts = {};
     p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
@@ -1978,6 +1981,63 @@
     const hex = k => '#' + Effects.hsv((h + k + 1) % 1, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
     return Effects.solidPalette([hex(0), hex(35 / 360), hex(-30 / 360)]);
   }
+  /** No Limits Colors: the stage schemes a song can be lit in. Each is a cool color (the verses), a hot one
+   *  (the buildups, and the drops with the cool one), an accent (motion over the verses, the last drop) and
+   *  a deep one (intros, breakdowns, outros): the colors a lighting designer reaches for, paired so they
+   *  sit well together (red and blue, magenta and cyan, purple and orange, UV and green...). */
+  const STAGE = {
+    classic: { cool: '#0030ff', hot: '#ff0000', accent: '#ff0080', deep: '#3000ff' },
+    synthwave: { cool: '#00c8ff', hot: '#ff0080', accent: '#8000ff', deep: '#4000ff' },
+    sunset: { cool: '#8000ff', hot: '#ff3000', accent: '#ffa000', deep: '#5000c0' },
+    club: { cool: '#6000ff', hot: '#00ff50', accent: '#00c8ff', deep: '#3000ff' },
+    ice: { cool: '#0060ff', hot: '#ffffff', accent: '#00e0ff', deep: '#0020c0' },
+    fire: { cool: '#ff6000', hot: '#ff0000', accent: '#ffffff', deep: '#c01000' },
+    rose: { cool: '#ff40a0', hot: '#ff0030', accent: '#ffb000', deep: '#a000ff' },
+    ocean: { cool: '#0040ff', hot: '#00e0ff', accent: '#8000ff', deep: '#0020a0' },
+    royal: { cool: '#5000ff', hot: '#ffb000', accent: '#ff0040', deep: '#2000c0' },
+  };
+  /** The song's scheme: a draw (the same on every rebuild) weighted by how each suits it: dark and minor
+   *  songs to the cold ones, bright and major ones to the warm, rock to fire, club songs to UV and green,
+   *  calm songs to the ocean. Classic red and blue suits nearly anything. */
+  function stageScheme() {
+    const a = S.analysis || {}, m = a.mood || {}, st = showStyle();
+    const drive = m.drive ?? 0.5, bright = m.brightness ?? 0.5, minor = m.mode === 'minor';
+    const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
+    const rocky = /rock|punk|grunge|metal|emo/.test(g), electronic = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g);
+    const clubby = st === 'dance' || st === 'rave', calm = st === 'chill';
+    const w = {
+      classic: 1,
+      synthwave: (electronic ? 1.1 : 0.5) * (0.6 + 0.6 * bright),
+      sunset: (minor ? 0.35 : 1) * (0.4 + bright) * (clubby ? 0.7 : 1),
+      club: (clubby ? 1.1 : 0.15) * (electronic ? 1 : 0.4),
+      ice: (minor ? 0.9 : 0.4) * (1.2 - bright),
+      fire: (rocky ? 1.3 : 0.1) * (0.4 + drive),
+      rose: (minor ? 0.15 : 0.9) * bright * (calm ? 0.6 : 1),
+      ocean: (calm ? 1.3 : 0.3) * (1.2 - drive),
+      royal: (minor ? 0.4 : 0.8) * (0.5 + 0.5 * drive),
+    };
+    let n = 0; const rnd = () => Effects.hash((S.lookSeed || 0) + 104729 * ++n);
+    const name = Object.entries(w).map(([k, v]) => [k, Math.pow(rnd(), 1 / Math.max(1e-3, v))]).sort((x, y) => y[1] - x[1])[0][0];
+    return { name, ...STAGE[name] };
+  }
+  /** One section's colors in the song's scheme: { build: the section's own, over: the motion over it }.
+   *  Every drop in the song's one pair (the moment coming back), the lead color swapping drop to drop and
+   *  the last adding the accent; the buildup in the hot color alone; the verses cool, their motion in the
+   *  accent; intros, breakdowns and outros deep. */
+  function stagePalettes(type, k = 0) {
+    const c = S.scheme;
+    switch (type) {
+      case 'drop': {
+        const pair = k % 2 ? [c.cool, c.hot] : [c.hot, c.cool], last = S.dropCount > 1 && k === S.dropCount - 1;
+        return { build: last ? [...pair, c.accent] : pair, over: [pair[1], pair[0]] };
+      }
+      case 'buildup': return { build: [c.hot], over: [c.hot] };
+      case 'verse': return k % 2 ? { build: [c.deep, c.cool], over: [c.accent] } : { build: [c.cool], over: [c.accent] };
+      case 'breakdown': return { build: [c.deep], over: [c.accent] };
+      case 'intro': case 'outro': return { build: [c.deep], over: [c.cool] };
+      default: return { build: [c.cool], over: [c.hot] };
+    }
+  }
   /** The opposite hue of each color (white and black stay as they are), as solid colors. */
   function contrastPalette(cols) {
     return Effects.solidPalette((cols || []).map(hexColor => {
@@ -1999,7 +2059,7 @@
     const h = Effects.hash(Math.round(start * 4) * 7919 + effect.length * 131 + effect.charCodeAt(0) * 17 + (S.lookSeed || 0));
     return { origin: h < 0.4 ? 0.5 : [0, 1, 0.25, 0.75][Math.floor((h - 0.4) / 0.6 * 4)] };
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
@@ -2013,6 +2073,7 @@
     // own palette and the change of color hits with it.
     if (s.type === 'buildup' || s.type === 'breakdown') S.buildPal = opposite(S.buildPal);
     S.contrastPal = opposite(S.buildPal);
+    if (S.noLimits && S.scheme) { const sp = stagePalettes(s.type, variant); S.buildPal = Effects.solidPalette(sp.build); S.contrastPal = Effects.solidPalette(sp.over); }
     const chillStyle = showStyle() === 'chill';
     S.bedLevel = ({ drop: 0.4, buildup: 0.35 }[s.type] || 0.3) + (chillStyle ? 0.1 : 0);
     S.bedDuck = chillStyle ? 0.35 : ({ drop: 0.7, verse: 0.55, buildup: 0.5 }[s.type] || 0.4);
@@ -2026,7 +2087,7 @@
     //     and rave goes all the way.
     const style = showStyle();
     const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
-    const rainbow = S.albumPalette || S.pairMode ? {} : { palette: 'Rainbow' };      // with the album's (or the jam's) colors, drops stay in them
+    const rainbow = S.albumPalette || S.pairMode || S.noLimits ? {} : { palette: 'Rainbow' };      // with the album's (or the jam's) colors, drops stay in them
     // Two or more lights: some moves go around the room, light to light, instead of along each strip.
     const room = showLights().length >= 2;
     // The beat pulse follows the real drums (kick from the center, snare from the ends), and it is
