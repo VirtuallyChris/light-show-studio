@@ -92,6 +92,26 @@ const Effects = (() => {
    *  farther end: from the middle it opens both ways, from an end it runs the whole strip one way. */
   function away(c, x) { const o = c.p.origin ?? 0.5; return Math.abs(x - o) / Math.max(o, 1 - o, 1e-3); }
   const DIRS = { fwd: 'forward', rev: 'reverse', out: 'center out', in: 'ends in' };
+  /** How a sweep travels from its start to its end (u 0..1 of the way, in time -> 0..1 of the way, in
+   *  space): steady, smooth, a rush through the middle, hanging in the middle, landing in bounces, ramping
+   *  up or down. */
+  const EASES = { linear: 'steady', smooth: 'smooth', rush: 'rush through the middle', drift: 'hang in the middle', bounce: 'bounce at the end', accel: 'ramp up', decel: 'ramp down' };
+  function ease(c, u) {
+    u = clamp(u);
+    switch (c.p.ease) {
+      case 'smooth': return 0.5 - 0.5 * Math.cos(u * Math.PI);
+      case 'rush': return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+      case 'drift': return 0.5 + 4 * Math.pow(u - 0.5, 3);
+      case 'bounce': { const n1 = 7.5625, d1 = 2.75;
+        if (u < 1 / d1) return n1 * u * u;
+        if (u < 2 / d1) { u -= 1.5 / d1; return n1 * u * u + 0.75; }
+        if (u < 2.5 / d1) { u -= 2.25 / d1; return n1 * u * u + 0.9375; }
+        u -= 2.625 / d1; return n1 * u * u + 0.984375; }
+      case 'accel': return u * u;
+      case 'decel': return 1 - (1 - u) * (1 - u);
+      default: return u;
+    }
+  }
 
   // common param definitions
   const P = {
@@ -101,6 +121,7 @@ const Effects = (() => {
     direction: (def = 'fwd') => ({ type: 'select', def, options: DIRS, label: 'Direction' }),
     color: () => ({ type: 'select', def: 'cycle', options: { cycle: 'palette cycle', gradient: 'palette gradient', first: 'first color', second: 'second color' }, label: 'Color' }),
     decay: (def = 0.5) => ({ type: 'range', def, min: 0.05, max: 1, step: 0.01, label: 'Decay' }),
+    ease: (def = 'linear') => ({ type: 'select', def, options: EASES, label: 'Motion' }),
     origin: () => ({ type: 'range', def: 0.5, min: 0, max: 1, step: 0.05, label: 'Starts from (0 left, 1 right)' }),
     count: (def = 2, max = 8) => ({ type: 'range', def, min: 1, max, step: 1, label: 'Count' }),
     bool: (label, def = false) => ({ type: 'bool', def, label }),
@@ -322,8 +343,8 @@ const Effects = (() => {
     render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const alive = Math.ceil(c.p.travel / c.p.every) + 1; const cur = Math.floor(c.beat / c.p.every); for (let k = cur; k > cur - alive && k >= 0; k--) { const age = (c.beat - k * c.p.every) / c.p.travel; if (age < 0 || age > 1.2) continue; const head = age * 1.1; const col = colorFor(c, head, k); for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const behind = head - x; let v = 0; if (behind >= 0) v = Math.exp(-behind / (c.p.tail * 0.5)); v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
   def({ id: 'bounce', name: 'Bounce', cat: 'medium', desc: 'A single comet ping-pongs end to end, one length per N beats.', swatch: ['#ffe600', '#ff4e00'],
-    params: { speed: P.speed(2, 'One length per (beats)'), tail: P.size(0.3, 'Tail length'), color: P.color(), overlay: P.bool('Transparent background', true) },
-    render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const u = c.beat / c.p.speed; const leg = Math.floor(u); const ph = frac(u); const fwd = leg % 2 === 0; const head = fwd ? ph : 1 - ph; const col = colorFor(c, head, leg); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const behind = fwd ? head - x : x - head; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
+    params: { speed: P.speed(2, 'One length per (beats)'), tail: P.size(0.3, 'Tail length'), color: P.color(), overlay: P.bool('Transparent background', true), ease: P.ease() },
+    render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const u = c.beat / c.p.speed; const leg = Math.floor(u); const ph = ease(c, frac(u)); const fwd = leg % 2 === 0; const head = fwd ? ph : 1 - ph; const col = colorFor(c, head, leg); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const behind = fwd ? head - x : x - head; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   def({ id: 'alternate', name: 'Alternate', cat: 'medium', desc: 'Odd and even segments swap palette colors every beat.', swatch: ['#ff0000', '#0040ff'],
     params: { every: P.speed(1, 'Swap every (beats)'), size: { type: 'range', def: 1, min: 1, max: 8, step: 1, label: 'Segment width' }, intensity: P.intensity() },
@@ -343,8 +364,8 @@ const Effects = (() => {
     render(c) { const nb = c.bands.length; for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const fb = x * (nb - 1); const j = Math.floor(fb); const e = lerp(c.bands[j], c.bands[Math.min(nb - 1, j + 1)], fb - j); const col = c.p.color === 'cycle' ? palAt(c.pal, x) : colorFor(c, x, 0); const v = c.p.floor + (1 - c.p.floor) * e * e; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'scanner', name: 'Scanner', cat: 'medium', desc: 'A bright bar sweeps back and forth with a soft tail.', swatch: ['#ff0000', '#300000'],
-    params: { speed: P.speed(2, 'Sweep (beats)'), size: P.size(0.12, 'Width'), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
-    render(c) { const u = c.beat / c.p.speed; const pos = 0.5 - 0.5 * Math.cos(u * Math.PI); const col = colorFor(c, pos, Math.floor(u / 2)); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const v = c.p.floor + Math.exp(-1 * ((x - pos) / (c.p.size * 0.5)) ** 2); set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
+    params: { speed: P.speed(2, 'Sweep (beats)'), size: P.size(0.12, 'Width'), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' }, ease: P.ease('smooth') },
+    render(c) { const u = c.beat / c.p.speed, e = ease(c, frac(u)); const pos = Math.floor(u) % 2 === 0 ? e : 1 - e; const col = colorFor(c, pos, Math.floor(u / 2)); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const v = c.p.floor + Math.exp(-1 * ((x - pos) / (c.p.size * 0.5)) ** 2); set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'blocks', name: 'Random blocks', cat: 'medium', desc: 'Every beat, random segments jump to random palette colors.', swatch: ['#ffd166', '#118ab2'],
     params: { every: P.speed(1, 'Change every (beats)'), size: { type: 'range', def: 3, min: 1, max: 12, step: 1, label: 'Block width' }, density: { type: 'range', def: 0.4, min: 0.1, max: 1, step: 0.01, label: 'Density' } },
@@ -363,8 +384,8 @@ const Effects = (() => {
     render(c) { clear(c.out); const d = c.p.density * (c.p.reactive ? 0.3 + c.energy : 1); const slot = Math.floor(c.beat / c.p.life); for (let i = 0; i < c.n; i++) { for (let s = slot; s > slot - 2; s--) { if (hash(s * 7919 + i * 131) < d) { const ph = (c.beat - s * c.p.life) / c.p.life; const v = clamp(1 - ph * 0.5); const col = colorFor(c, i / c.n, s + i); add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } } });
 
   def({ id: 'dualcomet', name: 'Dual comets', cat: 'medium', desc: 'Two comets in two colors launched from opposite ends, crossing in the middle.', swatch: ['#ff0000', '#0040ff'],
-    params: { speed: P.speed(2, 'Crossing time (beats)'), tail: P.size(0.35, 'Tail length'), overlay: P.bool('Transparent background', true) },
-    render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const u = c.beat / c.p.speed; const leg = Math.floor(u), ph = frac(u); const a = c.pal[0], b = c.pal[1 % c.pal.length]; const headA = leg % 2 === 0 ? ph : 1 - ph; const dirA = leg % 2 === 0 ? 1 : -1; for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); for (const [head, dir, col] of [[headA, dirA, a], [1 - headA, -dirA, b]]) { const behind = (head - x) * dir; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
+    params: { speed: P.speed(2, 'Crossing time (beats)'), tail: P.size(0.35, 'Tail length'), overlay: P.bool('Transparent background', true), ease: P.ease() },
+    render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const u = c.beat / c.p.speed; const leg = Math.floor(u), ph = ease(c, frac(u)); const a = c.pal[0], b = c.pal[1 % c.pal.length]; const headA = leg % 2 === 0 ? ph : 1 - ph; const dirA = leg % 2 === 0 ? 1 : -1; for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); for (const [head, dir, col] of [[headA, dirA, a], [1 - headA, -dirA, b]]) { const behind = (head - x) * dir; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
   // ===== SPARSE (mostly dark) =====
   def({ id: 'meteors', name: 'Meteors', cat: 'medium', desc: 'Mostly dark. Now and then a meteor streaks in from a random spot with a fading tail.', swatch: ['#ffffff', '#101020'],
@@ -660,10 +681,10 @@ const Effects = (() => {
       }
     } });
   def({ id: 'roomsweep', name: 'Room sweep', cat: 'room', desc: 'A bright band crosses the room: the left light pole, then along the overhead strips, then the right pole (the small lamps split into left and right by the light order, the long strips between). With one light, it crosses the strip.', swatch: ['#ffffff', '#000000'],
-    params: { every: P.speed(2, 'One crossing every (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Band width (lights)' }, color: P.color() },
+    params: { every: P.speed(2, 'One crossing every (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Band width (lights)' }, color: P.color(), ease: P.ease() },
     render(c) {
       clear(c.out);
-      const u = frac(c.clipBeat / c.p.every);                   // how far across the room this crossing is
+      const u = ease(c, frac(c.clipBeat / c.p.every));                   // how far across the room this crossing is
       const { slot, m, small } = roomLine(c);
       const w = c.p.width, pos = u * (m + w) - w / 2, col = colorFor(c, u, 0);
       for (let i = 0; i < c.n; i++) {
@@ -674,10 +695,10 @@ const Effects = (() => {
     } });
   def({ id: 'roomscan', name: 'Room scanner', cat: 'room', desc: 'One slow bar scans back and forth across both rooms: the left light pole, along the overhead strips, the right pole, and back. With one light, across its strip.', swatch: ['#ff0000', '#300000'],
     params: { speed: P.speed(16, 'One crossing (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Bar width (lights)' }, color: P.color(),
-      floor: { type: 'range', def: 0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+      floor: { type: 'range', def: 0, min: 0, max: 1, step: 0.01, label: 'Floor' }, ease: P.ease('smooth') },
     render(c) {
       const { slot, m, small } = roomLine(c);
-      const u = c.beat / c.p.speed, pos = (0.5 - 0.5 * Math.cos(u * Math.PI)) * m, w = c.p.width, col = colorFor(c, pos / m, Math.floor(u / 2));
+      const u = c.beat / c.p.speed, e = ease(c, frac(u)), pos = (Math.floor(u) % 2 === 0 ? e : 1 - e) * m, w = c.p.width, col = colorFor(c, pos / m, Math.floor(u / 2));
       for (let i = 0; i < c.n; i++) {
         const x = small ? slot + 0.5 : slot + (c.n > 1 ? i / (c.n - 1) : 0.5);   // a pole lights whole; a strip, along it
         const v = c.p.floor + Math.exp(-(((x - pos) / (w * 0.5)) ** 2));
@@ -784,8 +805,8 @@ const Effects = (() => {
       fillAll(c.out, c.n, col[0] + (1 - col[0]) * w, col[1] + (1 - col[1]) * w, col[2] + (1 - col[2]) * w, 1);
     } });
   def({ id: 'sweepout', name: 'Sweep out', cat: 'accent', desc: 'A bright bar sweeps out from its starting point (the middle unless set) to the ends once, over the clip.', swatch: ['#ffffff', '#00c8ff'],
-    params: { size: P.size(0.15, 'Width'), color: P.color() },
-    render(c) { clear(c.out); const col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - c.clipT) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
+    params: { size: P.size(0.15, 'Width'), color: P.color(), ease: P.ease() },
+    render(c) { clear(c.out); const at = ease(c, c.clipT), col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - at) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   const byId = Object.fromEntries(E.map(e => [e.id, e]));
   const CATS = { signature: 'Follows this song', room: 'Around the room', slow: 'Slow & smooth', medium: 'Groove', fast: 'Fast & intense', accent: 'Accents (one-shot)' };
