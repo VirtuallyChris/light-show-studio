@@ -98,6 +98,7 @@ class Sim:
             self.ticks += 1
             if self.ticks % 2 == 0:
                 self.engine.poll()
+                self.engine.keep_delay()
                 if not self.engine.streaming and self.engine.auto_start and self.engine.buffered() >= self.engine.cfg.target_delay:
                     self.engine.start_streaming()
             self.out.pump()
@@ -604,6 +605,19 @@ class TestEngine(unittest.TestCase):
         self.assertIsNone(sim.out.paused_at)
         self.assertAlmostEqual(e.delay(), before, delta=1.0)                      # the room is as far behind as before
         self.assertEqual(sim.out.starts, 1)
+
+    def test_a_room_that_drifted_far_behind_jumps_back(self):
+        sim = Sim(self.dir, target=20.0, lag=0.25)
+        sim.play(self.a, self.ta)
+        sim.run(46, analyse=False)                                   # streaming at 20 s behind, settled 20 s
+        e = sim.engine
+        self.assertAlmostEqual(e.delay(), 20.0, delta=1.5)
+        e.cfg.target_delay = 5.0                                     # 20 s is now 15 past the target: too far
+        sim.run(2, analyse=False)
+        self.assertAlmostEqual(e.delay(), 6.0, delta=1.0)
+        sim.run(10, analyse=False)
+        self.assertAlmostEqual(e.delay(), 6.0, delta=1.0)            # and it stays there (no jumping about)
+        self.assertTrue(any("drifted" in line for line in e.log))
 
     def test_a_saved_show_is_chosen_for_its_song(self):
         name = "The Synthetics - Test Tune 1"

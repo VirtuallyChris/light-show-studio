@@ -735,6 +735,7 @@ class JamEngine:
         self.serial = 0
         self.flushes = 0
         self.gaps_added = 0.0
+        self._streamed_at = -1e9                       # when the speakers last got a fresh stream (keep_delay)
         self.error = ""
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
@@ -937,6 +938,28 @@ class JamEngine:
                 self.gaps_added += gap
                 self.say(f"adding {gap:.1f}s between songs to grow the delay back ({self.delay():.0f}s of {self.cfg.target_delay:.0f}s)")
 
+    DRIFT_S = 5.0            # this far past the target delay, the room jumps back
+
+    def keep_delay(self) -> str | None:
+        """The delay only ever grew back (silence between songs), never shrank: a pause in Spotify, or a speaker
+        that stalled, left the room far behind for good. Past the target by DRIFT_S, the room jumps back to 1 s
+        behind the target, at once (a 5 s target: over 10 s, back to 6). Not while paused or held by a cue, nor
+        in the 20 s after the speakers got a fresh stream (their position settles first)."""
+        with self.lock:
+            if not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
+                return None
+            if self.clock() - self._streamed_at < 20.0:
+                return None
+            d = self.delay()
+            if d <= self.cfg.target_delay + self.DRIFT_S:
+                return None
+            to = self.cfg.target_delay + 1.0
+            self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, self.relay.capture_time - to),
+                                                            pace=not isinstance(self.output, VirtualOutput)))
+            self._streamed_at = self.clock()
+            self.say(f"the room had drifted {d:.0f}s behind: jumped back to {to:.0f}s")
+            return f"delay {d:.0f}s -> {to:.0f}s"
+
     def _quietest_near(self, t: float, reach: float = 1.2) -> float:
         """The quietest moment around a song boundary, so inserted silence lands in the seam."""
         t0, t1 = max(self.relay.oldest_time, t - reach), min(self.relay.capture_time, t + reach)
@@ -953,6 +976,7 @@ class JamEngine:
             return
         start = max(jt.start, self.relay.oldest_time)
         self.output.start_stream(self.relay.open_stream(start, pace=not isinstance(self.output, VirtualOutput)))
+        self._streamed_at = self.clock()
         self.flushes += 1
         self.say(f"skip: buffer flushed, the room joins {jt.track.name} now")
 
@@ -965,6 +989,7 @@ class JamEngine:
                 # never start further back than the target: a long wait is cut down to it
                 from_time = max(from_time, self.relay.capture_time - self.cfg.target_delay * 2)
             self.output.start_stream(self.relay.open_stream(from_time, pace=not isinstance(self.output, VirtualOutput)))
+            self._streamed_at = self.clock()
             self.streaming = True
             self.say(f"speakers started {self.relay.capture_time - from_time:.0f}s behind")
 
@@ -1525,6 +1550,7 @@ class JamRunner:
             e = self.engine
             try:
                 e.poll()
+                e.keep_delay()
                 n += 1
                 if n % 6 == 1:
                     e.refresh_queue()
