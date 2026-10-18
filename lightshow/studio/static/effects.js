@@ -542,9 +542,15 @@ const Effects = (() => {
     params: { rate: { type: 'range', def: 4, min: 1, max: 16, step: 1, label: 'Changes per beat' }, density: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.01, label: 'Density' }, overlay: P.bool('Transparent background', true) },
     render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const slot = Math.floor(c.beat * c.p.rate); const nseg = 6; for (let s = 0; s < nseg; s++) { if (hash(slot * 101 + s * 7) > c.p.density) continue; const a = Math.floor(hash(slot * 53 + s) * c.n), len = 1 + Math.floor(hash(slot * 59 + s) * c.n / 4); const col = palIdx(c.pal, Math.floor(hash(slot * 61 + s) * c.pal.length)); for (let i = a; i < Math.min(c.n, a + len); i++) set(c.out, i, col[0], col[1], col[2], 1); } } });
 
-  def({ id: 'halves', name: 'Halves', cat: 'fast', desc: 'Left and right halves alternate in two palette colors every beat.', swatch: ['#ff0000', '#0040ff'],
-    params: { every: P.speed(1, 'Swap every (beats)'), dim: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Off-side level' } },
-    render(c) { const k = Math.floor(c.beat / c.p.every); const a = palIdx(c.pal, k), b = palIdx(c.pal, k + 1); for (let i = 0; i < c.n; i++) { const left = i < c.n / 2; const on = left === (k % 2 === 0); const col = left ? a : b; const v = on ? 1 : c.p.dim; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
+  def({ id: 'halves', name: 'Halves', cat: 'fast', desc: 'Left and right halves alternate in two palette colors, swapping on every real drum hit (kick or snare), so it lands with the drummer however the beat goes; on the beat when the drums are not known.', swatch: ['#ff0000', '#0040ff'],
+    params: { follow: { type: 'select', def: 'drums', options: { drums: 'the drums (kick and snare)', beat: 'the beat' }, label: 'Swaps on' },
+      every: P.speed(1, 'Swap every (beats, or hits)'), dim: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Off-side level' } },
+    render(c) {
+      // on the drums: the hits so far (kicks and snares both count), so each one swaps the sides; on a
+      // song with the kick on every beat this is the beat, on one without it lands where the drums do
+      const m = c.music || {}, age = h => (h && h.index >= 0 ? h.age : 99);   // (a stretch with no drums for 1.5 s: the beat)
+      const drums = c.p.follow !== 'beat' && m.hasDrums && Math.min(age(m.kick), age(m.snare)) < 1.5;
+      const k = drums ? Math.floor(((m.kick ? m.kick.index : -1) + (m.snare ? m.snare.index : -1) + 2) / Math.max(1, Math.round(c.p.every))) : Math.floor(c.beat / c.p.every); const a = palIdx(c.pal, k), b = palIdx(c.pal, k + 1); for (let i = 0; i < c.n; i++) { const left = i < c.n / 2; const on = left === (k % 2 === 0); const col = left ? a : b; const v = on ? 1 : c.p.dim; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   // ===== AROUND THE ROOM =====
   // These see the whole room: c.room is this light's place in it ({ i, n, side }), the ticked lights
