@@ -766,6 +766,15 @@ const Effects = (() => {
         const b = Math.floor(i / c.n * nb), on = hash(k * 131 + b * 17 + room) < c.p.density, w = c.p.white && hash(k * 7 + b * 3 + room + 5) < 0.18;
         if (on) set(c.out, i, w ? 1 : col[0], w ? 1 : col[1], w ? 1 : col[2], 1); else set(c.out, i, 0, 0, 0, 1);
       } } });
+  def({ id: 'drumgate', name: 'Drum gate', cat: 'fast', desc: 'Chops the whole show with the drums: black between the hits, the lights there for a moment on each kick and snare. Put it on top of a heavy drop (dubstep).', swatch: ['#000000', '#ffffff'],
+    params: { hold: { type: 'range', def: 0.12, min: 0.04, max: 0.4, step: 0.01, label: 'Open after a hit (s)' } },
+    render(c) {
+      const m = c.music || {};
+      if (!m.hasDrums) { clear(c.out); return; }
+      let age = 99; for (const h of [m.kick, m.snare, m.roll]) if (h && h.index >= 0) age = Math.min(age, h.age);
+      const open = age < 5 ? Math.exp(-age / c.p.hold) : 0;
+      fillAll(c.out, c.n, 0, 0, 0, 1 - open);
+    } });
   def({ id: 'fillflood', name: 'Fill flood', cat: 'accent', desc: 'For a drum fill: the whole room in one solid color, flashing white on every hit of the fill, covering what is under it.', swatch: ['#ff0000', '#ffffff'],
     params: { flash: { type: 'range', def: 0.06, min: 0.02, max: 0.2, step: 0.01, label: 'Flash (s)' } },
     render(c) {
@@ -788,10 +797,15 @@ const Effects = (() => {
   }
 
   // ---------- compositing ----------------------------------------------------------
-  const BLENDS = { normal: 'Normal', add: 'Add', screen: 'Screen', multiply: 'Multiply', max: 'Lighten' };
+  const BLENDS = { normal: 'Normal', add: 'Add', screen: 'Screen', multiply: 'Multiply', max: 'Lighten', cut: 'Cut (black where it lights)' };
   function composite(dst, src, n, opacity, blend) {
     for (let i = 0; i < n; i++) {
       const j = i * 4; const a = clamp(src[j + 3]) * opacity; if (a <= 0) continue;
+      if (blend === 'cut') {                                  // darkness where the layer lights: a black swipe
+        const m = clamp(Math.max(src[j], src[j + 1], src[j + 2])) * a;
+        for (let ch = 0; ch < 3; ch++) dst[j + ch] *= 1 - m;
+        continue;
+      }
       for (let ch = 0; ch < 3; ch++) {
         const d = dst[j + ch], s = clamp(src[j + ch]); let r;
         switch (blend) {

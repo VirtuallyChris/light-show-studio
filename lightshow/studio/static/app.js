@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 25;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop
+  const SHOW_VERSION = 27;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2097,11 +2097,13 @@
     return h < (st === 'rave' ? 0.55 : 0.3) ? [pal[0], '#000000'] : pal;
   }
   // Motion over a base in the very same colors does nothing (meteors over a gradient of the same pair): it
-  // takes the jam's extra colors then, or a color apart from the base (never white: a drop's moving things
-  // all in white made white the drop's color).
+  // takes the jam's extra colors then, or in about a third of the sections white (white moving over a
+  // color looked great in Mission's drop), else a color apart from the base. Never white everywhere: every
+  // drop's moving things in white made white the drops' own color.
+  const whiteMotion = start => Effects.hash(Math.round(start / 16) * 7907 + (S.lookSeed || 0) + 11) < 0.33;
   const sameColors = (a, b) => { const B = new Set((b || []).map(x => String(x).toLowerCase())); return !!(a && a.length) && a.every(x => B.has(String(x).toLowerCase())); };
   function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
-      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, S.buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : [punchColor(start)]; }
+      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, S.buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : whiteMotion(start) ? ['#ffffff'] : [punchColor(start)]; }
     if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
@@ -2265,6 +2267,10 @@
         // black before every 4-bar phrase, and the last bar of each 8 a sixteenth-note white strobe with black
         // between the flashes
         if (style === 'rave' && drumsHere) clip(6, 'drumstrobe', b0, len, { follow: 'kick', white: true, length: 0.04 }, { opacity: 0.7, blend: 'add' });
+        // a heavy drop (dubstep, bass music, riddim...): every other 4 bars chopped by the drums, black between
+        // the hits (the drop's first 4 bars land open); its one-shots still punch through on top
+        if (!chill && drumsHere && len >= 16 && /dubstep|bass music|riddim|brostep|drum and bass|hardstyle/.test(genreWords()))
+          for (let b = b0 + 16; b < b1; b += 32) clip(8, 'drumgate', b, Math.min(16, b1 - b), {}, { opacity: 1 });
         if (style === 'rave' && len >= 16) for (let b = b0 + 16; b < b1; b += 16) {
           if ((b - b0) % 32 === 0) clip(7, 'strobe', b - 4, 4, { every: 0.25, duty: 0.35, white: true, overlay: false }, { opacity: 1 });
           else clip(7, 'dark', b - 0.5, 0.5);
@@ -2294,6 +2300,21 @@
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }
     addSignature(s, b0, len, variant, style);
+    // Black swipes: some of the moving things over a lit section cut darkness through it instead of
+    // light (a sweep crossing the room as a black bar, a chase of dark gaps), more of them the harder the
+    // song; never in a calm song, nor in a section without much light to cut (intros, breakdowns, outros),
+    // nor in a build whose strobe plays alone.
+    // (only the big shapes: a spark or a traced note cut black is a speck nobody sees)
+    const cutShare = { groove: 0.4, dance: 0.55, rave: 0.7 }[style] || 0;
+    if (cutShare && ['drop', 'verse', 'buildup'].includes(s.type))
+      for (const c of first) if (CUTTABLE.has(c.effect) && !p.lanes[0].clips.includes(c) && !c.alone
+          && Effects.hash(Math.round(c.start * 4) * 92821 + c.effect.length * 31 + (S.lookSeed || 0) + 17) < cutShare) {
+        c.blend = 'cut'; c.opacity = 1; c.palette = ['#ffffff'];
+      }
+    // and a black band across the whole room (left pole, the ceiling, right pole) half way through each
+    // 8-bar phrase of a drop (of a dance or rave verse too): the room swiped dark for a moment
+    if (cutShare && (s.type === 'drop' || (s.type === 'verse' && hard)) && len >= 32)
+      for (let b = b0 + 16; b + 2 <= b1; b += 32) clip(9, 'roomsweep', b, 2, { every: 2, width: 1.2 }, { blend: 'cut', opacity: 1, palette: ['#ffffff'] });
     // Long strips and short lamps together: the moving things (comets, chases, sparkles) run on the
     // long strips, where there is room for them to travel; on seven segments they read as flicker.
     // The lamps play the drums instead, the whole lamp blooming on every kick and snare, or breathe
@@ -2317,6 +2338,7 @@
     }
     S.sectionClips = null;
   }
+  const CUTTABLE = new Set(['sweepout', 'scanner', 'roomscan', 'chase', 'hyperchase', 'steps', 'bounce', 'comet', 'dualcomet', 'meteors', 'orbit']);   // big enough to cut black
   const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'steps', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
 
   /** The genre words the listening model heard in the song, lowercased. */
