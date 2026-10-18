@@ -5,8 +5,8 @@ band with the vocals, synths and guitars. Separated, a kick is the only thing th
 track and the bass line is on its own, so the drums can be found far more surely and a drop shows
 up as the bass coming back.
 
-Runs inside the separate model environment (CUDA PyTorch), as a long-lived process so the model
-loads once, one request at a time over stdin/stdout:
+Run by models_host.py (model "stems_infer"), inside the model environment (CUDA PyTorch). The request
+and the reply, as the host passes them:
 
     request  one JSON line, either
                {"path": "C:/.../song.mp3"}                        a file on disk (a full path)
@@ -20,18 +20,10 @@ loads once, one request at a time over stdin/stdout:
              samples (mono, 22050 Hz),
              or {"error": "..."} with nothing after it.
 
-The first line printed is {"ready": true, "device": "cuda:0"} once the model is loaded.
-For a one-off run from a terminal (prints timings and levels only):
-
-    python -m lightshow.studio.stems_infer <full path to audio file>
 """
 
 from __future__ import annotations
 
-import json
-import os
-import sys
-import time
 
 MODEL = "htdemucs"
 OUT_SR = 22050
@@ -79,63 +71,3 @@ def separate(model, device, y, sr):
         rms = np.sqrt((x[: n * hop].reshape(n, hop) ** 2).mean(axis=1))
         levels[name] = [round(float(v), 4) for v in rms]
     return stems, levels
-
-
-def main() -> int:
-    real_stdout = sys.stdout.buffer
-    sys.stdout = sys.stderr                              # libraries print; only replies go to the real stdout
-
-    def reply(obj, payload: bytes = b""):
-        real_stdout.write((json.dumps(obj) + "\n").encode() + payload)
-        real_stdout.flush()
-
-    one_off = [os.path.abspath(a) for a in sys.argv[1:] if not a.startswith("--")]
-    try:
-        import librosa
-        import numpy as np
-
-        model, device = load_model()
-    except Exception as e:  # noqa: BLE001
-        reply({"ready": False, "error": f"{type(e).__name__}: {e}"})
-        return 1
-
-    def load(path):
-        y, sr = librosa.load(path, sr=None, mono=False)
-        return y, sr
-
-    if one_off:
-        t0 = time.time()
-        y, sr = load(one_off[0])
-        stems, levels = separate(model, device, y, sr)
-        print(json.dumps({"device": device, "seconds": round(time.time() - t0, 1), "n": len(stems["drums"])}), file=sys.stderr)
-        return 0
-
-    reply({"ready": True, "device": device})
-    stdin = sys.stdin.buffer
-    while True:
-        line = stdin.readline()
-        if not line:
-            return 0
-        t0 = time.time()
-        try:
-            req = json.loads(line)
-            if "samples" in req:
-                ch = int(req.get("channels", 1))
-                y = np.frombuffer(stdin.read(int(req["samples"]) * ch * 4), dtype=np.float32)
-                y = y.reshape(-1, ch).T if ch > 1 else y
-                sr = int(req.get("sr", 44100))
-            else:
-                path = req["path"]
-                if not os.path.isabs(path):
-                    raise ValueError(f"a full path is needed, got {path!r}")
-                y, sr = load(path)
-            stems, levels = separate(model, device, np.asarray(y, dtype=np.float32), sr)
-            d, b, o = stems["drums"], stems["bass"], stems["other"]
-            reply({"stems": {"n": len(d), "sr": OUT_SR, "order": ["drums", "bass", "other"]}, "levels": {k: levels[k] for k in ("vocals", "other")},
-                   "fps": FPS, "seconds": round(time.time() - t0, 2)}, d.tobytes() + b.tobytes() + o.tobytes())
-        except Exception as e:  # noqa: BLE001 - one bad request must not end the worker
-            reply({"error": f"{type(e).__name__}: {e}"})
-
-
-if __name__ == "__main__":
-    sys.exit(main())

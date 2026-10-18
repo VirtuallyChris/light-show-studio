@@ -217,7 +217,41 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 35;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes; 33: groove cuts black only in moments, colors barely by genre; 34: groove hits in one color a section; 35: hardcore drops in pure solid colors
+  // Saved shows built by an older SHOW_VERSION are built again. What each version changed:
+  //   3: each song draws its own mix of effects
+  //   4: drumless songs are always calm
+  //   5: a backbeat is no buildup
+  //   6: stage steps, quicker stars, no hyper chase in groove
+  //   7: sweeping motions half as likely
+  //   8: sections start after a gap
+  //   9: sections on bar lines, outro where it rings out
+  //   10: one-hits unrationed, star colors, buildups glow
+  //   11: no Alternate drops
+  //   12: the energy meter in rock drops
+  //   13: the poles as a stereo pair
+  //   14: white hits, room sweeps, moody breakdowns
+  //   15: built for every light in the rooms
+  //   16: moody breakdowns two bars, party rooms only
+  //   17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove
+  //   18: hyperchase in rave only
+  //   19: white snare strobe in clear EDM builds
+  //   20: that strobe alone
+  //   21: drops never move like their verses
+  //   22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave
+  //   23: one-shots on what the separated tracks hear
+  //   24: one-shots solid, on top, in a color apart, glitches, fill floods
+  //   25: white never leads a drop
+  //   26: white motion in a third, black swipes
+  //   27: heavy drops chopped by the drums
+  //   28: black swipes that show, No Limits beds duck harder
+  //   29: fewer black swipes
+  //   30: fewer sweeps
+  //   31: sweeps rush, drift, bounce and ramp
+  //   32: No Limits from 55 palettes
+  //   33: groove cuts black only in moments, colors barely by genre
+  //   34: groove hits in one color a section
+  //   35: hardcore drops in pure solid colors
+  const SHOW_VERSION = 35;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -940,7 +974,6 @@
   const ADD_ROW = 26;  // the "+ layer" strip under the last layer
   function lanesOverflow() { const h = TH(); return Math.max(0, lanesTop() + P().lanes.length * ROW.lane + ADD_ROW - h); }
   function vscrollTo(v) { S.view.vscroll = clamp(v, 0, lanesOverflow()); draw(); }
-  const palTop = () => ROW.ruler + ROW.sections + ROW.wave;
   const waveTop = () => ROW.ruler + ROW.sections;
   function viewWidth() { return TW() - HEADER; }
   function zoomFit() { if (!S.analysis) return; if (viewWidth() <= 0) { S.view.fitPending = true; return; } S.view.pps = Math.max(1, viewWidth() / duration()); S.view.scroll = 0; draw(); }
@@ -1751,7 +1784,6 @@
     const k = ((n % cols.length) + cols.length) % cols.length;
     return cols.slice(k).concat(cols.slice(0, k));
   }
-  const MOTIONS = ['comets', 'sparkles', 'meteors', 'orbit', 'ripples', 'bounce', 'scanner'];
   /** The material shows are made from, in five families by vibe. A song is not given one of them:
    *  it draws its own mix (its beds, what moves over its verses, its motions, its drop moves) from all
    *  five, each family as likely as it suits the song (see pickLook), so every song feels different
@@ -1848,8 +1880,8 @@
   function lookScores() {
     const a = S.analysis || {}, m = a.mood || {}, st = showStyle();
     const drive = m.drive ?? 0.5, bright = m.brightness ?? 0.5, minor = m.mode === 'minor';
-    const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
-    const rocky = /rock|indie|independent|punk|alternative|grunge|metal|emo|folk/.test(g), electronic = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g);
+    const g = songGenres();
+    const rocky = /rock|indie|independent|punk|alternative|grunge|metal|emo|folk/.test(g), electronic = ELECTRONIC.test(g);
     if (st === 'chill') return { dreamy: 1, haunted: minor ? 0.75 : 0, neon: 0, rock: 0, storm: 0 };   // a calm song: soft things only (a minor one, embers too)
     const clubby = st === 'dance' || st === 'rave', heavy = /dubstep|bass music|metal|hardstyle|trap|drum and bass/.test(g);
     const score = {
@@ -1866,8 +1898,8 @@
    *  in its last quarter. */
   function edmBuild(s) {
     const a = S.analysis || {}, ev = a.events || {}, st = showStyle(), beat = 60 / (a.bpm || 120), L = s.end - s.start;
-    const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
-    if (!(st === 'dance' || st === 'rave' || /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g)) || L < 8 * beat) return false;
+    const g = songGenres();
+    if (!(st === 'dance' || st === 'rave' || ELECTRONIC.test(g)) || L < 8 * beat) return false;
     const hits = [...(ev.snare || []), ...(ev.roll || [])].map(e => e[0]);
     const q = [0, 1, 2, 3].map(k => hits.filter(t => t >= s.start + k * L / 4 && t < s.start + (k + 1) * L / 4).length / (L / 4 / beat));
     const early = (q[0] + q[1]) / 2;
@@ -1998,12 +2030,9 @@
   /** A song's palette from one main color: it, and a neighbor on either side of the color wheel,
    *  all solid (the same shape as a palette taken from an album cover). */
   function mainPalette(hexColor) {
-    const [r, g, b] = Effects.hex2rgb(Effects.solid(hexColor)), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-    if (!d) return [Effects.solid(hexColor)];                     // white (or black): nothing to turn
-    let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-    h = ((h / 6) + 1) % 1;
-    const hex = k => '#' + Effects.hsv((h + k + 1) % 1, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
-    return Effects.solidPalette([hex(0), hex(35 / 360), hex(-30 / 360)]);
+    const h = Effects.hueOf(Effects.solid(hexColor), 0);
+    if (h === null) return [Effects.solid(hexColor)];              // white (or black): nothing to turn
+    return Effects.solidPalette([Effects.hueHex(h), Effects.hueHex(h + 35 / 360), Effects.hueHex(h - 30 / 360)]);
   }
   /** No Limits Colors: every section in a palette of its own, from the colors a lighting designer reaches
    *  for. Singles (a breakdown all blue, a buildup all red), pairs that sit well together (red and blue,
@@ -2056,8 +2085,8 @@
     if (S.wild && S.wild.sig === sig) return S.wild.plan;
     const a = S.analysis || {}, m = a.mood || {}, st = showStyle();
     const bright = m.brightness ?? 0.5, minor = m.mode === 'minor';
-    const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
-    const rocky = /rock|punk|grunge|metal|emo/.test(g), electronic = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g);
+    const g = songGenres();
+    const rocky = /rock|punk|grunge|metal|emo/.test(g), electronic = ELECTRONIC.test(g);
     const names = e => e.c === 'rainbow' ? ['rainbow'] : e.c;
     const mood = e => names(e).reduce((w, n) => {
       if (n === 'rainbow') return w * (st === 'chill' ? 0 : st === 'rave' ? 1.6 : 1);
@@ -2092,11 +2121,8 @@
   /** The opposite hue of each color (white and black stay as they are), as solid colors. */
   function contrastPalette(cols) {
     return Effects.solidPalette((cols || []).map(hexColor => {
-      const [r, g, b] = Effects.hex2rgb(hexColor), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-      if (!mx || d / mx < 0.2) return hexColor;
-      let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-      h = ((h / 6) + 1.5) % 1;                                      // half way round the color wheel
-      return '#' + Effects.hsv(h, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+      const h = Effects.hueOf(hexColor);
+      return h === null ? hexColor : Effects.hueHex(h + 0.5);        // half way round the color wheel
     }));
   }
   // In the jam's two colors, a few of these small accents now and then take the jam's extra colors
@@ -2274,7 +2300,7 @@
         // room in pure, solid colors (red, blue...) flipping to the other on every drum hit, the song's motion on
         // top faster and in the same pure colors, the white flash on every kick, the sixteenth-note strobe every
         // 4 bars (not 8), a glitch half way through each 4, and the chop between the hits.
-        const hardcore = !chill && drumsHere && /dubstep|bass music|riddim|brostep|drum and bass|hardstyle/.test(genreWords());
+        const hardcore = !chill && drumsHere && HEAVY_DROP.test(genreWords());
         if (hardcore) {
           // pure primaries, one pair for all of the song's drops (its order swapping drop to drop); the party's
           // own pair when the jam has one
@@ -2327,7 +2353,7 @@
           hardcore ? { opacity: 1, palette: S.contrastPal } : { opacity: 0.7, blend: 'add' });
         // a heavy drop (dubstep, bass music, riddim...): every other 4 bars chopped by the drums, black between
         // the hits (the drop's first 4 bars land open); its one-shots still punch through on top
-        if (!chill && drumsHere && len >= 16 && /dubstep|bass music|riddim|brostep|drum and bass|hardstyle/.test(genreWords()))
+        if (!chill && drumsHere && len >= 16 && HEAVY_DROP.test(genreWords()))
           for (let b = b0 + 16; b < b1; b += 32) clip(8, 'drumgate', b, Math.min(16, b1 - b), {}, { opacity: 1 });
         if ((style === 'rave' || hardcore) && len >= 16) for (let b = b0 + 16; b < b1; b += 16) {
           if ((b - b0) % 32 === 0 || hardcore) clip(7, 'strobe', b - 4, 4, { every: 0.25, duty: 0.35, white: !hardcore, color: 'cycle', overlay: false }, { opacity: 1, ...(hardcore ? { palette: S.buildPal } : {}) });
@@ -2413,14 +2439,16 @@
   const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'steps', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
 
   /** The genre words the listening model heard in the song, lowercased. */
+  /** The genre model's own labels for the song, as one lowercase string (genreWords adds Spotify's too). */
+  const songGenres = () => (((S.analysis || {}).genre || {}).genres || []).join(' ').toLowerCase();
+  const ELECTRONIC = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/;
+  const HEAVY_DROP = /dubstep|bass music|riddim|brostep|drum and bass|hardstyle/;      // a hardcore drop's genres
   const genreWords = () => (((S.analysis && S.analysis.genre && S.analysis.genre.genres) || []).join(' ') + ' ' + ((S.analysis && S.analysis.genre && S.analysis.genre.spotify) || []).join(' ')).toLowerCase();
   /** A palette moved round the color wheel (a key change lifts the colors with it). */
   function turnPalette(cols, deg) {
     return Effects.solidPalette((cols || []).map(hx => {
-      const [r, g, b] = Effects.hex2rgb(hx), mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-      if (!mx || d / mx < 0.2) return hx;
-      let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h = ((h / 6) + 1 + deg / 360) % 1;
-      return '#' + Effects.hsv(h, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+      const h = Effects.hueOf(hx);
+      return h === null ? hx : Effects.hueHex(h + deg / 360);
     }));
   }
 
@@ -2660,8 +2688,7 @@
    *  red fill over a blue verse): the jam's extra colors when it has them, else the stage color farthest
    *  round the color wheel from every color of the section. */
   const PUNCH = ['#ff0000', '#0030ff', '#ff0080', '#00ff40', '#00c8ff', '#ffa000', '#8000ff'];
-  const hueOf = hx => { const [r, g, b] = Effects.hex2rgb(hx), mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
-    if (!mx || d / mx < 0.2) return null; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return ((h * 60) + 360) % 360; };
+  const hueOf = hx => { const h = Effects.hueOf(hx); return h === null ? null : h * 360; };   // (degrees)
   function punchColor(at = 0) {
     if (S.jamExtras && S.jamExtras.length) return S.jamExtras[Math.abs(Math.round(at)) % S.jamExtras.length];
     const base = (S.buildPal || []).map(hueOf).filter(h => h !== null);

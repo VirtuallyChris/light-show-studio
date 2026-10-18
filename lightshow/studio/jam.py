@@ -338,99 +338,6 @@ class JamLibrary:
 
 
 # ================================================================== streaming features
-class LiveBeat:
-    """The beat of a song playing before anything else is known of it (learning ahead, until its copy is
-    learned): its tempo and where the beats fall, from the last 15 s heard, worked out again every few
-    seconds. A fraction of a second's work each time however long the song gets, where the full analysis
-    of everything heard so far fell further behind with every pass. The tempo is kept unless it really
-    changed, so the beat does not wobble."""
-
-    WINDOW_S, EVERY_S, FIRST_S = 15.0, 3.0, 5.0
-
-    def __init__(self):
-        self.bpm: float | None = None
-        self.anchor: float | None = None                  # capture time of a beat
-        self.pending: float | None = None                 # a different tempo heard once, waiting to be heard again
-        self.tried = -1e9
-
-    def update(self, relay: "Relay", start: float, head: float) -> bool:
-        """Listen again if it is time. True if the beat changed (by more than a hair)."""
-        import librosa
-
-        if head - self.tried < self.EVERY_S:
-            return False
-        self.tried = head
-        t0 = max(start, head - self.WINDOW_S, relay.oldest_time)
-        if head - t0 < self.FIRST_S:
-            return False
-        y = relay.audio(t0, head, SR_ANALYSIS, mono=True)
-        env = librosa.onset.onset_strength(y=y, sr=SR_ANALYSIS, hop_length=HOP)
-        tempo, beats = librosa.beat.beat_track(onset_envelope=env, sr=SR_ANALYSIS, hop_length=HOP,
-                                               start_bpm=self.bpm or 120.0, units="time")
-        tempo = float(np.atleast_1d(tempo)[0]) if np.size(tempo) else 0.0
-        if tempo <= 0 or len(beats) < 4:
-            return False
-        while tempo < 70:
-            tempo *= 2
-        while tempo > 180:
-            tempo /= 2
-        # the tracker reports its tempo in coarse steps: the beats it found say it more exactly (a line
-        # through them), and a small error grows to a whole beat over a song's length
-        bt = np.asarray(beats, dtype=float)
-        k = np.round((bt - bt[0]) / (60.0 / tempo))
-        if len(bt) >= 6 and np.ptp(k) >= 4:
-            fit = float(np.polyfit(k, bt, 1)[0])
-            if 0.9 < fit * tempo / 60.0 < 1.1:
-                tempo = 60.0 / fit
-        # The grid that lands best on what was heard: onsets sampled along it, the low end (the kick, on the
-        # beat) counting most, which also tells the beat from the off-beat. Tempos within 1.5 % of the
-        # tracker's (and of the one already held) are tried, each at offsets 10 ms apart.
-        fps = SR_ANALYSIS / HOP
-        low = librosa.onset.onset_strength(y=y, sr=SR_ANALYSIS, hop_length=HOP, fmax=200.0, n_mels=16)
-        n = min(len(env), len(low))
-        comb = env[:n] / (env[:n].max() + 1e-9) + 1.5 * low[:n] / (low[:n].max() + 1e-9)
-        span = n / fps
-        frames = np.arange(n)
-
-        def fit(period: float) -> tuple[float, float]:
-            best = (0.0, -1.0)
-            for o in np.arange(0.0, period, 0.01):
-                ts = o + np.arange(0.0, span - o, period)
-                if len(ts) < 4:
-                    continue
-                sc = float(np.interp(ts * fps, frames, comb).mean())
-                if sc > best[1]:
-                    best = (float(o), sc)
-            return best
-
-        def around(bpm: float) -> tuple[float, float, float]:
-            got = [(b, *fit(60.0 / b)) for b in bpm * (1 + np.linspace(-0.015, 0.015, 13))]
-            return max(got, key=lambda g: g[2])
-
-        new_bpm, new_off, new_sc = around(tempo)
-        if self.bpm is None:
-            tempo, off = new_bpm, new_off
-        else:
-            cur_bpm, cur_off, cur_sc = around(self.bpm)
-            changed = abs(new_bpm / cur_bpm - 1) >= 0.015 and new_sc > 1.1 * cur_sc
-            if changed and self.pending and abs(new_bpm / self.pending - 1) < 0.015:
-                tempo, off, self.pending = new_bpm, new_off, None          # heard twice running: a new tempo
-            else:
-                self.pending = new_bpm if changed else None                # (a buildup's snare roll can fool one listen)
-                tempo, off = cur_bpm, cur_off
-        period = 60.0 / tempo
-        anchor = t0 + off
-        moved = self.bpm is None or tempo != self.bpm or abs(((anchor - self.anchor) + period / 2) % period - period / 2) > 0.03
-        self.bpm, self.anchor = tempo, anchor
-        return moved
-
-    def grid(self, start: float, dur: float) -> list[float]:
-        """The beats over the whole song (in song time), on the tempo and place heard."""
-        period = 60.0 / self.bpm
-        first = (self.anchor - start) % period
-        return [round(first + i * period, 4) for i in range(int((dur - first) / period) + 1)]
-
-
 class FeatureTrack:
     """Energy, band levels and waveform peaks for everything captured, as it arrives.
 
@@ -683,7 +590,6 @@ class JamTrack:
     narrow_failed: bool = False         # its copy did not line up near Spotify's start: searched further
     verify_misses: int = 0              # checks in a row that did not match its copy (two make a mismatch)
     genre_problem: str = ""             # why its genre could not be heard (kept with what is learned of it)
-    beat: "LiveBeat | None" = None      # learning ahead, a first listen's beat (and nothing else) until its copy is learned
     heard_from: float | None = None     # after a seek: the capture time this stretch of the song begins at (its
                                         # start is still where 0:00 would have been; nothing before is this)
     genre: dict | None = None           # show style and the genres behind it
@@ -1218,19 +1124,12 @@ class JamEngine:
             cur.checked_at = self.clock()
             if self.library.has_learned(cur.track.id):
                 return self._upgrade(cur)
-        if cur and cur.kind == "live" and cur.end is None and cur.genre is None and head - cur.start >= 30.0 and not self.cfg.light_live:
+        if cur and cur.kind == "live" and cur.end is None and cur.genre is None and head - cur.start >= 30.0:
             return self._genre(cur, min(head - cur.start, cur.track.duration))
         if cur and cur.kind == "live" and cur.end is None and self.cfg.light_live:
             # While it is learned ahead, an unlearned song just glows slowly (jam.js buildLight): no beat
             # is followed, so the live beat tracker no longer runs every few seconds, and the PC's effort
             # goes to learning the song.
-            return None
-            if cur.beat is None:
-                cur.beat = LiveBeat()
-            if cur.beat.update(self.relay, cur.start, head):
-                with self.lock:
-                    cur.version += 1
-                return f"beat of {cur.track.name}: {cur.beat.bpm:.1f} bpm"
             return None
         if cur and cur.kind == "live" and cur.end is None:
             have = min(head - cur.start, cur.track.duration)
@@ -1409,11 +1308,10 @@ class JamEngine:
 
     def _pass(self, jt: JamTrack, have: float, final: bool) -> str:
         y = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=True, pad=True)   # song time 0 is sample 0
-        light = self.cfg.light_live and jt.kind == "live"   # the beat only (see JamSettings.light_live)
-        events = not light and (final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1))
+        events = final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1)
         stereo = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=False, pad=True) if events else None
         a = self.analyse_fn(y, SR_ANALYSIS, stereo=stereo, use_model=False, events=events, bpm_hint=jt.bpm_lock,
-                            segment_fn=None if light else self.segment_fn)
+                            segment_fn=self.segment_fn)
         if not events and jt.analysis:                      # keep the last instrument pass until the next one
             for k in ("events", "fills", "hook", "curves", "drum_calibration", "rolls", "cuts", "entries", "hatrolls", "wobbles", "key_change"):
                 a[k] = jt.analysis.get(k, a.get(k))
@@ -1543,9 +1441,8 @@ class JamEngine:
         out = {"duration": dur, "feature_fps": FEATURE_FPS, "wave_pps": WAVE_PPS, "structure_source": "live", "heard": round(head, 2),
                "energy": pad(feat["energy"], n_f, 0.0), "bands": pad(feat["bands"], n_f, [0.0] * N_BANDS), "peaks": pad(feat["peaks"], n_p, 0.0)}
         if a is None:                                        # nothing analysed yet: a plain grid and one open section
-            live = jt.beat is not None and jt.beat.bpm is not None      # (learning ahead: the beat as heard)
-            out.update({"bpm": round(jt.beat.bpm, 2) if live else 120.0, "downbeat_phase": 0,
-                        "beats": jt.beat.grid(jt.start, dur) if live else [round(i * 0.5, 4) for i in range(int(dur * 2))], "provisional": True,
+            out.update({"bpm": 120.0, "downbeat_phase": 0,
+                        "beats": [round(i * 0.5, 4) for i in range(int(dur * 2))], "provisional": True,
                         "sections": [{"start": 0.0, "end": dur, "type": "verse", "energy": 0.6, "provisional": True}], "drops": [],
                         "mood": {}, "events": {}, "fills": [], "hook": None, "curves": {}})
         else:

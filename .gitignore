@@ -10,6 +10,9 @@ __pycache__/
 config.json
 studio.log
 models.log
+*.log.1
+# made by the model environment when SongFormer loads (songformer_infer.load_model)
+lightshow/studio/_stubs/
 
 # Songs and the shows built on them are yours: kept on this computer, not in git.
 # (That covers Jam mode's learned tracks in shows/_jam/ and the scratch test project too.)

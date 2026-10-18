@@ -1,21 +1,16 @@
 # LAN Light Show
 
-Listens to a microphone (or any audio input) and drives Govee smart lights
-over the local network in real time. No cloud, no Govee account, no API key.
+Drives Govee smart lights over the local network in real time, from the **Studio**
+(`lightshow studio`): a sequencer for building a show on a saved song beat by beat, and a Spotify
+jam relay that builds a show for every song as it plays. No cloud, no Govee account, no API key.
+See *Studio* below.
 
-Two ways to use it: a live mic-reactive show (`lightshow run`), or the
-**Studio** (`lightshow studio`), a browser sequencer for building a show on a
-saved song beat by beat. See *Studio* below.
+The lights are driven in Govee's real-time per-segment mode, the LAN protocol Govee's desktop app
+uses for Razer Chroma: every segment (LED zone) of a light is set individually, instantly, many
+times a second, with no fade.
 
-Two ways of talking to the lights:
-
-* **Real-time per-segment mode (default).** Uses the same LAN protocol
-  Govee's desktop app uses for Razer Chroma: every segment (LED zone) of the
-  light is set individually, instantly, 60 times a second. No fade.
-* **Classic mode** (`--classic`). Uses the documented `colorwc` command. One
-  color for the whole light and the firmware fades towards it over a few
-  hundred milliseconds, so it looks soft and laggy. Useful for lights that do
-  not support real-time mode.
+(The original microphone light show, `lightshow run`, and its `audio`, `test` and `probe` commands
+were retired once the studio did all of it.)
 
 ## Setup
 
@@ -66,50 +61,10 @@ the studio, the way a desktop app would. Use `--tab` for an ordinary browser tab
 ## Usage
 
 ```bash
+lightshow studio                        # open the studio (what the desktop shortcut runs)
 lightshow devices                       # scan the LAN, show IP / wifi MAC / SKU / segment count
-lightshow audio                         # list audio inputs (* = default)
-lightshow test 5C:E7:53:E9:C7:FE        # cycle red/green/blue/white on one light
-lightshow probe 5C:E7:53:E9:C7:FE       # light each segment in turn so you can count them
-lightshow probe 5C:E7:53:E9:C7:FE --save 12   # remember that this light has 12 segments
-lightshow run                           # all lights, default mic, concert mode
-lightshow run 5C:E7:53:E9:C7:FE -m eq   # one light, spectrum-analyser mode
-lightshow run --no-strobe               # concert mode without hard strobes
-lightshow run -a "Volt" -m pulse -p fire
+lightshow calibrate Everywhere          # measure the Cast delay of a speaker or group with the mic
 ```
-
-Lights can be selected by IP, wifi MAC (as shown by your router), Govee
-device id, or SKU (`H608D` picks every H608D). With no selector every
-discovered light is used.
-
-### Modes (`-m`)
-
-| mode       | what it does |
-|------------|--------------|
-| `concert` (default) | Reads the *structure* of the music and changes the whole show with it. Chill: slow aurora fades. Groove: mood-colored gradient with kick pulses from the center. Buildup: the strip fills from both ends toward the center while a strobe accelerates from 2 Hz to 20 Hz. Drop: white blast, shockwave, then six seconds of fast rainbow chaos. Heavy: beat strobes, fast color-block chases, alternating halves. Hi-hats sparkle throughout. Base color follows the mood: dark bass-heavy = deep red, mid = violet, bright = cyan. |
-| `spectrum` | Hue follows the tonal center of the music (bass = red, treble = violet), brightness follows loudness, beats ripple out from the center of the light. |
-| `eq`       | Spectrum analyser: each segment is a frequency band, bass at one end, treble at the other. |
-| `vu`       | Loudness fills the light from one end (green -> yellow -> red) with a falling peak marker. |
-| `pulse`    | Palette color jumps on every beat, brightness pumps with the beat, beats ripple along the light. |
-| `rainbow`  | A rainbow runs along the light; energy sets its speed and brightness. |
-| `bands`    | Each *light* takes a band (bass / mid / treble). Good with several lights in a room. |
-| `strobe`   | Dark between beats, white flash on beats. |
-
-Palettes (`-p`): `neon`, `fire`, `ocean`, `party`.
-
-### Useful knobs
-
-| flag | meaning |
-|------|---------|
-| `--leds N` or `--leds MAC=N,IP=N` | LED count per light for this run (otherwise `config.json`, default 10). The H608D has 50 individually addressable LEDs; the protocol allows up to 84 per light |
-| `--fps 60` | color updates per second per light. 60 is confirmed smooth on the H608D; 90 also gets through |
-| `--sensitivity 1.4` | beat threshold in standard deviations. Lower = more beats |
-| `--floor 0.06` | minimum brightness while music plays |
-| `--flash 0.6` | how hard beats push brightness |
-| `--gradient` | ask the light to blend colors between segments |
-| `--no-strobe` | concert mode: smooth pulses instead of hard strobes (photosensitivity) |
-| `--classic` | use the normal color command instead of real-time mode |
-| `--off-on-exit` / `--exit-color 255,160,60` | what to do with the lights on Ctrl+C |
-
 
 ## Studio: build a show on a saved song
 
@@ -1208,28 +1163,6 @@ see what a jam looks like, and it is how Jam mode is tested:
 
 ## How it works
 
-`lightshow/audio.py` captures the input with `sounddevice`, runs a 512-sample
-FFT ~90 times a second and extracts loudness, bass/mid/treble energy, 24
-log-spaced spectrum bins, a spectral centroid and an energy-based beat
-detector. Everything is auto-gain controlled so a quiet mic and a loud line-in
-both fill the 0..1 range.
-
-`lightshow/music.py` tracks structure on the raw (not auto-gained) energies:
-slow references with a 40 s half-life give an *intensity* relative to the last
-minute, short vs. long averages of loudness, brightness and onset density give
-a *rising* score, and a bass-absence timer catches breakdowns. A drop fires
-when bass slams back after a breakdown or a buildup; sections (chill, groove,
-buildup, heavy) switch with hysteresis so they do not flicker.
-
-Intensity is judged against the dynamic range the tracker has heard, so the
-first loud section of a session is "heavy" until something louder arrives.
-The peak/trough references are saved to `config.json` after each run that
-heard real music and restored on the next start, so the show knows your room's
-loudness from the first bar. Delete the `calibration` block to reset it.
-
-`lightshow/show.py` maps those features to a color per segment, per light,
-for the selected mode and rate-limits the sends.
-
 `lightshow/govee_lan.py` is a small client for the Govee LAN API: discovery
 by a scan to UDP 4001, sent to the multicast group 239.255.255.250 and also as
 a broadcast on the home subnet (some networks pass no multicast at all: on one
@@ -1241,10 +1174,9 @@ a minute without packets, so the show re-enables it periodically.
 
 ## Segment counts
 
-Govee does not report how many zones a light has, so the tool cannot know
-whether your light has 6, 12 or 20 controllable segments. Run `probe` once
-per light, count the zones that light up, and save it with `--save N`. Sending
-more colors than the light has segments is harmless; the extras are ignored.
+Govee does not report how many zones a light has, so the studio cannot know whether a light has 6,
+12 or 50 controllable segments: set each light's count in the studio's light list. Sending more
+colors than the light has segments is harmless; the extras are ignored.
 
 ## Pinning to the taskbar
 

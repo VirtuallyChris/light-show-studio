@@ -59,6 +59,15 @@ const Effects = (() => {
     const v = parseInt(h.slice(1), 16);
     return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
   }
+  /** A color's hue, 0..1; null for a gray (saturation under minSat) or black. */
+  function hueOf(hex, minSat = 0.2) {
+    const [r, g, b] = hex2rgb(hex), mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+    if (!mx || !d || d / mx < minSat) return null;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return ((h / 6) + 1) % 1;
+  }
+  /** The pure color (full saturation and value) of a hue 0..1, as hex. */
+  const hueHex = h => '#' + hsv(((h % 1) + 1) % 1, 1, 1).map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
   function hsv(h, s, v) {
     h = frac(h); const i = Math.floor(h * 6), f = h * 6 - i;
     const p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
@@ -857,5 +866,5 @@ const Effects = (() => {
     }
   }
 
-  return { list: E, byId, CATS, PALETTES, BEAT_OPTS, BLENDS, defaults, composite, hex2rgb, hsv, palAt, hash, solid, solidPalette };
+  return { list: E, byId, CATS, PALETTES, BEAT_OPTS, BLENDS, defaults, composite, hex2rgb, hueOf, hueHex, hsv, hash, solid, solidPalette };
 })();

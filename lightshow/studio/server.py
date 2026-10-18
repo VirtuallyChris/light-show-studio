@@ -1387,8 +1387,21 @@ def _already_running(url: str) -> bool:
         return False
 
 
+def _rotate_logs(limit: int = 2_000_000) -> None:
+    """studio.log and models.log grow with every session: past 2 MB, each is kept as .1 (one older copy)
+    and starts afresh. (Not while another studio has it open: then it is left as it is.)"""
+    for name in ("studio.log", "models.log"):
+        path = os.path.join(ROOT, name)
+        try:
+            if os.path.getsize(path) > limit:
+                os.replace(path, path + ".1")
+        except OSError:
+            pass
+
+
 def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
         app_window: bool = True, stay: bool = False, lights: bool = True, player: bool = True) -> None:
+    _rotate_logs()
     if sys.stdout is None:
         # Started without a console (pythonw, the hidden launcher): keep a log
         # next to the project instead of losing every message.

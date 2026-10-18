@@ -1,4 +1,4 @@
-"""The lights' frame rate follows their Wi-Fi: run with  .venv\Scripts\python -m unittest tests.test_link_health -v
+r"""The lights' frame rate follows their Wi-Fi: run with  .venv\Scripts\python -m unittest tests.test_link_health -v
 
 Ping results are made up and time is simulated: no light is pinged or driven.
 """

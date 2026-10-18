@@ -509,7 +509,6 @@ class TestEngine(unittest.TestCase):
         a = doc["analysis"]
         # nothing is worked out for it, not even the beat (the lights only glow: jam.js buildLight): a plain
         # grid, so all the PC's effort goes to learning the song from its copy
-        self.assertIsNone(t.beat)
         self.assertEqual(a["bpm"], 120.0)
         sim.run(self.a["duration"] - 18)
         sim.play(self.b, self.tb)                                                  # the song ends naturally

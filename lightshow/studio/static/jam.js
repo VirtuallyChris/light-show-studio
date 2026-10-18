@@ -66,7 +66,7 @@
       return '#' + [f(5), f(3), f(1)].map(x => x.toString(16).padStart(2, '0')).join(''); };
     return [hex((start + span * 0.38) % 360), hex((start + span * 0.62) % 360)];
   }
-  /** No Limits Colors: every section in the stage colors that suit it (app.js stageScheme), for every song
+  /** No Limits Colors: every section in the stage colors that suit it (app.js wildPlan), for every song
    *  but one given its own colors (or its cover's) by hand */
   const wildOn = track => { const jc = (J.state || {}).jam_colors || {}, own = track && ((J.state || {}).track_colors || {})[track.id];
     return themeOn() && !!jc.wild && !own; };

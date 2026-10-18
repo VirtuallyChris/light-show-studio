@@ -12,7 +12,7 @@ scale (genre.DISCOGS_TIER). Its weak spot: Discogs has no future bass or melodic
 come out softer. Of the two MAEST checkpoints tried this one (519 styles) did best; the 400-style one
 called loud rock bands dance. (MAEST's licence is non-commercial.)
 
-Run by models_host.py (model "genre_infer"), or as a process of its own over stdin/stdout:
+Run by models_host.py (model "genre_infer"); the request and the reply, as the host passes them:
 
     request  one JSON line, either
                {"path": "C:/.../song.mp3"}                    a file on disk
@@ -24,18 +24,12 @@ Run by models_host.py (model "genre_infer"), or as a process of its own over std
                or {"error": "..."}
 
 MAEST's labels are "Genre---Style"; AST's (the fallback) are AudioSet names ("Dubstep", "Pop music")
-with its music moods. The first line the worker prints is {"ready": true, "device": "cuda"} once the
-model is loaded.
-
-    python -m lightshow.studio.genre_infer
+with its music moods.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import sys
-import time
 
 SR = 16000
 
@@ -113,47 +107,3 @@ def classify(state, y) -> dict:
     else:
         labels = {name: round(float(probs[i]), 4) for i, name in keep}
     return {"labels": labels, "windows": len(wins), "model": kind}
-
-
-def main() -> int:
-    real_stdout = sys.stdout
-    sys.stdout = sys.stderr                               # libraries may print; only replies go to the real stdout
-    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-
-    def reply(obj):
-        real_stdout.write(json.dumps(obj) + "\n")
-        real_stdout.flush()
-
-    try:
-        import librosa
-        import numpy as np
-
-        state = load_model()
-    except Exception as e:  # noqa: BLE001
-        reply({"ready": False, "error": f"{type(e).__name__}: {e}"})
-        return 1
-    reply({"ready": True, "device": state[-1], "model": state[0], "labels": len(state[3])})
-
-    stdin = sys.stdin.buffer
-    while True:
-        line = stdin.readline()
-        if not line:
-            return 0
-        t0 = time.time()
-        try:
-            req = json.loads(line)
-            if "samples" in req:
-                raw = stdin.read(int(req["samples"]) * 4)
-                y = np.frombuffer(raw, dtype=np.float32)
-                if int(req.get("sr", SR)) != SR:
-                    y = librosa.resample(y, orig_sr=int(req["sr"]), target_sr=SR)
-            else:
-                y, _ = librosa.load(req["path"], sr=SR, mono=True)
-            reply({**classify(state, y), "seconds": round(time.time() - t0, 2)})
-        except Exception as e:  # noqa: BLE001 - one bad request must not end the worker
-            reply({"error": f"{type(e).__name__}: {e}"})
-
-
-if __name__ == "__main__":
-    sys.exit(main())
