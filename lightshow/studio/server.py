@@ -488,11 +488,11 @@ class Studio:
         self.link = None
         if lights and load_config().get("light_fps_auto", True):
             from .link_health import LinkMonitor
-            # each light between 15 and light_fps_ceiling frames a second (60 unless set in config.json)
-            # (40 at most: at 50 and 60 the lights fell behind, replies at 100-270 ms, and lagged)
-            ceiling = int(load_config().get("light_fps_ceiling", 40))
+            # each light between 15 and light_fps_ceiling frames a second (30 unless set in config.json: every
+            # strip that climbed to 40 choked within minutes, replies at 200 ms, and lagged; at 50 and 60 worse)
+            ceiling = int(load_config().get("light_fps_ceiling", 30))
             # each kind of light where it can keep up: a light pole (a dozen segments or fewer) at 15 frames a
-            # second, a strip from 30 (up to the ceiling when the Wi-Fi is clear, down to 15 when it is not)
+            # second, a strip at 30 (the ceiling), down to 15 when the Wi-Fi struggles
             self.link = LinkMonitor(self.output, 15, ceiling,
                                     range_for=lambda ip: (15, 15, 15) if self._light_segments(ip) <= 12 else (15, ceiling, 30))
             self.output.max_fps = self.link.governor.fps
