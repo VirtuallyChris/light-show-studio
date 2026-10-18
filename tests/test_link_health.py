@@ -5,7 +5,7 @@ Ping results are made up and time is simulated: no light is pinged or driven.
 
 import unittest
 
-from lightshow.studio.link_health import FpsGovernor
+from lightshow.studio.link_health import FpsGovernor, LinkMonitor
 
 
 class Clock:
@@ -24,6 +24,17 @@ def run(gov, clock, seconds, rtt, every=0.5):
         gov.report(rtt() if callable(rtt) else rtt)
         seen.append(gov.decide())
     return seen
+
+
+class TestRangePerLight(unittest.TestCase):
+    def test_poles_at_15_and_strips_from_30(self):
+        from types import SimpleNamespace
+        out = SimpleNamespace(devices=[SimpleNamespace(ip="pole"), SimpleNamespace(ip="strip")], enabled=True, active=True, fps_by_ip={}, max_fps=0)
+        mon = LinkMonitor(out, 15, 40, log=lambda m: None, range_for=lambda ip: (15, 15, 15) if ip == "pole" else (15, 40, 30))
+        mon.ping = lambda ip, timeout_ms=300: 5.0
+        mon.tick(); mon.tick()
+        self.assertEqual(out.fps_by_ip, {"pole": 15, "strip": 30})
+        self.assertEqual(mon.governors["pole"].levels, [15])              # a pole never climbs
 
 
 class TestFpsGovernor(unittest.TestCase):

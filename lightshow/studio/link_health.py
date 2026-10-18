@@ -159,9 +159,12 @@ class LinkMonitor:
     """While the lights are being driven, pings them in turn and keeps each one's frame rate where its
     Wi-Fi can carry it (the output's fps_by_ip; max_fps is the fastest of them, for show)."""
 
-    def __init__(self, output, lo: int = 15, hi: int = 60, every_s: float = 0.25, log=print, clock=time.monotonic):
+    def __init__(self, output, lo: int = 15, hi: int = 60, every_s: float = 0.25, log=print, clock=time.monotonic, range_for=None):
         self.output, self.every_s, self.log = output, every_s, log
         self.lo, self.hi, self.clock = lo, hi, clock
+        # range_for(ip) -> (lo, hi, start) for one light, or None for the defaults: the light poles never held
+        # more than 15 frames a second, the strips 30 or so (a night of the log)
+        self.range_for = range_for
         self.governors: dict[str, FpsGovernor] = {}
         self.governor = FpsGovernor(lo, hi, clock=clock)      # the starting rate, before a light is heard from
         self.ping = make_pinger()
@@ -171,7 +174,9 @@ class LinkMonitor:
     def _governor(self, ip: str) -> FpsGovernor:
         g = self.governors.get(ip)
         if g is None:
-            g = self.governors[ip] = FpsGovernor(self.lo, self.hi, clock=self.clock)
+            r = self.range_for(ip) if self.range_for else None
+            lo, hi, start = r if r else (self.lo, self.hi, 24)
+            g = self.governors[ip] = FpsGovernor(lo, hi, start=start, clock=self.clock)
         return g
 
     def tick(self) -> None:

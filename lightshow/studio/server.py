@@ -477,7 +477,11 @@ class Studio:
             from .link_health import LinkMonitor
             # each light between 15 and light_fps_ceiling frames a second (60 unless set in config.json)
             # (40 at most: at 50 and 60 the lights fell behind, replies at 100-270 ms, and lagged)
-            self.link = LinkMonitor(self.output, 15, int(load_config().get("light_fps_ceiling", 40)))
+            ceiling = int(load_config().get("light_fps_ceiling", 40))
+            # each kind of light where it can keep up: a light pole (a dozen segments or fewer) at 15 frames a
+            # second, a strip from 30 (up to the ceiling when the Wi-Fi is clear, down to 15 when it is not)
+            self.link = LinkMonitor(self.output, 15, ceiling,
+                                    range_for=lambda ip: (15, 15, 15) if self._light_segments(ip) <= 12 else (15, ceiling, 30))
             self.output.max_fps = self.link.governor.fps
             self.link.start()
         self.cast = CastManager(govee_lan.local_ip())
@@ -982,6 +986,14 @@ class Studio:
                 flipped.pop(key, None)
         save_config(cfg)
         return web.json_response({"ok": True})
+
+    def _light_segments(self, ip: str) -> int:
+        """How many segments the light at this address has (as the light list works it out)."""
+        d = next((d for d in self.known if d.ip == ip), None)
+        if d is None:
+            return 50
+        seg = load_config().get("segments", {})
+        return int(seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10)
 
     async def set_segments(self, request):
         body = await request.json()
