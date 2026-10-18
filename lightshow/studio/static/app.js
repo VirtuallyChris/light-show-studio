@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 31;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp
+  const SHOW_VERSION = 32;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2008,10 +2008,12 @@
    *  magenta and cyan, purple and orange, UV and green...), a few sets and the rainbow. How much each suits
    *  each kind of section (k), and whether it is warm: see wildPlan. */
   const WC = { red: '#ff0000', blue: '#0030ff', indigo: '#3000ff', purple: '#8000ff', uv: '#5000ff', magenta: '#ff0080', pink: '#ff40a0',
-               cyan: '#00c8ff', teal: '#00ffc0', green: '#00ff40', amber: '#ffa000', orange: '#ff4000', gold: '#ffc000', white: '#ffffff' };
-  const WARM = new Set(['red', 'magenta', 'pink', 'amber', 'orange', 'gold']);
+               cyan: '#00c8ff', teal: '#00ffc0', green: '#00ff40', amber: '#ffa000', orange: '#ff4000', gold: '#ffc000', white: '#ffffff',
+               lime: '#80ff00', yellow: '#ffe000', violet: '#c000ff', sky: '#0090ff', rose: '#ff2050', aqua: '#00ffe0' };
+  const WARM = new Set(['red', 'magenta', 'pink', 'amber', 'orange', 'gold', 'yellow', 'rose']);
   const PARTNER = { blue: 'magenta', indigo: 'cyan', purple: 'cyan', uv: 'green', cyan: 'magenta', teal: 'purple', green: 'purple', red: 'gold',
-                    magenta: 'cyan', pink: 'cyan', amber: 'purple', orange: 'blue', gold: 'red', white: 'cyan' };   // the motion over a single
+                    magenta: 'cyan', pink: 'cyan', amber: 'purple', orange: 'blue', gold: 'red', white: 'cyan',
+                    lime: 'violet', yellow: 'purple', violet: 'lime', sky: 'orange', rose: 'aqua', aqua: 'rose' };   // the motion over a single
   const WILD = [
     { c: ['blue'], k: { intro: 1, verse: 1, breakdown: 1.2, outro: 1 } }, { c: ['indigo'], k: { intro: 1, verse: 0.6, breakdown: 1.2, outro: 1 } },
     { c: ['purple'], k: { intro: 0.8, verse: 1, breakdown: 1, outro: 0.8, buildup: 0.3 } }, { c: ['cyan'], k: { intro: 0.6, verse: 0.9, breakdown: 0.8, outro: 0.6 } },
@@ -2025,6 +2027,22 @@
     { c: ['blue', 'purple'], k: { verse: 0.8, breakdown: 0.6, intro: 0.5, outro: 0.5 } }, { c: ['red', 'gold'], k: { drop: 0.7 } }, { c: ['green', 'blue'], k: { drop: 0.5, verse: 0.5 } },
     { c: ['red', 'orange', 'gold'], k: { drop: 0.6 } }, { c: ['blue', 'cyan', 'teal'], k: { drop: 0.4, verse: 0.4, breakdown: 0.4 } },
     { c: ['magenta', 'cyan', 'gold'], k: { drop: 0.6 } }, { c: 'rainbow', k: { drop: 0.7, buildup: 0.2 } },
+    // more singles
+    { c: ['lime'], k: { verse: 0.5, buildup: 0.5 } }, { c: ['yellow'], k: { buildup: 0.6, verse: 0.3 } },
+    { c: ['violet'], k: { intro: 0.6, verse: 0.8, breakdown: 0.8, outro: 0.6 } }, { c: ['sky'], k: { intro: 0.7, verse: 0.8, breakdown: 0.7, outro: 0.7 } },
+    { c: ['rose'], k: { verse: 0.5, buildup: 0.8 } }, { c: ['aqua'], k: { intro: 0.5, verse: 0.6, breakdown: 0.7 } },
+    // more pairs a lighting designer reaches for
+    { c: ['blue', 'orange'], k: { drop: 1, verse: 0.3 } }, { c: ['purple', 'cyan'], k: { drop: 0.9, verse: 0.4, breakdown: 0.3 } },
+    { c: ['magenta', 'gold'], k: { drop: 0.8, verse: 0.3 } }, { c: ['red', 'cyan'], k: { drop: 0.8 } }, { c: ['teal', 'orange'], k: { drop: 0.7, verse: 0.4 } },
+    { c: ['uv', 'pink'], k: { drop: 0.7, verse: 0.4, breakdown: 0.3 } }, { c: ['green', 'magenta'], k: { drop: 0.7 } }, { c: ['violet', 'lime'], k: { drop: 0.6 } },
+    { c: ['sky', 'rose'], k: { drop: 0.6, verse: 0.4 } }, { c: ['indigo', 'gold'], k: { drop: 0.6, verse: 0.3 } }, { c: ['aqua', 'magenta'], k: { drop: 0.7 } },
+    { c: ['red', 'purple'], k: { drop: 0.6, verse: 0.3, buildup: 0.3 } }, { c: ['yellow', 'purple'], k: { drop: 0.6 } },
+    // and three-color sets: sunset, Miami, galaxy, jungle, candy, lava, vaporwave, synthwave, aurora
+    { c: ['orange', 'magenta', 'purple'], k: { drop: 0.6, verse: 0.2 } }, { c: ['pink', 'cyan', 'purple'], k: { drop: 0.6 } },
+    { c: ['indigo', 'purple', 'magenta'], k: { drop: 0.5, breakdown: 0.4 } }, { c: ['green', 'lime', 'gold'], k: { drop: 0.4 } },
+    { c: ['pink', 'aqua', 'yellow'], k: { drop: 0.5 } }, { c: ['red', 'orange', 'magenta'], k: { drop: 0.5, buildup: 0.3 } },
+    { c: ['pink', 'violet', 'aqua'], k: { drop: 0.5, verse: 0.2 } }, { c: ['magenta', 'violet', 'orange'], k: { drop: 0.5 } },
+    { c: ['green', 'teal', 'violet'], k: { drop: 0.4, breakdown: 0.4 } },
   ];
   /** The song's plan: a palette for each of its sections, in order (the same on every rebuild). Each is drawn
    *  by how well it suits that kind of section and the song (a dark or minor song leans cool, a bright major
@@ -2042,8 +2060,8 @@
     const mood = e => names(e).reduce((w, n) => {
       if (n === 'rainbow') return w * (st === 'chill' ? 0 : st === 'rave' ? 1.6 : 1);
       let f = WARM.has(n) ? (minor ? 0.75 : 1) * (0.7 + 0.6 * bright) : (minor ? 1.3 : 1) * (1.3 - 0.6 * bright);
-      if (rocky) f *= ['red', 'white', 'amber', 'orange', 'gold'].includes(n) ? 1.3 : ['green', 'teal', 'uv', 'cyan'].includes(n) ? 0.5 : 1;
-      if (electronic) f *= ['uv', 'green', 'magenta', 'cyan', 'purple'].includes(n) ? 1.3 : 1;
+      if (rocky) f *= ['red', 'white', 'amber', 'orange', 'gold', 'yellow', 'rose'].includes(n) ? 1.3 : ['green', 'teal', 'uv', 'cyan', 'lime', 'aqua', 'violet'].includes(n) ? 0.5 : 1;
+      if (electronic) f *= ['uv', 'green', 'magenta', 'cyan', 'purple', 'violet', 'lime', 'aqua', 'pink'].includes(n) ? 1.3 : 1;
       return w * Math.pow(f, 1 / names(e).length);
     }, st === 'chill' && names(e).length > 2 ? 0.3 : 1);
     let n = 0; const rnd = () => Effects.hash((S.lookSeed || 0) * 31 + 7907 * ++n);
