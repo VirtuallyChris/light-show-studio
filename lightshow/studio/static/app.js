@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 20;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone
+  const SHOW_VERSION = 21;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1811,8 +1811,12 @@
     S.look = Object.entries(w).sort((x, y) => y[1] - x[1])[0][0];   // the family it leans to most
     S.dark = (w.haunted + w.storm) >= 0.5 * Object.values(w).reduce((x, y) => x + y, 0);   // thunder and heartbeats
     // the song's own motion, and a second for every other drop
-    S.motionFam = motions[0];
-    S.motionFams = [motions[0], motions[1] || motions[0]];
+    // ...never the move its verses already make (stage steps over the verse and again over the drop: the
+    // drop looked just like the verse)
+    const FX = { sparkles: 'sparkle', ripples: 'ripple', comets: 'dualcomet' }, inVerse = new Set(S.mix.verseTop.map(t => t && t[0]));
+    const lifts = motions.filter(m => !inVerse.has(FX[m] || m)), own = lifts.length ? lifts : motions;
+    S.motionFam = own[0];
+    S.motionFams = [own[0], own[1] || own[0]];
     const kinds = new Set(showLights().map(lightKind));
     S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
   }
