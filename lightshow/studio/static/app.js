@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 23;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear
+  const SHOW_VERSION = 24;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1973,7 +1973,7 @@
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
   const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
-  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight']);   // set as placed: never tiered or balanced (a star is one bright segment)
+  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'fillflood']);   // set as placed: never tiered or balanced (a star is one bright segment)
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
     // a color battle at full motion brightness made a verse outshine its drop
@@ -2557,7 +2557,20 @@
   // drop or a hyped verse gets one, in every style (the user: "as many fun one-hits as possible, in
   // any genre"), a bar apart at least so each one lands; a calm song's are gentle (ripples, sweeps).
   const ACCENTS = { chill: { texture: 0 }, groove: { texture: 1 }, dance: { texture: 1 }, rave: { texture: 2 } };
-  const ONE_SHOTS = new Set(['sweepout', 'colorslam', 'whiteflash', 'ripple', 'dropblast', 'hookstrike']);   // (two never within 2 beats)
+  const ONE_SHOTS = new Set(['sweepout', 'colorslam', 'whiteflash', 'ripple', 'dropblast', 'hookstrike', 'glitch', 'fillflood']);   // (two never within 2 beats)
+  /** A one-shot's color: one that stands apart from the section under it, so the moment breaks from it (a
+   *  red fill over a blue verse): the jam's extra colors when it has them, else the stage color farthest
+   *  round the color wheel from every color of the section. */
+  const PUNCH = ['#ff0000', '#0030ff', '#ff0080', '#00ff40', '#00c8ff', '#ffa000', '#8000ff'];
+  const hueOf = hx => { const [r, g, b] = Effects.hex2rgb(hx), mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+    if (!mx || d / mx < 0.2) return null; const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return ((h * 60) + 360) % 360; };
+  function punchColor(at = 0) {
+    if (S.jamExtras && S.jamExtras.length) return S.jamExtras[Math.abs(Math.round(at)) % S.jamExtras.length];
+    const base = (S.buildPal || []).map(hueOf).filter(h => h !== null);
+    if (!base.length) return '#ff0000';
+    const gap = h => Math.min(...base.map(x => Math.min(Math.abs(h - x), 360 - Math.abs(h - x))));
+    return PUNCH.map(c => [c, gap(hueOf(c))]).sort((x, y) => y[1] - x[1])[0][0];
+  }
   function addSignature(s, b0, len, variant, style) {
     const hard = style === 'dance' || style === 'rave';
     const budget = ACCENTS[style] || ACCENTS.groove;
@@ -2587,15 +2600,16 @@
       const st = t2b(Math.max(f0, s.start)), en = clamp(Math.round(timeToBeat(Math.min(f1, s.end))), b0, b0 + len);
       if (en - st >= 2) clip(5, 'fillrush', st, en - st, { size: 0.1 }, { opacity: 0.9 });
     }
-    // A sick fill (from the separated drums: 2.5 hits a beat or more, for a beat or more): every hit lands on
-    // its own stretch of the room, and the beat it lands on gets a white hit. Every style but chill; not in a
+    // A sick fill (from the separated drums: 2.5 hits a beat or more, for a beat or more): the whole room
+    // floods in one solid color that breaks from the section (a red fill over a blue verse), white on every
+    // hit, and the beat it lands on gets a white hit. Every style but chill; not in a
     // buildup (it has its own). About two a song.
     if (style !== 'chill' && s.type !== 'buildup') {
       const ev = a.events, hitsIn = (f0, f1) => ['kick', 'snare', 'roll'].reduce((n, k) => n + (ev[k] || []).filter(e => e[0] >= f0 && e[0] < f1).length, 0);
       for (const [f0, f1] of fills) {
         const beats = (f1 - f0) * p.bpm / 60; if (beats < 1 || hitsIn(f0, f1) / beats < 2.5) continue;
         const st = t2b(Math.max(f0, s.start)), en = clamp(Math.ceil(timeToBeat(Math.min(f1, s.end))), b0, b0 + len);
-        if (en - st >= 1) clip(6, 'zonehits', st, en - st, { follow: 'both', mode: 'room', decay: 0.18 }, { opacity: 1, blend: 'add' });
+        if (en - st >= 1) clip(9, 'fillflood', st, en - st, {}, { palette: [punchColor(st)], opacity: 1 });
         const land = Math.round(timeToBeat(f1));
         if (land > b0 && land <= b0 + len) clip(8, 'whiteflash', land, 2, {}, { opacity: 0.9, blend: 'add' });
       }
@@ -2610,13 +2624,16 @@
     const awayFromChange = t => p.sections.every(sc => Math.abs(sc.start - t) > 2 * barLen);
     const comesIn = (k, quiet, loudLv, rest) => { const c = curve(k); if (!c || !c.length) return [];
       return bars.filter(t => awayFromChange(t) && lvl(c, t - rest * barLen, t) < quiet && lvl(c, t, t + barLen) >= loudLv); };
-    const shot = (t, fx, prm = {}, ext = {}) => { const bt = t2b(t); if (p.lanes.some(l => l.clips.some(c => ONE_SHOTS.has(c.effect) && Math.abs(c.start - bt) < 2))) return;
-      clip(6, fx, bt, fx === 'ripple' ? 4 : 2, fx === 'ripple' ? { every: 2, travel: 2, width: 0.12, ...prm } : prm, ext); };
+    // on top of everything, in one solid color that breaks from the section (white stays white)
+    const shotLen = fx => fx === 'ripple' ? 4 : fx === 'glitch' ? 1.5 : 2;
+    const place = (bt, fx, prm = {}, ext = {}) => clip(fx === 'ripple' ? 6 : 9, fx, bt, shotLen(fx), fx === 'ripple' ? { every: 2, travel: 2, width: 0.12, ...prm } : prm,
+      { ...(fx === 'whiteflash' ? {} : { palette: [punchColor(bt)] }), ...ext });
+    const shot = (t, fx, prm = {}, ext = {}) => { const bt = t2b(t); if (p.lanes.some(l => l.clips.some(c => ONE_SHOTS.has(c.effect) && Math.abs(c.start - bt) < 2))) return; place(bt, fx, prm, ext); };
     const calm = style === 'chill';
     if (!calm) for (const t of comesIn('drums_present', 0.2, 0.6, 1)) shot(t, hard ? 'whiteflash' : 'colorslam', {}, { opacity: hard ? 0.85 : 0.95 });
     if (!calm) for (const t of comesIn('bass', 0.08, 0.3, 2)) shot(t, 'colorslam', {}, { opacity: 0.9 });
     for (const t of comesIn('vocals', 0.15, 0.4, 2)) shot(t, calm ? 'ripple' : 'sweepout', { origin: 0.5 }, { opacity: calm ? 0.55 : 0.85 });
-    for (const t of comesIn('lead', 0.2, 0.5, 1)) shot(t, calm ? 'ripple' : 'sweepout', {}, { opacity: calm ? 0.55 : 0.9 });
+    for (const t of comesIn('lead', 0.2, 0.5, 1)) shot(t, calm ? 'ripple' : hard ? 'glitch' : 'sweepout', {}, { opacity: calm ? 0.55 : 0.9 });
     // and the lead's real accents in a drop or a busy verse: a note that stands out from the line around it
     // (1.4 times the notes within a bar either side, and near the loudest), two bars apart. About 7 a song:
     // the loudest notes alone fired 32 times a song, every other bar, on whatever happened to be loud.
@@ -2630,12 +2647,11 @@
         const bt = t2b(e[0]);
         if (bt > b0 + 3 && bt < b0 + len - 3 && picks.every(q => Math.abs(q - bt) >= 8)) picks.push(bt);
       }
-      const shots = hard ? ['sweepout', 'colorslam', 'whiteflash'] : calm ? ['ripple', 'sweepout'] : ['sweepout', 'colorslam', 'ripple'];
+      const shots = hard ? ['glitch', 'colorslam', 'sweepout', 'whiteflash'] : calm ? ['ripple', 'sweepout'] : ['colorslam', 'sweepout', 'glitch'];
       picks.sort((x, y) => x - y).forEach((bt, k) => {
         const fx = shots[(k + variant) % shots.length];
         if (p.lanes.some(l => l.clips.some(c => ONE_SHOTS.has(c.effect) && Math.abs(c.start - bt) < 2))) return;
-        clip(6, fx, bt, fx === 'ripple' ? 4 : 2, fx === 'ripple' ? { every: 2, travel: 2, width: 0.12 } : {},
-             { opacity: fx === 'whiteflash' ? 0.75 : 0.95 });
+        place(bt, fx, {}, { opacity: fx === 'whiteflash' ? 0.75 : 1 });
       });
     }
     // texture: only where the music is already busy

@@ -757,6 +757,23 @@ const Effects = (() => {
   def({ id: 'colorslam', name: 'Slam', cat: 'accent', desc: 'Whole strip slams to a palette color and fades back out.', swatch: ['#ff0000', '#000000'],
     params: { color: P.color() }, render(c) { const v = Math.exp(-c.clipT * 4); const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], v); } });
 
+  def({ id: 'glitch', name: 'Glitch', cat: 'accent', desc: 'A burst of digital glitch over the clip: blocks of the strip jump on and off in one solid color, now and then white, black between, covering what is under it.', swatch: ['#ff0040', '#000000'],
+    params: { rate: { type: 'range', def: 0.125, min: 0.03, max: 0.5, step: 0.01, label: 'Jumps every (beats)' }, density: { type: 'range', def: 0.45, min: 0.1, max: 0.9, step: 0.01, label: 'Lit' },
+      blocks: { type: 'range', def: 6, min: 2, max: 16, step: 1, label: 'Blocks on a strip' }, white: P.bool('Flecks of white', true) },
+    render(c) {
+      const k = Math.floor(c.clipBeat / c.p.rate), col = palIdx(c.pal, 0), room = c.room ? c.room.i * 991 : 0, nb = c.n < 10 ? 1 : Math.round(c.p.blocks);
+      for (let i = 0; i < c.n; i++) {
+        const b = Math.floor(i / c.n * nb), on = hash(k * 131 + b * 17 + room) < c.p.density, w = c.p.white && hash(k * 7 + b * 3 + room + 5) < 0.18;
+        if (on) set(c.out, i, w ? 1 : col[0], w ? 1 : col[1], w ? 1 : col[2], 1); else set(c.out, i, 0, 0, 0, 1);
+      } } });
+  def({ id: 'fillflood', name: 'Fill flood', cat: 'accent', desc: 'For a drum fill: the whole room in one solid color, flashing white on every hit of the fill, covering what is under it.', swatch: ['#ff0000', '#ffffff'],
+    params: { flash: { type: 'range', def: 0.06, min: 0.02, max: 0.2, step: 0.01, label: 'Flash (s)' } },
+    render(c) {
+      const m = c.music || {}, col = palIdx(c.pal, 0);
+      let age = 99; for (const h of [m.kick, m.snare, m.roll]) if (h && h.index >= 0) age = Math.min(age, h.age);
+      const w = age < c.p.flash ? 1 - age / c.p.flash : 0;
+      fillAll(c.out, c.n, col[0] + (1 - col[0]) * w, col[1] + (1 - col[1]) * w, col[2] + (1 - col[2]) * w, 1);
+    } });
   def({ id: 'sweepout', name: 'Sweep out', cat: 'accent', desc: 'A bright bar sweeps out from its starting point (the middle unless set) to the ends once, over the clip.', swatch: ['#ffffff', '#00c8ff'],
     params: { size: P.size(0.15, 'Width'), color: P.color() },
     render(c) { clear(c.out); const col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - c.clipT) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
