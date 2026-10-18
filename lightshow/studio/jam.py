@@ -964,7 +964,9 @@ class JamEngine:
         """The speaker's own pause (tapped on the speaker, or the Cast controls on a phone) paused the party
         for everyone: it plays on at once. Pausing the party is Spotify's to do (the phone, the Party Hub):
         then, as for a cue or the studio closing, the speakers are left paused. A speaker stopped there (its
-        session ended) for 3 s gets a fresh stream, back at the target delay."""
+        session ended: the speaker's own "next", as there is no next) for 2 s gets a fresh stream, back at
+        the target delay. (Its "back" asks for the stream again: restarted where the room was, see
+        jam_service.stream.)"""
         cast = getattr(self.output, "cast", None)
         with self.lock:
             if cast is None or not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
@@ -981,7 +983,7 @@ class JamEngine:
                 return "resumed the speaker"
             if state == "IDLE" and self.clock() - self._streamed_at > 20.0:
                 self._idle_seen = getattr(self, "_idle_seen", 0) + 1
-                if self._idle_seen >= 3:
+                if self._idle_seen >= 2:
                     self._idle_seen = 0
                     to = self.cfg.target_delay + 1.0
                     self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, self.relay.capture_time - to), pace=True))

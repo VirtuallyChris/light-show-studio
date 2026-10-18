@@ -242,6 +242,7 @@ class JamService:
             self.engine.on_mismatch = self.fetch.mismatched
         self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") and use_cast or where == "pc" else ", preview only (no speakers)")
         self.runner.start()
+        threading.Thread(target=self._keep_levels, args=(self.engine,), daemon=True, name="keep-levels").start()
         if demo:
             self.demo.start()
         self.opener = None
@@ -430,6 +431,27 @@ class JamService:
         eng = self.engine
         if eng is not None and eng.cue_hold:
             eng.release(False)
+
+    def _keep_levels(self, eng) -> None:
+        """While this jam plays, every 5 s: the party's speakers (the rooms that are on, and the one cast to) at
+        the levels kept for them (Rooms.keep_levels): turned down on a speaker, or missed at casting, set back."""
+        rooms, cast = getattr(self.studio, "rooms", None), getattr(self.studio, "cast", None)
+        if rooms is None:
+            return
+        while self.engine is eng:
+            time.sleep(5.0)
+            if self.engine is not eng:
+                return
+            if not eng.streaming or eng.cue_hold or eng.gate.paused:
+                continue
+            names = [s for r in rooms.list() if r["on"] for s in r["speakers"]]
+            if cast is not None and getattr(cast, "cast", None) is not None and cast.name and cast.name not in names:
+                names.append(cast.name)
+            try:
+                for line in rooms.keep_levels(names):
+                    eng.say(f"speaker volume set back: {line}")
+            except Exception:  # noqa: BLE001 - looked at again in 5 s
+                pass
 
     def _stop(self) -> None:
         if getattr(self, "fetch", None) is not None:
@@ -1050,6 +1072,8 @@ class JamService:
             def set_all():
                 muted = rooms.muted() if rooms else {}
                 for n, v in levels.items():
+                    if rooms:
+                        rooms.remember_level(n, v)               # kept: the studio comes back to it
                     if n in muted:
                         rooms.set_saved_volume(n, v)
                     else:
@@ -1059,6 +1083,8 @@ class JamService:
                 return web.json_response(await asyncio.get_running_loop().run_in_executor(None, set_all))
             except Exception as e:  # noqa: BLE001
                 return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
+        if rooms and (body.get("name") or cast.cast is not None):
+            rooms.remember_level(str(body.get("name") or cast.name), level)
         if body.get("name") and rooms and str(body["name"]) in rooms.muted():
             fn = lambda: (rooms.set_saved_volume(str(body["name"]), level), {"name": body["name"], "volume": level, "muted": True})[1]
         elif body.get("name"):

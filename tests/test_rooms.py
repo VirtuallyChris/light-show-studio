@@ -219,3 +219,70 @@ class TestLightsLeaveAndArrive(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestKeptLevels(unittest.TestCase):
+    """The levels set on the Party Hub are kept and the party's speakers held to them."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        from lightshow.studio.rooms import Rooms
+        self.cfg = {}
+        self.calls = []
+        self.spk = {}
+
+        def device(name):
+            return self.spk.get(name)
+        self.cast = SimpleNamespace(_device=device)
+        self.rooms = Rooms(lambda: dict(self.cfg), lambda c: self.cfg.update(c), cast=self.cast)
+        self.t = 0.0
+
+    def speaker(self, name, level, muted=False, kind="audio"):
+        from types import SimpleNamespace
+        st = SimpleNamespace(volume_level=level, volume_muted=muted)
+        self.spk[name] = SimpleNamespace(status=st, cast_info=SimpleNamespace(cast_type=kind),
+                                         set_volume=lambda v, st=st: (self.calls.append(("set", name, v)), setattr(st, "volume_level", v), setattr(st, "volume_muted", False)),
+                                         set_volume_muted=lambda m, st=st: (self.calls.append(("mute", name, m)), setattr(st, "volume_muted", m)))
+        return st
+
+    def look(self, *names):
+        self.t += 5.0
+        return self.rooms.keep_levels(list(names), clock=lambda: self.t)
+
+    def test_a_level_turned_down_on_the_speaker_is_set_back(self):
+        st = self.speaker("Living Room", 0.6)
+        self.look("Living Room")                                     # first seen: 0.6 is kept
+        self.assertEqual(self.rooms.levels(), {"Living Room": 0.6})
+        st.volume_level = 0.2                                        # someone turned it down
+        self.assertEqual(self.look("Living Room"), [])              # once: could be in passing
+        self.assertEqual(self.look("Living Room"), ["Living Room: 0.20 -> 0.60"])
+        self.assertEqual(self.calls, [("set", "Living Room", 0.6)])   # one change: one chime
+
+    def test_a_level_set_on_the_party_hub_is_the_one_kept(self):
+        st = self.speaker("Game Room", 0.5)
+        self.rooms.remember_level("Game Room", 0.8)
+        st.volume_level = 0.8
+        self.look("Game Room"); self.look("Game Room")
+        self.assertEqual(self.calls, [])
+
+    def test_muted_on_the_speaker_is_unmuted_but_not_a_room_switched_off(self):
+        st = self.speaker("Office", 0.4)
+        self.look("Office")
+        st.volume_muted = True
+        self.look("Office"); self.look("Office")
+        self.assertEqual(self.calls, [("mute", "Office", False)])
+        self.cfg["room_muted"] = {"Office": 0.4}                     # its room is off: left muted
+        st.volume_muted = True
+        self.look("Office"); self.look("Office")
+        self.assertEqual(len(self.calls), 1)
+
+    def test_never_more_than_once_in_ten_seconds_and_never_a_group(self):
+        st = self.speaker("Living Room", 0.6)
+        self.speaker("Party", 0.3, kind="group")
+        self.look("Living Room", "Party")
+        st.volume_level = 0.1
+        self.look("Living Room", "Party"); self.look("Living Room", "Party")
+        st.volume_level = 0.1                                        # turned down again at once
+        self.t += 0.0
+        self.assertEqual(self.rooms.keep_levels(["Living Room"], clock=lambda: self.t + 1), [])
+        self.assertNotIn("Party", self.rooms.levels())

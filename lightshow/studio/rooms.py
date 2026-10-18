@@ -166,6 +166,58 @@ class Rooms:
             if self._current(name, g):
                 self.gen[name] = 0
 
+    # -- the levels the party plays at ----------------------------------------------------------------
+    # Every level set on the Party Hub is kept (config.json speaker_levels), so the studio comes back to
+    # it after a restart; while the jam plays, a speaker found at another level (turned down on the
+    # speaker or in the Google Home app, or one that missed the change at casting) is set back, and one
+    # muted while its room is on is unmuted. One change each (a Google speaker chimes per change), only
+    # after it was off at two looks running, at most once in 10 s per speaker: never a tug of war.
+    def levels(self) -> dict[str, float]:
+        return dict(self.load_config().get("speaker_levels", {}))
+
+    def remember_level(self, name: str, level: float) -> None:
+        with self.lock:
+            cfg = self.load_config()
+            cfg.setdefault("speaker_levels", {})[str(name)] = round(max(0.0, min(1.0, float(level))), 3)
+            self.save_config(cfg)
+
+    def keep_levels(self, names, clock=time.monotonic) -> list[str]:
+        """Look at each of these speakers once; set back the ones off their kept level. Returns what it did."""
+        if not self.touch or self.cast is None:
+            return []
+        kept, muted, did = self.levels(), self.muted(), []
+        off = self.__dict__.setdefault("_off_seen", {})
+        last = self.__dict__.setdefault("_set_at", {})
+        for name in names:
+            if name in muted or self.gen.get(name, 0):
+                continue                                         # its room is off, or a mute is on its way
+            try:
+                c = self.cast._device(name)
+                if c is None or c.status is None or getattr(c.cast_info, "cast_type", "") == "group":
+                    continue
+                live, is_muted = float(c.status.volume_level), bool(c.status.volume_muted)
+            except Exception:  # noqa: BLE001 - a speaker that does not answer is looked at next time
+                continue
+            if name not in kept:                                 # first seen: its level now is the one kept
+                self.remember_level(name, live)
+                kept[name] = live
+                continue
+            wrong = abs(live - kept[name]) > 0.02 or is_muted
+            off[name] = off.get(name, 0) + 1 if wrong else 0
+            if off[name] < 2 or clock() - last.get(name, -1e9) < 10.0:
+                continue
+            try:
+                if abs(live - kept[name]) > 0.02:
+                    c.set_volume(kept[name])                     # (setting a level unmutes it too)
+                    did.append(f"{name}: {live:.2f} -> {kept[name]:.2f}")
+                else:
+                    c.set_volume_muted(False)
+                    did.append(f"{name}: unmuted")
+                last[name], off[name] = clock(), 0
+            except Exception:  # noqa: BLE001
+                pass
+        return did
+
     def unmute_all(self) -> None:
         """The studio is quitting: every speaker a room muted plays again at its own level, at once."""
         if not self.touch or self.cast is None:

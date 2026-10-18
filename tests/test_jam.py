@@ -738,7 +738,7 @@ class TestSpeakerPause(unittest.TestCase):
 
     def test_stopped_on_the_speaker_gets_a_fresh_stream(self):
         e, cast = self.engine("IDLE")
-        self.assertIsNone(e.keep_playing()); self.assertIsNone(e.keep_playing())
+        self.assertIsNone(e.keep_playing())
         self.assertEqual(e.keep_playing(), "restarted the speaker")
         self.assertEqual(self.calls, ["fresh stream"])
         cast.state = "PLAYING"
