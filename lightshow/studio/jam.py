@@ -1344,6 +1344,8 @@ class JamEngine:
                 if at >= 0 and not shuffled:
                     tracks = tracks[at + 1:] + tracks[:at]
                 self.on_context(tracks)
+            except (PermissionError, LookupError):        # Spotify will not list it (its own mixes): no matter
+                pass
             except Exception as e:  # noqa: BLE001 - the queue is still learned ahead
                 self.say(f"learn ahead: the playlist could not be read ({type(e).__name__}: {e})")
         threading.Thread(target=read, daemon=True, name="learn-further").start()

@@ -210,14 +210,24 @@ class SpotifyClient:
     def context(self) -> tuple[str, bool] | None:
         """What Spotify is playing from (a playlist's or an album's URI) and whether it shuffles; None when
         it plays loose songs (or something else: an artist, Liked Songs)."""
+        err = self.last_error
         status, data = self._call("GET", "/me/player?additional_types=track")
+        self.last_error = err                              # (looking further ahead: never an error to show)
         ctx = (data or {}).get("context") or {} if status == 200 else {}
         if ctx.get("type") not in ("playlist", "album") or not ctx.get("uri"):
             return None
         return ctx["uri"], bool(data.get("shuffle_state"))
 
     def context_tracks(self, uri: str, most: int = 500) -> list[Track]:
-        """A playlist's or an album's songs, in order."""
+        """A playlist's or an album's songs, in order. Spotify will not list some playlists (its own mixes:
+        403): that is no error to show, the queue is learned ahead all the same."""
+        err = self.last_error
+        try:
+            return self._context_tracks(uri, most)
+        finally:
+            self.last_error = err
+
+    def _context_tracks(self, uri: str, most: int) -> list[Track]:
         kind, _, cid = uri.rpartition(":")
         if kind.endswith("playlist"):
             return self.playlist_tracks(cid, most)
