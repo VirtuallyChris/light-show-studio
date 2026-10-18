@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 24;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods
+  const SHOW_VERSION = 25;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2018,8 +2018,8 @@
     { c: ['amber'], k: { intro: 0.6, verse: 0.7, outro: 0.8, buildup: 0.6 } }, { c: ['white'], k: { buildup: 0.9 } },
     { c: ['pink'], k: { verse: 0.6, intro: 0.4 } }, { c: ['orange'], k: { buildup: 0.7, verse: 0.4 } },
     { c: ['red', 'blue'], k: { drop: 1.3, verse: 0.3 } }, { c: ['magenta', 'cyan'], k: { drop: 1.1, verse: 0.3 } },
-    { c: ['purple', 'orange'], k: { drop: 1, verse: 0.3 } }, { c: ['uv', 'green'], k: { drop: 0.9 } }, { c: ['red', 'white'], k: { drop: 0.9, buildup: 0.4 } },
-    { c: ['blue', 'white'], k: { drop: 0.8, breakdown: 0.3 } }, { c: ['pink', 'gold'], k: { drop: 0.7, verse: 0.4 } }, { c: ['cyan', 'amber'], k: { drop: 0.7, verse: 0.3 } },
+    { c: ['purple', 'orange'], k: { drop: 1, verse: 0.3 } }, { c: ['uv', 'green'], k: { drop: 0.9 } }, { c: ['red', 'white'], k: { buildup: 0.4 } },   // (never a drop: white must not lead one)
+    { c: ['blue', 'white'], k: { breakdown: 0.3 } }, { c: ['pink', 'gold'], k: { drop: 0.7, verse: 0.4 } }, { c: ['cyan', 'amber'], k: { drop: 0.7, verse: 0.3 } },
     { c: ['blue', 'purple'], k: { verse: 0.8, breakdown: 0.6, intro: 0.5, outro: 0.5 } }, { c: ['red', 'gold'], k: { drop: 0.7 } }, { c: ['green', 'blue'], k: { drop: 0.5, verse: 0.5 } },
     { c: ['red', 'orange', 'gold'], k: { drop: 0.6 } }, { c: ['blue', 'cyan', 'teal'], k: { drop: 0.4, verse: 0.4, breakdown: 0.4 } },
     { c: ['magenta', 'cyan', 'gold'], k: { drop: 0.6 } }, { c: 'rainbow', k: { drop: 0.7, buildup: 0.2 } },
@@ -2097,10 +2097,11 @@
     return h < (st === 'rave' ? 0.55 : 0.3) ? [pal[0], '#000000'] : pal;
   }
   // Motion over a base in the very same colors does nothing (meteors over a gradient of the same pair): it
-  // takes the jam's extra colors then, or white.
+  // takes the jam's extra colors then, or a color apart from the base (never white: a drop's moving things
+  // all in white made white the drop's color).
   const sameColors = (a, b) => { const B = new Set((b || []).map(x => String(x).toLowerCase())); return !!(a && a.length) && a.every(x => B.has(String(x).toLowerCase())); };
   function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
-      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, S.buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : ['#ffffff']; }
+      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, S.buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : [punchColor(start)]; }
     if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
