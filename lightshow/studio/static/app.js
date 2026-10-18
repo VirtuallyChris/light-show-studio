@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 34;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes; 33: groove cuts black only in moments, colors barely by genre; 34: groove hits in one color a section
+  const SHOW_VERSION = 35;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes; 33: groove cuts black only in moments, colors barely by genre; 34: groove hits in one color a section; 35: hardcore drops in pure solid colors
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1978,7 +1978,7 @@
   // Concert lighting in three tiers. The bed sets the color and the mood and stays low; motion keeps
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
-  const HIT = new Set(['pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
+  const HIT = new Set(['hitswap', 'pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
   const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'fillflood']);   // set as placed: never tiered or balanced (a star is one bright segment)
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
@@ -2268,7 +2268,24 @@
         break;
       case 'drop': {
         const kind = variant % 4;
-        if (S.epic) {                                                   // all out: the whole room in a running rainbow
+        // A hardcore drop (dubstep, bass music, riddim, brostep, drum and bass, hardstyle) goes crazier: the whole
+        // room in pure, solid colors (red, blue...) flipping to the other on every drum hit, the song's motion on
+        // top faster and in the same pure colors, the white flash on every kick, the sixteenth-note strobe every
+        // 4 bars (not 8), a glitch half way through each 4, and the chop between the hits.
+        const hardcore = !chill && drumsHere && /dubstep|bass music|riddim|brostep|drum and bass|hardstyle/.test(genreWords());
+        if (hardcore) {
+          // pure primaries, one pair for all of the song's drops (its order swapping drop to drop); the party's
+          // own pair when the jam has one
+          const PURE = [['#ff0000', '#0000ff'], ['#ff00ff', '#00ff00'], ['#00ffff', '#ff0000'], ['#0000ff', '#ffff00']];
+          const pair = S.pairMode ? (S.buildPal || []).slice(0, 2) : PURE[Math.floor(Effects.hash((S.lookSeed || 0) + 4211) * PURE.length)];
+          const pal = variant % 2 ? pair.slice().reverse() : pair;
+          S.buildPal = Effects.solidPalette(pal); S.contrastPal = Effects.solidPalette(pal.slice().reverse());
+          clip(0, 'hitswap', b0, len, { punch: 0.5 }, { palette: Effects.solidPalette(pal) });   // (slams bright on each hit, sinks between)
+          motion(style === 'rave' ? 1.6 : 1.3);
+          // and a hyperchase racing over it in the other pure color (blue tearing across red)
+          clip(2, 'hyperchase', b0, len, { speed: 0.25, size: 0.08 }, { palette: S.contrastPal, opacity: 1 });
+          for (let b = b0 + 8; b + 1.5 <= b1; b += 16) clip(9, 'glitch', b, 1.5, {}, { palette: [punchColor(b)], opacity: 1 });
+        } else if (S.epic) {                                            // all out: the whole room in a running rainbow
           clip(0, 'gradient', b0, len, { speed: 4, stretch: 0.67, intensity: 0.85 }, { palette: 'Rainbow' });
           motion(1.5);
         } else {
@@ -2287,7 +2304,7 @@
         drums(chill ? 0.8 : 1, 0.85);
         // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
         const pump = chill ? 0 : style === 'rave' ? 0.5 : style === 'dance' ? 0.4 : 0.3;
-        if (pump) for (const c of first) if (BED.has(c.effect) || c === first[0]) c.bassPump = pump;
+        if (pump && !hardcore) for (const c of first) if (BED.has(c.effect) || c === first[0]) c.bassPump = pump;   // (a hardcore drop's colors stay solid)
         // A drop built on a clear, rhythmic bass line (most beats have a bass hit, but not every eighth:
         // a constant eighth-note bass would be a steady strobe) flashes with the bass, like a hand-made
         // show would; then it leaves the kick strobe out, so the two do not fight.
@@ -2303,13 +2320,15 @@
         // a rave goes jumpy and insane: a white flash on every kick over whatever else plays, a half beat of
         // black before every 4-bar phrase, and the last bar of each 8 a sixteenth-note white strobe with black
         // between the flashes
-        if (style === 'rave' && drumsHere) clip(6, 'drumstrobe', b0, len, { follow: 'kick', white: true, length: 0.04 }, { opacity: 0.7, blend: 'add' });
+        // (a hardcore drop's kick flashes the other pure color, solid, not white: white washed its colors out)
+        if ((style === 'rave' || hardcore) && drumsHere) clip(6, 'drumstrobe', b0, len, { follow: 'kick', white: !hardcore, length: hardcore ? 0.06 : 0.04 },
+          hardcore ? { opacity: 1, palette: S.contrastPal } : { opacity: 0.7, blend: 'add' });
         // a heavy drop (dubstep, bass music, riddim...): every other 4 bars chopped by the drums, black between
         // the hits (the drop's first 4 bars land open); its one-shots still punch through on top
         if (!chill && drumsHere && len >= 16 && /dubstep|bass music|riddim|brostep|drum and bass|hardstyle/.test(genreWords()))
           for (let b = b0 + 16; b < b1; b += 32) clip(8, 'drumgate', b, Math.min(16, b1 - b), {}, { opacity: 1 });
-        if (style === 'rave' && len >= 16) for (let b = b0 + 16; b < b1; b += 16) {
-          if ((b - b0) % 32 === 0) clip(7, 'strobe', b - 4, 4, { every: 0.25, duty: 0.35, white: true, overlay: false }, { opacity: 1 });
+        if ((style === 'rave' || hardcore) && len >= 16) for (let b = b0 + 16; b < b1; b += 16) {
+          if ((b - b0) % 32 === 0 || hardcore) clip(7, 'strobe', b - 4, 4, { every: 0.25, duty: 0.35, white: !hardcore, color: 'cycle', overlay: false }, { opacity: 1, ...(hardcore ? { palette: S.buildPal } : {}) });
           else clip(7, 'dark', b - 0.5, 0.5);
         }
         // big white hits, as a rig's blinders, for rock and electronic songs (never a calm or a pop one): the

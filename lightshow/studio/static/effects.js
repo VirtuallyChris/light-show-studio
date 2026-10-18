@@ -796,6 +796,20 @@ const Effects = (() => {
       const open = age < 5 ? Math.exp(-age / c.p.hold) : 0;
       fillAll(c.out, c.n, 0, 0, 0, 1 - open);
     } });
+  def({ id: 'hitswap', name: 'Hit swap', cat: 'fast', desc: 'The whole light in one pure, solid color that flips to the next palette color on every drum hit (kick or snare), a little brighter on the hit itself; on the beat when the drums are not known. Every light the same color: the room flips with the drums. Made for a hardcore drop.', swatch: ['#ff0000', '#0000ff'],
+    params: { follow: { type: 'select', def: 'hits', options: { hits: 'the drums and the bass', drums: 'the drums (kick and snare)', beat: 'the beat' }, label: 'Flips on' },
+      punch: { type: 'range', def: 0.15, min: 0, max: 0.5, step: 0.01, label: 'Brighter on the hit' } },
+    render(c) {
+      // (with the bass too: a half-time dubstep drop has only two or three drum hits a second, and its bass
+      // is what drives it: the room flips with the wobbles)
+      const m = c.music || {}, age = h => (h && h.index >= 0 ? h.age : 99), withBass = c.p.follow === 'hits';
+      const last = Math.min(age(m.kick), age(m.snare), withBass ? age(m.basshit) : 99);
+      const drums = c.p.follow !== 'beat' && m.hasDrums && last < 1.5;
+      const idx = h => (h && h.index >= 0 ? h.index + 1 : 0);
+      const k = drums ? idx(m.kick) + idx(m.snare) + (withBass ? idx(m.basshit) : 0) : Math.floor(c.beat);
+      const col = palIdx(c.pal, k), v = (1 - c.p.punch) + c.p.punch * (drums ? Math.exp(-last / 0.12) : 0);
+      fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, 1);
+    } });
   def({ id: 'fillflood', name: 'Fill flood', cat: 'accent', desc: 'For a drum fill: the whole room in one solid color, flashing white on every hit of the fill, covering what is under it.', swatch: ['#ff0000', '#ffffff'],
     params: { flash: { type: 'range', def: 0.06, min: 0.02, max: 0.2, step: 0.01, label: 'Flash (s)' } },
     render(c) {
