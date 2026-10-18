@@ -914,9 +914,9 @@ class JamEngine:
             self.output.stop()
 
     # ------------------------------------------------------------------ cues
-    def hold(self) -> float | None:
-        """A cue stops the party: the room stops at once, where it is, and Spotify is paused (the
-        buffer is held, as for a pause on the phone). Returns where the room stopped."""
+    def hold(self, why: str = "a cue has the speakers: the room holds where it is") -> float | None:
+        """A cue stops the party (or the studio is closing): the room stops at once, where it is, and
+        Spotify is paused (the buffer is held, as for a pause on the phone). Returns where the room stopped."""
         with self.lock:
             rc = self.room_capture_time()
             if not self.gate.paused:
@@ -924,7 +924,7 @@ class JamEngine:
                 if self.streaming:
                     self.output.pause()
             self.held_at, self.cue_hold = rc, True
-            self.say("a cue has the speakers: the room holds where it is")
+            self.say(why)
         try:
             self.spotify.pause()
         except Exception:  # noqa: BLE001 - nothing playing, or not Premium: the room is held regardless

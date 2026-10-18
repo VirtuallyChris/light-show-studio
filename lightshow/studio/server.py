@@ -780,6 +780,13 @@ class Studio:
         loop = asyncio.get_running_loop()
 
         def shut():
+            try:                                          # the music first: held at once, then the speakers stopped
+                self.jam.hush()                           # (a Cast speaker would play out what it had buffered)
+                if self.jam.engine is not None:
+                    self.jam.engine.stop()
+                self.jam._stop()
+            except Exception:  # noqa: BLE001
+                pass
             try:
                 self.output.stop()                        # the lights go back to how they were
             except Exception:  # noqa: BLE001
@@ -810,10 +817,20 @@ class Studio:
         if request.remote not in ("127.0.0.1", "::1") or not self.quit_when_closed:
             return web.json_response({"ok": True})
 
+        loop = asyncio.get_running_loop()
+        # the music stops the moment the window goes, not after the wait below (or the shutting down)
+        hushed = loop.run_in_executor(None, self.jam.hush)
+
         async def later():
             await asyncio.sleep(2.5)
             if self.ws_clients == 0:
                 await self._quit("Studio window closed. Stopping.")
+            else:                                         # a reload: the page is back, the room carries on
+                try:
+                    await hushed
+                    await loop.run_in_executor(None, self.jam.unhush)
+                except Exception:  # noqa: BLE001
+                    pass
         self._closing_task = asyncio.create_task(later())
         return web.json_response({"ok": True})
 

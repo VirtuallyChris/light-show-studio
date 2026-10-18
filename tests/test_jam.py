@@ -673,6 +673,35 @@ class TestLookAhead(unittest.TestCase):
         self.assertEqual((self.got["context"], self.reads), ([], []))
 
 
+class TestClosingHush(unittest.TestCase):
+    """Closing the studio stops the music at once; a reload brings it back."""
+
+    def test_hush_holds_the_room_and_a_reload_releases_it(self):
+        from lightshow.studio.jam_service import JamService
+        calls = []
+
+        class Eng:
+            cue_hold = False
+
+            def hold(self, why=""):
+                calls.append(("hold", why)); self.cue_hold = True
+
+            def release(self, restart, fade_in=0.0):
+                calls.append(("release", restart)); self.cue_hold = False
+        svc = JamService.__new__(JamService)
+        svc.engine = Eng()
+        self.assertTrue(svc.hush())
+        self.assertEqual(calls[0][0], "hold")
+        svc.unhush()
+        self.assertEqual(calls[-1], ("release", False))
+        svc.unhush()                                                       # once only
+        self.assertEqual(len(calls), 2)
+        svc.engine.cue_hold = True                                         # a cue holds the room: left to it
+        self.assertFalse(svc.hush())
+        svc.engine = None
+        self.assertFalse(svc.hush())                                       # no jam: nothing to stop
+
+
 class TestHandover(unittest.TestCase):
     def test_opening_song_hands_over_with_the_buffer_full(self):
         d = tempfile.mkdtemp()

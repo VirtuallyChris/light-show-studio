@@ -412,6 +412,25 @@ class JamService:
         return (self.player_enabled and self.spotify.signed_in and self.spotify.can_stream
                 and self._last().get("source", "studio") == "studio")
 
+    def hush(self) -> bool:
+        """The studio's window is closing: the music stops at once (the room's speakers hold where they are and
+        Spotify pauses), before anything else shuts down. A reload brings it back (unhush). Whether it did."""
+        eng = self.engine
+        if eng is None or eng.cue_hold:
+            return False
+        eng.hold("the studio is closing: the music stops")
+        self._hushed = True
+        return True
+
+    def unhush(self) -> None:
+        """It was a reload, not a close: the room carries on where it stopped."""
+        if not getattr(self, "_hushed", False):
+            return
+        self._hushed = False
+        eng = self.engine
+        if eng is not None and eng.cue_hold:
+            eng.release(False)
+
     def _stop(self) -> None:
         if getattr(self, "fetch", None) is not None:
             self.fetch.forget()                              # what is under way finishes; nothing new starts
