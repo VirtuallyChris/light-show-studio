@@ -681,6 +681,7 @@ class JamTrack:
     tried_at: float = -1e9              # capture time it was last tried for lining up by ear
     verified_at: float = 0.0            # capture time its copy was last checked against what plays
     narrow_failed: bool = False         # its copy did not line up near Spotify's start: searched further
+    verify_misses: int = 0              # checks in a row that did not match its copy (two make a mismatch)
     genre_problem: str = ""             # why its genre could not be heard (kept with what is learned of it)
     beat: "LiveBeat | None" = None      # learning ahead, a first listen's beat (and nothing else) until its copy is learned
     heard_from: float | None = None     # after a seek: the capture time this stretch of the song begins at (its
@@ -1327,8 +1328,14 @@ class JamEngine:
         found, peak, edge = align_start(live_bands(y), env[:, int(q * fps):int((q + span) * fps)], head - span - reach, fps,
                                         reach=reach, min_ref=6.0)
         if peak < MISMATCH_PEAK:
+            # one check that does not match (a quiet stretch, a breakdown with little to match on) is not yet
+            # another version: two in a row are
+            jt.verify_misses += 1
+            if jt.verify_misses < 2:
+                return None
             self._mismatch(jt, peak)
             return f"{jt.track.name}: no longer matches its copy"
+        jt.verify_misses = 0
         slip = (found - q) - jt.start
         if peak >= ALIGN_PEAK and edge >= ALIGN_EDGE and 0.05 < abs(slip) <= reach:
             with self.lock:
@@ -1340,7 +1347,17 @@ class JamEngine:
     def _mismatch(self, jt: JamTrack, peak: float) -> None:
         """What Spotify plays is not the copy this song was learned from (another version, or the wrong
         song found): its show is built as it plays instead, from Spotify's own audio, like a first
-        listen, and that copy is not used again."""
+        listen, and that copy is not used again.
+
+        Learning ahead, a song playing unlearned only glows (nothing is built as it plays), and the copy
+        set aside left it glowing for the rest of the night (Panic Room): there the learned show is kept,
+        on Spotify's clock rather than lined up by ear, and the copy is not set aside."""
+        if self.cfg.light_live:
+            with self.lock:
+                jt.aligned, jt.ref, jt.verify_misses = True, None, 0
+            self.say(f"{jt.track.name}: Spotify's version does not quite match its copy here (match {peak:.2f}); "
+                     "keeping its show, on Spotify's clock")
+            return
         self.library.forget_learned(jt.track.id)
         with self.lock:
             jt.kind, jt.source, jt.analysis, jt.genre, jt.ref = "live", "heard", None, None, None

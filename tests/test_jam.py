@@ -419,6 +419,28 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(t.kind, "live")
         self.assertEqual([x.id for x in told], [self.ta.id])
 
+    def test_learning_ahead_a_song_that_stops_matching_keeps_its_show(self):
+        # learning ahead nothing is built as it plays (an unlearned song only glows): a mismatch used to throw
+        # the show away and set the copy aside, and the song glowed all night (Panic Room)
+        from lightshow.studio.analysis import HOP, analyze_audio
+        from lightshow.studio.matching import match_features
+        mono = self.a["audio"].mean(axis=1)
+        copy = analyze_audio(mono, SR, events=False)
+        copy["align_bands"] = match_features(mono, SR, HOP).tolist()
+        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        sim = Sim(self.dir, target=10.0, light_live=True)
+        told = []
+        sim.engine.on_mismatch = told.append
+        sim.play(self.a, self.ta)
+        sim.run(30.0)
+        t = sim.engine.current
+        self.assertEqual(t.kind, "learned")
+        sim.capture.load(self.b["audio"])                                         # Spotify's edit goes another way from here
+        sim.run(45.0)
+        self.assertEqual(t.kind, "learned")                                       # its show kept, on Spotify's clock
+        self.assertEqual(told, [])                                                # the copy not set aside
+        self.assertIsNotNone(sim.library.learned(self.ta.id))
+
     def test_a_copy_with_a_longer_intro_is_found_further_out_not_dropped(self):
         from lightshow.studio.analysis import HOP, analyze_audio
         from lightshow.studio.matching import match_features
