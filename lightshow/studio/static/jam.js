@@ -401,7 +401,8 @@
     // the jam's show is kept as it is, to take up again the moment the cue is over (not loaded again)
     C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing,
                key: J.key, doc: J.doc, version: J.version, built: J.built, style: J.style, drums: J.drums,
-               palette: S.albumPalette, colors: S.jamColors, extras: S.jamExtras, rainbow: S.jamRainbow, wild: S.noLimits };
+               palette: S.albumPalette, colors: S.jamColors, extras: S.jamExtras, rainbow: S.jamRainbow, wild: S.noLimits, glow: S.glowAt };
+    S.glowAt = null;                                                // (a cue's show has no songs either side)
     J.live = false; J.key = null;                                   // the jam steps aside; the room is held
     // how far into the show the server already is (the page looks once a second), kept up to date below
     const asked = performance.now(), into = (cue.progress || 0) * (cue.dur || 0);
@@ -447,7 +448,7 @@
     if (p.jam) {
       // the jam's show again, as it was: the next tick anchors it to the room, nothing is loaded
       J.live = true; J.key = p.key; J.doc = p.doc; J.version = p.version; J.built = p.built; J.style = p.style; J.drums = p.drums;
-      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamExtras = p.extras; S.jamRainbow = p.rainbow; S.noLimits = p.wild;
+      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamExtras = p.extras; S.jamRainbow = p.rainbow; S.noLimits = p.wild; S.glowAt = p.glow || null;
       S.forceSend = true;
       setTimeout(tick, 0);                                           // where the room is now, not a second from now
     }
@@ -568,10 +569,36 @@
     J.pre = { key: t.key, doc, pal, proj };
     doc.catch(() => { if (J.pre && J.pre.key === t.key) J.pre = null; });
     pal.catch(() => {}); proj.catch(() => {});
+    Promise.all([doc, pal]).then(([d, pl]) => { if (J.pre && J.pre.key === t.key) J.pre.hex = Effects.solid(mainOf(d.track, pl)); }).catch(() => {});
+  }
+
+  // Between songs the room is never fully dark (people walk about the party): as a song rings out, a glow
+  // of the next song's main color fades in to 10% and holds through any gap; when the next song starts it
+  // stays until its sound begins, then fades away as its lights come up.
+  const GLOW = 0.10;
+  const mainOf = (track, pal) => (colorsFor(track) || [])[0] || (pal || [])[0] || '#ffffff';
+  function soundSpan(a) {
+    const e = (a && a.energy) || [], fps = (a && a.feature_fps) || 30;
+    let top = 0; for (const v of e) top = Math.max(top, v);
+    const th = 0.05 * top; let i0 = e.findIndex(v => v > th), i1 = e.length - 1;
+    while (i1 > 0 && e[i1] <= th) i1--;
+    return [Math.max(0, i0) / fps, (i1 + 1) / fps];
+  }
+  function setGlow() {
+    // (a first listen has heard only so much: it rings out at the track's end, not where the hearing stops)
+    const span = soundSpan(S.analysis), t0 = span[0], inHex = J.glowIn;
+    const t1 = J.doc && J.doc.kind === 'live' ? ((J.doc.track || {}).duration || 1e9) : span[1];
+    S.glowAt = t => {
+      if (inHex && t < t0 + 0.6) return { rgb: Effects.hex2rgb(inHex), level: GLOW * (t <= t0 ? 1 : 1 - (t - t0) / 0.6) };
+      const nx = J.pre && J.pre.hex;
+      if (nx && t > t1 - 0.5) return { rgb: Effects.hex2rgb(nx), level: GLOW * Math.min(1, (t - (t1 - 0.5)) / 1.5) };
+      return null;
+    };
   }
 
   async function load(room) {
     let pre = J.pre && J.pre.key === room.key ? J.pre : null;
+    J.glowIn = pre && pre.hex || null;                              // the glow this song's start takes over from
     let doc = pre ? await pre.doc.catch(() => null) : null;
     if (!doc || doc.kind !== room.kind) { pre = null; doc = await api('jam/analysis?key=' + encodeURIComponent(room.key)); }
     J.live = true; J.doc = doc;
@@ -595,6 +622,7 @@
       J.built = sectionKeys();
       if (J.failedKey !== room.key) toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
     }
+    setGlow();
     J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
     J.drums = !!(S.analysis && S.analysis.events && S.analysis.events.kick && S.analysis.events.kick.length);
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
@@ -723,6 +751,7 @@
   }
 
   function leave() {
+    S.glowAt = null;
     S.albumPalette = null; S.jamColors = null; S.jamExtras = null; S.jamRainbow = false; S.noLimits = false; J.doc = null;
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;

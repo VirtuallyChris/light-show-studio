@@ -838,6 +838,10 @@
       if (pc) for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) dst[i * 4 + k] = clamp(dst[i * 4 + k], 0, 1) * (1 - cover) + pc[k] * cover;
       const flat = new Array(n * 3);
       for (let i = 0; i < n; i++) { flat[i * 3] = Math.round(clamp(dst[i * 4], 0, 1) * 255 * master); flat[i * 3 + 1] = Math.round(clamp(dst[i * 4 + 1], 0, 1) * 255 * master); flat[i * 3 + 2] = Math.round(clamp(dst[i * 4 + 2], 0, 1) * 255 * master); }
+      // between songs (the jam): a dim glow of a song's main color where the show is darker (see jam.js
+      // setGlow), laid on after the brightness follows the music, so the quiet does not fade it away
+      const g = S.glowAt ? S.glowAt(t) : null;
+      if (g && g.level > 0) for (let i = 0; i < n * 3; i++) flat[i] = Math.max(flat[i], Math.round(g.rgb[i % 3] * g.level * 255));
       out.push({ light: L, px: flat });
     }
     return out;
