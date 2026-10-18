@@ -623,6 +623,7 @@
       if (J.failedKey !== room.key) toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
     }
     setGlow();
+    St.fullBrightness();                                            // between songs: every light back to 100%
     J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
     J.drums = !!(S.analysis && S.analysis.events && S.analysis.events.kick && S.analysis.events.kick.length);
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();

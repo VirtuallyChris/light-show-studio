@@ -693,6 +693,8 @@
   }
   const wsSend = o => { if (S.wsOpen) S.ws.send(JSON.stringify(o)); };
   function sendSelect() { wsSend({ type: 'select', ips: selectedLights().map(l => l.ip) }); }
+  /** Every light the show drives back to 100% brightness: the jam sends it between songs. */
+  const fullBrightness = () => wsSend({ type: 'full_brightness' });
   function startOutput() { S.lightsArmed = false; if (!S.outputActive && selectedLights().length) wsSend({ type: 'start' }); }
   function stopOutput() { if (S.outputActive) wsSend({ type: 'stop' }); }
   // Paused or idle: only a show that has already taken the lights over refreshes them. When the app
@@ -2885,5 +2887,5 @@
     card.hidden = true;
   }
   window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels };
+    fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels };
 })();

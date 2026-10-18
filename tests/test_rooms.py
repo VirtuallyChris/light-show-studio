@@ -299,19 +299,20 @@ class TestKeptLevels(unittest.TestCase):
 
 
 class TestFullBrightness(unittest.TestCase):
-    """A light dimmed mid-show (a home automation) goes back to 100%; nothing else is touched."""
+    """Between songs every light the show drives goes to 100%, without asking (a home automation may have
+    dimmed it); a light fading back out of the show is left alone, and nothing happens with no show."""
 
-    def test_a_dimmed_strip_goes_back_to_full(self):
+    def test_every_driven_light_to_full_between_songs(self):
         from types import SimpleNamespace
         from unittest import mock
         from lightshow.studio import server
         sent = []
         dev = lambda ip: SimpleNamespace(ip=ip, brightness=lambda v, ip=ip: sent.append((ip, v)))
         out = server.LightOutput(enabled=True)
-        out.devices, out.active = [dev("dimmed"), dev("full"), dev("off")], True
-        replies = {"dimmed": {"onOff": 1, "brightness": 40}, "full": {"onOff": 1, "brightness": 100}, "off": {"onOff": 0, "brightness": 20}}
-        with mock.patch.object(server.govee_lan, "statuses", lambda devs, timeout=0.8: dict(replies)), mock.patch.object(server.time, "sleep", lambda s: None):
-            self.assertEqual(out.keep_full_brightness(), ["dimmed"])
-        self.assertEqual(sent, [("dimmed", 100), ("dimmed", 100)])        # said twice (UDP); the off one left off
+        out.devices, out.active = [dev("strip"), dev("pole"), dev("leaving")], True
+        out.leaving = {"leaving": {}}
+        with mock.patch.object(server.time, "sleep", lambda s: None):
+            self.assertEqual(out.full_brightness(), 2)
+        self.assertEqual(sent, [("strip", 100), ("pole", 100)] * 2)            # said twice (UDP)
         out.active = False
-        self.assertEqual(out.keep_full_brightness(), [])                  # no show: the lights are left alone
+        self.assertEqual(out.full_brightness(), 0)                              # no show: the lights are left alone
