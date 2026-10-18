@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 33;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes; 33: groove cuts black only in moments, colors barely by genre
+  const SHOW_VERSION = 34;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes; 33: groove cuts black only in moments, colors barely by genre; 34: groove hits in one color a section
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2188,7 +2188,10 @@
     // the song's motion over a drop: pace 1 is a normal drop, below 1 slower
     const motion = (pace = 1, extra = {}) => {
       const fam = (S.motionFams && s.type === 'drop' ? S.motionFams[variant % 2] : S.motionFam) || 'comets', sp = x => Math.max(0.5, Math.round(x / pace * 4) / 4);   // on quarter beats: 2 / 1.3 is 1.5, not 1.538…
-      if (fam === 'sparkles') return clip(1, 'sparkle', b0, len, { density: 0.2 * pace + 0.05, life: 0.15 }, { opacity: 0.95, ...extra });
+      // (a groove song's sparkles glint, slow and sparse, in the section's own colors: dense quick twinkles in a
+      // color apart flickered purple all over Wicked's green drop; dance and rave keep them quick and bright)
+      if (fam === 'sparkles') return hard ? clip(1, 'sparkle', b0, len, { density: 0.2 * pace + 0.05, life: 0.15 }, { opacity: 0.95, ...extra })
+        : clip(1, 'sparkle', b0, len, { density: 0.08 * pace + 0.03, life: 0.45 }, { opacity: 0.9, palette: (S.buildPal || []).slice(), ...extra });
       if (fam === 'meteors') return clip(1, 'meteors', b0, len, { every: sp(1), chance: 0.6, travel: sp(2), tail: 0.3 }, { opacity: 0.95, ...extra });
       if (fam === 'orbit') return clip(1, 'orbit', b0, len, { speed: sp(2), count: 3 }, { opacity: 0.9, ...extra });
       if (fam === 'ripples') return clip(1, 'ripple', b0, len, { every: sp(1), travel: sp(1.5), width: 0.12 }, { opacity: 0.9, ...extra });
@@ -2334,6 +2337,13 @@
         clip(3, 'fadeout', Math.max(b0, b1 - 16), Math.min(16, len)); break;
     }
     addSignature(s, b0, len, variant, style);
+    // A groove (or calm) song's hits flash in one color for the section, not the next color on every hit:
+    // Wicked's drops (tropical house), its bass, beat pulse and drums each stepping through the palette, flashed
+    // colors far too quickly. The color changes with the section; dance and rave keep their quick changes.
+    if (!hard) for (const c of first) if (HIT_COLORS.has(c.effect)) {
+      if (c.params && 'color' in c.params) c.params.color = 'first';
+      if (c.effect === 'drumhits') c.palette = [((c.palette || S.buildPal || [])[0]) || '#ffffff'];
+    }
     // Black swipes: some of the moving things over a lit section cut darkness through it instead of
     // light (a sweep crossing the room as a black bar, a chase of dark gaps), more of them the harder the
     // song; never in a calm song, nor in a section without much light to cut (intros, breakdowns, outros),
@@ -2370,13 +2380,14 @@
       // the corner poles as a stereo pair, as a stage rig: in a drop both on every hit (the room as one);
       // elsewhere the kick on one side and the snare on the other, a call and response, each half as busy
       else if (drumsHere) clip(6, 'drumhits', b0, len, { decay: chill ? 0.6 : 0.35, floor: 0, split: s.type === 'drop' && !chill ? 'together' : 'split' },
-                              { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95 });
+                              { target: 'short', blend: 'add', opacity: chill ? 0.6 : 0.95, ...(hard ? {} : { palette: [(S.buildPal || ['#ffffff'])[0]] }) });   // (one color unless dance or rave)
       else if (!chill && noDrums() && ['drop', 'verse'].includes(s.type) && ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end).length) >= 0.4 * len)
         clip(6, 'basshits', b0, len, { decay: 0.45 }, { target: 'short', blend: 'add', opacity: s.type === 'drop' ? 0.85 : 0.5 });   // no drums: the bass keeps time
       else clip(6, 'breathe', b0, len, { speed: 4, floor: 0.15 }, { target: 'short', opacity: 0.6, palette: S.contrastPal });
     }
     S.sectionClips = null;
   }
+  const HIT_COLORS = new Set(['pulse', 'basshits', 'drumhits', 'zonehits', 'drumstrobe']);   // hits that could change color on every hit
   const CUTTABLE = new Set(['sweepout', 'scanner', 'roomscan', 'chase', 'hyperchase', 'steps', 'bounce', 'comet', 'dualcomet', 'meteors', 'orbit']);   // big enough to cut black
   const MOVERS = new Set(['comet', 'dualcomet', 'sparkle', 'meteors', 'orbit', 'ripple', 'chase', 'hyperchase', 'bounce', 'scanner', 'steps', 'leadtrace', 'ghostspark', 'fillrush', 'sweepout']);
 
