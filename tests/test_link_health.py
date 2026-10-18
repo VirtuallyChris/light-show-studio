@@ -44,8 +44,24 @@ class TestFpsGovernor(unittest.TestCase):
         self.assertEqual(g.decide(), 50)                                  # straight away
         seen = run(g, c, 25, 10.0)                                        # clean again, but held
         self.assertEqual(max(seen), 50)
-        seen = run(g, c, 30, 10.0)
-        self.assertEqual(seen[-1], 60)                                    # and then back up
+        seen = run(g, c, 120, 10.0)
+        self.assertEqual(max(seen), 50)                                   # and it choked at 60: not tried again for a while
+        c.t += FpsGovernor.CEILING_S
+        seen = run(g, c, 40, 10.0)
+        self.assertEqual(seen[-1], 60)                                    # ten minutes on, it may try again
+
+    def test_a_light_settles_where_it_can_keep_up(self):
+        # a light that keeps up at 30 but not at 40: it climbs, chokes at 40 once, and stays at 30
+        c = Clock(); g = FpsGovernor(15, 40, start=24, clock=c)
+        downs = 0
+        for _ in range(600):                                              # five minutes, a ping every half second
+            g.report(150.0 if g.fps >= 40 else 10.0)
+            c.t += 0.5
+            before = g.fps
+            if g.decide() < before:
+                downs += 1
+        self.assertEqual(g.fps, 30)
+        self.assertEqual(downs, 1)                                        # one stumble, not one a minute
 
     def test_slow_replies_step_down_and_a_bad_patch_goes_to_the_floor(self):
         c = Clock(); g = FpsGovernor(15, 60, start=40, clock=c)

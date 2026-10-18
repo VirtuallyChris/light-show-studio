@@ -476,7 +476,8 @@ class Studio:
         if lights and load_config().get("light_fps_auto", True):
             from .link_health import LinkMonitor
             # each light between 15 and light_fps_ceiling frames a second (60 unless set in config.json)
-            self.link = LinkMonitor(self.output, 15, int(load_config().get("light_fps_ceiling", 60)))
+            # (40 at most: at 50 and 60 the lights fell behind, replies at 100-270 ms, and lagged)
+            self.link = LinkMonitor(self.output, 15, int(load_config().get("light_fps_ceiling", 40)))
             self.output.max_fps = self.link.governor.fps
             self.link.start()
         self.cast = CastManager(govee_lan.local_ip())

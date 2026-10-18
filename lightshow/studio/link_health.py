@@ -6,8 +6,13 @@ light is struggling, and that is exactly when frames arrive late and the lights 
 show plays, the studio pings the lights it drives in turn (a small ping every quarter second, so each
 of five lights about every 1.25 s), and each light has a governor of its own that sets that light's
 frame rate from its replies: down at once when a reply is lost or slow, back up step by step after
-a stretch of clean, quick replies. Between 15 and 60 frames a second, light by light: a pole at the
+a stretch of clean, quick replies. Between 15 and 40 frames a second, light by light: a pole at the
 edge of the Wi-Fi never holds back a strip right next to the router.
+
+A light that chokes at a rate is not tried at that rate again for a while (CEILING_S): the governor
+used to climb straight back to it after every recovery, and each time the light fell behind (frames
+piling up in it, replies at 100-270 ms) until it stepped down again: the lights lagged, over and over,
+all night. Now each light settles where it can keep up.
 
 Pings use Windows' own ICMP API (no extra process, no admin rights); elsewhere, the ping command.
 """
@@ -32,6 +37,7 @@ class FpsGovernor:
     UP_AFTER_S = 15.0     # how long things must stay clean, and since the last change, before a step up
     HOLD_S = 30.0         # after a step down, no step up for this long
     DOWN_GAP_S = 2.0      # steps down at most this often (one bad moment is one step)
+    CEILING_S = 600.0     # a rate a light choked at is not climbed back to for this long
 
     def __init__(self, lo: int = 15, hi: int = 60, start: int = 24, clock=time.monotonic):
         self.levels = [f for f in LADDER if lo <= f <= hi] or [lo]
@@ -40,6 +46,7 @@ class FpsGovernor:
         self.samples: collections.deque = collections.deque()
         t = clock()
         self.changed_at, self.hold_until, self.reason = t, t, "starting"
+        self.ceiling, self.ceiling_until = len(self.levels) - 1, t     # the highest step it may climb to, for now
 
     @property
     def fps(self) -> int:
@@ -62,23 +69,28 @@ class FpsGovernor:
 
     def decide(self) -> int:
         now = self.clock()
-        last5, last10 = self._window(5.0), self._window(10.0)
-        # a lost ping counts once: only losses since the last change can step down again
+        last10 = self._window(10.0)
+        # only replies since the last change judge the rate it is at now: the slow ones from the rate it just
+        # left kept stepping it down again and again (and its ceiling with it) on stale evidence
+        last5 = [r for t, r in self.samples if now - t <= 5.0 and t > self.changed_at]
         lost3 = sum(r is None for t, r in self.samples if now - t <= 3.0 and t > self.changed_at)
         loss5 = sum(r is None for r in last5) / len(last5) if last5 else 0.0
-        p90 = self._p90(last5)
+        p90 = self._p90(last5) if len(last5) >= 2 else None
         lag = lost3 > 0 or (p90 is not None and p90 > self.SLOW_MS)
         severe = loss5 >= 0.33 or (p90 is not None and p90 > self.SEVERE_MS)
         if lag and now - self.changed_at >= self.DOWN_GAP_S and self.i > 0:
             steps = 2 if severe else 1
+            # it choked here: this rate is out of reach for a while, the one below it is the most it gets
+            self.ceiling, self.ceiling_until = max(0, self.i - 1), now + self.CEILING_S
             self.i = max(0, self.i - steps)
             self.changed_at, self.hold_until = now, now + self.HOLD_S
             self.reason = f"{'lost pings' if lost3 else f'slow replies ({p90:.0f} ms)'}"
             return self.fps
         clean = (len(last10) >= 5 and all(r is not None for r in last10)
                  and (self._p90(last10) or 0) < self.QUICK_MS)
+        top = self.ceiling if now < self.ceiling_until else len(self.levels) - 1
         if (clean and now >= self.hold_until and now - self.changed_at >= self.UP_AFTER_S
-                and self.i < len(self.levels) - 1):
+                and self.i < top):
             self.i += 1
             self.changed_at = now
             self.reason = f"clean replies ({self._p90(last10):.0f} ms)"
