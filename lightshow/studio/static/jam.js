@@ -126,6 +126,7 @@
 
   function pairPicker(t) {
     if (!t || !t.id || t.kind === 'custom') return '';
+    if (wildOn(t)) return '';                                        // No Limits: the show picks them, section by section
     const [a, b] = shownColors(t), own = (J.state.track_colors || {})[t.id];
     if (!themeOn()) return `<span class="jam-pair"><span class="jam-sw" style="background:${a}" title="Its album cover's colors"></span><span class="jam-sw" style="background:${b}"></span></span>`;
     const off = !!(own && own.off);

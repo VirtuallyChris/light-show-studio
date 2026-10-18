@@ -197,6 +197,7 @@
   .pre-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .pre .bar { height: 4px; border-radius: 2px; margin-top: 8px; }
   /* party colors */
+  .colors[data-bare] { display: none; }
   .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
   .theme-chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .theme-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -409,15 +410,18 @@
   function colorBox(t, big) {
     if (!t || !t.id) return '';
     if (t.kind === 'custom') return `<div class="colors"><span class="tag">your show</span></div>`;
-    const st = state || {}, themed = st.theme_on !== false && ['pick', 'mix'].includes(st.color_mode);
+    const st = state || {}, wild = st.color_source === 'wild', themed = st.theme_on !== false && (wild || ['pick', 'mix'].includes(st.color_mode));
     const chip = themed || t.theme_off ? `<button class="theme-chip ${t.theme_off ? '' : 'on'}" aria-label="${t.theme_off ? 'Plays in its album cover’s colors: tap for the party’s' : 'Plays in the party’s colors: tap for its album cover’s'}">${t.theme_off ? 'cover' : 'party'}</button>` : '';
+    // No Limits: the show picks the colors section by section, so a song shows none (the box stays, empty:
+    // a tap on the song still opens its vibe and genre). One given its own colors, or its cover's, shows them.
+    const bare = wild && !t.own && !t.theme_off;
     // its own two, the jam's, or its cover's as they will play: a tap on either picks from the sixteen
     const [a, b] = t.colors || coverPair(t.image) || ['#808080', '#808080'];
-    return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}" data-own="${t.own ? 1 : ''}" data-name="${esc(t.name || t.label || '')}" data-style="${esc(t.style || '')}" data-vibe="${esc(t.vibe || '')}" data-genre="${esc(t.genre || '')}" data-heard="${esc(t.genre_found || '')}" data-theme="${themed || t.theme_off ? (t.theme_off ? 'cover' : 'party') : ''}">
+    return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}" data-own="${t.own ? 1 : ''}" data-name="${esc(t.name || t.label || '')}" data-style="${esc(t.style || '')}" data-vibe="${esc(t.vibe || '')}" data-genre="${esc(t.genre || '')}" data-heard="${esc(t.genre_found || '')}" data-theme="${themed || t.theme_off ? (t.theme_off ? 'cover' : 'party') : ''}"${bare ? ' data-bare="1"' : ''}>${bare ? '' : `
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="a" style="background:${esc(a)}" aria-label="Primary color"></button>
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Secondary color"></button>
       ${t.only ? '<span class="only-tag" title="Just these two colors">2</span>' : ''}
-      ${st.theme_on !== false || t.colors ? chip : ''}${t.own ? '<button class="reset" title="Back to the jam’s colors" aria-label="Back to the jam’s colors">&#8634;</button>' : ''}</div>`;
+      ${st.theme_on !== false || t.colors ? chip : ''}${t.own ? '<button class="reset" title="Back to the jam’s colors" aria-label="Back to the jam’s colors">&#8634;</button>' : ''}`}</div>`;
   }
   // A song's colors, all on one sheet: tap anywhere on the song and its primary and secondary (sixteen solid
   // colors each, the ones the lights show well) and "just these two" come up together. Every tap takes
@@ -448,6 +452,7 @@
     // party colors or its album art's, at the top (the row's little chip does the same)
     const theme = sheet.querySelector('.sx-theme');
     theme.hidden = !box.dataset.theme;
+    theme.querySelector('[data-t="party"]').textContent = (state || {}).color_source === 'wild' ? 'No Limits' : 'Party colors';
     const showTheme = () => { for (const b of theme.querySelectorAll('button')) b.classList.toggle('on', b.dataset.t === box.dataset.theme); };
     for (const b of theme.querySelectorAll('button')) b.onclick = async () => {
       if (b.dataset.t === box.dataset.theme) return;

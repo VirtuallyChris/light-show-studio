@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 17;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove
+  const SHOW_VERSION = 18;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1760,7 +1760,7 @@
       breakdown: ['colorwash', { speed: 8, intensity: 0.4 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['ripples', 'sparkles', 'orbit', 'steps'],
       drops: [{ base: ['chase', { speed: 1, size: 0.12, gap: 0.6 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.55, blend: 'add' }], flash: true },
               { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
-              { base: ['hyperchase', { speed: 0.25, size: 0.08 }], top: 'motion', fast: true },
+              { base: ['hyperchase', { speed: 0.25, size: 0.08 }], top: 'motion', fast: true, rave: true },   // rave only: in a dance song it hurts the eyes
               { base: ['roomsplit', { every: 1, pump: 0.4 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true, room: true }] },
     dreamy: { name: 'Dreamy', intro: ['twinkle', { density: 0.25, speed: 4, base: 0.12 }], verse: [['colorwash', { speed: 16, intensity: 0.45 }], ['aurora', { speed: 16, intensity: 0.4, depth: 0.7 }]],
       verseTop: [['sparkle', { density: 0.08, life: 0.25 }, { opacity: 0.8 }], ['orbit', { speed: 8, count: 2 }, { opacity: 0.8 }]],
@@ -2193,7 +2193,7 @@
         } else {
           // The song's drop moves (the first three it drew that fit), one per drop, in turn. A chill or
           // groove song lifts its drops with motion rather than flashing: the flashy ones are for dance and rave.
-          const ok = look.drops.filter(r => (hard || (!r.flash && !r.fast)) && (room || !r.room)).slice(0, 3);
+          const ok = look.drops.filter(r => (hard || (!r.flash && !r.fast)) && (!r.rave || style === 'rave') && (room || !r.room)).slice(0, 3);
           const r = ok[kind % ok.length] || look.drops.find(r => !r.flash && !r.room) || LOOKS.dreamy.drops[0];
           clip(0, r.base[0], b0, len, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
           if (r.top === 'motion') motion(chill ? (swells() ? 0.75 : 0.5) : style === 'rave' ? 1.3 : 1);
