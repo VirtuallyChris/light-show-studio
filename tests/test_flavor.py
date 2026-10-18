@@ -204,6 +204,57 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual([(s["type"], round(s["start"])) for s in a["sections"]][:2], [("verse", 0), ("drop", 48)])
         self.assertEqual(a["sections"][0]["end"], 48.0)
 
+    def _levels(self, a, parts, fps=30):
+        """parts: (t0, t1, energy, bass, drums) stretches over the song's curves"""
+        n = int(max(p[1] for p in parts) * fps)
+        en, bass, dr = np.full(n, 0.3), np.zeros(n), np.full(n, 0.2)
+        for t0, t1, e, b, d in parts:
+            en[int(t0 * fps):int(t1 * fps)], bass[int(t0 * fps):int(t1 * fps)], dr[int(t0 * fps):int(t1 * fps)] = e, b, d
+        a["energy"], a["curves"] = list(en), {"bass": list(bass), "drums_present": list(dr)}
+
+    def test_a_song_with_no_drop_gets_its_loudest_parts(self):
+        """WET DREAM: loud stretches with bass between quiet ones, and no drop found: they are its drops."""
+        from lightshow.studio.analysis import drops_where_none
+        a = self._song(100, 30, 120.0); a["genre"] = {"style": "dance"}
+        self._levels(a, [(0, 10, 0.2, 0.0, 0.1), (10, 30, 0.8, 0.5, 0.9), (30, 50, 0.45, 0.0, 0.6), (50, 70, 0.78, 0.5, 0.9),
+                         (70, 90, 0.5, 0.05, 0.6), (90, 100, 0.2, 0.0, 0.1)])
+        a["sections"] = [{"start": 0.0, "end": 10.0, "type": "intro"}] + [{"start": t, "end": t + 20.0, "type": "verse"} for t in (10.0, 30.0, 50.0, 70.0)] + [{"start": 90.0, "end": 100.0, "type": "outro"}]
+        self.assertEqual(len(drops_where_none(a)), 2)
+        self.assertEqual([x["type"] for x in a["sections"]], ["intro", "drop", "verse", "drop", "verse", "outro"])
+        self.assertEqual(a["drops"], [10.0, 50.0])
+        a["genre"] = {"style": "chill"}; a["sections"][1]["type"] = a["sections"][3]["type"] = "verse"
+        self.assertEqual(drops_where_none(a), [])                                      # a calm song may have none
+
+    def test_a_chorus_that_comes_back_is_a_drop(self):
+        """A verse that sounds like the drop and is as big is that drop again; a quiet one that sounds alike is not."""
+        from lightshow.studio.analysis import drops_by_sound
+        a = self._song(120, 30, 120.0)
+        self._levels(a, [(0, 20, 0.5, 0.2, 0.7), (20, 40, 0.85, 0.6, 0.9), (40, 60, 0.5, 0.2, 0.7), (60, 80, 0.84, 0.6, 0.9),
+                         (80, 100, 0.4, 0.0, 0.1), (100, 120, 0.5, 0.2, 0.7)])
+        rng = np.random.default_rng(1); fr = 43.0; n = int(120 * fr)
+        bands = rng.standard_normal((32, n)).astype(np.float32)
+        chorus = rng.standard_normal((32, int(20 * fr))).astype(np.float32)
+        for t0 in (20, 60, 80):                                                         # the same chorus three times (the last stripped down)
+            bands[:, int(t0 * fr):int(t0 * fr) + chorus.shape[1]] = chorus
+        a["align_bands"], a["align_fps"] = bands.tolist(), fr
+        a["sections"] = [{"start": 0.0, "end": 20.0, "type": "verse"}, {"start": 20.0, "end": 40.0, "type": "drop"}, {"start": 40.0, "end": 60.0, "type": "verse"},
+                         {"start": 60.0, "end": 80.0, "type": "verse"}, {"start": 80.0, "end": 100.0, "type": "breakdown"}, {"start": 100.0, "end": 120.0, "type": "verse"}]
+        a["drops"] = [20.0]
+        self.assertEqual(len(drops_by_sound(a)), 1)
+        self.assertEqual([x["type"] for x in a["sections"]], ["verse", "drop", "verse", "drop", "breakdown", "verse"])
+        self.assertEqual(a["drops"], [20.0, 60.0])
+
+    def test_a_drop_runs_over_a_verse_as_big_as_it(self):
+        from lightshow.studio.analysis import drop_neighbors
+        a = self._song(80, 30, 120.0)
+        self._levels(a, [(0, 20, 0.5, 0.2, 0.6), (20, 30, 0.9, 0.6, 0.95), (30, 50, 0.9, 0.62, 0.95), (50, 80, 0.5, 0.2, 0.6)])
+        a["sections"] = [{"start": 0.0, "end": 20.0, "type": "verse"}, {"start": 20.0, "end": 30.0, "type": "verse"},
+                         {"start": 30.0, "end": 50.0, "type": "drop"}, {"start": 50.0, "end": 80.0, "type": "verse"}]
+        a["drops"] = [30.0]
+        self.assertEqual(len(drop_neighbors(a)), 1)
+        self.assertEqual([(x["type"], x["start"], x["end"]) for x in a["sections"]], [("verse", 0.0, 20.0), ("drop", 20.0, 50.0), ("verse", 50.0, 80.0)])
+        self.assertEqual(a["drops"], [20.0])
+
     def test_a_drop_out_of_a_pause_starts_at_the_hit(self):
         from lightshow.studio.analysis import drop_after_pause
         a = self._song(80); fps = 30

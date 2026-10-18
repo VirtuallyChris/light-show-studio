@@ -454,6 +454,164 @@ def loud_buildups(a: dict) -> list:
     return changes
 
 
+def _section_levels(a: dict):
+    """mean(section) -> (loudness as a share of the song's loud level, bass, drums), or None without the curves."""
+    en = np.asarray(a.get("energy") or [], dtype=float)
+    bass, drums = _curve(a, "bass"), _curve(a, "drums_present")
+    if len(en) == 0 or bass is None or drums is None:
+        return None
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    top = float(np.percentile(en, 90)) or 1.0
+
+    def mean(c, s):
+        i0 = max(0, int(s["start"] * fps))
+        return float(c[i0:max(i0 + 1, int(s["end"] * fps))].mean()) if i0 < len(c) else 0.0
+    return lambda sec: (mean(en, sec) / top, mean(bass, sec), mean(drums, sec))
+
+
+def _standing_out(secs: list, lv) -> callable:
+    """Does a drop stand out from the rest of its song (0.05 louder than its middle other section)? A song
+    mastered flat (Kim Petras' I Like Ur Look: every section 0.58 to 0.66) gives nothing to compare with."""
+    rest = [lv(x)[0] for x in secs if x.get("type") not in ("drop", "intro", "outro") and x["end"] - x["start"] >= 8]
+    mid = float(np.median(rest)) if rest else 0.0
+    return lambda d: lv(d)[0] >= mid + 0.05
+
+
+def _merge_drops(a: dict, secs: list, made: set) -> list:
+    """Sections turned into drops here join a drop next to them: one drop, starting where the first does."""
+    out = []
+    for i, sec in enumerate(secs):
+        if out and sec.get("type") == "drop" and out[-1].get("type") == "drop" and (i in made or out[-1].get("_made")):
+            out[-1] = {**out[-1], "end": sec["end"], "_made": True}
+            continue
+        out.append({**sec, "_made": i in made} if sec.get("type") == "drop" else sec)
+    for sec in out:
+        sec.pop("_made", None)
+    a["sections"] = out
+    a["drops"] = sorted(round(float(x["start"]), 3) for x in out if x.get("type") == "drop")
+    return out
+
+
+def drops_where_none(a: dict) -> list:
+    """A song found with no drop, or none bigger than the rest of it, still has its big parts: the sections
+    (8 s or more) clearly louder than the song's run (0.05 above the middle section, within 0.1 of the
+    loudest, and louder than every drop it has) with bass to them (half the loudest section's or more) are
+    its drops. Six of 194 learned songs had none (Missy Elliott's Lose Control, Adam Lambert's WET DREAM, a
+    song of drops between breakdowns: Wallpaper.); Martin Garrix's Pressure had its two big drops called
+    verses, louder than the one drop it was given."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    lv = _section_levels(a)
+    if not secs or lv is None or (a.get("genre") or {}).get("style") == "chill":
+        return []                                                    # (a calm song may have no drop: I Put a Spell On You)
+    have = [x for x in secs if x.get("type") == "drop"]
+    if have and any(_standing_out(secs, lv)(x) for x in have):
+        return []
+    body = [i for i, x in enumerate(secs) if x.get("type") not in ("intro", "outro") and x["end"] - x["start"] >= 8]
+    if len(body) < 3:
+        return []
+    L = {i: lv(secs[i]) for i in body}
+    loudest, mid = max(v[0] for v in L.values()), float(np.median([v[0] for v in L.values()]))
+    top_bass = max(v[1] for v in L.values())
+    over = max((lv(x)[0] for x in have), default=0.0) + 0.03
+    picks = {i for i in body if secs[i].get("type") != "drop" and L[i][0] >= max(loudest - 0.1, mid + 0.05, over)
+             and L[i][1] >= 0.5 * top_bass and L[i][2] >= 0.4}
+    if not picks:
+        return []
+    changes = [(round(secs[i]["start"], 1), "drops missed: one of the loudest parts") for i in sorted(picks)]
+    for i in picks:
+        secs[i] = {**secs[i], "type": "drop"}
+    _merge_drops(a, secs, picks)
+    return changes
+
+
+def _fingerprint(a: dict, fps_out: float = 4.0):
+    """The song's sound (align_bands: its spectrum, as the line-up uses it) at 4 frames a second, each band
+    scaled to its own run, for comparing one stretch with another; None without it."""
+    B = a.get("align_bands")
+    if not B:
+        return None
+    B = np.asarray(B, dtype=np.float32)
+    step = max(1, int(round(float(a.get("align_fps", 43.0)) / fps_out)))
+    n = B.shape[1] // step
+    if n < 16:
+        return None
+    B = B[:, :n * step].reshape(B.shape[0], n, step).mean(axis=2)
+    return (B - B.mean(axis=1, keepdims=True)) / (B.std(axis=1, keepdims=True) + 1e-6), float(a.get("align_fps", 43.0)) / step
+
+
+def _sounds_alike(fp, s: dict, d: dict, cap: float = 16.0, reach: float = 2.0) -> float:
+    """How alike two sections sound: the best correlation of their first 16 s (2 s of lag either way)."""
+    F, fr = fp
+    n, r = int(min(cap, s["end"] - s["start"], d["end"] - d["start"]) * fr), int(reach * fr)
+    i0, j0 = int(s["start"] * fr), int(d["start"] * fr)
+    if n < 8 or i0 + n > F.shape[1]:
+        return 0.0
+    x, best = F[:, i0:i0 + n].ravel(), -1.0
+    for j in range(max(0, j0 - r), min(F.shape[1] - n, j0 + r) + 1):
+        best = max(best, float(np.corrcoef(x, F[:, j:j + n].ravel())[0, 1]))
+    return best
+
+
+def drops_by_sound(a: dict) -> list:
+    """A section that sounds like one of the song's drops, and is as big, is that drop again (the chorus
+    comes back). Sounds like: the spectrum of its opening correlates with a drop's by 0.5 or more (across
+    the learned songs a chorus heard again scores 0.68 to 0.82, a verse against its drops 0.09 at the middle
+    and 0.35 at most nine times in ten). As big: within 0.06 of the drop's loudness, its bass within 0.12,
+    its drums within 0.15 (a stripped-down chorus in a breakdown sounds alike and is not a drop). A drop that
+    does not stand out from the song (a flat master) needs the sound alike by 0.7: Flo Rida's Low opens on
+    its chorus (0.84)."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    lv, fp = _section_levels(a), _fingerprint(a)
+    if lv is None or fp is None:
+        return []
+    out = _standing_out(secs, lv)
+    drops = [x for x in secs if x.get("type") == "drop" and x["end"] - x["start"] >= 8]
+    if not drops:
+        return []
+    made, changes = set(), []
+    for i, x in enumerate(secs):
+        if x.get("type") not in ("verse", "breakdown") or x["end"] - x["start"] < 8:
+            continue
+        e, b, dr = lv(x)
+        for d in drops:
+            de, db, ddr = lv(d)
+            if e >= de - 0.06 and b >= db - 0.12 and dr >= ddr - 0.15 and _sounds_alike(fp, x, d) >= (0.5 if out(d) else 0.7):
+                secs[i] = {**x, "type": "drop"}
+                made.add(i)
+                changes.append((round(x["start"], 1), f"sounds like the drop at {d['start']:.0f} s"))
+                break
+    if made:
+        _merge_drops(a, secs, made)
+    return changes
+
+
+def drop_neighbors(a: dict) -> list:
+    """A verse right against a drop and as big as it (its loudness within 0.02, bass within 0.05, drums
+    within 0.05) is that drop's first or last bars: the drop runs over it (Virtual Self's Ghost Voices,
+    Dylan Matthew's WANTURBODY, Ghost Town's That's Unusual)."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    lv = _section_levels(a)
+    if len(secs) < 2 or lv is None:
+        return []
+    out = _standing_out(secs, lv)
+    made, changes = set(), []
+    for i, x in enumerate(secs):
+        if x.get("type") != "verse":
+            continue
+        e, b, dr = lv(x)
+        for j in (i - 1, i + 1):
+            if 0 <= j < len(secs) and secs[j].get("type") == "drop" and j not in made and out(secs[j]):
+                de, db, ddr = lv(secs[j])
+                if e >= de - 0.02 and b >= db - 0.05 and dr >= ddr - 0.05:
+                    secs[i] = {**x, "type": "drop"}
+                    made.add(i)
+                    changes.append((round(x["start"], 1), "as big as the drop beside it"))
+                    break
+    if made:
+        _merge_drops(a, secs, made)
+    return changes
+
+
 def flat_buildups(a: dict) -> list:
     """A buildup where nothing builds is not one. A buildup builds by at least one of: its snares speeding
     up (the last quarter 1.5 times the first half and one a beat or more), the song climbing through it (its
@@ -621,8 +779,8 @@ def settle_sections(a: dict) -> list:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
     return (drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
-            + drummed_breakdowns(a) + repeated_drops(a) + gap_before_section(a) + outro_where_it_rings_out(a)
-            + flat_buildups(a) + sections_on_bar_lines(a))
+            + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
+            + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
 
 
 def hook_drops(a: dict) -> list:
