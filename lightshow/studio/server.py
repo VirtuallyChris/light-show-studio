@@ -122,6 +122,7 @@ class LightOutput:
         self.last_enable = 0.0
         self.last_frame = 0.0
         self.frames = 0
+        self.skipped_same = 0                           # frames not sent: the same as the last, to the eye
         self.sent = 0                                   # frames sent to at least one light (after the caps)
         self.last_sent = 0.0
         # Each light's own frame rate (set from its own Wi-Fi by link_health), and when it last got one;
@@ -398,6 +399,8 @@ class LightOutput:
             time.sleep(0.1)
         return len(devs)
 
+    SAME_STEP = 6          # a frame no channel of which is off by more than this (of 255) is the same to the eye
+
     def _rearm(self, now: float, wake: bool = False) -> None:
         self.last_rearm = now
         for d in self.devices + [f["dev"] for f in self.leaving.values()]:
@@ -438,6 +441,17 @@ class LightOutput:
             """Is this light ready for another frame at its own rate? (Over it, this one is skipped.)"""
             cap = self.fps_by_ip.get(ip) or self.max_fps
             return not (cap and cap > 0 and now - self.last_sent_ip.get(ip, 0.0) < 0.9 / cap)
+
+        def same(ip: str, flat) -> bool:
+            """Is this frame the one the light already shows (no channel off by more than SAME_STEP), sent
+            under a second ago? Then it is not sent: every packet takes a slot of the Wi-Fi the five lights
+            share, and 14-30% of a show's frames repeat the last one to the eye. Compared with what was last
+            sent, so a slow fade still arrives once it adds up; once a second regardless, to keep the light
+            in real-time mode and to put right a lost packet."""
+            prev = self.last_px.get(ip)
+            if prev is None or len(prev) != len(flat) or now - self.last_sent_ip.get(ip, 0.0) >= 1.0:
+                return False
+            return max(abs(a - b) for a, b in zip(flat, prev)) <= self.SAME_STEP
         out = []
         for d in self.devices:
             flat = by_ip.get(d.ip)
@@ -450,6 +464,9 @@ class LightOutput:
                     self.arriving.pop(d.ip, None)
                 else:
                     flat = _mix_toward(flat, a["target"], 1 - _ease(k))
+            if same(d.ip, flat):
+                self.skipped_same += 1
+                continue
             out.append((d, flat))
         for ip, f in list(self.leaving.items()):
             if not due(ip):
