@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 32;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes
+  const SHOW_VERSION = 33;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps; 31: sweeps rush, drift, bounce and ramp; 32: No Limits from 55 palettes; 33: groove cuts black only in moments, colors barely by genre
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2060,8 +2060,9 @@
     const mood = e => names(e).reduce((w, n) => {
       if (n === 'rainbow') return w * (st === 'chill' ? 0 : st === 'rave' ? 1.6 : 1);
       let f = WARM.has(n) ? (minor ? 0.75 : 1) * (0.7 + 0.6 * bright) : (minor ? 1.3 : 1) * (1.3 - 0.6 * bright);
-      if (rocky) f *= ['red', 'white', 'amber', 'orange', 'gold', 'yellow', 'rose'].includes(n) ? 1.3 : ['green', 'teal', 'uv', 'cyan', 'lime', 'aqua', 'violet'].includes(n) ? 0.5 : 1;
-      if (electronic) f *= ['uv', 'green', 'magenta', 'cyan', 'purple', 'violet', 'lime', 'aqua', 'pink'].includes(n) ? 1.3 : 1;
+      // (the genre only nudges, 10%: the colors are not meant to follow the genre much)
+      if (rocky) f *= ['red', 'white', 'amber', 'orange', 'gold', 'yellow', 'rose'].includes(n) ? 1.1 : ['green', 'teal', 'uv', 'cyan', 'lime', 'aqua', 'violet'].includes(n) ? 0.9 : 1;
+      if (electronic) f *= ['uv', 'green', 'magenta', 'cyan', 'purple', 'violet', 'lime', 'aqua', 'pink'].includes(n) ? 1.1 : 1;
       return w * Math.pow(f, 1 / names(e).length);
     }, st === 'chill' && names(e).length > 2 ? 0.3 : 1);
     let n = 0; const rnd = () => Effects.hash((S.lookSeed || 0) * 31 + 7907 * ++n);
@@ -2342,7 +2343,9 @@
     const cutShare = { groove: 0.25, dance: 0.35, rave: 0.5 }[style] || 0;   // (50/65/80% was far too many)
     const cut = c => { c.blend = 'cut'; c.opacity = 1; c.duck = 0; c.palette = ['#ffffff']; };   // (no ducking: a swipe must stay black on the hits)
     if (cutShare && ['drop', 'verse', 'buildup'].includes(s.type)) {
-      const big = first.filter(c => CUTTABLE.has(c.effect) && !p.lanes[0].clips.includes(c) && !c.alone);
+      // (a groove song cuts black only in short moments: a black comet crossing all through a tropical house
+      // drop, Wicked's, was too much; dance and rave may cut their long moving layers too)
+      const big = first.filter(c => CUTTABLE.has(c.effect) && !p.lanes[0].clips.includes(c) && !c.alone && (hard || c.len <= 4));
       for (const c of big) if (Effects.hash(Math.round(c.start * 4) * 92821 + c.effect.length * 31 + (S.lookSeed || 0) + 17) < cutShare) cut(c);
       if (s.type === 'drop' && big.length && !big.some(c => c.blend === 'cut')) cut(big[0]);
     }
