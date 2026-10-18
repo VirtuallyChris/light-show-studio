@@ -982,6 +982,7 @@ class JamService:
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
                 "room": (self._opener_room() if hasattr(self, "_opener_room") else None) or item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
                 "upcoming": [item(t) for t in up[:12]], "genre_choices": st.get("genre_choices") or [],
+                "spotify_now": (ahead or {}).get("id"),            # the song Spotify plays now (a skip goes to the one after)
                 "party_colors": self._color_sets() if hasattr(self, "_color_sets") else {}}
 
     async def party_state(self, request):

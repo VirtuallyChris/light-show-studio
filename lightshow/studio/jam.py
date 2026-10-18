@@ -1486,6 +1486,14 @@ class JamEngine:
                 self.say(f"learn ahead: the playlist could not be read ({type(e).__name__}: {e})")
         threading.Thread(target=read, daemon=True, name="learn-further").start()
 
+    def _queue_after(self, ahead) -> list:
+        """The queue as last read, without the song Spotify plays now at its head."""
+        q = list(self.queue)
+        now_id = ahead.track.id if ahead is not None else None
+        while q and now_id and q[0].get("id") == now_id:
+            q.pop(0)
+        return q
+
     def _kind_of(self, track: Track) -> dict:
         project = self.library.match_project(track)
         return {**track.to_json(), "kind": "custom" if project else "learned" if self.library.has_learned(track.id) else "live", "project": project}
@@ -1503,7 +1511,9 @@ class JamEngine:
                 "buffered": round(self.buffered(), 1), "paused": self.gate.paused, "speaker": self.output.name,
                 "room": room, "ahead": ahead.to_json() if ahead else None,
                 "spotify": {"signed_in": self.spotify.signed_in, "device": self.now.device if self.now else "", "error": self.error},
-                "queue": list(self.queue), "flushes": self.flushes, "log": self.log[-12:],
+                # (the queue is read every 6 s: just after Spotify moves on, it still opens with the song now
+                # playing, which Up next showed twice)
+                "queue": self._queue_after(ahead), "flushes": self.flushes, "log": self.log[-12:],
                 "handover": self.handover,
             }
 

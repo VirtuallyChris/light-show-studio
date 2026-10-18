@@ -758,6 +758,21 @@ class TestPauseEveryWay(unittest.TestCase):
             self.assertFalse(any("drifted" in line for line in sim.engine.log), name)
 
 
+class TestUpNext(unittest.TestCase):
+    def test_the_song_spotify_moved_on_to_is_not_listed_twice(self):
+        import tempfile
+        a, ta = song(122, 1); b, tb = song(128, 2); c, tc = song(118, 3)
+        sim = Sim(tempfile.mkdtemp(), target=6.0, lag=0.35, light_live=True)
+        sim.spotify.upcoming = [tb, tc]
+        sim.play(a, ta); sim.run(30.0, analyse=False)
+        sim.engine.refresh_queue()                                               # read every 6 s
+        sim.play(b, tb); sim.spotify.upcoming = [tc]                             # Spotify moves on, before the next read
+        sim.run(2.0, analyse=False)
+        st = sim.engine.state()
+        self.assertEqual(st["ahead"]["name"], "Test Tune 2")
+        self.assertEqual([q["name"] for q in st["queue"]], ["Test Tune 3"])     # (it opened with Test Tune 2 again)
+
+
 class TestMusicOnTheStudio(unittest.TestCase):
     """The jam's music resumed somewhere else (the phone itself) is handed back to the studio's player."""
 

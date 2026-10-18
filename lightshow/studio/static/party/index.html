@@ -775,7 +775,11 @@
       const play = $('#bPlay');
       if (play) play.onclick = () => api('playback', { action: r.playing ? 'pause' : 'resume' }).then(poll).catch(() => {});
       for (const [id, action] of [['#bPrev', 'previous'], ['#bNext', 'next']]) { const b = $(id); if (b) b.onclick = () => {
-        skipping = { action, from: r.id, to: action === 'next' ? (st.upcoming || [])[0] || null : null, at: performance.now() };
+        // the song after the one Spotify plays now: after the one a skip still on its way goes to (a second tap
+        // showed the first one's song again), else after Spotify's own (at the head of Up next when it is ahead)
+        const up = st.upcoming || [], from = skipping && skipping.action === 'next' && skipping.to ? up.findIndex(t => t.id === skipping.to.id)
+          : up.findIndex(t => t.id === st.spotify_now);
+        skipping = { action, from: r.id, to: action === 'next' ? up[from + 1] || (skipping && skipping.to) || up[0] || null : null, at: performance.now() };
         shown = ''; render();                                         // at once: the tap is seen
         api('playback', { action }).then(poll).catch(() => { skipping = null; shown = ''; render(); });
       }; }
