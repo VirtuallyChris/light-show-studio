@@ -411,6 +411,11 @@ class FetchAhead:
             folder = tempfile.mkdtemp(prefix="lss-ahead-")
             t_dl = self.clock()
             try:
+                adopt = getattr(self.library, "adopt_twin", None)
+                if adopt is not None and adopt(track):       # learned before under another Spotify id: nothing to do
+                    self.log(f"[learn ahead] {track.label}: learned before under another Spotify id, its analysis used")
+                    shutil.rmtree(folder, ignore_errors=True)
+                    continue
                 kept = self.kept_copy(track)
                 if kept:                                 # kept from before (jam_keep_youtube_copies): no download
                     with self.lock:

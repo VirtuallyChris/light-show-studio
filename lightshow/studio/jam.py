@@ -266,6 +266,59 @@ class JamLibrary:
             return None
         return doc if doc.get("version") == _analysis_version() else None
 
+    # Spotify often has one recording under two ids (the single, and the album it is on): learned under one,
+    # it played under the other as a song never heard (Knox Hamilton's Set It on Fire, learned at 16:51 and
+    # learned again from scratch at 17:50, glowing meanwhile). A twin is found by its artist, name and length.
+    def _learned_index(self) -> dict:
+        """track id -> (artist words, name, length) of each learned song, read from the head of its file (the
+        track comes right after the version: the megabytes after it are not read). Kept, and topped up."""
+        idx = self.__dict__.setdefault("_lidx", {})
+        try:
+            names = os.listdir(self.learned_dir)
+        except OSError:
+            return idx
+        dec = json.JSONDecoder()
+        for fn in names:
+            tid = fn[:-5]
+            if not fn.endswith(".json") or tid in idx:
+                continue
+            try:
+                with open(os.path.join(self.learned_dir, fn), encoding="utf-8") as fh:
+                    head = fh.read(8192)
+                t, _ = dec.raw_decode(head, head.index('"track": ') + len('"track": '))
+                idx[tid] = (frozenset(w for a in t.get("artists") or [] for w in _norm(a)), " ".join(_norm(t.get("name") or "")),
+                            float(t.get("duration") or 0))
+            except (OSError, ValueError):
+                idx[tid] = None
+        return idx
+
+    def twin_of(self, track: Track) -> str | None:
+        """The id a song not learned under its own was learned under: one of its artists, the same name and
+        the same length (within 1.5 s), learned by the analysis as it is now."""
+        if not track.id or self.has_learned(track.id):
+            return None
+        name, artists = " ".join(_norm(track.name)), frozenset(w for a in track.artists for w in _norm(a))
+        if not name or not artists:
+            return None
+        for tid, v in self._learned_index().items():
+            if v and tid != track.id and v[1] == name and v[0] & artists and abs(v[2] - float(track.duration)) <= 1.5                     and self.has_learned(tid):
+                return tid
+        return None
+
+    def adopt_twin(self, track: Track) -> str | None:
+        """Learned as its twin: the twin's analysis saved under this id too, at once (no download, no
+        listening). Returns the twin's id, or None."""
+        tid = self.twin_of(track)
+        doc = self.learned(tid) if tid else None
+        if not doc:
+            return None
+        out = {**doc, "track": track.to_json(), "twin_of": tid}       # (the version stays first)
+        tmp = self._learned_path(track.id) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(out, fh)
+        os.replace(tmp, self._learned_path(track.id))
+        return tid
+
     def forget_learned(self, track_id: str) -> None:
         try:
             os.remove(self._learned_path(track_id))
@@ -831,6 +884,13 @@ class JamEngine:
             prev.end = min(est_start, expected_end) if natural else est_start
             prev.skipped = not natural
         project = self.library.match_project(track)
+        if not project:
+            try:
+                twin = self.library.adopt_twin(track)
+                if twin:
+                    self.say(f"{track.label}: the same song as one learned before (another Spotify id): its show")
+            except Exception:  # noqa: BLE001 - it is learned the usual way instead
+                pass
         learned = None if project else self.library.learned(track.id)
         kind = "custom" if project else "learned" if learned else "live"
         self.serial += 1

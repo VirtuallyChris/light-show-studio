@@ -277,6 +277,23 @@ class TestLibrary(unittest.TestCase):
 
 
 # ============================================================================= by ear
+class TestLearnedTwins(unittest.TestCase):
+    """One recording under two Spotify ids (the single and the album): learned once, known under both."""
+
+    def test_a_twin_is_found_by_artist_name_and_length_and_adopted(self):
+        lib = JamLibrary(tempfile.mkdtemp())
+        lib.save_learned(Track("single1", "Set It on Fire", ["Knox Hamilton"], 206.6), {"bpm": 120.0, "problems": []}, source="youtube")
+        album = Track("album2", "Set It on Fire", ["Knox Hamilton", "Someone"], 206.7)
+        self.assertEqual(lib.twin_of(album), "single1")
+        self.assertIsNone(lib.twin_of(Track("x3", "Set It on Fire", ["Other Band"], 206.6)))      # another artist's song
+        self.assertIsNone(lib.twin_of(Track("x4", "Set It on Fire", ["Knox Hamilton"], 240.0)))   # another take
+        self.assertFalse(lib.has_learned("album2"))
+        self.assertEqual(lib.adopt_twin(album), "single1")
+        doc = lib.learned("album2")
+        self.assertEqual((doc["analysis"]["bpm"], doc["track"]["id"], doc["twin_of"]), (120.0, "album2", "single1"))
+        self.assertIsNone(lib.twin_of(album))                                                      # learned now itself
+
+
 class TestAlignment(unittest.TestCase):
     def test_finds_a_known_track_by_ear(self):
         s, _ = song(124.0, 3)
