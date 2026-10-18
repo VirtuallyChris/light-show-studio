@@ -222,6 +222,14 @@ class TestSpotify(unittest.TestCase):
         self.store["refresh_token"] = "R"
         self.assertIsNone(c.now_playing().track)
 
+    def test_resume_on_the_studio_player_wakes_it_when_spotify_let_it_go(self):
+        tok = (200, b'{"access_token":"A","expires_in":3600}')
+        c = self.client([tok, (404, b'{"error":{"message":"No active device found"}}'), (204, b"")])
+        self.store["refresh_token"] = "R"
+        self.assertTrue(c.resume_on("dev1"))
+        self.assertIn("/me/player/play?device_id=dev1", self.calls[1][1])
+        self.assertTrue(self.calls[2][1].endswith("/me/player") and b"dev1" in self.calls[2][3])   # handed to it instead
+
     def test_reads_the_playlist_or_album_it_plays_from(self):
         tok = (200, b'{"access_token":"A","expires_in":3600}')
         player = lambda ctx, shuffle=False: (200, json.dumps({"context": ctx, "shuffle_state": shuffle}).encode())
@@ -724,6 +732,58 @@ class TestLookAhead(unittest.TestCase):
         e.refresh_queue()
         self.wait()
         self.assertEqual((self.got["context"], self.reads), ([], []))
+
+
+class TestPauseEveryWay(unittest.TestCase):
+    """Pause and resume, short, long, twice fast, with Spotify's answers late: the room's delay holds, the
+    speakers are never restarted, and nothing is taken for a skip."""
+
+    def test_pausing_and_resuming_keeps_the_room_where_it_was(self):
+        import tempfile
+        a, ta = song(122, 1)
+        for name, steps, lag in [("short", [8], 0.35), ("long", [60], 0.35), ("a second", [1], 0.35), ("twice fast", [2, 3], 0.35), ("late answers", [8], 1.0)]:
+            sim = Sim(tempfile.mkdtemp(), target=5.0, lag=lag, light_live=True)
+            sim.play(a, ta)
+            sim.run(30.0, analyse=False)
+            before = sim.engine.delay()
+            for held in steps:
+                sim.spotify.pause(); sim.run(held, analyse=False)
+                self.assertTrue(sim.engine.gate.paused, name)
+                sim.spotify.resume(); sim.run(2.0, analyse=False)
+                self.assertFalse(sim.engine.gate.paused, name)
+            sim.run(20.0, analyse=False)
+            self.assertAlmostEqual(sim.engine.delay(), before, delta=0.3, msg=name)
+            self.assertEqual(sim.out.starts, 1, name)                               # never a fresh stream
+            self.assertEqual(len(sim.engine.tracks), 1, name)                       # not taken for a skip
+            self.assertFalse(any("drifted" in line for line in sim.engine.log), name)
+
+
+class TestMusicOnTheStudio(unittest.TestCase):
+    """The jam's music resumed somewhere else (the phone itself) is handed back to the studio's player."""
+
+    def service(self, device, playing=True, source="studio"):
+        from types import SimpleNamespace
+        from lightshow.studio.jam_service import JamService
+        svc = JamService.__new__(JamService)
+        svc.source, svc.player = source, SimpleNamespace(device_id="studio-dev")
+        self.moved = []
+        svc.spotify = SimpleNamespace(transfer_playback=lambda dev, play=True: self.moved.append(dev) or True)
+        eng = SimpleNamespace(now=NowPlaying(Track("t", "S", ["B"], 100.0), 10.0, playing, 0.0, device), log=[])
+        eng.say = eng.log.append
+        return svc, eng
+
+    def test_playing_on_the_phone_is_brought_back_once(self):
+        svc, eng = self.service("iPhone")
+        last = svc.keep_on_studio_once(eng, -1e9, 100.0)
+        self.assertEqual(self.moved, ["studio-dev"])
+        svc.keep_on_studio_once(eng, last, 105.0)                                  # not again within 15 s
+        self.assertEqual(self.moved, ["studio-dev"])
+
+    def test_left_alone_on_the_studio_paused_or_a_jam_from_the_phone(self):
+        for device, playing, source in [("Light Show Studio", True, "studio"), ("iPhone", False, "studio"), ("iPhone", True, "app")]:
+            svc, eng = self.service(device, playing, source)
+            svc.keep_on_studio_once(eng, -1e9, 100.0)
+            self.assertEqual(self.moved, [], (device, playing, source))
 
 
 class TestSpeakerPause(unittest.TestCase):

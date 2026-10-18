@@ -243,6 +243,7 @@ class JamService:
         self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") and use_cast or where == "pc" else ", preview only (no speakers)")
         self.runner.start()
         threading.Thread(target=self._keep_levels, args=(self.engine,), daemon=True, name="keep-levels").start()
+        threading.Thread(target=self._keep_on_studio, args=(self.engine,), daemon=True, name="keep-on-studio").start()
         if demo:
             self.demo.start()
         self.opener = None
@@ -431,6 +432,32 @@ class JamService:
         eng = self.engine
         if eng is not None and eng.cue_hold:
             eng.release(False)
+
+    STUDIO_DEVICE = "Light Show Studio"
+
+    def keep_on_studio_once(self, eng, last: float, now: float) -> float:
+        """One look: a jam playing from the studio whose music Spotify plays somewhere else (resumed on the phone
+        itself after a pause) is handed back to the studio's player, at most every 15 s. The jam would take it
+        for playing while the studio recorded silence. Returns when it last handed back."""
+        if self.source != "studio" or not self.player.device_id or now - last < 15.0:
+            return last
+        np_ = getattr(eng, "now", None)
+        dev = getattr(np_, "device", "") if np_ is not None else ""
+        if not (np_ is not None and np_.playing and dev and dev != self.STUDIO_DEVICE):
+            return last
+        try:
+            if self.spotify.transfer_playback(self.player.device_id, play=True):
+                eng.say(f"Spotify started playing on {dev}: brought back to {self.STUDIO_DEVICE}")
+        except Exception:  # noqa: BLE001 - looked at again in a moment
+            pass
+        return now
+
+    def _keep_on_studio(self, eng) -> None:
+        last = -1e9
+        while self.engine is eng:
+            time.sleep(2.0)
+            if self.engine is eng:
+                last = self.keep_on_studio_once(eng, last, time.monotonic())
 
     def _keep_levels(self, eng) -> None:
         """While this jam plays, every 5 s: the party's speakers (the rooms that are on, and the one cast to) at
@@ -1029,6 +1056,9 @@ class JamService:
             return web.json_response({"ok": True})
         fn = {"pause": self.spotify.pause, "resume": self.spotify.resume, "next": self.spotify.next_track,
               "previous": self.spotify.previous_track}.get(action)
+        if action == "resume" and self.source == "studio" and self.player.device_id:
+            dev = self.player.device_id
+            fn = lambda: self.spotify.resume_on(dev)    # (the studio's player, woken if Spotify let it go)
         if fn is None:
             return web.json_response({"error": "unknown action"}, status=400)
         ok = await asyncio.get_running_loop().run_in_executor(None, fn)

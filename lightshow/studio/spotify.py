@@ -285,6 +285,13 @@ class SpotifyClient:
     def resume(self) -> bool:
         return self._call("PUT", "/me/player/play")[0] in (200, 202, 204)
 
+    def resume_on(self, device_id: str) -> bool:
+        """Play on this device (the studio's own player). A plain resume names no device: once Spotify had let
+        a long-paused player go, it answered "no active device" and nothing played. This wakes it."""
+        if self._call("PUT", f"/me/player/play?device_id={device_id}")[0] in (200, 202, 204):
+            return True
+        return self.transfer_playback(device_id, play=True)
+
     def next_track(self) -> bool:
         return self._call("POST", "/me/player/next")[0] in (200, 202, 204)
 
