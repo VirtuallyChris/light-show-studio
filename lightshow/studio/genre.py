@@ -64,10 +64,17 @@ DISCOGS_TIER = {
     "K-pop": 1.4, "Europop": 1.4, "J-pop": 1.3, "Dream Pop": 0.8, "Shoegaze": 0.9, "Ballad": 0.4, "Vocal": 0.6,
     "Contemporary R&B": 0.9, "Neo Soul": 0.6, "Soul": 0.5, "Disco": 1.4, "Funk": 1.3, "Hip Hop": 1.3, "Trap": 1.6,
     "Pop Rap": 1.3, "Folk": 0.4, "Acoustic": 0.4, "Folk Rock": 0.6, "Country": 0.8, "Soft Rock": 0.7, "Lo-Fi": 0.5,
+    # the heavier rock styles (they fell to Rock's 1.1, a groove show: Evanescence, Dragula), up to dance's
+    "Nu Metal": 1.8, "Alternative Metal": 1.8, "Gothic Metal": 1.7, "Industrial Metal": 1.9, "Industrial": 1.8, "EBM": 1.9,
+    "Death Metal": 1.9, "Thrash": 1.9, "Black Metal": 1.9, "Deathcore": 1.9, "Melodic Hardcore": 1.8, "Goth Rock": 1.3,
 }
+# a style name that means two things: the label as a whole first ("Hardcore" in Electronic is gabber, in Rock punk)
+DISCOGS_LABEL = {"Rock---Hardcore": 1.8, "Hip Hop---Trap": 1.6, "Electronic---Trap": 2.4}
 DISCOGS_GENRE = {"Electronic": 2.0, "Rock": 1.1, "Pop": 1.2, "Hip Hop": 1.3, "Funk / Soul": 0.9, "Jazz": 0.4,
                  "Classical": 0.2, "Folk, World, & Country": 0.5, "Blues": 0.5, "Latin": 1.2, "Reggae": 0.9,
-                 "Non-Music": 0.0, "Stage & Screen": 0.5, "Children's": 0.5, "Brass & Military": 0.5}
+                 "Non-Music": 0.0, "Stage & Screen": 1.2, "Children's": 0.5, "Brass & Military": 0.5}
+# (Stage & Screen at groove's middle: "Soundtrack" says where a song was used, not how it sounds; it made
+# Ghostbusters a calm song. Its drive and the other genres heard decide instead.)
 MAEST_SURE = 1.0                  # MAEST's scores are higher than AST's (one song has several styles at 0.3-0.7)
 
 
@@ -75,7 +82,7 @@ def tier(name: str) -> float | None:
     """A label's place on the 0-3 scale: an AudioSet genre (AST) or a Discogs style (MAEST); None if neither."""
     if "---" in name:
         g, st = name.split("---", 1)
-        return DISCOGS_TIER.get(st, DISCOGS_GENRE.get(g, MIDDLE))
+        return DISCOGS_LABEL.get(name, DISCOGS_TIER.get(st, DISCOGS_GENRE.get(g, MIDDLE)))
     return TIER.get(name)
 
 

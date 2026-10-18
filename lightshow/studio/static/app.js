@@ -146,6 +146,8 @@
       for (const lane of p.lanes) for (const c of lane.clips) if ((c.effect === 'leadtrace' || c.effect === 'bassnote') && c.params) c.params.byNote = false;
       p.settings.byNoteOff = true;
     }
+    // the old color-scramble Glitch (changes per beat, 1 to 16) is Scramble now: the one-shot Glitch took its name
+    for (const lane of p.lanes) for (const c of lane.clips) if (c.effect === 'glitch' && c.params && (c.params.rate >= 1 || 'overlay' in c.params)) c.effect = 'scramble';
     // the strobe riser used to speed up smoothly between two rates; now it steps through note values
     for (const lane of p.lanes) for (const c of lane.clips) if (c.effect === 'strobeRiser' && c.params && c.params.startRate !== undefined) {
       const note = (r, opts) => opts.reduce((best, o) => Math.abs(Math.log2(o / r)) < Math.abs(Math.log2(best / r)) ? o : best, opts[0]);
@@ -252,7 +254,9 @@
   //   34: groove hits in one color a section
   //   35: hardcore drops in pure solid colors
   //   36: No Limits palettes: near-twins on the LEDs retired, fire, neon, acid, ice and tropical added
-  const SHOW_VERSION = 36;
+  //   37: shows by scene (21 kinds of music, from the genre model) instead of five vibes; buildups in five
+  //       kinds; how hard a section goes follows its loudness within the song
+  const SHOW_VERSION = 37;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1785,55 +1789,269 @@
     const k = ((n % cols.length) + cols.length) % cols.length;
     return cols.slice(k).concat(cols.slice(0, k));
   }
-  /** The material shows are made from, in five families by vibe. A song is not given one of them:
-   *  it draws its own mix (its beds, what moves over its verses, its motions, its drop moves) from all
-   *  five, each family as likely as it suits the song (see pickLook), so every song feels different
-   *  while staying in its vibe. Each drop recipe is [base effect, its settings] and what goes over it:
-   *  'motion' (the song's motion), or [effect, settings, clip settings]; `flash` marks one that flashes. */
-  const LOOKS = {
-    haunted: { name: 'Haunted', intro: ['ember', { speed: 2, intensity: 0.6 }], verse: [['ember', { speed: 1, intensity: 0.75 }], ['aurora', { speed: 16, intensity: 0.45, depth: 0.85 }]],
-      verseTop: [['meteors', { every: 2, chance: 0.5, travel: 3, tail: 0.3 }], ['bounce', { speed: 4, tail: 0.35 }], ['steps', { zones: 8, every: 2, decay: 2, order: 'random' }, { opacity: 0.7 }]],
-      breakdown: ['aurora', { speed: 16, depth: 0.9, intensity: 0.35 }], outro: ['ember', { speed: 2, intensity: 0.5 }], motion: ['meteors', 'orbit', 'bounce', 'steps'],
-      drops: [{ base: ['battle', { speed: 8, surge: 0.2 }], top: 'motion' }, { base: ['wave', { speed: 2, waves: 2, floor: 0.05 }], top: 'motion' },
-              { base: ['ember', { speed: 0.5, intensity: 1 }], top: ['lightning', { rate: 0.35 }, { opacity: 0.8, blend: 'add' }], flash: true }] },
-    neon: { name: 'Neon club', intro: ['gradient', { speed: 16, intensity: 0.4 }], verse: [['gradient', { speed: 8, intensity: 0.4 }], ['wave', { speed: 4, waves: 1.5, floor: 0 }]],
-      verseTop: [['ripple', { every: 2, travel: 2, width: 0.12 }], ['chase', { speed: 2, size: 0.1, gap: 0.7 }, { opacity: 0.7 }], ['steps', { zones: 8, every: 1, decay: 1, order: 'bounce' }, { opacity: 0.7 }]],
-      breakdown: ['colorwash', { speed: 8, intensity: 0.4 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['ripples', 'sparkles', 'orbit', 'steps'],
-      drops: [{ base: ['chase', { speed: 1, size: 0.12, gap: 0.6 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.55, blend: 'add' }], flash: true },
-              { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
+  /** The material shows are made from: a book of moves for each scene, a kind of music as a lighting
+   *  designer would light it (pop punk, house, R&B, metal...). A song is not given one book: it draws its
+   *  own mix (its beds, what moves over its verses, its motions, its drop moves, its buildups) from the
+   *  scenes its genres belong to, each as likely as the genre model heard it (see sceneWeights), so two
+   *  songs of one scene still differ. How hard any of it goes is the show style's (chill | groove | dance
+   *  | rave), section by section (sectionStyle): the scene says what it looks like, the style how much.
+   *  Each drop recipe is [base effect, its settings] and what goes over it: 'motion' (the song's motion),
+   *  or [effect, settings, clip settings]. `flash` marks one that flashes and `fast` one that races (dance
+   *  and rave only), `rave` one for rave alone, `room` one that needs two lights or more. `calm` scenes
+   *  light a chill song; `dark` ones bring thunder and heartbeats. Builds: see buildSection's buildup. */
+  const SCENES = {
+    indiepop: { name: 'Indie pop', calm: true, near: ['dreamy', 'synthpop'],
+      intro: ['twinkle', { density: 0.2, speed: 4, base: 0.12 }], verse: [['colorwash', { speed: 8, intensity: 0.45 }], ['wave', { speed: 4, waves: 1, floor: 0.1 }], ['roomwave', { speed: 8, floor: 0.1 }]],
+      verseTop: [['bounce', { speed: 2, tail: 0.3 }], ['ripple', { every: 2, travel: 2, width: 0.12 }], ['pulsar', { every: 1, count: 1, size: 0.08, decay: 0.6 }, { opacity: 0.8 }]],
+      breakdown: ['aurora', { speed: 16, intensity: 0.4, depth: 0.7 }], outro: ['colorwash', { speed: 16, intensity: 0.35 }], motion: ['bounce', 'ripples', 'sparkles', 'steps'], builds: ['room', 'climb', 'scan'],
+      drops: [{ base: ['alternate', { every: 1, size: 2, intensity: 0.8 }], top: 'motion', lift: true }, { base: ['wave', { speed: 2, waves: 2, floor: 0.15 }], top: 'motion' },
+              { base: ['halves', { follow: 'drums', every: 1, dim: 0.2 }], top: ['ripple', { every: 1, travel: 1.5, width: 0.12 }, { opacity: 0.8 }], lift: true },
+              { base: ['roomchase', { every: 1, floor: 0.2 }], top: 'motion', room: true, lift: true }] },
+    synthpop: { name: 'Synth-pop', near: ['dancepop', 'indiepop'],
+      intro: ['gradient', { speed: 16, intensity: 0.4 }], verse: [['gradient', { speed: 8, intensity: 0.45 }], ['wave', { speed: 4, waves: 1.5, floor: 0 }]],
+      verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['steps', { zones: 8, every: 1, decay: 0.8, order: 'run' }, { opacity: 0.7 }], ['chase', { speed: 2, size: 0.1, gap: 0.7 }, { opacity: 0.7 }]],
+      breakdown: ['wave', { speed: 16, waves: 1, floor: 0.1 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['scanner', 'steps', 'comets', 'ripples'], builds: ['scan', 'room', 'climb'],
+      drops: [{ base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' }, { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: ['scanner', { speed: 1, size: 0.15 }, { opacity: 0.85 }] },
+              { base: ['chase', { speed: 1, size: 0.12, gap: 0.6 }], top: ['flash', { every: 2, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true },
+              { base: ['roomsplit', { every: 1, pump: 0.35 }], top: 'motion', room: true }] },
+    altrock: { name: 'Alternative rock', near: ['poprock', 'indiepop'],
+      intro: ['breathe', { speed: 4, floor: 0.05 }], verse: [['gradient', { speed: 16, intensity: 0.4 }], ['breathe', { speed: 2, floor: 0.1 }]],
+      verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['bounce', { speed: 2, tail: 0.3 }], ['meteors', { every: 2, chance: 0.5, travel: 3, tail: 0.3 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['ember', { speed: 2, intensity: 0.5 }], motion: ['scanner', 'comets', 'bounce', 'meteors'], builds: ['room', 'dark', 'scan'],
+      drops: [
+              { base: ['roomsplit', { every: 2, pump: 0.35 }], top: ['scanner', { speed: 1, size: 0.15 }, { opacity: 0.8 }], room: true },
+              { base: ['battle', { speed: 4, surge: 0.25 }], top: ['bounce', { speed: 1, tail: 0.3 }, { opacity: 0.9 }] },
+              { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: 'motion' }, { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
+              { base: ['scanner', { speed: 1, size: 0.2, floor: 0.15 }], top: ['flash', { every: 2, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true },
+              { base: ['meter', { direction: 'out', low: 0.45, gain: 1.1, floor: 0.12, color: 'cycle' }], top: 'motion', fast: true }] },   // (a VU meter from the center: in groove it flickers)
+    dancepop: { name: 'Dance-pop', near: ['synthpop', 'house'],
+      intro: ['gradient', { speed: 16, intensity: 0.4 }], verse: [['colorwash', { speed: 8, intensity: 0.45 }], ['alternate', { every: 2, size: 2, intensity: 0.6 }]],
+      verseTop: [['ripple', { every: 2, travel: 2, width: 0.12 }], ['steps', { zones: 8, every: 1, decay: 1, order: 'bounce' }, { opacity: 0.7 }], ['pulsar', { every: 1, count: 2, size: 0.08, decay: 0.5 }, { opacity: 0.8 }]],
+      breakdown: ['breathe', { speed: 8, floor: 0.1 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['ripples', 'sparkles', 'steps', 'orbit'], builds: ['room', 'climb', 'poles'],
+      drops: [{ base: ['halves', { follow: 'drums', every: 1, dim: 0.1 }], top: 'motion' }, { base: ['hitswap', { follow: 'hits', punch: 0.3 }], top: 'motion' },
+              { base: ['roomsplit', { every: 1, pump: 0.4 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true, room: true },
+              { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' }] },
+    poppunk: { name: 'Pop punk', near: ['altrock', 'poprock'],
+      intro: ['breathe', { speed: 2, floor: 0.05 }], verse: [['halves', { follow: 'drums', every: 1, dim: 0.3 }], ['gradient', { speed: 8, intensity: 0.45 }]],
+      verseTop: [['chase', { speed: 1, size: 0.1, gap: 0.6 }, { opacity: 0.7 }], ['steps', { zones: 8, every: 0.5, decay: 0.5, order: 'random' }, { opacity: 0.75 }], ['bounce', { speed: 1, tail: 0.3 }]],
+      breakdown: ['breathe', { speed: 4, floor: 0.1 }], outro: ['breathe', { speed: 2, floor: 0.05 }], motion: ['steps', 'bounce', 'comets', 'scanner'], builds: ['dark', 'room', 'poles'],
+      drops: [{ base: ['chase', { speed: 0.5, size: 0.12, gap: 0.5 }], top: 'motion' }, { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: ['steps', { zones: 8, every: 0.5, decay: 0.4, order: 'random' }, { opacity: 0.85 }] },
+              { base: ['blocks', { every: 0.5, size: 3, density: 0.5 }], top: ['flash', { every: 1, decay: 0.25 }, { opacity: 0.5, blend: 'add' }], flash: true },
+              { base: ['roomchase', { every: 0.5, floor: 0.15 }], top: 'motion', room: true }] },
+    poprock: { name: 'Pop rock', near: ['altrock', 'dancepop'],
+      intro: ['breathe', { speed: 4, floor: 0.05 }], verse: [['gradient', { speed: 16, intensity: 0.45 }], ['colorwash', { speed: 8, intensity: 0.5 }], ['roomwave', { speed: 8, floor: 0.1 }]],
+      verseTop: [['scanner', { speed: 4, size: 0.15 }, { opacity: 0.7 }], ['meteors', { every: 2, chance: 0.5, travel: 3, tail: 0.3 }], ['sparkle', { density: 0.08, life: 0.3 }, { opacity: 0.8 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['colorwash', { speed: 16, intensity: 0.35 }], motion: ['comets', 'scanner', 'sparkles', 'orbit'], builds: ['room', 'scan', 'poles'],
+      drops: [{ base: ['battle', { speed: 8, surge: 0.25 }], top: 'motion' }, { base: ['halves', { follow: 'drums', every: 2, dim: 0.15 }], top: 'motion' },
+              { base: ['colorwash', { speed: 4, intensity: 0.85 }], top: ['scanner', { speed: 1, size: 0.2 }, { opacity: 0.8 }] },
+              { base: ['roomsplit', { every: 2, pump: 0.3 }], top: 'motion', room: true }] },
+    house: { name: 'House', near: ['dancepop', 'electro'],
+      intro: ['gradient', { speed: 16, intensity: 0.4 }], verse: [['wave', { speed: 4, waves: 1.5, floor: 0.05 }], ['colorwash', { speed: 8, intensity: 0.45 }]],
+      verseTop: [['pulsar', { every: 1, count: 2, size: 0.08, decay: 0.5 }, { opacity: 0.85 }], ['ripple', { every: 1, travel: 1, width: 0.1 }], ['sparkle', { density: 0.12, life: 0.2 }, { opacity: 0.8 }]],
+      breakdown: ['aurora', { speed: 16, intensity: 0.4, depth: 0.6 }], outro: ['wave', { speed: 8, waves: 1, floor: 0.1 }], motion: ['ripples', 'sparkles', 'pulsar', 'steps'], builds: ['room', 'climb', 'scan'],
+      drops: [{ base: ['roomchase', { every: 1, floor: 0.15 }], top: 'motion', room: true }, { base: ['alternate', { every: 1, size: 2, intensity: 0.85 }], top: ['sparkle', { density: 0.2, life: 0.15 }, { opacity: 0.9 }] },
+              { base: ['wave', { speed: 1, waves: 2, floor: 0.1 }], top: 'motion' },
+              { base: ['chase', { speed: 1, size: 0.12, gap: 0.6 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.5, blend: 'add' }], flash: true }] },
+    rnb: { name: 'R&B', calm: true, near: ['dreamy', 'hiphop'],
+      intro: ['breathe', { speed: 8, floor: 0.1 }], verse: [['aurora', { speed: 16, intensity: 0.45, depth: 0.7 }], ['colorwash', { speed: 16, intensity: 0.45 }], ['roomwave', { speed: 16, floor: 0.15 }]],
+      verseTop: [['orbit', { speed: 8, count: 2 }, { opacity: 0.8 }], ['sparkle', { density: 0.06, life: 0.4 }, { opacity: 0.8 }], ['pulsar', { every: 2, count: 1, size: 0.1, decay: 0.8 }, { opacity: 0.7 }]],
+      breakdown: ['ember', { speed: 2, intensity: 0.5 }], outro: ['breathe', { speed: 8, floor: 0.1 }], motion: ['orbit', 'sparkles', 'meteors', 'ripples'], builds: ['room', 'climb'],
+      drops: [
+              { base: ['halves', { follow: 'drums', every: 2, dim: 0.2 }], top: ['orbit', { speed: 4, count: 2 }, { opacity: 0.85 }], lift: true },
+              { base: ['hitswap', { follow: 'drums', punch: 0.25 }], top: 'motion', lift: true },
+              { base: ['roomchase', { every: 1, floor: 0.2 }], top: ['sparkle', { density: 0.12, life: 0.25 }, { opacity: 0.85 }], room: true, lift: true },
+              { base: ['wave', { speed: 4, waves: 1, floor: 0.15 }], top: 'motion' }, { base: ['colorwash', { speed: 8, intensity: 0.75 }], top: 'motion' },
+              { base: ['roomwave', { speed: 8, floor: 0.25 }], top: 'motion', room: true },
+              { base: ['breathe', { speed: 2, floor: 0.25 }], top: ['pulsar', { every: 1, count: 2, size: 0.1, decay: 0.6 }, { opacity: 0.85 }] }] },
+    electro: { name: 'Electro house', near: ['house', 'bass'],
+      intro: ['gradient', { speed: 16, intensity: 0.4 }], verse: [['wave', { speed: 4, waves: 1.5, floor: 0 }], ['halves', { every: 2, dim: 0.15 }]],
+      verseTop: [['steps', { zones: 8, every: 1, decay: 0.6, order: 'random' }, { opacity: 0.8 }], ['chase', { speed: 2, size: 0.1, gap: 0.7 }, { opacity: 0.7 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }]],
+      breakdown: ['twinkle', { density: 0.2, speed: 4, base: 0.1 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['steps', 'ripples', 'comets', 'orbit'], builds: ['scan', 'room', 'dark'],
+      drops: [
+              { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: 'motion' },
+              { base: ['roomsplit', { every: 0.5, pump: 0.5 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.5, blend: 'add' }], flash: true, room: true },
               { base: ['hyperchase', { speed: 0.25, size: 0.08 }], top: 'motion', fast: true, rave: true },   // rave only: in a dance song it hurts the eyes
-              { base: ['roomsplit', { every: 1, pump: 0.4 }], top: ['flash', { every: 1, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true, room: true }] },
-    dreamy: { name: 'Dreamy', intro: ['twinkle', { density: 0.25, speed: 4, base: 0.12 }], verse: [['colorwash', { speed: 16, intensity: 0.45 }], ['aurora', { speed: 16, intensity: 0.4, depth: 0.7 }]],
-      verseTop: [['sparkle', { density: 0.08, life: 0.25 }, { opacity: 0.8 }], ['orbit', { speed: 8, count: 2 }, { opacity: 0.8 }]],
-      breakdown: ['twinkle', { density: 0.2, speed: 4, base: 0.15 }], outro: ['colorwash', { speed: 16, intensity: 0.35 }], motion: ['sparkles', 'orbit', 'meteors'],
-      drops: [{ base: ['wave', { speed: 4, waves: 1, floor: 0.1 }], top: 'motion' }, { base: ['colorwash', { speed: 8, intensity: 0.75 }], top: 'motion' },
-              { base: ['roomwave', { speed: 8, floor: 0.25 }], top: 'motion', room: true }] },
-    rock: { name: 'Rock show', intro: ['breathe', { speed: 4, floor: 0.05 }], verse: [['gradient', { speed: 16, intensity: 0.4 }], ['breathe', { speed: 2, floor: 0.1 }]],
-      verseTop: [['scanner', { speed: 2, size: 0.12 }, { opacity: 0.75 }], ['bounce', { speed: 2, tail: 0.3 }], ['steps', { zones: 8, every: 1, decay: 0.75, order: 'run' }, { opacity: 0.75 }]],
-      breakdown: ['aurora', { speed: 16, depth: 0.8, intensity: 0.35 }], outro: ['breathe', { speed: 4, floor: 0.05 }], motion: ['scanner', 'comets', 'bounce', 'steps'],
-      drops: [{ base: ['meter', { direction: 'out', low: 0.45, gain: 1.1, floor: 0.12, color: 'cycle' }], top: 'motion', fast: true },   // (dance and rave: in groove it flickers)   // a VU meter from the center, bouncing with every hit { base: ['blocks', { every: 1, size: 3, density: 0.5 }], top: 'motion' },
-              { base: ['scanner', { speed: 1, size: 0.2, floor: 0.15 }], top: ['flash', { every: 2, decay: 0.3 }, { opacity: 0.45, blend: 'add' }], flash: true }] },
-    storm: { name: 'Storm', intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.9 }], verse: [['battle', { speed: 16, surge: 0.1 }], ['halves', { every: 2, dim: 0.15 }]],
-      verseTop: [['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.25 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }], ['steps', { zones: 8, every: 1, decay: 0.6, order: 'random' }, { opacity: 0.8 }]],
-      breakdown: ['ember', { speed: 2, intensity: 0.5 }], outro: ['aurora', { speed: 16, intensity: 0.35, depth: 0.9 }], motion: ['meteors', 'comets', 'ripples', 'steps'],
-      drops: [{ base: ['battle', { speed: 4, surge: 0.3 }], top: ['lightning', { rate: 0.5 }, { opacity: 0.85, blend: 'add' }], flash: true },
-              { base: ['halves', { every: 1, dim: 0 }], top: 'motion' }, { base: ['gradient', { speed: 4, stretch: 0.67, intensity: 0.8 }], top: 'motion' },
+              { base: ['chase', { speed: 0.5, size: 0.12, gap: 0.6 }], top: 'motion' }, { base: ['hitswap', { follow: 'hits', punch: 0.4 }], top: 'motion' },
+              { base: ['blocks', { every: 0.5, size: 3, density: 0.5 }], top: ['strobe', { every: 0.5, duty: 0.25 }, { opacity: 0.5, blend: 'add' }], flash: true }] },
+    hiphop: { name: 'Hip-hop', near: ['rnb', 'bass'],
+      intro: ['ember', { speed: 2, intensity: 0.5 }], verse: [['breathe', { speed: 2, floor: 0.05 }], ['ember', { speed: 1, intensity: 0.7 }]],
+      verseTop: [['pulsar', { every: 1, count: 1, size: 0.1, decay: 0.7 }, { opacity: 0.85 }], ['meteors', { every: 2, chance: 0.4, travel: 2, tail: 0.3 }], ['bounce', { speed: 4, tail: 0.35 }]],
+      breakdown: ['ember', { speed: 2, intensity: 0.45 }], outro: ['breathe', { speed: 4, floor: 0.05 }], motion: ['pulsar', 'meteors', 'bounce', 'orbit'], builds: ['dark', 'room'],
+      drops: [{ base: ['hitswap', { follow: 'hits', punch: 0.3 }], top: 'motion' }, { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: 'motion' },
+              { base: ['wave', { speed: 2, waves: 1, floor: 0 }], top: ['pulsar', { every: 1, count: 2, size: 0.1, decay: 0.5 }, { opacity: 0.9 }] },
+              { base: ['roomsplit', { every: 1, pump: 0.5 }], top: 'motion', room: true }] },
+    metal: { name: 'Metal', dark: true, near: ['altrock', 'industrial'],
+      intro: ['ember', { speed: 1, intensity: 0.6 }], verse: [['battle', { speed: 8, surge: 0.2 }], ['halves', { follow: 'drums', every: 1, dim: 0.2 }]],
+      verseTop: [['scanner', { speed: 1, size: 0.15 }, { opacity: 0.8 }], ['lightning', { rate: 0.2 }, { opacity: 0.6, blend: 'add' }], ['steps', { zones: 8, every: 0.5, decay: 0.4, order: 'random' }, { opacity: 0.8 }]],
+      breakdown: ['ember', { speed: 1, intensity: 0.6 }], outro: ['ember', { speed: 2, intensity: 0.5 }], motion: ['scanner', 'steps', 'meteors', 'bounce'], builds: ['dark', 'poles', 'room'],
+      drops: [
+              { base: ['battle', { speed: 4, surge: 0.3 }], top: ['scanner', { speed: 1, size: 0.15 }, { opacity: 0.85 }] },
+              { base: ['blocks', { every: 1, size: 2, density: 0.45 }], top: 'motion' },
+              { base: ['battle', { speed: 4, surge: 0.3 }], top: ['lightning', { rate: 0.5 }, { opacity: 0.85, blend: 'add' }], flash: true },
+              { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: 'motion' }, { base: ['hitswap', { follow: 'drums', punch: 0.5 }], top: 'motion' },
+              { base: ['blocks', { every: 0.5, size: 2, density: 0.45 }], top: ['strobe', { every: 0.25, duty: 0.3 }, { opacity: 0.5, blend: 'add' }], flash: true, fast: true }] },
+    bass: { name: 'Bass music', dark: true, near: ['electro', 'dnb'],
+      intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.9 }], verse: [['battle', { speed: 16, surge: 0.1 }], ['wave', { speed: 4, waves: 1, floor: 0 }]],
+      verseTop: [['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.25 }], ['dualcomet', { speed: 4, tail: 0.3 }, { opacity: 0.8 }], ['pulsar', { every: 1, count: 2, size: 0.08, decay: 0.5 }, { opacity: 0.8 }]],
+      breakdown: ['ember', { speed: 2, intensity: 0.5 }], outro: ['aurora', { speed: 16, intensity: 0.35, depth: 0.9 }], motion: ['meteors', 'comets', 'ripples', 'steps'], builds: ['dark', 'scan'],
+      drops: [
+              { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: ['pulsar', { every: 1, count: 2, size: 0.08, decay: 0.4 }, { opacity: 0.9 }] },
+              { base: ['hitswap', { follow: 'hits', punch: 0.5 }], top: 'motion' },
+              { base: ['battle', { speed: 4, surge: 0.3 }], top: ['lightning', { rate: 0.5 }, { opacity: 0.85, blend: 'add' }], flash: true },
               { base: ['roomsplit', { every: 0.5, pump: 0.5 }], top: 'motion', room: true }] },
+    industrial: { name: 'Industrial', dark: true, near: ['metal', 'techno'],
+      intro: ['ember', { speed: 1, intensity: 0.5 }], verse: [['halves', { follow: 'drums', every: 1, dim: 0.25 }], ['ember', { speed: 1, intensity: 0.7 }]],
+      verseTop: [['scanner', { speed: 2, size: 0.1 }, { opacity: 0.8 }], ['lightning', { rate: 0.15 }, { opacity: 0.5, blend: 'add' }], ['pulsar', { every: 1, count: 1, size: 0.06, decay: 0.4 }, { opacity: 0.85 }]],
+      breakdown: ['ember', { speed: 2, intensity: 0.4 }], outro: ['ember', { speed: 2, intensity: 0.4 }], motion: ['scanner', 'steps', 'meteors'], builds: ['dark', 'scan'],
+      drops: [
+              { base: ['battle', { speed: 4, surge: 0.3 }], top: ['scanner', { speed: 1, size: 0.12 }, { opacity: 0.85 }] },
+              { base: ['blocks', { every: 0.5, size: 2, density: 0.4 }], top: 'motion' },
+              { base: ['hitswap', { follow: 'drums', punch: 0.5 }], top: ['lightning', { rate: 0.35 }, { opacity: 0.7, blend: 'add' }], flash: true },
+              { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: 'motion' }] },
+    trance: { name: 'Trance', near: ['electro', 'house'],
+      intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.8 }], verse: [['gradient', { speed: 8, intensity: 0.45 }], ['wave', { speed: 8, waves: 1, floor: 0.1 }], ['roomwave', { speed: 8, floor: 0.1 }]],
+      verseTop: [['orbit', { speed: 4, count: 2 }, { opacity: 0.8 }], ['sparkle', { density: 0.1, life: 0.3 }, { opacity: 0.8 }], ['scanner', { speed: 4, size: 0.2 }, { opacity: 0.7 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.9, intensity: 0.4 }], outro: ['aurora', { speed: 16, intensity: 0.35, depth: 0.8 }], motion: ['orbit', 'sparkles', 'comets', 'ripples'], builds: ['scan', 'climb', 'room'],
+      drops: [{ base: ['gradient', { speed: 2, stretch: 0.5, intensity: 0.85 }], top: 'motion' }, { base: ['wave', { speed: 1, waves: 2, floor: 0.15 }], top: 'motion' },
+              { base: ['roomwave', { speed: 4, floor: 0.2 }], top: ['sparkle', { density: 0.25, life: 0.15 }, { opacity: 0.9 }], room: true },
+              { base: ['chase', { speed: 0.5, size: 0.15, gap: 0.5 }], top: ['flash', { every: 1, decay: 0.35 }, { opacity: 0.4, blend: 'add' }], flash: true }] },
+    cinematic: { name: 'Soundtrack', calm: true, near: ['dreamy'],
+      intro: ['aurora', { speed: 16, intensity: 0.35, depth: 0.9 }], verse: [['aurora', { speed: 16, intensity: 0.45, depth: 0.8 }], ['colorwash', { speed: 16, intensity: 0.45 }]],
+      verseTop: [['meteors', { every: 4, chance: 0.4, travel: 4, tail: 0.35 }], ['sparkle', { density: 0.05, life: 0.5 }, { opacity: 0.8 }], ['orbit', { speed: 16, count: 1 }, { opacity: 0.7 }]],
+      breakdown: ['twinkle', { density: 0.2, speed: 4, base: 0.12 }], outro: ['aurora', { speed: 16, intensity: 0.3, depth: 0.9 }], motion: ['meteors', 'sparkles', 'orbit'], builds: ['room', 'climb'],
+      drops: [
+              { base: ['halves', { follow: 'drums', every: 2, dim: 0.2 }], top: 'motion', lift: true },
+              { base: ['roomsplit', { every: 2, pump: 0.3 }], top: ['meteors', { every: 1, chance: 0.5, travel: 2, tail: 0.3 }], room: true, lift: true },
+              { base: ['colorwash', { speed: 8, intensity: 0.85 }], top: 'motion' }, { base: ['wave', { speed: 4, waves: 1, floor: 0.2 }], top: 'motion' },
+              { base: ['roomwave', { speed: 8, floor: 0.3 }], top: 'motion', room: true }] },
+    techno: { name: 'Techno', near: ['industrial', 'house'],
+      intro: ['breathe', { speed: 4, floor: 0.02 }], verse: [['pulsar', { every: 1, count: 1, size: 0.08, decay: 0.5 }], ['breathe', { speed: 1, floor: 0.05 }]],
+      verseTop: [['scanner', { speed: 4, size: 0.1 }, { opacity: 0.7 }], ['steps', { zones: 8, every: 1, decay: 0.5, order: 'run' }, { opacity: 0.7 }], ['ripple', { every: 2, travel: 1, width: 0.08 }]],
+      breakdown: ['breathe', { speed: 8, floor: 0.05 }], outro: ['breathe', { speed: 4, floor: 0.02 }], motion: ['steps', 'scanner', 'pulsar', 'ripples'], builds: ['dark', 'scan'],
+      drops: [{ base: ['pulsar', { every: 0.5, count: 2, size: 0.08, decay: 0.4 }], top: 'motion' }, { base: ['roomchase', { every: 0.5, floor: 0 }], top: 'motion', room: true },
+              { base: ['blocks', { every: 0.5, size: 3, density: 0.3 }], top: ['strobe', { every: 0.5, duty: 0.25 }, { opacity: 0.45, blend: 'add' }], flash: true },
+              { base: ['halves', { follow: 'drums', every: 1, dim: 0 }], top: 'motion' }] },
+    dreamy: { name: 'Dreamy', calm: true, near: ['indiepop', 'rnb'],
+      intro: ['twinkle', { density: 0.25, speed: 4, base: 0.12 }], verse: [['colorwash', { speed: 16, intensity: 0.45 }], ['aurora', { speed: 16, intensity: 0.4, depth: 0.7 }]],
+      verseTop: [['sparkle', { density: 0.08, life: 0.25 }, { opacity: 0.8 }], ['orbit', { speed: 8, count: 2 }, { opacity: 0.8 }], ['ripple', { every: 4, travel: 3, width: 0.15 }, { opacity: 0.8 }]],
+      breakdown: ['twinkle', { density: 0.2, speed: 4, base: 0.15 }], outro: ['colorwash', { speed: 16, intensity: 0.35 }], motion: ['sparkles', 'orbit', 'meteors'], builds: ['room', 'climb'],
+      drops: [
+              { base: ['alternate', { every: 2, size: 3, intensity: 0.7 }], top: 'motion', lift: true },
+              { base: ['wave', { speed: 4, waves: 1, floor: 0.1 }], top: 'motion' }, { base: ['colorwash', { speed: 8, intensity: 0.75 }], top: 'motion' },
+              { base: ['roomwave', { speed: 8, floor: 0.25 }], top: 'motion', room: true },
+              { base: ['aurora', { speed: 8, intensity: 0.8, depth: 0.6 }], top: ['pulsar', { every: 2, count: 2, size: 0.1, decay: 0.8 }, { opacity: 0.8 }] }] },
+    dnb: { name: 'Drum and bass', near: ['bass', 'electro'],
+      intro: ['aurora', { speed: 16, intensity: 0.4, depth: 0.8 }], verse: [['wave', { speed: 2, waves: 2, floor: 0 }], ['battle', { speed: 8, surge: 0.2 }]],
+      verseTop: [['dualcomet', { speed: 2, tail: 0.3 }, { opacity: 0.8 }], ['scanner', { speed: 1, size: 0.12 }, { opacity: 0.75 }], ['steps', { zones: 8, every: 0.5, decay: 0.4, order: 'run' }, { opacity: 0.75 }]],
+      breakdown: ['aurora', { speed: 16, depth: 0.9, intensity: 0.35 }], outro: ['wave', { speed: 4, waves: 1, floor: 0.05 }], motion: ['comets', 'scanner', 'steps', 'ripples'], builds: ['scan', 'dark'],
+      drops: [{ base: ['hyperchase', { speed: 0.25, size: 0.08 }], top: 'motion', fast: true, rave: true }, { base: ['chase', { speed: 0.5, size: 0.1, gap: 0.5 }], top: 'motion' },
+              { base: ['hitswap', { follow: 'hits', punch: 0.4 }], top: 'motion' }, { base: ['blocks', { every: 0.25, size: 2, density: 0.4 }], top: 'motion', fast: true }] },
+    folk: { name: 'Folk', calm: true, near: ['dreamy', 'jazz'],
+      intro: ['candle', { level: 0.45 }], verse: [['ember', { speed: 1, intensity: 0.6 }], ['breathe', { speed: 8, floor: 0.15 }]],
+      verseTop: [['meteors', { every: 4, chance: 0.3, travel: 4, tail: 0.35 }], ['sparkle', { density: 0.04, life: 0.5 }, { opacity: 0.7 }], ['ripple', { every: 4, travel: 3, width: 0.15 }]],
+      breakdown: ['candle', { level: 0.4 }], outro: ['candle', { level: 0.4 }], motion: ['meteors', 'ripples', 'sparkles'], builds: ['room', 'climb'],
+      drops: [
+              { base: ['halves', { follow: 'drums', every: 2, dim: 0.25 }], top: 'motion', lift: true },
+              { base: ['ember', { speed: 0.5, intensity: 1 }], top: 'motion' }, { base: ['wave', { speed: 4, waves: 1, floor: 0.2 }], top: 'motion' },
+              { base: ['roomwave', { speed: 8, floor: 0.3 }], top: 'motion', room: true }] },
+    latin: { name: 'Latin', near: ['dancepop', 'house'],
+      intro: ['gradient', { speed: 16, intensity: 0.45 }], verse: [['alternate', { every: 1, size: 2, intensity: 0.6 }], ['wave', { speed: 4, waves: 1.5, floor: 0.1 }]],
+      verseTop: [['bounce', { speed: 2, tail: 0.3 }], ['ripple', { every: 1, travel: 1.5, width: 0.12 }], ['steps', { zones: 8, every: 1, decay: 0.8, order: 'bounce' }, { opacity: 0.75 }]],
+      breakdown: ['colorwash', { speed: 8, intensity: 0.45 }], outro: ['gradient', { speed: 16, intensity: 0.35 }], motion: ['bounce', 'ripples', 'sparkles', 'steps'], builds: ['room', 'poles', 'climb'],
+      drops: [{ base: ['halves', { follow: 'drums', every: 1, dim: 0.1 }], top: 'motion' }, { base: ['roomchase', { every: 1, floor: 0.2 }], top: 'motion', room: true },
+              { base: ['alternate', { every: 0.5, size: 2, intensity: 0.85 }], top: ['sparkle', { density: 0.15, life: 0.2 }, { opacity: 0.85 }] },
+              { base: ['hitswap', { follow: 'hits', punch: 0.3 }], top: 'motion' }] },
+    jazz: { name: 'Jazz and blues', calm: true, near: ['rnb', 'folk'],
+      intro: ['breathe', { speed: 8, floor: 0.15 }], verse: [['ember', { speed: 1, intensity: 0.65 }], ['colorwash', { speed: 16, intensity: 0.45 }]],
+      verseTop: [['sparkle', { density: 0.05, life: 0.4 }, { opacity: 0.8 }], ['orbit', { speed: 8, count: 1 }, { opacity: 0.75 }], ['pulsar', { every: 2, count: 1, size: 0.1, decay: 0.8 }, { opacity: 0.7 }]],
+      breakdown: ['ember', { speed: 2, intensity: 0.5 }], outro: ['breathe', { speed: 8, floor: 0.1 }], motion: ['orbit', 'sparkles', 'bounce'], builds: ['room'],
+      drops: [
+              { base: ['halves', { follow: 'drums', every: 2, dim: 0.2 }], top: ['bounce', { speed: 2, tail: 0.3 }, { opacity: 0.85 }], lift: true },
+              { base: ['wave', { speed: 4, waves: 1, floor: 0.2 }], top: 'motion' }, { base: ['ember', { speed: 0.5, intensity: 1 }], top: 'motion' },
+              { base: ['alternate', { every: 2, size: 3, intensity: 0.7 }], top: 'motion' }] },
   };
-  /** Draw the song's own mix of effects (S.mix), its motions, and which kinds of light are ticked. Jam
-   *  mode calls it again when it learns a song's style part way through, before building the rest.
-   *  The draw is seeded by the song (its length and tempo): the same song gets the same show on every
-   *  rebuild, and two songs of one vibe get different ones. */
+  // Which scene each of the genre model's labels belongs to: MAEST's Discogs styles ("Genre---Style") by the
+  // whole label where a style name means two things, else by the style, else by its genre; AudioSet's
+  // labels (the older model) and Spotify's words by keyword.
+  const SCENE_LABEL = { 'Rock---Hardcore': 'metal', 'Electronic---Hardcore': 'dnb', 'Hip Hop---Trap': 'hiphop', 'Electronic---Trap': 'bass',
+    'Electronic---Ambient': 'dreamy', 'Rock---Psychedelic Rock': 'altrock', 'Funk / Soul---Disco': 'house', 'Electronic---Disco': 'house' };
+  const SCENE_STYLE = {
+    indiepop: ['Indie Pop', 'Twee Pop', 'Bubblegum', 'Power Pop', 'Chamber Pop', 'Baroque Pop'],
+    synthpop: ['Synth-pop', 'Synthwave', 'New Wave', 'Electroclash', 'Italo-Disco', 'Minimal Wave', 'Darkwave', 'Electropop', 'Hi NRG'],
+    altrock: ['Alternative Rock', 'Indie Rock', 'Grunge', 'Post-Punk', 'Garage Rock', 'Math Rock', 'Britpop', 'Shoegaze', 'Noise Rock', 'Lo-Fi', 'Post Rock', 'Psychedelic Rock', 'Stoner Rock', 'Art Rock', 'Experimental'],
+    dancepop: ['Dance-pop', 'Europop', 'K-pop', 'J-pop', 'Teen Pop', 'Schlager', 'Eurodance', 'Novelty', 'Vocal'],
+    poppunk: ['Pop Punk', 'Punk', 'Emo', 'Ska', 'Skate Punk', 'Melodic Hardcore', 'Oi', 'Psychobilly'],
+    poprock: ['Pop Rock', 'Soft Rock', 'Classic Rock', 'Hard Rock', 'Arena Rock', 'AOR', 'Rock & Roll', 'Blues Rock', 'Southern Rock', 'Glam', 'Rockabilly', 'Prog Rock', 'Symphonic Rock'],
+    house: ['House', 'Deep House', 'Disco', 'Nu-Disco', 'Tech House', 'Tropical House', 'UK Garage', 'Speed Garage', 'Acid House', 'Euro House', 'Italo House', 'Garage House', 'Boogie', 'Funk', 'Afro House', 'Electro Swing'],
+    rnb: ['Contemporary R&B', 'RnB/Swing', 'Rhythm & Blues', 'Neo Soul', 'Soul', 'Gospel', 'Ballad', 'Smooth Jazz', 'Quiet Storm', 'Motown'],
+    electro: ['Electro House', 'Electro', 'Big Room', 'Hard House', 'Big Beat', 'Breakbeat', 'Breaks', 'Bassline', 'Hands Up', 'Fidget', 'Moombahton', 'Complextro', 'Jersey Club'],
+    hiphop: ['Hip Hop', 'Trap', 'Pop Rap', 'Gangsta', 'Boom Bap', 'Grime', 'Cloud Rap', 'Drill', 'Conscious', 'Crunk', 'Bounce', 'Hardcore Hip-Hop', 'Horrorcore', 'Instrumental'],
+    metal: ['Heavy Metal', 'Metalcore', 'Nu Metal', 'Post-Hardcore', 'Death Metal', 'Thrash', 'Gothic Metal', 'Alternative Metal', 'Deathcore', 'Black Metal', 'Doom Metal', 'Power Metal', 'Speed Metal', 'Sludge Metal', 'Progressive Metal', 'Grindcore', 'Industrial Metal'],
+    bass: ['Dubstep', 'Bass Music', 'Halftime', 'Glitch Hop', 'Future Bass', 'Riddim', 'Juke'],
+    industrial: ['Industrial', 'EBM', 'Goth Rock', 'Coldwave', 'Gothic Rock', 'Aggrotech', 'Noise', 'Power Electronics', 'Dark Ambient', 'Witch House'],
+    trance: ['Trance', 'Progressive Trance', 'Progressive House', 'Psy-Trance', 'Goa Trance', 'Hard Trance', 'Tech Trance', 'Progressive Breaks', 'Uplifting Trance'],
+    cinematic: ['Soundtrack', 'Score', 'Musical', 'Theme', 'Modern Classical', 'Neo-Classical', 'Opera', 'Romantic', 'Baroque', 'Classical', 'Video Game Music', 'Spoken Word'],
+    techno: ['Techno', 'Minimal', 'Minimal Techno', 'Hard Techno', 'Deep Techno', 'Schranz', 'Acid', 'Dub Techno', 'Tribal', 'Detroit Techno'],
+    dreamy: ['Downtempo', 'Trip Hop', 'Chillwave', 'Ambient', 'Lo-Fi', 'Dream Pop', 'IDM', 'Abstract', 'New Age', 'Chillout', 'Leftfield', 'Vaporwave'],
+    dnb: ['Drum n Bass', 'Jungle', 'Breakcore', 'Liquid Funk', 'Hardstyle', 'Gabber', 'Happy Hardcore', 'Speedcore', 'Jumpstyle', 'Neurofunk'],
+    folk: ['Folk', 'Folk Rock', 'Acoustic', 'Country', 'Bluegrass', 'Singer/Songwriter', 'Americana', 'Country Rock', 'Celtic'],
+    latin: ['Reggaeton', 'Dancehall', 'Afrobeat', 'Cumbia', 'Salsa', 'Soca', 'Bachata', 'Merengue', 'Latin', 'Reggae', 'Dub', 'Samba', 'Bossanova', 'Afrobeats', 'Kuduro'],
+    jazz: ['Swing', 'Big Band', 'Lounge', 'Cool Jazz', 'Bebop', 'Jazz-Funk', 'Fusion', 'Piano Blues', 'Delta Blues', 'Chicago Blues', 'Easy Listening', 'Cabaret'],
+  };
+  const SCENE_OF_STYLE = Object.fromEntries(Object.entries(SCENE_STYLE).flatMap(([k, v]) => v.map(st => [st, k])));
+  const SCENE_GENRE = { Electronic: 'electro', Rock: 'altrock', Pop: 'dancepop', 'Hip Hop': 'hiphop', 'Funk / Soul': 'rnb', Jazz: 'jazz', Blues: 'jazz',
+    Classical: 'cinematic', 'Stage & Screen': 'cinematic', 'Folk, World, & Country': 'folk', Latin: 'latin', Reggae: 'latin', "Children's": 'indiepop',
+    'Brass & Military': 'cinematic', 'Non-Music': 'cinematic' };
+  const SCENE_WORDS = [[/dubstep|riddim|brostep|bass music/, 'bass'], [/drum and bass|drum n bass|dnb|jungle|hardstyle|hardcore techno/, 'dnb'], [/techno/, 'techno'],
+    [/trance/, 'trance'], [/electro house|big room|edm|electro/, 'electro'], [/house|disco|garage/, 'house'], [/metal|core\b|hardcore/, 'metal'], [/industrial|goth/, 'industrial'],
+    [/punk|emo|ska/, 'poppunk'], [/hip hop|hip-hop|rap|trap|drill|grime/, 'hiphop'], [/r&b|rhythm and blues|soul|gospel/, 'rnb'], [/reggae|latin|salsa|reggaeton|dancehall|afro/, 'latin'],
+    [/jazz|blues|swing/, 'jazz'], [/folk|country|acoustic|bluegrass/, 'folk'], [/ambient|downtempo|chill|lo-fi|lofi|new-age|new age|trip hop/, 'dreamy'],
+    [/soundtrack|classical|orchestral|opera|score|musical/, 'cinematic'], [/synth|new wave/, 'synthpop'], [/indie pop|dream pop/, 'indiepop'],
+    [/alternative|indie|grunge|psychedelic|rock music|^rock/, 'altrock'], [/rock/, 'poprock'], [/pop/, 'dancepop']];
+  function sceneOf(label) {
+    if (SCENE_LABEL[label]) return SCENE_LABEL[label];
+    const [g, st] = label.includes('---') ? label.split('---') : [null, label];
+    if (SCENE_OF_STYLE[st]) return SCENE_OF_STYLE[st];
+    if (g && SCENE_GENRE[g]) return SCENE_GENRE[g];
+    const w = String(st).toLowerCase(), hit = SCENE_WORDS.find(([re]) => re.test(w));
+    return hit ? hit[1] : null;
+  }
+  /** How likely each scene's moves are in this song (the best fit 1). From the genre model's scores, each
+   *  scene by its strongest label and a little more for every other of its labels (a rock song has many
+   *  rock labels; summing them all buried Passion Pit's indie and synth pop under its one rock guess). The
+   *  scenes heard at a third of the best or more take part, the best one's neighbors a little (a move or
+   *  two from next door), nothing from scenes the song is not. A chill song draws from calm scenes only. */
+  function sceneWeights() {
+    const g = (S.analysis && S.analysis.genre) || {}, st = showStyle(), best = {}, rest = {};
+    const add = (k, v) => { if (!k || !SCENES[k]) return; if (v > (best[k] || 0)) { rest[k] = (rest[k] || 0) + (best[k] || 0); best[k] = v; } else rest[k] = (rest[k] || 0) + v; };
+    for (const [label, v] of Object.entries(g.scores || {})) add(sceneOf(label), label.startsWith('Stage & Screen---') ? v * 0.5 : v);
+    if (!Object.keys(best).length) (g.genres || []).forEach((label, i) => add(sceneOf(label), 1 - 0.25 * i));
+    if (!Object.keys(best).length) for (const sp of g.spotify || []) add(sceneOf(sp), 0.5);
+    if (!Object.keys(best).length) add({ chill: 'dreamy', groove: 'poprock', dance: 'dancepop', rave: 'electro' }[st], 1);
+    const raw = Object.fromEntries(Object.keys(best).map(k => [k, best[k] + 0.3 * (rest[k] || 0)]));
+    let keys = Object.keys(raw);
+    if (st === 'chill') { keys = keys.filter(k => SCENES[k].calm); if (!keys.length) { keys = ['dreamy']; raw.dreamy = 1; } }
+    const top = Math.max(...keys.map(k => raw[k])), w = {};
+    for (const k of keys) { const r = raw[k] / top; if (r >= 0.33) w[k] = r * r; }
+    const lead = keys.sort((x, y) => raw[y] - raw[x])[0];
+    for (const k of SCENES[lead].near || []) if (!(k in w) && (st !== 'chill' || SCENES[k].calm)) w[k] = 0.1;
+    return w;
+  }
+  /** Draw the song's own mix of effects (S.mix), its motions, its buildups, and which kinds of light are
+   *  ticked. Jam mode calls it again when it learns a song's style part way through, before building the
+   *  rest. The draw is seeded by the song (its length and tempo): the same song gets the same show on
+   *  every rebuild, and two songs of one scene get different ones. */
   function pickLook() {
-    const a0 = S.analysis || {}, w = lookWeights();
+    const a0 = S.analysis || {}, w = sceneWeights();
     const seed = Math.round((a0.duration || 0) * 10) + Math.round((a0.bpm || 0) * 100);
     S.lookSeed = seed;
     let n = 0; const rnd = () => Effects.hash(seed + 7919 * ++n);
-    // a weighted draw without repeats: each family's entries as likely as the family suits the song
+    // a weighted draw without repeats: each scene's entries as likely as the scene suits the song
     // (Efraimidis-Spirakis keys), one entry per effect so two picks are never the same thing twice
-    const order = (slot, name = x => x[0], like = () => 1) => {
+    // (sharp > 1 leans harder on the song's own scene: its drops are its signature, a second scene's are a guest)
+    const order = (slot, name = x => x[0], like = () => 1, sharp = 1) => {
       const seen = new Set();
-      return Object.entries(LOOKS).flatMap(([k, l]) => (w[k] > 0 ? [].concat(slot(l)).map(x => [x, Math.pow(rnd(), 1 / (w[k] * like(x)))]) : []))
+      return Object.entries(SCENES).flatMap(([k, l]) => (w[k] > 0 ? [].concat(slot(l) || []).map(x => [x, Math.pow(rnd(), 1 / (Math.pow(w[k], sharp) * like(x)))]) : []))
         .sort((x, y) => y[1] - x[1]).map(x => x[0]).filter(x => !seen.has(name(x)) && seen.add(name(x)));
     };
     const bed = slot => order(l => [slot(l)])[0];
@@ -1841,16 +2059,22 @@
     S.mix = {
       intro: bed(l => l.intro), breakdown: bed(l => l.breakdown), outro: bed(l => l.outro),
       verse: [verse[0], verse[1] || verse[0]], verseTop: [tops[0], tops[1] || tops[0]],
-      drops: order(l => l.drops, r => r.base[0]),                    // in the song's own order; the first that fit are used
+      drops: order(l => l.drops, r => r.base[0], () => 1, 2),        // in the song's own order; the first that fit are used
     };
+    // a long breakdown's every other 8 bars on a second bed (a different one, its own scene's or a neighbor's)
+    { const b2 = order(l => [l.breakdown, l.intro]).find(x => x[0] !== S.mix.breakdown[0]); S.mix.breakdown2 = b2 || S.mix.breakdown; }
+    S.builds = order(l => l.builds || ['room'], x => x).slice(0, 2);          // how its buildups go (two, in turn)
     S.stepOrder = ['run', 'bounce', 'random'][Math.floor(rnd() * 3)];          // how this song's stage steps go
     const tint = rnd();                                                         // its stars: white half the time
     S.starTint = tint < 0.5 ? 'white' : tint < 0.8 ? 'palette' : 'warm';
     // what drifts over its intro, breakdowns and outro (it used to be meteors in every song)
     S.drift = [['meteors', { every: 4, chance: 0.35, travel: 4 }], ['steps', { zones: 8, every: 2, decay: 2.5, order: 'random' }, { opacity: 0.6 }],
                ['sparkle', { density: 0.05, life: 0.4 }, { opacity: 0.8 }]][Math.floor(rnd() * 3)];
-    S.look = Object.entries(w).sort((x, y) => y[1] - x[1])[0][0];   // the family it leans to most
-    S.dark = (w.haunted + w.storm) >= 0.5 * Object.values(w).reduce((x, y) => x + y, 0);   // thunder and heartbeats
+    const ranked = Object.entries(w).sort((x, y) => y[1] - x[1]);
+    S.look = ranked[0][0];                                            // the scene it leans to most
+    S.sceneNames = ranked.filter(([, v]) => v >= 0.25).slice(0, 2).map(([k]) => SCENES[k].name);
+    const total = ranked.reduce((x, [, v]) => x + v, 0);
+    S.dark = ranked.filter(([k]) => SCENES[k].dark).reduce((x, [, v]) => x + v, 0) >= 0.5 * total;   // thunder and heartbeats
     // the song's own motion, and a second for every other drop
     // ...never the move its verses already make (stage steps over the verse and again over the drop: the
     // drop looked just like the verse)
@@ -1862,37 +2086,33 @@
     S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
   }
   const SWEEPS = new Set(['comets', 'scanner', 'bounce', 'meteors', 'orbit']);    // motions that travel the strip (drawn half as often)
-  /** How likely each family of effects is in this song's mix (the best fit 1): from its style, drive,
-   *  brightness, key and genre. The family that fits best carries the song, the ones close to it often
-   *  join in, and every other a little (a move or two from elsewhere), so no two songs of one vibe are
-   *  the same show. A calm song draws soft things only, a song without drums no rock show, and a dance
-   *  or rave song rarely a dreamy (gentle) drop. */
-  function lookWeights() {
-    const sc = lookScores(), best = Math.max(...Object.values(sc), 1e-6), w = {}, st = showStyle();
-    for (const [k, v] of Object.entries(sc)) {
-      const r = v / best;
-      if (st === 'chill') w[k] = r >= 0.6 ? Math.pow(r, 3) : 0;
-      else if (k === 'rock' && noDrums()) w[k] = 0;
-      else w[k] = Math.max(r * r, k === 'dreamy' && (st === 'dance' || st === 'rave') ? 0.03 : 0.08);
-    }
-    return w;
+  /** How hard one section goes: the song's show style, moved one step (groove and dance only) by how loud
+   *  the section is next to the rest of the same song, never by how loud it is outright: a song mastered
+   *  loud from start to end, or one mixed quiet, has no contrast to go on and keeps its style. A drop or a
+   *  buildup that stands out can go up, a verse, intro or breakdown well below the song's run can come
+   *  down, and only as far as the genre model's own level allows (a song near the line crosses it, one far
+   *  from it does not). A calm song stays calm, a rave stays a rave, and a style set by hand is kept. */
+  function sectionStyle(s) {
+    const st = showStyle(), p = P(), g = (S.analysis && S.analysis.genre) || {};
+    if ((p && p.settings && STYLE_NAMES[p.settings.style]) || st === 'chill' || st === 'rave' || typeof g.level !== 'number') return st;
+    const r = relLoud(s), up = s.type === 'drop' || s.type === 'buildup';
+    if (up ? r <= 0 : r >= 0) return st;
+    return g.level + 0.4 * r >= 1.6 ? 'dance' : 'groove';            // (genre.py's line between groove and dance)
   }
-  /** Each family's fit to the song: from its style, drive, brightness, key and genre. */
-  function lookScores() {
-    const a = S.analysis || {}, m = a.mood || {}, st = showStyle();
-    const drive = m.drive ?? 0.5, bright = m.brightness ?? 0.5, minor = m.mode === 'minor';
-    const g = songGenres();
-    const rocky = /rock|indie|independent|punk|alternative|grunge|metal|emo|folk/.test(g), electronic = ELECTRONIC.test(g);
-    if (st === 'chill') return { dreamy: 1, haunted: minor ? 0.75 : 0, neon: 0, rock: 0, storm: 0 };   // a calm song: soft things only (a minor one, embers too)
-    const clubby = st === 'dance' || st === 'rave', heavy = /dubstep|bass music|metal|hardstyle|trap|drum and bass/.test(g);
-    const score = {
-      haunted: (minor ? 1 : 0.3) * (1 - 0.6 * Math.abs(drive - 0.5) * 2) * (1 - 0.5 * bright) * (st === 'rave' ? 0.5 : 1),
-      neon: (clubby ? 1 : 0.4) * (0.3 + 0.7 * bright) * (minor ? 0.6 : 1) * (electronic ? 1 : 0.7),
-      dreamy: ({ groove: 0.7, chill: 1 }[st] || 0.25) * Math.max(0.05, 1.2 - drive) * (minor ? 0.7 : 1) * (0.5 + 0.5 * bright),
-      rock: (st === 'groove' ? 1 : 0.4) * (rocky ? 1 : 0.45) * (0.4 + 0.6 * drive) * (electronic ? 0.5 : 1) * (noDrums() ? 0.2 : 1),   // a rock show needs a drummer
-      storm: (minor ? 1 : 0.3) * (0.3 + 0.7 * drive) * (clubby ? 1 : 0.4) * (heavy ? 1 : 0.8) * (1 - 0.4 * bright),
-    };
-    return score;
+  /** How loud a section is within its own song, -1 (as quiet as it gets) to 1 (as loud as its loudest
+   *  stretches); 0 when the song has little contrast to judge by. */
+  function relLoud(s) {
+    const a = S.analysis; if (!a || !a.energy || !a.energy.length) return 0;
+    if (!a._loud) {
+      const w = Math.max(1, Math.round(2 * (a.feature_fps || 30))), en = a.energy, e = [];
+      for (let i = 0; i + w <= en.length; i += w) { let m = 0; for (let j = i; j < i + w; j++) m += en[j]; if (m / w > 0.02) e.push(m / w); }
+      e.sort((x, y) => x - y);
+      const q = k => e[Math.min(e.length - 1, Math.floor(k * e.length))] || 0;
+      a._loud = { lo: q(0.15), mid: q(0.5), hi: q(0.9), ok: e.length > 15 && q(0.9) >= 1.25 * q(0.5) };
+    }
+    const L = a._loud; if (!L.ok) return 0;
+    const e = energyIn(s.start, s.end);
+    return e >= L.mid ? clamp((e - L.mid) / Math.max(1e-6, L.hi - L.mid), 0, 1) : -clamp((L.mid - e) / Math.max(1e-6, L.mid - L.lo), 0, 1);
   }
   /** A buildup that is a clear EDM snare build, in a song that goes with one (dance, rave or electronic): a
    *  steady snare in its first half (3 in 4 beats or more) that has at least doubled, to two a beat or more,
@@ -1999,12 +2219,12 @@
     if (quiet) return;
     const a = S.analysis, hooks = (a.hook && a.hook.times || []).length, fills = (a.fills || []).length;
     const g = S.analysis.genre;
-    const bits = [`${STYLE_NAMES[showStyle()]} style${g && g.genres && g.genres.length && !(p.settings && p.settings.style) ? ` (${g.genres.slice(0, 2).join(', ')})` : ''}`,
+    const bits = [`${STYLE_NAMES[showStyle()]} style${g && g.genres && g.genres.length && !(p.settings && p.settings.style) ? ` (${g.genres.slice(0, 2).join(', ')})` : ''}`, (S.sceneNames || []).join(' + '),
       `${p.sections.length} sections`, `palettes ${(S.songPals || []).join(' / ')}`];
     if (hooks) bits.push(`riff x${hooks}`);
     if (fills) bits.push(`${fills} fills`);
     if ((a.events && a.events.lead || []).length) bits.push(`${a.events.lead.length} lead hits`);
-    toast('Built: ' + bits.join(' \u00b7 '));
+    toast('Built: ' + bits.filter(Boolean).join(' \u00b7 '));
   }
   // Effects that are mostly dark with a few bright things moving (comets, sparks, sweeps): laid
   // over a base, they take the opposite colors, so a comet over red is cyan-blue and stands out.
@@ -2014,7 +2234,7 @@
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
   const HIT = new Set(['hitswap', 'pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
-  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'fillflood']);   // set as placed: never tiered or balanced (a star is one bright segment)
+  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'scramble', 'fillflood']);   // set as placed: never tiered or balanced (a star is one bright segment)
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
     // a color battle at full motion brightness made a verse outshine its drop
@@ -2194,7 +2414,7 @@
     //     kind of music (see genre.py): a chill song never strobes, a groove song
     //     moves on the beat but lifts its drops without flashing, dance drops flash,
     //     and rave goes all the way.
-    const style = showStyle();
+    const style = sectionStyle(s);                                   // the song's style, a step either way by how loud this part is
     const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
     const rainbow = S.albumPalette || S.pairMode || S.noLimits ? {} : { palette: 'Rainbow' };      // with the album's (or the jam's) colors, drops stay in them
     // Two or more lights: some moves go around the room, light to light, instead of along each strip.
@@ -2216,20 +2436,22 @@
     // the drum strobe: flashes on the real hits only; how hard depends on the kind of song
     const strobeLevel = { rave: 0.9, dance: 0.45, groove: 0.3 }[style] || 0;
     // the song's motion over a drop: pace 1 is a normal drop, below 1 slower
+    let mAt = b0, mLen = len, mVar = variant;                         // where motion() and top() place (a long drop's later phrases: see the drop)
     const motion = (pace = 1, extra = {}) => {
-      const fam = (S.motionFams && s.type === 'drop' ? S.motionFams[variant % 2] : S.motionFam) || 'comets', sp = x => Math.max(0.5, Math.round(x / pace * 4) / 4);   // on quarter beats: 2 / 1.3 is 1.5, not 1.538…
+      const fam = (S.motionFams && s.type === 'drop' ? S.motionFams[mVar % 2] : S.motionFam) || 'comets', sp = x => Math.max(0.5, Math.round(x / pace * 4) / 4);   // on quarter beats: 2 / 1.3 is 1.5, not 1.538…
       // (a groove song's sparkles glint, slow and sparse, in the section's own colors: dense quick twinkles in a
       // color apart flickered purple all over Wicked's green drop; dance and rave keep them quick and bright)
-      if (fam === 'sparkles') return hard ? clip(1, 'sparkle', b0, len, { density: 0.2 * pace + 0.05, life: 0.15 }, { opacity: 0.95, ...extra })
-        : clip(1, 'sparkle', b0, len, { density: 0.08 * pace + 0.03, life: 0.45 }, { opacity: 0.9, palette: (S.buildPal || []).slice(), ...extra });
-      if (fam === 'meteors') return clip(1, 'meteors', b0, len, { every: sp(1), chance: 0.6, travel: sp(2), tail: 0.3 }, { opacity: 0.95, ...extra });
-      if (fam === 'orbit') return clip(1, 'orbit', b0, len, { speed: sp(2), count: 3 }, { opacity: 0.9, ...extra });
-      if (fam === 'ripples') return clip(1, 'ripple', b0, len, { every: sp(1), travel: sp(1.5), width: 0.12 }, { opacity: 0.9, ...extra });
-      if (fam === 'bounce') return clip(1, 'bounce', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
-      if (fam === 'scanner' && acrossRooms()) return clip(1, 'roomscan', b0, len, { speed: sp(8), width: 0.7 }, { opacity: 0.9, ...extra });   // slower, across both rooms
-      if (fam === 'scanner') return clip(1, 'scanner', b0, len, { speed: sp(2), size: 0.15, floor: 0 }, { opacity: 0.85, ...extra });
-      if (fam === 'steps') return clip(1, 'steps', b0, len, { zones: 8, every: sp(1), decay: Math.max(0.5, sp(1)) * 0.8, order: S.stepOrder || 'run' }, { opacity: 0.95, ...extra });
-      return clip(1, 'dualcomet', b0, len, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
+      if (fam === 'sparkles') return hard ? clip(1, 'sparkle', mAt, mLen, { density: 0.2 * pace + 0.05, life: 0.15 }, { opacity: 0.95, ...extra })
+        : clip(1, 'sparkle', mAt, mLen, { density: 0.08 * pace + 0.03, life: 0.45 }, { opacity: 0.9, palette: (S.buildPal || []).slice(), ...extra });
+      if (fam === 'meteors') return clip(1, 'meteors', mAt, mLen, { every: sp(1), chance: 0.6, travel: sp(2), tail: 0.3 }, { opacity: 0.95, ...extra });
+      if (fam === 'orbit') return clip(1, 'orbit', mAt, mLen, { speed: sp(2), count: 3 }, { opacity: 0.9, ...extra });
+      if (fam === 'ripples') return clip(1, 'ripple', mAt, mLen, { every: sp(1), travel: sp(1.5), width: 0.12 }, { opacity: 0.9, ...extra });
+      if (fam === 'bounce') return clip(1, 'bounce', mAt, mLen, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
+      if (fam === 'scanner' && acrossRooms()) return clip(1, 'roomscan', mAt, mLen, { speed: sp(8), width: 0.7 }, { opacity: 0.9, ...extra });   // slower, across both rooms
+      if (fam === 'scanner') return clip(1, 'scanner', mAt, mLen, { speed: sp(2), size: 0.15, floor: 0 }, { opacity: 0.85, ...extra });
+      if (fam === 'pulsar') return clip(1, 'pulsar', mAt, mLen, { every: sp(1), count: 2, size: 0.08, decay: 0.5 }, { opacity: 0.95, ...extra });
+      if (fam === 'steps') return clip(1, 'steps', mAt, mLen, { zones: 8, every: sp(1), decay: Math.max(0.5, sp(1)) * 0.8, order: S.stepOrder || 'run' }, { opacity: 0.95, ...extra });
+      return clip(1, 'dualcomet', mAt, mLen, { speed: sp(2), tail: 0.35 }, { opacity: 0.9, ...extra });
     };
     const look = S.mix;                                                // the song's own mix (pickLook)
     // a scanner goes across both rooms (slowly) in about half the sections that have one, when there are rooms to cross
@@ -2248,9 +2470,9 @@
       return;
     }
     const first = S.sectionClips = [];
-    S.bedBase = null;
+    S.bedBase = null; S.buildKind = null;
     S.bedSectionNow = ['intro', 'verse', 'breakdown', 'outro'].includes(s.type);
-    const top = (spec, extra = {}) => spec && clip(1, spec[0], b0, len, spec[1], { opacity: 0.85, ...(spec[2] || {}), ...extra });
+    const top = (spec, extra = {}) => spec && clip(1, spec[0], mAt, mLen, spec[1], { opacity: 0.85, ...(spec[2] || {}), ...extra });
     // under a calm song's stars, a soft color rather than colored twinkles of its own
     const cute = !chill && (S.cute || []).some(([t0, t1]) => s.start >= t0 - 0.01 && s.start < t1), stars = chill || cute;   // a calm song, or a cute part of another
     const starBed = spec => stars && spec[0] === 'twinkle' ? ['colorwash', { speed: 16, intensity: 0.3 }] : spec;
@@ -2262,8 +2484,8 @@
         drums(0.45, 0.55);
         clip(3, 'fadein', b0, Math.min(8, len)); break;
       case 'verse':
-        if (v && room) clip(0, 'roomwave', b0, len, { speed: chill ? 16 : 8, floor: 0.1 });
-        else clip(0, look.verse[v][0], b0, len, look.verse[v][1]);
+        if (look.verse[v][0] === 'roomwave' && !room) clip(0, 'wave', b0, len, { speed: 8, waves: 1, floor: 0.1 });
+        else clip(0, look.verse[v][0], b0, len, chill && look.verse[v][0] === 'roomwave' ? { ...look.verse[v][1], speed: 16 } : look.verse[v][1]);
         if (stars) clip(1, 'starlight', b0, len, { density: 0.12, life: 3, tint: S.starTint || 'white' }, { blend: 'add' });   // single white stars, twinkling here and there
         else if (look.verseTop[v] && look.verseTop[v][0] === 'scanner' && acrossRooms()) clip(1, 'roomscan', b0, len, { speed: 16, width: 0.7 }, { opacity: 0.75 });
         else top(look.verseTop[v]);                                     // drop material (dual comets, strobes) stays out of verses
@@ -2278,14 +2500,40 @@
         // every bar, drums or not); the hits on top, following the snares where they pick up, build it
         // (a clear EDM snare build has its white strobe alone: nothing under it or over it, see below)
         const strobeBuild = !chill && len >= 8 && edmBuild(s);
-        if (!strobeBuild) clip(0, 'colorwash', b0, len, { speed: 8, intensity: 0.3 });
-        if (!strobeBuild) clip(1, 'colorwash', b0, len, { speed: 8, intensity: 0.45 }, { blend: 'add', fadeIn: Math.max(1, Math.round(len * 0.85)) });
+        // The song's kind of buildup (its scene's, two in turn; see pickLook), all of them hits around the room:
+        //   room   the glow under the hits brightens toward the drop
+        //   dark   the hits light the room out of the dark, a glow coming up only in the last quarter
+        //   scan   a light crosses the room under the hits, twice as fast every quarter
+        //   climb  stage steps run along the strips under the hits, twice as fast every quarter
+        //   poles  the corner poles call and answer (kick one side, snare the other), then flash together
+        const kinds = S.builds && S.builds.length ? S.builds : ['room'];
+        let bk = chill || len < 8 ? 'room' : kinds[variant % kinds.length];
+        if (bk === 'poles' && !S.mixedLights) bk = 'room';
+        if (!strobeBuild && bk === 'dark') {
+          const q3 = b0 + Math.round(len * 0.75);
+          clip(1, 'colorwash', q3, b1 - q3, { speed: 8, intensity: 0.4 }, { blend: 'add', fadeIn: Math.max(1, b1 - q3 - 1) });
+        } else if (!strobeBuild) {
+          clip(0, 'colorwash', b0, len, { speed: 8, intensity: bk === 'room' ? 0.3 : 0.2 });
+          clip(1, 'colorwash', b0, len, { speed: 8, intensity: bk === 'room' ? 0.45 : 0.3 }, { blend: 'add', fadeIn: Math.max(1, Math.round(len * 0.85)) });
+        }
+        if (!strobeBuild && (bk === 'scan' || bk === 'climb')) {
+          const q = Math.max(1, Math.round(len / 4)), across = room && bk === 'scan';
+          for (let k = 0, c0 = b0; k < 4 && c0 < b1 - 1; k++, c0 += q) {
+            const ln = k === 3 ? b1 - 1 - c0 : Math.min(q, b1 - 1 - c0), f = Math.pow(2, k);
+            if (ln <= 0) break;
+            const op = { opacity: 0.45 + 0.15 * k, blend: 'add' };
+            if (bk === 'climb') clip(2, 'steps', c0, ln, { zones: 8, every: Math.max(0.25, 2 / f), decay: Math.max(0.25, 2 / f) * 0.8, order: 'run' }, op);
+            else if (across) clip(2, 'roomscan', c0, ln, { speed: Math.max(2, 16 / f), width: 0.6, ease: 'linear' }, op);
+            else clip(2, 'scanner', c0, ln, { speed: Math.max(0.5, 4 / f), size: 0.12, ease: 'linear' }, op);
+          }
+        }
         // The build is felt all around the room: every snare (else every hit, else a build of beats,
         // eighths and sixteenths) lights random stretches of the strips and lamps, more of them,
         // brighter and snappier as it goes. A hard song's crazier builds start out in the dark, so the
         // light jumps around the room; a calm song's build is gentle, on the beat, two at most.
         const follow = chill ? 'beat' : snaresHere >= 4 ? 'snare' : drumsHere ? 'drums' : 'build';
-        if (!strobeBuild) clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
+        if (!strobeBuild) clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild || bk === 'dark' ? 0.5 : 0 }, { opacity: 1 });
+        S.buildKind = strobeBuild ? 'strobe' : bk;
         // A clear EDM snare build (a steady snare that doubles and doubles again: quarters, eighths, sixteenths)
         // in a dance, rave or electronic song: the whole room strobes white on every snare, faint at first, full
         // into the drop, and nothing else: black between the snares, or the flashes are lost (strobeAlone).
@@ -2302,7 +2550,7 @@
         // room in pure, solid colors (red, blue...) flipping to the other on every drum hit, the song's motion on
         // top faster and in the same pure colors, the white flash on every kick, the sixteenth-note strobe every
         // 4 bars (not 8), a glitch half way through each 4, and the chop between the hits.
-        const hardcore = !chill && drumsHere && HEAVY_DROP.test(genreWords());
+        const hardcore = !chill && drumsHere && heavyDrops();
         if (hardcore) {
           // pure primaries, one pair for all of the song's drops (its order swapping drop to drop); the party's
           // own pair when the jam has one
@@ -2321,14 +2569,29 @@
         } else {
           // The song's drop moves (the first three it drew that fit), one per drop, in turn. A chill or
           // groove song lifts its drops with motion rather than flashing: the flashy ones are for dance and rave.
-          const ok = look.drops.filter(r => (hard || (!r.flash && !r.fast)) && (!r.rave || style === 'rave') && (room || !r.room)).slice(0, 3);
-          const r = ok[kind % ok.length] || look.drops.find(r => !r.flash && !r.room) || LOOKS.dreamy.drops[0];
-          clip(0, r.base[0], b0, len, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
-          if (r.top === 'motion') motion(chill ? (swells() ? 0.75 : 0.5) : style === 'rave' ? 1.3 : 1);
-          // a dance drop's flashes come every other beat and softer: flashing on every beat is rave's
-          else if (style === 'dance' && r.flash && Array.isArray(r.top)) top([r.top[0], 'rate' in r.top[1] ? { ...r.top[1], rate: r.top[1].rate * 0.6 } : { ...r.top[1], every: Math.max(2, r.top[1].every || 1) },
-                                                                                 { ...(r.top[2] || {}), opacity: ((r.top[2] || {}).opacity || 1) * 0.6 }]);
-          else top(r.top);
+          // (a calm scene's livelier drops, `lift`, are for songs that are not calm)
+          const fit = look.drops.filter(r => (hard || (!r.flash && !r.fast)) && (!r.rave || style === 'rave') && (room || !r.room) && (!chill || !r.lift));
+          // the song's own scene leads: its first and third drops are that scene's, the second a guest's (a song
+          // heard as pop punk, pop rock and alternative rock alike got pop rock's waves in every drop)
+          // (a calm scene's livelier drops first when the song is not calm: Unholy is R&B, but no ballad)
+          const own = new Set((SCENES[S.look] || {}).drops || []), lifts = arr => chill ? arr : [...arr.filter(r => r.lift), ...arr.filter(r => !r.lift)];
+          const mine = lifts(fit.filter(r => own.has(r))), guest = lifts(fit.filter(r => !own.has(r)));
+          const ok = [...new Set([mine[0], guest[0], mine[1], ...fit].filter(Boolean))].slice(0, 3);
+          // A long drop (over 16 bars) changes look on the phrase: in two or three stretches of whole 4-bar
+          // phrases, each the song's next drop move and its other motion (a minute of one look went stale)
+          const parts = len > 64 && ok.length > 1 ? Math.min(3, Math.round(len / 48)) : 1, edge = k => k >= parts ? b1 : b0 + Math.round(k * len / parts / 16) * 16;
+          for (let k = 0; k < parts; k++) {
+            const c0 = edge(k), c1 = edge(k + 1); if (c1 <= c0) continue;
+            const r = ok[(kind + k) % ok.length] || look.drops.find(r => !r.flash && !r.fast && !r.room && (!chill || !r.lift)) || SCENES.dreamy.drops[0];
+            mAt = c0; mLen = c1 - c0; mVar = variant + k;
+            clip(0, r.base[0], c0, c1 - c0, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
+            if (r.top === 'motion') motion(chill ? (swells() ? 0.75 : 0.5) : style === 'rave' ? 1.3 : 1);
+            // a dance drop's flashes come every other beat and softer: flashing on every beat is rave's
+            else if (style === 'dance' && r.flash && Array.isArray(r.top)) top([r.top[0], 'rate' in r.top[1] ? { ...r.top[1], rate: r.top[1].rate * 0.6 } : { ...r.top[1], every: Math.max(2, r.top[1].every || 1) },
+                                                                                   { ...(r.top[2] || {}), opacity: ((r.top[2] || {}).opacity || 1) * 0.6 }]);
+            else top(r.top);
+          }
+          mAt = b0; mLen = len; mVar = variant;
         }
         if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 2, tint: S.starTint || 'white' }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
         drums(chill ? 0.8 : 1, 0.85);
@@ -2355,7 +2618,7 @@
           hardcore ? { opacity: 1, palette: S.contrastPal } : { opacity: 0.7, blend: 'add' });
         // a heavy drop (dubstep, bass music, riddim...): every other 4 bars chopped by the drums, black between
         // the hits (the drop's first 4 bars land open); its one-shots still punch through on top
-        if (!chill && drumsHere && len >= 16 && HEAVY_DROP.test(genreWords()))
+        if (!chill && drumsHere && len >= 16 && heavyDrops())
           for (let b = b0 + 16; b < b1; b += 32) clip(8, 'drumgate', b, Math.min(16, b1 - b), {}, { opacity: 1 });
         if ((style === 'rave' || hardcore) && len >= 16) for (let b = b0 + 16; b < b1; b += 16) {
           if ((b - b0) % 32 === 0 || hardcore) clip(7, 'strobe', b - 4, 4, { every: 0.25, duty: 0.35, white: !hardcore, color: 'cycle', overlay: false }, { opacity: 1, ...(hardcore ? { palette: S.buildPal } : {}) });
@@ -2373,7 +2636,7 @@
       }
       case 'breakdown':
         // (no fade to black at its start: the strings going dark there made no sense)
-        clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
+        { const bd = s.chunk && v ? look.breakdown2 || look.breakdown : look.breakdown; clip(0, starBed(bd)[0], b0, len, starBed(bd)[1]); }
         if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 4, tint: S.starTint || 'white' }, { blend: 'add' });
         else top(S.drift, { opacity: 0.85 * (((S.drift || [])[2] || {}).opacity || 1) });
         drums(0.5, 0.5);
@@ -2423,7 +2686,11 @@
         if (p.lanes[0].clips.includes(c))                  // it was the base: the lamps get a wash of their own beneath the drums
           clip(0, 'colorwash', c.start, c.len, { speed: 8, intensity: 0.55 }, { target: 'short', palette: c.palette });
       }
-      if (s.type === 'buildup' && !chill && snaresHere >= 4)            // in a build both poles flash on every snare
+      if (s.type === 'buildup' && !chill && S.buildKind === 'poles' && drumsHere) {   // kick on one pole, snare on the other, then both on every snare
+        const half = b0 + Math.round(len / 2);
+        clip(6, 'drumhits', b0, half - b0, { follow: 'drums', split: 'split', decay: 0.3, floor: 0 }, { target: 'short', blend: 'add', opacity: 0.9 });
+        clip(6, 'drumhits', half, b1 - half, { follow: snaresHere >= 4 ? 'snare' : 'drums', split: 'together', decay: 0.25, floor: 0 }, { target: 'short', blend: 'add', opacity: 1 });
+      } else if (s.type === 'buildup' && !chill && snaresHere >= 4)            // in a build both poles flash on every snare
         clip(6, 'drumhits', b0, len, { follow: 'snare', split: 'together', decay: 0.3, floor: 0 }, { target: 'short', blend: 'add', opacity: 0.95 });
       else if (zoneBuild || s.type === 'buildup') { /* in a buildup the lamps are stretches of the room's hits */ }
       // the corner poles as a stereo pair, as a stage rig: in a drop both on every hit (the room as one);
@@ -2445,6 +2712,15 @@
   const songGenres = () => (((S.analysis || {}).genre || {}).genres || []).join(' ').toLowerCase();
   const ELECTRONIC = /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/;
   const HEAVY_DROP = /dubstep|bass music|riddim|brostep|drum and bass|hardstyle/;      // a hardcore drop's genres
+  /** Does this song's drop go hardcore? Its scene is bass music or drum and bass, or a heavy genre is heard
+   *  nearly as surely as its first (a faint third guess of dubstep made Porter Robinson's Flicker a riddim drop). */
+  function heavyDrops() {
+    if (S.look === 'bass' || S.look === 'dnb') return true;
+    const sc = Object.entries(((S.analysis || {}).genre || {}).scores || {});
+    if (!sc.length) return HEAVY_DROP.test(genreWords());
+    const heavy = Math.max(0, ...sc.filter(([k]) => HEAVY_DROP.test(k.split('---').pop().toLowerCase().replace('drum n bass', 'drum and bass'))).map(([, v]) => v));
+    return heavy >= 0.3 && heavy >= 0.75 * Math.max(...sc.map(([, v]) => v));
+  }
   const genreWords = () => (((S.analysis && S.analysis.genre && S.analysis.genre.genres) || []).join(' ') + ' ' + ((S.analysis && S.analysis.genre && S.analysis.genre.spotify) || []).join(' ')).toLowerCase();
   /** A palette moved round the color wheel (a key change lifts the colors with it). */
   function turnPalette(cols, deg) {
@@ -2585,7 +2861,7 @@
         const period = 60 / (p.bpm || 120);                              // a cut into a new section is the song's moment, not a glitch
         if (p.sections.some(sc => Math.abs(sc.start - t1) < 1.5 * period) || (p.drops || []).some(d => Math.abs(d - t1) < 1.5 * period)) continue;
         const b0 = beatOf(t0), b1 = beatOf(t1);
-        put(9, 'glitch', b0, Math.max(0.25, b1 - b0), { rate: 16, density: 0.7, overlay: false }, { opacity: 1 });
+        put(9, 'scramble', b0, Math.max(0.25, b1 - b0), { rate: 16, density: 0.7, overlay: false }, { opacity: 1 });
       }
     }
     // a key change near the end: the colors lift from there on, with a sweep where it happens (last,
@@ -2916,5 +3192,5 @@
     card.hidden = true;
   }
   window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
-    fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels };
+    sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels };
 })();

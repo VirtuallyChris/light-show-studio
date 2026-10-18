@@ -568,7 +568,7 @@ const Effects = (() => {
     params: { every: P.speed(1, 'Every (beats)'), decay: P.decay(0.3), color: P.color(), overlay: P.bool('Transparent when dark', true) },
     render(c) { clear(c.out); const u = c.beat / c.p.every; const ph = frac(u) * c.p.every; const v = Math.exp(-ph / (c.p.decay * 0.4 + 0.02)); const col = colorFor(c, 0.5, Math.floor(u)); fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, c.p.overlay ? v : 1); } });
 
-  def({ id: 'glitch', name: 'Glitch', cat: 'fast', desc: 'Random slices of the strip jump to random colors several times a beat.', swatch: ['#c6ff00', '#ff00c8'],
+  def({ id: 'scramble', name: 'Scramble', cat: 'fast', desc: 'Random slices of the strip jump to random colors several times a beat.', swatch: ['#c6ff00', '#ff00c8'],
     params: { rate: { type: 'range', def: 4, min: 1, max: 16, step: 1, label: 'Changes per beat' }, density: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.01, label: 'Density' }, overlay: P.bool('Transparent background', true) },
     render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const slot = Math.floor(c.beat * c.p.rate); const nseg = 6; for (let s = 0; s < nseg; s++) { if (hash(slot * 101 + s * 7) > c.p.density) continue; const a = Math.floor(hash(slot * 53 + s) * c.n), len = 1 + Math.floor(hash(slot * 59 + s) * c.n / 4); const col = palIdx(c.pal, Math.floor(hash(slot * 61 + s) * c.pal.length)); for (let i = a; i < Math.min(c.n, a + len); i++) set(c.out, i, col[0], col[1], col[2], 1); } } });
 
