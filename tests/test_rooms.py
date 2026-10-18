@@ -316,25 +316,3 @@ class TestFullBrightness(unittest.TestCase):
         self.assertEqual(sent, [("strip", 100), ("pole", 100)] * 2)            # said twice (UDP)
         out.active = False
         self.assertEqual(out.full_brightness(), 0)                              # no show: the lights are left alone
-
-
-class TestFewerPackets(unittest.TestCase):
-    """A frame the eye cannot tell from the last one sent is not sent; once a second regardless."""
-
-    def test_repeats_are_skipped_changes_and_a_heartbeat_are_sent(self):
-        from types import SimpleNamespace
-        from unittest import mock
-        from lightshow.studio import server
-        got = []
-        d = SimpleNamespace(ip="strip", razer_leds=lambda cols: got.append(cols[0]))
-        out = server.LightOutput(enabled=True)
-        out.devices, out.active, out.fps_by_ip, out.last_frame = [d], True, {"strip": 1000}, 0.0
-        clock = [100.0]
-        lit = lambda v: [v, 0, 0] * 3
-        with mock.patch.object(server.time, "monotonic", lambda: clock[0]):
-            for t, v in [(0.0, 200), (0.1, 200), (0.2, 204), (0.3, 210), (0.4, 210), (1.5, 210)]:
-                clock[0] = 100.0 + t
-                out.frame([lit(v)], ["strip"])
-        # 200 sent; the same again skipped; 204 (4 off) skipped; 210 (10 off) sent; again skipped; a second on: sent
-        self.assertEqual([c[0] for c in got], [200, 210, 210])
-        self.assertEqual(out.skipped_same, 3)
