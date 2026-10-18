@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 29;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes
+  const SHOW_VERSION = 30;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave; 23: one-shots on what the separated tracks hear; 24: one-shots solid, on top, in a color apart, glitches, fill floods; 25: white never leads a drop; 26: white motion in a third, black swipes; 27: heavy drops chopped by the drums; 28: black swipes that show, No Limits beds duck harder; 29: fewer black swipes; 30: fewer sweeps
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2317,11 +2317,11 @@
       for (const c of big) if (Effects.hash(Math.round(c.start * 4) * 92821 + c.effect.length * 31 + (S.lookSeed || 0) + 17) < cutShare) cut(c);
       if (s.type === 'drop' && big.length && !big.some(c => c.blend === 'cut')) cut(big[0]);
     }
-    // and a black band across the whole room (left pole, the ceiling, right pole) every 8 bars of a drop (of
-    // a dance or rave verse too), on the bar before the phrase: the room swiped dark for a moment. (0.7 of a
-    // light wide: across one strip alone it is a swipe, not the strip going out.)
-    if (cutShare && (s.type === 'drop' || (s.type === 'verse' && hard)) && len >= 32)
-      for (let b = b0 + 28; b + 2 <= b1; b += 32) clip(9, 'roomsweep', b, 2, { every: 2, width: 0.7 }, { blend: 'cut', opacity: 1, palette: ['#ffffff'] });
+    // and a black band across the whole room (left pole, the ceiling, right pole) once in a drop, half way,
+    // on the bar before a phrase: the room swiped dark for a moment. (0.7 of a light wide: across one strip
+    // alone it is a swipe, not the strip going out.)
+    if (cutShare && s.type === 'drop' && len >= 32)                 // (drops only: verses had them in every 8 bars)
+      { const b = b0 + Math.max(4, Math.round(len / 2 / 4) * 4) - 4; if (b + 2 <= b1) clip(9, 'roomsweep', b, 2, { every: 2, width: 0.7 }, { blend: 'cut', opacity: 1, palette: ['#ffffff'] }); }   // once, half way
     // Long strips and short lamps together: the moving things (comets, chases, sparkles) run on the
     // long strips, where there is room for them to travel; on seven segments they read as flicker.
     // The lamps play the drums instead, the whole lamp blooming on every kick and snare, or breathe
@@ -2681,7 +2681,8 @@
         const bt = t2b(e[0]);
         if (bt > b0 + 3 && bt < b0 + len - 3 && picks.every(q => Math.abs(q - bt) >= 8)) picks.push(bt);
       }
-      const shots = hard ? ['glitch', 'colorslam', 'sweepout', 'whiteflash'] : calm ? ['ripple', 'sweepout'] : ['colorslam', 'sweepout', 'glitch'];
+      // (sweeps were everywhere: the lead's accents are slams, glitches and flashes; a groove song's last a sweep)
+      const shots = hard ? ['glitch', 'colorslam', 'whiteflash'] : calm ? ['ripple', 'sweepout'] : ['colorslam', 'glitch', 'colorslam', 'sweepout'];
       picks.sort((x, y) => x - y).forEach((bt, k) => {
         const fx = shots[(k + variant) % shots.length];
         if (p.lanes.some(l => l.clips.some(c => ONE_SHOTS.has(c.effect) && Math.abs(c.start - bt) < 2))) return;
