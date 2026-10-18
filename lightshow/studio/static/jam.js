@@ -475,6 +475,13 @@
     anchorTo(room);
     S.audio.playing = !!room.playing; St.updateTransport();
     if ($('#outputOn').checked) St.startOutput();
+    prefetch(st.ahead && st.ahead.key !== room.key ? st.ahead : null);
+    // The room's state is asked for once a second, so a new song was noticed up to a second late (the
+    // lights sat dark meanwhile). With the song nearly over, it is asked again right as it ends, and every
+    // 150 ms after that until the next song is there.
+    const left = (room.duration || 0) - (room.position || 0);
+    if (room.playing && left < 1.2 && left > -3 && !J.edgeTimer)
+      J.edgeTimer = setTimeout(() => { J.edgeTimer = null; tick(); }, left > 0 ? left * 1000 + 40 : 150);
   }
 
   function buildFailed(room, e) {
@@ -550,14 +557,29 @@
 
   J.albumPalette = albumPalette;                         // for checking a cover's colors by hand
 
+  // The next song, readied while the room still plays this one (Spotify runs a few seconds ahead of the
+  // room): its analysis, its cover's colors and a saved show of yours, fetched now, so the change of song
+  // costs only the build (25-60 ms). A first listen is not readied: it changes as it is heard.
+  function prefetch(t) {
+    if (!t || !t.key || t.key === J.key || t.kind === 'live' || (J.pre && J.pre.key === t.key)) return;
+    const doc = api('jam/analysis?key=' + encodeURIComponent(t.key));
+    const pal = doc.then(d => albumPalette(d.track));
+    const proj = doc.then(d => (d.kind === 'custom' && d.project ? fetch('/api/projects/' + encodeURIComponent(d.project)).then(r => r.json()) : null));
+    J.pre = { key: t.key, doc, pal, proj };
+    doc.catch(() => { if (J.pre && J.pre.key === t.key) J.pre = null; });
+    pal.catch(() => {}); proj.catch(() => {});
+  }
+
   async function load(room) {
-    const doc = await api('jam/analysis?key=' + encodeURIComponent(room.key));
+    let pre = J.pre && J.pre.key === room.key ? J.pre : null;
+    let doc = pre ? await pre.doc.catch(() => null) : null;
+    if (!doc || doc.kind !== room.kind) { pre = null; doc = await api('jam/analysis?key=' + encodeURIComponent(room.key)); }
     J.live = true; J.doc = doc;
-    S.albumPalette = await albumPalette(doc.track);
+    S.albumPalette = pre ? await pre.pal.catch(() => albumPalette(doc.track)) : await albumPalette(doc.track);
     S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
     S.jamExtras = extrasFor(S.jamColors, doc.track); S.jamRainbow = rainbowOn(doc.track); S.noLimits = doc.kind !== 'custom' && wildOn(doc.track); J.colorSig = colorSig();
     if (doc.kind === 'custom' && doc.project) {
-      const data = await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
+      const data = (pre && await pre.proj.catch(() => null)) || await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
       adopt(data.analysis, data.project, data.saved || null, data);
       if (!data.saved) try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
