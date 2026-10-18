@@ -177,6 +177,33 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual(got, [("verse", 0), ("buildup", 24), ("drop", 32), ("verse", 48), ("buildup", 64), ("drop", 72), ("outro", 110)])
         self.assertEqual(a["drops"], [32.0, 72.0])
 
+    def test_a_buildup_where_nothing_builds_is_not_one(self):
+        """New Scream: a flat stretch called a buildup is more verse; a real one (snares speeding up) stays."""
+        from lightshow.studio.analysis import flat_buildups
+        fps, bpm = 30, 120.0
+        a = self._song(120, fps, bpm); a["bpm"] = bpm
+        en = np.full(120 * fps, 0.5); en[48 * fps:64 * fps] = 0.8; en[96 * fps:] = 0.8
+        a["energy"] = list(en)
+        snares = [[t, 1.0, 0] for t in np.arange(1.0, 120, 1.0)]                         # a backbeat all through
+        snares += [[t, 1.0, 0] for t in np.arange(88.25, 96, 0.25)]                     # and a roll into the second drop
+        a["events"] = {"snare": snares}
+        a["sections"] = [{"start": 0.0, "end": 40.0, "type": "verse"}, {"start": 40.0, "end": 48.0, "type": "buildup"},
+                         {"start": 48.0, "end": 64.0, "type": "drop"}, {"start": 64.0, "end": 80.0, "type": "verse"},
+                         {"start": 80.0, "end": 96.0, "type": "buildup"}, {"start": 96.0, "end": 120.0, "type": "drop"}]
+        a["drops"] = [48.0, 96.0]
+        a["energy"][40 * fps:48 * fps] = [0.8] * (8 * fps)                             # the first is already the drop's loudness
+        got = flat_buildups(a)
+        self.assertEqual([c[1] for c in got], ["flat buildup: the drop starts here"])
+        self.assertEqual([(s["type"], round(s["start"])) for s in a["sections"]],
+                         [("verse", 0), ("drop", 40), ("verse", 64), ("buildup", 80), ("drop", 96)])
+        self.assertEqual(a["drops"], [40.0, 96.0])
+        a["sections"][1:2] = [{"start": 40.0, "end": 48.0, "type": "buildup"}, {"start": 48.0, "end": 64.0, "type": "drop"}]
+        a["energy"][40 * fps:48 * fps] = [0.5] * (8 * fps)                             # flat at the verse's loudness: more verse
+        a["energy"][48 * fps:64 * fps] = [0.55] * (16 * fps)                           # and the drop lands no louder
+        flat_buildups(a)
+        self.assertEqual([(s["type"], round(s["start"])) for s in a["sections"]][:2], [("verse", 0), ("drop", 48)])
+        self.assertEqual(a["sections"][0]["end"], 48.0)
+
     def test_a_drop_out_of_a_pause_starts_at_the_hit(self):
         from lightshow.studio.analysis import drop_after_pause
         a = self._song(80); fps = 30

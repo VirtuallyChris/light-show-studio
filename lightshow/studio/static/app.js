@@ -62,8 +62,10 @@
       w.sort((x, y) => x - y); a._backbeat = w.length >= 4 ? w[Math.floor(w.length / 2)] : 0;
     }
     const usual = a._backbeat;
-    if (room >= 16 && n(end - 16, end) >= Math.max(8, 3 * usual) && n(end - 8, end) >= n(end - 16, end - 8)) return 16;
-    if (room >= 8 && n(end - 8, end) >= Math.max(4, 1.5 * usual)) return 8;
+    // ...and clearly more of them than the bars before (half again): a song with a busy snare all through
+    // passed on its count alone, and Seeb's Grip, Heads Will Roll and Guiding Light got buildups where nothing built
+    if (room >= 16 && n(end - 16, end) >= Math.max(8, 3 * usual) && n(end - 8, end) >= n(end - 16, end - 8) && n(end - 16, end) >= 1.5 * n(end - 32, end - 16)) return 16;
+    if (room >= 8 && n(end - 8, end) >= Math.max(4, 1.5 * usual) && n(end - 8, end) >= 1.5 * n(end - 16, end - 8)) return 8;
     return 0;
   }
   /** A drop with no buildup marked before it, where the snares do build into it, gets one: those last
@@ -256,7 +258,8 @@
   //   36: No Limits palettes: near-twins on the LEDs retired, fire, neon, acid, ice and tropical added
   //   37: shows by scene (21 kinds of music, from the genre model) instead of five vibes; buildups in five
   //       kinds; how hard a section goes follows its loudness within the song
-  const SHOW_VERSION = 37;
+  //   38: buildups only where something builds (the snares speeding up, not just busy)
+  const SHOW_VERSION = 38;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).

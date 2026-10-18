@@ -454,6 +454,78 @@ def loud_buildups(a: dict) -> list:
     return changes
 
 
+def flat_buildups(a: dict) -> list:
+    """A buildup where nothing builds is not one. A buildup builds by at least one of: its snares speeding
+    up (the last quarter 1.5 times the first half and one a beat or more), the song climbing through it (its
+    last quarter louder than its first by 0.08 of the song's loud level) or the synths opening up (by 0.12),
+    or the drop landing on it louder (by 0.1). Across the 196 buildups of 194 learned songs, 21 showed none
+    (Turnover's New Scream had three flat ones in its verses). One that shows none:
+
+    - loud from its first bar (0.25 above the bars before it), into a drop: the drop starts there;
+    - inside a drop (a drop either side of it): part of the drop before it;
+    - not before a drop, with the drums falling away (under 0.3): a breakdown;
+    - else part of the section before it (it is that verse going on).
+
+    Changes the analysis in place (a saved one too, on load); returns what changed."""
+    secs = [dict(s) for s in (a.get("sections") or [])]
+    en = np.asarray(a.get("energy") or [], dtype=float)
+    if len(secs) < 2 or len(en) == 0:
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    beat = 60.0 / float(a.get("bpm") or 120.0)
+    other, drums = _curve(a, "other"), _curve(a, "drums_present")
+    loud_top = float(np.percentile(en, 90)) or 1.0
+    ev = a.get("events") or {}
+    snares = np.array(sorted(float(e[0]) for k in ("snare", "roll") for e in (ev.get(k) or [])))
+
+    def mean(c, t0, t1):
+        if c is None:
+            return None
+        i0 = max(0, int(t0 * fps))
+        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else None
+
+    def rate(t0, t1):
+        return float(((snares >= t0) & (snares < t1)).sum()) / max(0.5, (t1 - t0) / beat)
+    out, changes = [], []
+    for i, sec in enumerate(secs):
+        nx = secs[i + 1] if i + 1 < len(secs) else None
+        pv = out[-1] if out else None
+        if sec.get("type") != "buildup":
+            out.append(sec)
+            continue
+        t0, t1 = sec["start"], sec["end"]
+        q = (t1 - t0) / 4
+        e1, e4, e_all = mean(en, t0, t0 + q), mean(en, t1 - q, t1), mean(en, t0, t1)
+        o1, o4 = mean(other, t0, t0 + q), mean(other, t1 - q, t1)
+        r1, r4 = rate(t0, t0 + 2 * q), rate(t1 - q, t1)
+        accel = r4 >= max(1.5 * r1, r1 + 0.5) and r4 >= 1.0
+        climbs = (e4 - e1) / loud_top >= 0.08 or (o1 is not None and o4 - o1 >= 0.12)
+        into_drop = nx is not None and nx.get("type") == "drop"
+        lands = into_drop and (mean(en, nx["start"], min(nx["end"], nx["start"] + 8 * beat)) - e4) / loud_top >= 0.1
+        if accel or climbs or lands:
+            out.append(sec)
+            continue
+        before = mean(en, max(pv["start"], pv["end"] - 8 * beat), pv["end"]) if pv else None
+        if into_drop and (pv is None or (e_all - before) / loud_top >= 0.25):
+            nx["start"] = t0                                         # the drop arrives here
+            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (t0 - 0.5 <= d < nx["end"])] + [round(float(t0), 3)])
+            changes.append((round(t0, 1), "flat buildup: the drop starts here"))
+        elif pv is not None and pv.get("type") == "drop" and into_drop:
+            pv["end"] = t1
+            changes.append((round(t0, 1), "flat buildup: inside the drop"))
+        elif not into_drop and (mean(drums, t0, t1) or 0.0) < 0.3:
+            out.append({**sec, "type": "breakdown"})
+            changes.append((round(t0, 1), "flat buildup: a breakdown"))
+        elif pv is not None:
+            pv["end"] = t1
+            changes.append((round(t0, 1), f"flat buildup: more {pv.get('type')}"))
+        else:
+            out.append({**sec, "type": "intro"})
+            changes.append((round(t0, 1), "flat buildup: the intro"))
+    a["sections"] = out
+    return changes
+
+
 def drop_landings(a: dict) -> list:
     """A drop lands where the bass comes back and the drums go full after a build without bass. A bar line
     where the two bars before have no bass (under 0.1), and the two after have it (0.2 or more), the drums
@@ -550,7 +622,7 @@ def settle_sections(a: dict) -> list:
         a["drops_found"] = list(a.get("drops") or [])
     return (drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
             + drummed_breakdowns(a) + repeated_drops(a) + gap_before_section(a) + outro_where_it_rings_out(a)
-            + sections_on_bar_lines(a))
+            + flat_buildups(a) + sections_on_bar_lines(a))
 
 
 def hook_drops(a: dict) -> list:
