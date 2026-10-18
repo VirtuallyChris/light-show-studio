@@ -802,7 +802,9 @@ const Effects = (() => {
     for (let i = 0; i < n; i++) {
       const j = i * 4; const a = clamp(src[j + 3]) * opacity; if (a <= 0) continue;
       if (blend === 'cut') {                                  // darkness where the layer lights: a black swipe
-        const m = clamp(Math.max(src[j], src[j + 1], src[j + 2])) * a;
+        // (the layer's own light, not its light times its alpha: a band's fade counted twice left its middle
+        // only dim; and a little more, so the core of a swipe is fully black)
+        const m = clamp(1.6 * Math.max(src[j], src[j + 1], src[j + 2])) * opacity;
         for (let ch = 0; ch < 3; ch++) dst[j + ch] *= 1 - m;
         continue;
       }

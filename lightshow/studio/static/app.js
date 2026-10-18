@@ -804,11 +804,13 @@
       const alone = room.n === 1 && !!(S.rooms && S.rooms.length);   // a light alone in its room: no party-only clips
       const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
       const kind = lightKind(L);
-      p.lanes.forEach((lane, li) => {
+      // two passes: the layers, then the black cuts on top of all of them (a cut on layer 2 was lit over again
+      // by the layers above it: a black swipe must cut through everything)
+      for (const pass of [0, 1]) p.lanes.forEach((lane, li) => {
         if (lane.hidden) return;
         let clip = null;
         for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && (!c.target || c.target === kind) && !(c.party && alone) && (!clip || c.start >= clip.start)) clip = c;
-        if (!clip) return;
+        if (!clip || (clip.blend === 'cut') !== (pass === 1)) return;
         const e = Effects.byId[clip.effect]; if (!e) return;
         const src = buf('src' + li + L.ip, n); src.fill(0);
         for (let i = 0; i < n; i++) src[i * 4 + 3] = 1;  // full coverage unless the effect clears
@@ -2305,16 +2307,19 @@
     // song; never in a calm song, nor in a section without much light to cut (intros, breakdowns, outros),
     // nor in a build whose strobe plays alone.
     // (only the big shapes: a spark or a traced note cut black is a speck nobody sees)
-    const cutShare = { groove: 0.4, dance: 0.55, rave: 0.7 }[style] || 0;
-    if (cutShare && ['drop', 'verse', 'buildup'].includes(s.type))
-      for (const c of first) if (CUTTABLE.has(c.effect) && !p.lanes[0].clips.includes(c) && !c.alone
-          && Effects.hash(Math.round(c.start * 4) * 92821 + c.effect.length * 31 + (S.lookSeed || 0) + 17) < cutShare) {
-        c.blend = 'cut'; c.opacity = 1; c.palette = ['#ffffff'];
-      }
-    // and a black band across the whole room (left pole, the ceiling, right pole) half way through each
-    // 8-bar phrase of a drop (of a dance or rave verse too): the room swiped dark for a moment
-    if (cutShare && (s.type === 'drop' || (s.type === 'verse' && hard)) && len >= 32)
-      for (let b = b0 + 16; b + 2 <= b1; b += 32) clip(9, 'roomsweep', b, 2, { every: 2, width: 1.2 }, { blend: 'cut', opacity: 1, palette: ['#ffffff'] });
+    // (every drop gets at least one: a song whose draw left its drops lit showed no black at all)
+    const cutShare = { groove: 0.5, dance: 0.65, rave: 0.8 }[style] || 0;
+    const cut = c => { c.blend = 'cut'; c.opacity = 1; c.duck = 0; c.palette = ['#ffffff']; };   // (no ducking: a swipe must stay black on the hits)
+    if (cutShare && ['drop', 'verse', 'buildup'].includes(s.type)) {
+      const big = first.filter(c => CUTTABLE.has(c.effect) && !p.lanes[0].clips.includes(c) && !c.alone);
+      for (const c of big) if (Effects.hash(Math.round(c.start * 4) * 92821 + c.effect.length * 31 + (S.lookSeed || 0) + 17) < cutShare) cut(c);
+      if (s.type === 'drop' && big.length && !big.some(c => c.blend === 'cut')) cut(big[0]);
+    }
+    // and a black band across the whole room (left pole, the ceiling, right pole) every 4 bars of a drop (of
+    // a dance or rave verse too), on the bar before the phrase: the room swiped dark for a moment. (0.7 of a
+    // light wide: across one strip alone it is a swipe, not the strip going out.)
+    if (cutShare && (s.type === 'drop' || (s.type === 'verse' && hard)) && len >= 16)
+      for (let b = b0 + 12; b + 2 <= b1; b += 16) clip(9, 'roomsweep', b, 2, { every: 2, width: 0.7 }, { blend: 'cut', opacity: 1, palette: ['#ffffff'] });
     // Long strips and short lamps together: the moving things (comets, chases, sparkles) run on the
     // long strips, where there is room for them to travel; on seven segments they read as flicker.
     // The lamps play the drums instead, the whole lamp blooming on every kick and snare, or breathe
