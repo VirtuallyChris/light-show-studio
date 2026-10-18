@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 18;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only
+  const SHOW_VERSION = 19;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -1849,6 +1849,18 @@
     };
     return score;
   }
+  /** A buildup that is a clear EDM snare build, in a song that goes with one (dance, rave or electronic): a
+   *  steady snare in its first half (3 in 4 beats or more) that has at least doubled, to two a beat or more,
+   *  in its last quarter. */
+  function edmBuild(s) {
+    const a = S.analysis || {}, ev = a.events || {}, st = showStyle(), beat = 60 / (a.bpm || 120), L = s.end - s.start;
+    const g = ((a.genre && a.genre.genres) || []).join(' ').toLowerCase();
+    if (!(st === 'dance' || st === 'rave' || /electronic|house|techno|edm|dubstep|trance|dance|drum and bass|synth/.test(g)) || L < 8 * beat) return false;
+    const hits = [...(ev.snare || []), ...(ev.roll || [])].map(e => e[0]);
+    const q = [0, 1, 2, 3].map(k => hits.filter(t => t >= s.start + k * L / 4 && t < s.start + (k + 1) * L / 4).length / (L / 4 / beat));
+    const early = (q[0] + q[1]) / 2;
+    return early >= 0.75 && q[3] >= 2 && q[3] >= 1.8 * early;
+  }
   /** A song's mean energy from t0 to t1 (0..1). */
   function energyIn(t0, t1) {
     const a = S.analysis, fps = (a && a.feature_fps) || 30; if (!a || !a.energy) return 0;
@@ -2180,6 +2192,10 @@
         // light jumps around the room; a calm song's build is gentle, on the beat, two at most.
         const follow = chill ? 'beat' : snaresHere >= 4 ? 'snare' : drumsHere ? 'drums' : 'build';
         clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild ? 0.5 : 0 }, { opacity: 1 });
+        // A clear EDM snare build (a steady snare that doubles and doubles again: quarters, eighths, sixteenths)
+        // in a dance, rave or electronic song: the whole room strobes white on every snare, faint at first, full
+        // into the drop. Gold Skies' two builds (1, 1, 2, 3-5 snares a beat by quarter); 3 of 55 learned builds.
+        if (!chill && len >= 8 && edmBuild(s)) clip(4, 'drumstrobe', b0, len - 1, { follow: 'snare', white: true, grows: true, length: 0.05 }, { blend: 'add', opacity: 1 });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         // and the build's last bar crosses the room (left pole, along the ceiling, right pole), twice, into the drop
