@@ -217,7 +217,7 @@
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
   // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
   // in memory), unless it was changed by hand since it was built, which only says so.
-  const SHOW_VERSION = 21;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses
+  const SHOW_VERSION = 22;                                            // 3: each song draws its own mix of effects; 4: drumless songs are always calm; 5: a backbeat is no buildup; 6: stage steps, quicker stars, no hyper chase in groove; 7: sweeping motions half as likely; 8: sections start after a gap; 9: sections on bar lines, outro where it rings out; 10: one-hits unrationed, star colors, buildups glow; 11: no Alternate drops; 12: the energy meter in rock drops; 13: the poles as a stereo pair; 14: white hits, room sweeps, moody breakdowns; 15: built for every light in the rooms; 16: moody breakdowns two bars, party rooms only; 17: effects start from anywhere, the scanner crosses both rooms, no energy meter in groove; 18: hyperchase in rave only; 19: white snare strobe in clear EDM builds; 20: that strobe alone; 21: drops never move like their verses; 22: no breakdown fade, black as a color, fill one-shots, no same-color motion, a wilder rave
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2083,7 +2083,21 @@
     const h = Effects.hash(Math.round(start * 4) * 7919 + effect.length * 131 + effect.charCodeAt(0) * 17 + (S.lookSeed || 0));
     return { origin: h < 0.4 ? 0.5 : [0, 1, 0.25, 0.75][Math.floor((h - 0.4) / 0.6 * 4)] };
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
+  // Black as a color: in the moving two-color effects (a chase, halves, a color battle...) one of the two is
+  // black now and then, so the light walks in and out of the dark; in a rave more often, never in a calm song.
+  const BLACKABLE = new Set(['chase', 'hyperchase', 'halves', 'roomsplit', 'battle', 'blocks', 'wave', 'steps']);
+  function withBlack(effect, start, pal) {
+    if (!BLACKABLE.has(effect) || !pal || !pal.length) return pal;
+    const st = showStyle(); if (st === 'chill') return pal;
+    const h = Effects.hash(Math.round(start * 4) * 104729 + effect.length * 7 + (S.lookSeed || 0) + 3);
+    return h < (st === 'rave' ? 0.55 : 0.3) ? [pal[0], '#000000'] : pal;
+  }
+  // Motion over a base in the very same colors does nothing (meteors over a gradient of the same pair): it
+  // takes the jam's extra colors then, or white.
+  const sameColors = (a, b) => { const B = new Set((b || []).map(x => String(x).toLowerCase())); return !!(a && a.length) && a.every(x => B.has(String(x).toLowerCase())); };
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
+      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, S.buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : ['#ffffff']; }
+    if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
@@ -2242,6 +2256,14 @@
           clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'each', zones: 5, decay: 0.25 }, { opacity: style === 'dance' ? 0.65 : 0.55, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
         else if (drumsHere && strobeLevel) clip(5, 'drumstrobe', b0, len, { follow: 'kick', length: 0.05 }, { opacity: strobeLevel, blend: 'add' });   // flashes on the kicks themselves
         if (chill) clip(3, 'fadein', b0, Math.min(4, len)); else clip(3, 'dropblast', b0, 2);
+        // a rave goes jumpy and insane: a white flash on every kick over whatever else plays, a half beat of
+        // black before every 4-bar phrase, and the last bar of each 8 a sixteenth-note white strobe with black
+        // between the flashes
+        if (style === 'rave' && drumsHere) clip(6, 'drumstrobe', b0, len, { follow: 'kick', white: true, length: 0.04 }, { opacity: 0.7, blend: 'add' });
+        if (style === 'rave' && len >= 16) for (let b = b0 + 16; b < b1; b += 16) {
+          if ((b - b0) % 32 === 0) clip(7, 'strobe', b - 4, 4, { every: 0.25, duty: 0.35, white: true, overlay: false }, { opacity: 1 });
+          else clip(7, 'dark', b - 0.5, 0.5);
+        }
         // big white hits, as a rig's blinders, for rock and electronic songs (never a calm or a pop one): the
         // whole room on the drop's first hit, then on each 8-bar phrase a strong kick or snare opens (the crash)
         if (!chill && (hard || /rock|punk|metal|grunge|alternative/.test(genreWords()))) {
@@ -2253,11 +2275,7 @@
         break;
       }
       case 'breakdown':
-        // a moody moment: in a long breakdown the overhead strings fade out for its first half and the
-        // corner poles carry it alone, then the strings come back for the build
-        // (two bars, never half a breakdown: 12 s of dark strings was far too long; the party rooms' strings
-        // only, never a light alone in its room, like the Office test strip, which has no poles to carry it)
-        if (S.mixedLights && len >= 16) clip(9, 'dark', b0, 8, {}, { target: 'long', party: true, fadeIn: 1, fadeOut: 4 });
+        // (no fade to black at its start: the strings going dark there made no sense)
         clip(0, starBed(look.breakdown)[0], b0, len, starBed(look.breakdown)[1]);
         if (stars) clip(1, 'starlight', b0, len, { density: 0.1, life: 4, tint: S.starTint || 'white' }, { blend: 'add' });
         else top(S.drift, { opacity: 0.85 * (((S.drift || [])[2] || {}).opacity || 1) });
@@ -2567,6 +2585,19 @@
     if (style === 'rave' && s.type === 'drop') for (const [f0, f1] of fills) {
       const st = t2b(Math.max(f0, s.start)), en = clamp(Math.round(timeToBeat(Math.min(f1, s.end))), b0, b0 + len);
       if (en - st >= 2) clip(5, 'fillrush', st, en - st, { size: 0.1 }, { opacity: 0.9 });
+    }
+    // A sick fill (from the separated drums: 2.5 hits a beat or more, for a beat or more): every hit lands on
+    // its own stretch of the room, and the beat it lands on gets a white hit. Every style but chill; not in a
+    // buildup (it has its own). About two a song.
+    if (style !== 'chill' && s.type !== 'buildup') {
+      const ev = a.events, hitsIn = (f0, f1) => ['kick', 'snare', 'roll'].reduce((n, k) => n + (ev[k] || []).filter(e => e[0] >= f0 && e[0] < f1).length, 0);
+      for (const [f0, f1] of fills) {
+        const beats = (f1 - f0) * p.bpm / 60; if (beats < 1 || hitsIn(f0, f1) / beats < 2.5) continue;
+        const st = t2b(Math.max(f0, s.start)), en = clamp(Math.ceil(timeToBeat(Math.min(f1, s.end))), b0, b0 + len);
+        if (en - st >= 1) clip(6, 'zonehits', st, en - st, { follow: 'both', mode: 'room', decay: 0.18 }, { opacity: 1, blend: 'add' });
+        const land = Math.round(timeToBeat(f1));
+        if (land > b0 && land <= b0 + len) clip(8, 'whiteflash', land, 2, {}, { opacity: 0.9, blend: 'add' });
+      }
     }
     // one-shots sprinkled on the biggest lead moments, so a long drop keeps surprising
     const hype = loud || (s.type === 'verse' && leads.length >= 12);
