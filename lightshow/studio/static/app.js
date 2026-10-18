@@ -251,7 +251,8 @@
   //   33: groove cuts black only in moments, colors barely by genre
   //   34: groove hits in one color a section
   //   35: hardcore drops in pure solid colors
-  const SHOW_VERSION = 35;
+  //   36: No Limits palettes: near-twins on the LEDs retired, fire, neon, acid, ice and tropical added
+  const SHOW_VERSION = 36;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2053,27 +2054,27 @@
     { c: ['amber'], k: { intro: 0.6, verse: 0.7, outro: 0.8, buildup: 0.6 } }, { c: ['white'], k: { buildup: 0.9 } },
     { c: ['pink'], k: { verse: 0.6, intro: 0.4 } }, { c: ['orange'], k: { buildup: 0.7, verse: 0.4 } },
     { c: ['red', 'blue'], k: { drop: 1.3, verse: 0.3 } }, { c: ['magenta', 'cyan'], k: { drop: 1.1, verse: 0.3 } },
-    { c: ['purple', 'orange'], k: { drop: 1, verse: 0.3 } }, { c: ['uv', 'green'], k: { drop: 0.9 } }, { c: ['red', 'white'], k: { buildup: 0.4 } },   // (never a drop: white must not lead one)
-    { c: ['blue', 'white'], k: { breakdown: 0.3 } }, { c: ['pink', 'gold'], k: { drop: 0.7, verse: 0.4 } }, { c: ['cyan', 'amber'], k: { drop: 0.7, verse: 0.3 } },
+    { c: ['purple', 'orange'], k: { drop: 1, verse: 0.3 } }, { c: ['uv', 'green'], k: { drop: 0.9 } }, { c: ['red', 'white'], k: { buildup: 0.4 } },
+    { c: ['blue', 'white'], k: { breakdown: 0.3 } }, { c: ['cyan', 'amber'], k: { drop: 0.7, verse: 0.3 } },
     { c: ['blue', 'purple'], k: { verse: 0.8, breakdown: 0.6, intro: 0.5, outro: 0.5 } }, { c: ['red', 'gold'], k: { drop: 0.7 } }, { c: ['green', 'blue'], k: { drop: 0.5, verse: 0.5 } },
     { c: ['red', 'orange', 'gold'], k: { drop: 0.6 } }, { c: ['blue', 'cyan', 'teal'], k: { drop: 0.4, verse: 0.4, breakdown: 0.4 } },
     { c: ['magenta', 'cyan', 'gold'], k: { drop: 0.6 } }, { c: 'rainbow', k: { drop: 0.7, buildup: 0.2 } },
     // more singles
     { c: ['lime'], k: { verse: 0.5, buildup: 0.5 } }, { c: ['yellow'], k: { buildup: 0.6, verse: 0.3 } },
     { c: ['violet'], k: { intro: 0.6, verse: 0.8, breakdown: 0.8, outro: 0.6 } }, { c: ['sky'], k: { intro: 0.7, verse: 0.8, breakdown: 0.7, outro: 0.7 } },
-    { c: ['rose'], k: { verse: 0.5, buildup: 0.8 } }, { c: ['aqua'], k: { intro: 0.5, verse: 0.6, breakdown: 0.7 } },
     // more pairs a lighting designer reaches for
     { c: ['blue', 'orange'], k: { drop: 1, verse: 0.3 } }, { c: ['purple', 'cyan'], k: { drop: 0.9, verse: 0.4, breakdown: 0.3 } },
     { c: ['magenta', 'gold'], k: { drop: 0.8, verse: 0.3 } }, { c: ['red', 'cyan'], k: { drop: 0.8 } }, { c: ['teal', 'orange'], k: { drop: 0.7, verse: 0.4 } },
     { c: ['uv', 'pink'], k: { drop: 0.7, verse: 0.4, breakdown: 0.3 } }, { c: ['green', 'magenta'], k: { drop: 0.7 } }, { c: ['violet', 'lime'], k: { drop: 0.6 } },
-    { c: ['sky', 'rose'], k: { drop: 0.6, verse: 0.4 } }, { c: ['indigo', 'gold'], k: { drop: 0.6, verse: 0.3 } }, { c: ['aqua', 'magenta'], k: { drop: 0.7 } },
+    { c: ['sky', 'rose'], k: { drop: 0.6, verse: 0.4 } },
     { c: ['red', 'purple'], k: { drop: 0.6, verse: 0.3, buildup: 0.3 } }, { c: ['yellow', 'purple'], k: { drop: 0.6 } },
-    // and three-color sets: sunset, Miami, galaxy, jungle, candy, lava, vaporwave, synthwave, aurora
+    // and three-color sets: sunset, Miami, galaxy, lava, aurora, tropical
     { c: ['orange', 'magenta', 'purple'], k: { drop: 0.6, verse: 0.2 } }, { c: ['pink', 'cyan', 'purple'], k: { drop: 0.6 } },
-    { c: ['indigo', 'purple', 'magenta'], k: { drop: 0.5, breakdown: 0.4 } }, { c: ['green', 'lime', 'gold'], k: { drop: 0.4 } },
-    { c: ['pink', 'aqua', 'yellow'], k: { drop: 0.5 } }, { c: ['red', 'orange', 'magenta'], k: { drop: 0.5, buildup: 0.3 } },
-    { c: ['pink', 'violet', 'aqua'], k: { drop: 0.5, verse: 0.2 } }, { c: ['magenta', 'violet', 'orange'], k: { drop: 0.5 } },
-    { c: ['green', 'teal', 'violet'], k: { drop: 0.4, breakdown: 0.4 } },
+    { c: ['indigo', 'purple', 'magenta'], k: { drop: 0.5, breakdown: 0.4 } }, { c: ['red', 'orange', 'magenta'], k: { drop: 0.5, buildup: 0.3 } },
+    { c: ['green', 'teal', 'violet'], k: { drop: 0.4, breakdown: 0.4 } }, { c: ['teal', 'orange', 'magenta'], k: { drop: 0.5 } },
+    // fire, neon, acid and ice (white never leads a drop)
+    { c: ['red', 'orange'], k: { drop: 0.7, buildup: 0.6 } }, { c: ['pink', 'lime'], k: { drop: 0.6 } }, { c: ['blue', 'lime'], k: { drop: 0.5 } },
+    { c: ['cyan', 'white'], k: { breakdown: 0.4, buildup: 0.3 } },
   ];
   /** The song's plan: a palette for each of its sections, in order (the same on every rebuild). Each is drawn
    *  by how well it suits that kind of section and the song (a dark or minor song leans cool, a bright major
@@ -2103,6 +2104,7 @@
       const prev = plan.length ? plan[plan.length - 1].e : null;
       const scored = WILD.map(e => {
         let w = (e.k[s.type] ?? 0.05) * mood(e);
+        if (s.type === 'drop' && names(e).includes('white')) w = 0;      // white never leads a drop
         if (e === prev) w = 0;
         w *= Math.pow(0.6, used.get(e) || 0);
         if (s.type === 'drop' && firstDrop && e !== firstDrop && names(e).some(x => names(firstDrop).includes(x))) w *= 2.5;
