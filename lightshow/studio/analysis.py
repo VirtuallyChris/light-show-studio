@@ -420,6 +420,40 @@ def drumless_drops(a: dict) -> list:
     return changes
 
 
+def loud_buildups(a: dict) -> list:
+    """A buildup that already is its drop: as loud as the drop it leads into (within 0.02), with its bass
+    (within 0.1), and far louder than what came before it (by 0.15): the drop starts there. Madeon's Pixel
+    Empire: 1:37.7 to 1:47.3 was called a buildup, the drop landing 10 s late. Across the 49 learned buildups
+    before a drop it changed that one. Changes the analysis in place; returns what changed."""
+    secs = a.get("sections") or []
+    bass, en = _curve(a, "bass"), np.asarray(a.get("energy") or [], dtype=float)
+    if len(secs) < 3 or bass is None or len(en) == 0:
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+
+    def mean(c, t0, t1):
+        i0, i1 = max(0, int(t0 * fps)), int(t1 * fps)
+        return float(c[i0:max(i0 + 1, i1)].mean()) if i0 < len(c) else 0.0
+    out, changes, i = [], [], 0
+    while i < len(secs):
+        s = secs[i]
+        nx = secs[i + 1] if i + 1 < len(secs) else None
+        pv = out[-1] if out else None
+        if (s.get("type") == "buildup" and nx and nx.get("type") == "drop" and pv
+                and mean(en, s["start"], s["end"]) >= mean(en, nx["start"], nx["end"]) - 0.02
+                and mean(en, s["start"], s["end"]) - mean(en, pv["start"], pv["end"]) >= 0.15
+                and mean(bass, s["start"], s["end"]) >= mean(bass, nx["start"], nx["end"]) - 0.1):
+            out.append({**nx, "start": s["start"]})
+            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (s["start"] - 0.5 <= d < nx["end"])] + [round(float(s["start"]), 3)])
+            changes.append((round(s["start"], 1), "buildup is the drop"))
+            i += 2
+            continue
+        out.append(s)
+        i += 1
+    a["sections"] = out
+    return changes
+
+
 def drop_landings(a: dict) -> list:
     """A drop lands where the bass comes back and the drums go full after a build without bass. A bar line
     where the two bars before have no bass (under 0.1), and the two after have it (0.2 or more), the drums
@@ -514,7 +548,7 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    return (drumless_drops(a) + drop_landings(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    return (drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
             + drummed_breakdowns(a) + repeated_drops(a) + gap_before_section(a) + outro_where_it_rings_out(a)
             + sections_on_bar_lines(a))
 
