@@ -181,6 +181,24 @@ class Rooms:
             cfg.setdefault("speaker_levels", {})[str(name)] = round(max(0.0, min(1.0, float(level))), 3)
             self.save_config(cfg)
 
+    def keep_as_they_are(self, wait_s: float = 1.5, sleep=time.sleep) -> None:
+        """A group's volume was moved on purpose (the Party Hub's cast volume, the jam casting to "Everywhere"):
+        each speaker in it moved with it. Once they have settled, the levels they are at are the ones kept (it
+        set them all back 5 s later, as if someone had turned them down)."""
+        if not self.touch or self.cast is None:
+            return
+        sleep(wait_s)
+        off = self.__dict__.setdefault("_off_seen", {})
+        for name in list(self.levels()):
+            try:
+                c = self.cast._device(name)
+                if c is None or c.status is None or getattr(c.cast_info, "cast_type", "") == "group":
+                    continue
+                self.remember_level(name, float(c.status.volume_level))
+                off[name] = 0
+            except Exception:  # noqa: BLE001 - a speaker that does not answer keeps its kept level
+                continue
+
     def keep_levels(self, names, clock=time.monotonic) -> list[str]:
         """Look at each of these speakers once; set back the ones off their kept level. Returns what it did."""
         if not self.touch or self.cast is None:

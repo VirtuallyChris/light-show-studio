@@ -1085,14 +1085,22 @@ class JamService:
                 return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
         if rooms and (body.get("name") or cast.cast is not None):
             rooms.remember_level(str(body.get("name") or cast.name), level)
+        def group_moved(name):
+            """A group's volume moves every speaker in it: their new levels become the kept ones."""
+            try:
+                d = cast._device(name) if name else cast.cast
+                if rooms and d is not None and getattr(d.cast_info, "cast_type", "") == "group":
+                    threading.Thread(target=rooms.keep_as_they_are, daemon=True, name="keep-levels-now").start()
+            except Exception:  # noqa: BLE001
+                pass
         if body.get("name") and rooms and str(body["name"]) in rooms.muted():
             fn = lambda: (rooms.set_saved_volume(str(body["name"]), level), {"name": body["name"], "volume": level, "muted": True})[1]
         elif body.get("name"):
-            fn = lambda: cast.set_device_volume(str(body["name"]), level)
+            fn = lambda: (cast.set_device_volume(str(body["name"]), level), group_moved(str(body["name"])))[0]
         else:
             if cast.cast is None:
                 return web.json_response({"error": "not casting"}, status=400)
-            fn = lambda: cast.set_volume(level)
+            fn = lambda: (cast.set_volume(level), group_moved(None))[0]
         try:
             return web.json_response(await asyncio.get_running_loop().run_in_executor(None, fn))
         except Exception as e:  # noqa: BLE001

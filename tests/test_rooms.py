@@ -276,6 +276,16 @@ class TestKeptLevels(unittest.TestCase):
         self.look("Office"); self.look("Office")
         self.assertEqual(len(self.calls), 1)
 
+    def test_a_group_moved_on_purpose_keeps_its_speakers_where_they_went(self):
+        a = self.speaker("Kitchen Home", 0.58)
+        b = self.speaker("Office speaker", 0.39)
+        self.look("Kitchen Home", "Office speaker")
+        a.volume_level, b.volume_level = 0.45, 0.30          # the Everywhere group turned down on the Party Hub
+        self.rooms.keep_as_they_are(sleep=lambda s: None)
+        self.look("Kitchen Home", "Office speaker"); self.look("Kitchen Home", "Office speaker")
+        self.assertEqual(self.calls, [])                     # nothing set back
+        self.assertEqual(self.rooms.levels(), {"Kitchen Home": 0.45, "Office speaker": 0.3})
+
     def test_never_more_than_once_in_ten_seconds_and_never_a_group(self):
         st = self.speaker("Living Room", 0.6)
         self.speaker("Party", 0.3, kind="group")
