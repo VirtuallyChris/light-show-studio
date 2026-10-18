@@ -132,6 +132,7 @@ class JamService:
             web.post("/api/party/level", self.party_level_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
+            web.post("/api/party/even", self.party_even),
             web.post("/api/prelisten", self.prelisten_start),
             web.post("/api/prelisten/stop", self.prelisten_stop),
             web.get("/api/jam/art", self.art),
@@ -188,7 +189,9 @@ class JamService:
         gate = Gate()
         cfg = JamSettings(target_delay=float(body.get("target_delay", 90.0)), max_gap=float(body.get("max_gap", 6.0)),
                           crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))),
-                          skip_jumps=bool(body.get("skip_jumps", False)), light_live=ahead)
+                          skip_jumps=bool(body.get("skip_jumps", False)), light_live=ahead,
+                          even_levels=bool(self.load_config().get("jam_even_levels", True)),
+                          level_target=float(self.load_config().get("jam_level_target", -9.0)))
         hidden_name = self._hidden_output_name()
         if not demo and hidden_name is None:
             raise ValueError(f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")
@@ -987,6 +990,7 @@ class JamService:
                 "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
                 "sync_warning": st.get("sync_warning", ""),
                 "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
+                "even_levels": bool(getattr(self, "load_config", dict)().get("jam_even_levels", True)),
                 "color_source": "album" if not jc.get("on", True) else "wild" if jc.get("wild") else "album" if jc.get("mode") not in ("pick", "mix") else "party",
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
@@ -1149,6 +1153,18 @@ class JamService:
             return web.json_response(await asyncio.get_running_loop().run_in_executor(None, fn))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
+
+    async def party_even(self, request):
+        """From the phone: every song at about the same volume, on or off ({on}); kept for next time."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        on = bool((await request.json()).get("on", True))
+        cfg = self.load_config()
+        cfg["jam_even_levels"] = on
+        self.save_config(cfg)
+        if self.engine is not None:
+            self.engine.even_levels(on)
+        return web.json_response({"even_levels": on})
 
     async def party_level_set(self, request):
         if not self._lan(request):

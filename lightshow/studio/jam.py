@@ -73,6 +73,9 @@ class JamLibrary:
         self._styles: dict | None = None
         self.genres_path = os.path.join(self.dir, "genres.json")
         self._genres: dict | None = None
+        self.levels_path = os.path.join(self.dir, "levels.json")
+        self._levels: dict | None = None
+        self._levels_lock = threading.Lock()
         self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
         self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
 
@@ -324,6 +327,29 @@ class JamLibrary:
             os.remove(self._learned_path(track_id))
         except OSError:
             pass
+
+    # -- how loud each song is (loudness.py) --------------------------------------------
+    def level(self, track_id: str) -> dict:
+        """{"copy": measured from its YouTube copy, "relay": measured as it played} (either may be missing)."""
+        with self._levels_lock:
+            if self._levels is None:
+                try:
+                    with open(self.levels_path, encoding="utf-8") as fh:
+                        self._levels = json.load(fh)
+                except (OSError, ValueError):
+                    self._levels = {}
+            return dict(self._levels.get(track_id) or {})
+
+    def save_level(self, track_id: str, source: str, level: dict) -> None:
+        """source: "copy" (the YouTube copy, when learned) or "relay" (the song as it played, whole)."""
+        self.level(track_id)                                        # (loaded)
+        with self._levels_lock:
+            self._levels.setdefault(track_id, {})[source] = {**level, "at": time.strftime("%Y-%m-%d %H:%M")}
+            os.makedirs(self.dir, exist_ok=True)
+            tmp = self.levels_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self._levels, fh)
+            os.replace(tmp, self.levels_path)
 
     def save_learned(self, track: Track, analysis: dict, source: str = "heard") -> None:
         """source: "heard" (the jam listened to it) or "youtube" (learned ahead from a copy, see fetch_ahead)."""
@@ -621,6 +647,9 @@ class JamSettings:
     # nothing else (no stems, sections model, instruments or genre), so the processor's time goes to the
     # copy's full analysis, and what is heard is not kept (the copy is what the song is learned from).
     light_live: bool = False
+    # Every song at about the same volume (loudness.py): one gain per song, set where it begins.
+    even_levels: bool = True
+    level_target: float = -9.0          # LUFS
 
 
 class JamEngine:
@@ -643,6 +672,7 @@ class JamEngine:
         self.flushes = 0
         self.gaps_added = 0.0
         self._streamed_at = -1e9                       # when the speakers last got a fresh stream (keep_delay)
+        self._planned_level = None                     # the song whose next song's level is set ahead (plan_levels)
         self._paused_room: float | None = None         # where the room was when Spotify paused
         self._speaker_dropped = False                  # the speaker ended its Cast session during that pause
         self.error = ""
@@ -831,6 +861,12 @@ class JamEngine:
         self.tracks.append(jt)
         del self.tracks[:-40]
         self.say(f"{'next up' if natural else 'now'}: {track.label}  [{kind}{' - ' + project if project else ''}]")
+        gain, why = self._level_for(track.id)
+        self.relay.set_level(est_start, gain)
+        if why:
+            self.say(f"level: {track.name}: {why}")
+        if prev is not None and natural and not restarted:
+            self._measure_level(prev)
         if prev is None:
             return
         if not natural and self.cfg.skip_jumps:
@@ -923,6 +959,73 @@ class JamEngine:
                 return None
             self._idle_seen = 0
             return None
+
+    # ------------------------------------------------------------------ song levels
+    def _level_for(self, track_id: str) -> tuple[float, str]:
+        """The gain a song plays at (1.0: as Spotify plays it), and why, for the log. Measured as it played
+        whole is believed first, then its YouTube copy; a song never measured plays as it is."""
+        if not self.cfg.even_levels or not track_id:
+            return 1.0, ""
+        from .loudness import gain_db
+        lv = self.library.level(track_id)
+        m, src = (lv["relay"], "as it played") if "relay" in lv else (lv["copy"], "its YouTube copy") if "copy" in lv else (None, "")
+        if m is None:
+            return 1.0, ""
+        db = gain_db(m, self.cfg.level_target)
+        return 10 ** (db / 20), f"{db:+.1f} dB ({m['lufs']:.1f} LUFS, from {src})"
+
+    def even_levels(self, on: bool) -> None:
+        """Switch the evening out on or off now: the songs held (the room's, Spotify's) take their levels, or
+        all go back to as Spotify plays them, gliding there."""
+        with self.lock:
+            self.cfg.even_levels, self._planned_level = bool(on), None
+            with self.relay.cond:
+                self.relay.levels = []
+            if on:
+                for t in self.tracks[-3:]:
+                    self.relay.set_level(t.start, self._level_for(t.track.id)[0])
+
+    def plan_levels(self) -> None:
+        """A song that ends by itself hands over to the next one queued: that one's level is set where the
+        song is due to end, a few seconds before Spotify gets there, so the change falls between the two
+        (heard when the change comes, it would land a second into the new song). A skip or a surprise is
+        put right when the new song is heard (_begin_track)."""
+        if not self.cfg.even_levels:
+            return
+        with self.lock:
+            cur = self.current
+            if cur is None or cur.end is not None or not self.queue or self._planned_level == cur.serial:
+                return
+            due = cur.start + float(cur.track.duration) - self.cfg.crossfade
+            if due - self.relay.capture_time > 15.0:
+                return
+            nxt = self.queue[0]
+            self._planned_level = cur.serial
+        gain, _ = self._level_for(nxt.get("id") or "")
+        self.relay.set_level(due - 0.3, gain)
+
+    def _measure_level(self, jt: JamTrack) -> None:
+        """A song that played whole, from its start, is measured as the speakers got it (in the background),
+        kept for next time, and set beside what its YouTube copy said."""
+        start, end = jt.start, jt.end
+        if (not self.cfg.even_levels or end is None or jt.heard_from is not None or start < self.relay.oldest_time
+                or end - start < max(30.0, 0.8 * float(jt.track.duration or 0))):
+            return
+        frames = self.relay.frames(start, end)
+
+        def run():
+            from .loudness import measure
+            try:
+                m = measure(frames, self.relay.sr)
+                if m is None:
+                    return
+                copy = self.library.level(jt.track.id).get("copy")
+                self.library.save_level(jt.track.id, "relay", m)
+                said = f" (its YouTube copy: {copy['lufs']:.1f}, {m['lufs'] - copy['lufs']:+.1f} dB)" if copy else ""
+                self.say(f"loudness: {jt.track.name}: {m['lufs']:.1f} LUFS as it played{said}")
+            except Exception as e:  # noqa: BLE001 - measured again next time it plays
+                self.say(f"loudness: {jt.track.name}: not measured ({type(e).__name__})")
+        threading.Thread(target=run, daemon=True).start()
 
     def _quietest_near(self, t: float, reach: float = 1.2) -> float:
         """The quietest moment around a song boundary, so inserted silence lands in the seam."""
@@ -1533,6 +1636,7 @@ class JamRunner:
                 e.poll()
                 e.keep_delay()
                 e.keep_playing()
+                e.plan_levels()
                 n += 1
                 if n % 6 == 1:
                     e.refresh_queue()

@@ -302,6 +302,21 @@ class FetchAhead:
         self.threads: list[threading.Thread] = []
 
     # -- what to learn ------------------------------------------------------------------------------
+    def _measure_copy(self, track, path: str) -> None:
+        """How loud the copy is (loudness.py), kept with the song: it plays evened out from its first note.
+        Measured in stereo at the copy's own rate, as the relay measures what plays."""
+        if not hasattr(self.library, "save_level"):
+            return
+        try:
+            import librosa
+            from .loudness import measure
+            y, sr = librosa.load(path, sr=None, mono=False)
+            m = measure(y.T if y.ndim == 2 else y, int(sr))
+            if m:
+                self.library.save_level(track.id, "copy", m)
+        except Exception as e:  # noqa: BLE001 - it is measured as it plays instead
+            self.log(f"[learn ahead] {track.label}: loudness not measured ({type(e).__name__}: {e})")
+
     def _learned_well(self, track_id: str) -> bool:
         """Learned, and nothing failed doing it. A song whose analysis had something fail (a model that
         was not running) is learned again, once each time the studio runs: read once, not every poll."""
@@ -536,6 +551,7 @@ class FetchAhead:
                 urgent = track.id == self.now
                 a = self.analyze(path, os.path.join(folder, "cache"), **({"urgent": True} if urgent else {}))
                 self.library.save_learned(track, a, source="youtube")
+                self._measure_copy(track, path)
                 self.checked[track.id] = True                  # learned again: not again this run, whatever it says
                 with self.lock:
                     self.learned_now += 1

@@ -46,6 +46,29 @@ class Relay:
         self.cond = threading.Condition()
         self.last_write_at = clock()
         self.closed = False
+        # Each song's volume (loudness.py): [capture frame, gain] from where each song begins, every stream
+        # applying it as it reads, so a song is evened out on Cast, on this PC, and after any restart alike.
+        self.levels: list[list] = []
+
+    # -- song levels ------------------------------------------------------------------
+    def set_level(self, at_capture_time: float, gain: float) -> None:
+        """From this capture time on, the music plays at `gain` (a song's start). A level set for the same
+        change a moment before (a song's end foreseen, then heard) is replaced."""
+        f = int(at_capture_time * self.sr)
+        with self.cond:
+            keep = [e for e in self.levels if e[0] < f - 2 * self.sr]
+            old = self.written - self.capacity                   # what fell out of the buffer: its last level is all that matters
+            while len(keep) > 1 and keep[1][0] <= old:
+                keep.pop(0)
+            self.levels = keep + [[f, float(gain)]]
+
+    def level_at(self, frame: int) -> float:
+        g = 1.0
+        for f, v in self.levels:
+            if f > frame:
+                break
+            g = v
+        return g
 
     # -- capture side -----------------------------------------------------------------
     def write(self, frames: np.ndarray) -> None:
@@ -159,6 +182,7 @@ class RelayStream:
         self.gaps: list[list[int]] = []                 # [at_capture_frame, silence_frames_left]
         self.gain: tuple | None = None                  # (from stream frame, frames, gain from, gain to): a fade
         self.cut: dict | None = None                    # a cue's song played into the stream first (see insert)
+        self.lev = relay.level_at(self.cursor)          # the song level being applied (glides to a new song's)
         self.started_at = relay.clock()
         self.closed = False
 
@@ -291,10 +315,43 @@ class RelayStream:
             n = min(max_frames, avail)
             if self.gaps:
                 n = min(n, max(1, self.gaps[0][0] - self.cursor))
-            data = self._faded(r._slice(self.cursor, self.cursor + n).tobytes(), n)
+            data = self._faded(self._leveled(r._slice(self.cursor, self.cursor + n), self.cursor), n)
             self._note(self.cursor, n)
             self.cursor += n
             return data
+
+    LEVEL_GLIDE_S = 0.25                                # a new song's level is reached in about a second
+    CEILING = 32767 * 10 ** (-0.3 / 20)                 # the boosted music's peaks stay under -0.3 dBFS
+
+    def _leveled(self, x: np.ndarray, f0: int) -> bytes:
+        """Frames from capture frame f0 at their songs' levels (Relay.levels), gliding from the level the
+        stream was at, and a boosted song's rare peaks held under the ceiling by a limiter that looks a
+        moment ahead and lets go over 40 ms (it touches at most 1 in 100 of a song's 10 ms stretches)."""
+        r, n = self.relay, len(x)
+        if not r.levels and abs(self.lev - 1.0) < 1e-4:
+            return x.tobytes()
+        fr = np.array([e[0] for e in r.levels], dtype=np.int64)
+        gv = np.array([1.0] + [e[1] for e in r.levels])
+        tgt = gv[np.searchsorted(fr, np.arange(f0, f0 + n), side="right")]
+        if np.all(np.abs(tgt - self.lev) < 1e-4):
+            g = np.full(n, self.lev)
+        else:
+            from scipy.signal import lfilter
+            a = float(np.exp(-1.0 / (self.LEVEL_GLIDE_S * r.sr)))
+            g, _ = lfilter([1 - a], [1, -a], tgt, zi=[a * self.lev])
+        self.lev = float(g[-1])
+        if np.all(np.abs(g - 1.0) < 1e-4):
+            return x.tobytes()
+        y = x.astype(np.float32) * g[:, None].astype(np.float32)
+        if g.max() > 1.0:
+            peak = np.abs(y).max(axis=1)
+            need = np.minimum(1.0, self.CEILING / np.maximum(peak, 1.0))
+            if need.min() < 1.0:
+                from scipy.ndimage import minimum_filter1d, uniform_filter1d
+                ahead = minimum_filter1d(need, size=max(3, int(0.004 * r.sr)) | 1)
+                env = uniform_filter1d(minimum_filter1d(need, size=max(3, int(0.03 * r.sr)) | 1), size=max(3, int(0.01 * r.sr)))
+                y *= np.minimum(env, ahead)[:, None].astype(np.float32)
+        return np.clip(y, -32768, 32767).astype(np.int16).tobytes()
 
     def _silence(self, n: int) -> bytes:
         return bytes(n * self.relay.channels * 2)

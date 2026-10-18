@@ -201,6 +201,7 @@
   .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
   .theme-chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .theme-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .even-row { margin-top: 14px; }
   .theme-row .label { margin: 0; }
   .theme-sw { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; }
   .theme-sw .pair { display: flex; gap: 2px; }
@@ -343,6 +344,8 @@
   <section class="card">
     <div class="label">Cast volume</div>
     <div id="castVol"><div class="empty">…</div></div>
+    <div class="theme-row even-row" title="Quiet songs turned up and the loudest a little down, each as a whole, so the volume needs no changing between songs. Nothing is compressed."><span>Even out song volume</span>
+      <label class="switch"><input type="checkbox" id="evenOn" aria-label="Even out song volume"><span></span></label></div>
   </section>
   <section class="card">
     <div class="label">Speakers by room</div>
@@ -359,7 +362,7 @@
   const $ = s => document.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const fmt = t => (t == null || !isFinite(t)) ? '0:00' : `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  let state = null, shown = '', clock = null, settingsOpen = false;
+  let state = null, shown = '', clock = null, settingsOpen = false, evenBusy = 0;
   const api = async (path, body) => {
     const r = await fetch('/api/party/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(r.status);
@@ -674,6 +677,7 @@
   }
   for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
   setInterval(() => { if (settingsOpen && !document.hidden) loadBell(); }, 3000);
+  $('#evenOn').onchange = e => { evenBusy = performance.now() + 4000; api('even', { on: e.target.checked }).catch(() => { evenBusy = 0; }); };
 
   // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
   for (const b of document.querySelectorAll('#colorSource button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ source: b.dataset.s }); };
@@ -787,6 +791,7 @@
       }; }
     }
     renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
+    if (performance.now() > evenBusy) $('#evenOn').checked = st.even_levels !== false;
     if (settingsOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
