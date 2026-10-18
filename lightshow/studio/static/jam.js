@@ -135,12 +135,12 @@
   }
   function colorsSection(st) {
     const jc = st.jam_colors || {};
-    if (jc.on === false) return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn"></label></h4></div>`;
-    const wild = `<div class="jam-row"><label title="Every section gets its own stage colors, picked for the song: a red buildup, red and blue drops (the same pair every drop), a blue verse. Songs given their own colors keep them.">No Limits Colors</label><span class="jam-pair"><input type="checkbox" id="jamWild" ${jc.wild ? 'checked' : ''}></span></div>`;
-    if (jc.wild) return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn" checked></label></h4>${wild}</div>`;
-    return `<div class="jam-sec"><h4 class="with-switch">Party colors <label class="toggle" title="Off: every song in its album cover's colors"><input type="checkbox" id="jamThemeOn" checked></label></h4>
-        ${wild}
-        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option><option value="album" ${jc.mode !== 'pick' && jc.mode !== 'mix' ? 'selected' : ''}>Its album cover's colors</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
+    const source = jc.on === false ? 'album' : jc.wild ? 'wild' : jc.mode !== 'pick' && jc.mode !== 'mix' ? 'album' : 'party';
+    const pick = `<div class="jam-row"><label>Colors</label><span class="jam-source" role="group">${[['album', 'Album art', 'Every song in its album cover\'s colors'], ['party', 'Party colors', 'Every song in the party\'s two colors, or a pair of them each'],
+      ['wild', 'No Limits', 'Every section its own palette: a breakdown all blue, a red drop, a rainbow, green there…']].map(([k, n, t]) => `<button class="small${source === k ? ' on' : ''}" data-src="${k}" title="${t}">${n}</button>`).join('')}</span></div>`;
+    if (source !== 'party') return `<div class="jam-sec"><h4>Colors</h4>${pick}</div>`;
+    return `<div class="jam-sec"><h4>Colors</h4>${pick}
+        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
         ${jc.mode === 'mix' ? `<div class="jam-row"><label title="Each song gets one of these, chosen by its vibe, never the same pair twice in a row">Pairs</label><span class="jam-pairs">${(jc.pairs || []).map((p, i) => `<span class="jam-pair"><input type="color" class="mx-a" data-i="${i}" value="${esc(p[0])}"><input type="color" class="mx-b" data-i="${i}" value="${esc(p[1])}"></span>`).join('')}</span></div>
         <div class="jam-row"><label title="A song that goes all out gets rainbow drops">Rainbow for epic songs</label><input type="checkbox" id="jamRainbow" ${jc.rainbow ? 'checked' : ''}></div>` : ''}
         ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take two more colors now and then, picked for each song from its own two (purple and green get red and orange)">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}></span></div>` : ''}</div>`;
@@ -304,7 +304,6 @@
       J.shown = null; render();
     };
     const el2 = $('#jamBody');
-    const themeSw = $('#jamThemeOn'); if (themeSw) themeSw.onchange = () => saveJam({ on: themeSw.checked }).catch(e => toast(e.message, true));
     const mode = $('#jamColorMode');
     if (mode) mode.onchange = () => saveJam({ mode: mode.value }).catch(e => toast(e.message, true));
     for (const id of ['jamPrimary', 'jamSecondary']) { const e = $('#' + id); if (e) e.onchange = () => saveJam({ primary: $('#jamPrimary').value, secondary: $('#jamSecondary').value }).catch(err => toast(err.message, true)); }
@@ -313,7 +312,7 @@
       saveJam({ pairs }).catch(err => toast(err.message, true));
     };
     const rb = $('#jamRainbow'); if (rb) rb.onchange = () => saveJam({ rainbow: rb.checked }).catch(err => toast(err.message, true));
-    const wl = $('#jamWild'); if (wl) wl.onchange = () => saveJam({ wild: wl.checked }).catch(err => toast(err.message, true));
+    for (const b of el2.querySelectorAll('.jam-source button')) b.onclick = () => { if (!b.classList.contains('on')) saveJam({ source: b.dataset.src }).catch(err => toast(err.message, true)); };
     const ex = $('#jamExtras'); if (ex) ex.onchange = () => saveJam({ extras: ex.checked }).catch(err => toast(err.message, true));
     for (const box of el2.querySelectorAll('.jam-pair[data-id]')) {
       const id = box.dataset.id, a = box.querySelector('.jp-a'), b = box.querySelector('.jp-b'), reset = box.querySelector('.jp-reset'), theme = box.querySelector('.jp-theme');

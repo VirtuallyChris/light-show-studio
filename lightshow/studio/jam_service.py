@@ -883,6 +883,8 @@ class JamService:
                 return None, False                       # out of the party's colors: its cover's
             if own:
                 return [own["primary"], own["secondary"]], True
+            if jc.get("wild"):
+                return None, False                       # No Limits: the studio picks section by section
             if jc.get("mode") == "pick":
                 return [jc["primary"], jc["secondary"]], False
             if jc.get("mode") == "mix":
@@ -904,6 +906,7 @@ class JamService:
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
                 "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
                 "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
+                "color_source": "album" if not jc.get("on", True) else "wild" if jc.get("wild") else "album" if jc.get("mode") not in ("pick", "mix") else "party",
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
                 "cues": self.studio.cues.list() if getattr(self.studio, "cues", None) else [],
@@ -1102,6 +1105,10 @@ class JamService:
             cur["rainbow"] = bool(body["rainbow"])
         if "wild" in body:
             cur["wild"] = bool(body["wild"])
+        if body.get("source") in ("album", "party", "wild"):     # the three ways a song gets its colors
+            cur["on"], cur["wild"] = body["source"] != "album", body["source"] == "wild"
+            if body["source"] == "party" and cur.get("mode") not in ("pick", "mix"):
+                cur["mode"] = "mix"                              # (album art is its own choice now)
         if isinstance(body.get("pairs"), list):
             pairs = [[hexcolor(p[0]), hexcolor(p[1])] for p in body["pairs"][:8] if isinstance(p, list) and len(p) == 2]
             if pairs and all(a and b for a, b in pairs):

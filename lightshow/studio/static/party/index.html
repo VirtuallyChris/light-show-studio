@@ -88,7 +88,7 @@
   /* now playing */
   .hero { position: relative; overflow: hidden; padding: 18px 18px 16px; }
   .hero::before { content: ''; position: absolute; inset: -30% -30% auto -30%; height: 90%; pointer-events: none; opacity: .32;
-    background: radial-gradient(closest-side at 30% 50%, var(--c1, var(--accent)), transparent), radial-gradient(closest-side at 75% 45%, var(--c2, var(--accent2)), transparent); filter: blur(10px); }
+    background: radial-gradient(closest-side at 30% 50%, var(--c1, var(--accent)), transparent), radial-gradient(closest-side at 75% 45%, var(--c2, var(--accent2)), transparent); }   /* no blur filter: iOS Safari will not clip a blurred layer to the rounded corners */
   .hero > * { position: relative; }
   .art { border-radius: 12px; background: var(--card2) center/cover no-repeat; flex: none; }
   .art.none { display: grid; place-items: center; background: linear-gradient(135deg, var(--c1, var(--accent)), var(--c2, var(--accent2))); color: rgb(255 255 255 / .85); }
@@ -143,6 +143,10 @@
   #themeEdit .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--card2); border-radius: 12px; margin-top: 12px; }
   #themeEdit .modes button { font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 9px; padding: 8px; }
   #themeEdit .modes button.on { color: var(--text); background: var(--card); box-shadow: var(--shadow); }
+  #colorSource { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; padding: 4px; background: var(--card2); border-radius: 12px; margin-top: 10px; }
+  #colorSource button { font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 9px; padding: 8px 4px; }
+  #colorSource button.on { color: var(--text); background: var(--card); box-shadow: var(--shadow); }
+  #themeCard #themeHint { margin-top: 8px; }
   #themeEdit .pairs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; align-items: center; }
   #themeEdit .pair-ed { display: flex; gap: 4px; align-items: center; padding: 4px; border: 1px solid var(--line); border-radius: 12px; }
   #themeEdit .pair-ed .rm { border: none; background: none; color: var(--muted); font-size: 18px; padding: 0 4px; }
@@ -300,8 +304,9 @@
   </section>
 
   <section class="card" id="themeCard" hidden>
-    <div class="theme-row"><div><div class="label">Party colors</div><div class="hint" id="themeHint"></div></div>
-      <label class="switch"><input type="checkbox" id="themeOn" aria-label="Party colors on"><span></span></label></div>
+    <div class="label">Colors</div>
+    <div class="modes" id="colorSource" role="group" aria-label="Where every song's colors come from"><button data-s="album">Album art</button><button data-s="party">Party colors</button><button data-s="wild">No Limits</button></div>
+    <div class="hint" id="themeHint"></div>
     <div class="theme-sw" id="themeSw"></div>
     <div id="themeEdit"></div>
   </section>
@@ -665,21 +670,18 @@
   for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
   setInterval(() => { if (settingsOpen && !document.hidden) loadBell(); }, 3000);
 
-  // ---- the party's colors, on or off for every song (off: each song in its cover's)
-  const themeSw = $('#themeOn');
-  themeSw.onchange = async () => {
-    try { state = await api('colors', { on: themeSw.checked }); } catch (e) { /* the next poll shows the truth */ }
-    shown = ''; render();
-  };
+  // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
+  for (const b of document.querySelectorAll('#colorSource button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ source: b.dataset.s }); };
   // The party's colors: on or off, the named set they come from (a Halloween set...), two colors for every
   // song or a pair for each, and the colors themselves, each tappable into the sixteen.
   let themeShown = '';
   const theme = body => api('theme', body).then(st => { state = st; themeShown = ''; render(); }).catch(() => {});
   function renderTheme(st) {
-    const pc = st.party_colors || {}, on = st.theme_on !== false, mode = pc.mode || st.color_mode;
+    const pc = st.party_colors || {}, mode = pc.mode || st.color_mode, source = st.color_source || (st.theme_on === false ? 'album' : 'party'), on = source === 'party';
     $('#themeCard').hidden = !pc.mode;
-    if (document.activeElement !== themeSw) themeSw.checked = on;
-    $('#themeHint').textContent = !on || mode === 'album' ? 'Every song in its album cover’s colors' : (pc.set ? pc.set + (pc.edited ? ' (changed)' : '') : (mode === 'mix' ? 'A pair for each song' : 'Every song in these two'));
+    for (const b of document.querySelectorAll('#colorSource button')) b.classList.toggle('on', b.dataset.s === source);
+    $('#themeHint').textContent = source === 'album' ? 'Every song in its album cover’s colors' : source === 'wild' ? 'Every section its own palette: a breakdown all blue, a red drop, a rainbow, green there…'
+      : (pc.set ? pc.set + (pc.edited ? ' (changed)' : '') : (mode === 'mix' ? 'A pair for each song' : 'Every song in these two'));
     $('#themeSw').innerHTML = '';
     const pairs = mode === 'mix' ? (pc.pairs || []) : [[pc.primary, pc.secondary]];
     const html = !on ? '' : `
