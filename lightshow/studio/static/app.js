@@ -260,7 +260,8 @@
   //       kinds; how hard a section goes follows its loudness within the song
   //   38: buildups only where something builds (the snares speeding up, not just busy)
   //   39: the kitchen's meteor tubes: the show across them, meteors falling down them
-  const SHOW_VERSION = 39;
+  //   40: real fills only (a burst, a bar or less); the tubes' meteors are moments, their shapes per section
+  const SHOW_VERSION = 40;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -855,7 +856,7 @@
       // The meteor tubes hang scattered over the kitchen: the show plays across the tubes (each tube one
       // pixel of it: washes, hits, flashes, a chase tube to tube), each tube's color runs down its LEDs
       // (a little softer at the bottom), and their own layers (the meteors falling, target 'tubes') play on
-      // every LED on top. Under the meteors the rest is kept at half, so a falling head stands out.
+      // every LED on top, as bright as every other light (dimmed under the meteors, they were too dark: the user).
       const layers = (out, np, keyOf, wanted, sub) => {
       for (const pass of [0, 1]) p.lanes.forEach((lane, li) => {
         if (lane.hidden) return;
@@ -890,10 +891,13 @@
       else {
         const across = buf('tubes' + L.ip, tubes.count); across.fill(0);
         layers(across, tubes.count, L.ip + 't', c => !c.target, null);
-        const falling = p.lanes.some(lane => !lane.hidden && lane.clips.some(c => c.target === 'tubes' && b >= c.start && b < c.start + c.len));
-        const under = falling ? 0.5 : 1;
+        let form = null;
+        for (const lane of p.lanes) if (!lane.hidden) for (const c of lane.clips) if (c.target === 'tubes' && b >= c.start && b < c.start + c.len) {
+          if (c.effect === 'tubeform') form = c.params || {};
+        }
+        const shape = tubeShape(form, tubes, b);
         for (let tb = 0; tb < tubes.count; tb++) for (let k = 0; k < tubes.per; k++) {
-          const i = (tb * tubes.per + k) * 4, j = tb * 4, sh = under * (1 - 0.15 * k / Math.max(1, tubes.per - 1));
+          const i = (tb * tubes.per + k) * 4, j = tb * 4, sh = shape(tb, k);
           if (i + 3 >= dst.length) break;
           dst[i] = across[j] * sh; dst[i + 1] = across[j + 1] * sh; dst[i + 2] = across[j + 2] * sh; dst[i + 3] = 1;
         }
@@ -912,6 +916,17 @@
       out.push({ light: L, px: flat });
     }
     return out;
+  }
+  /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
+   *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
+   *  in its own time, a slow bob over 8 beats), or a glow from the top fading down. */
+  function tubeShape(form, tubes, beat) {
+    const per = tubes.per, last = Math.max(1, per - 1), shape = (form && form.shape) || 'full';
+    const bell = (k, mid, w) => Math.exp(-0.5 * ((k - mid) / w) ** 2);
+    if (shape === 'orb') return (tb, k) => bell(k, last / 2, per * 0.2);
+    if (shape === 'drift') return (tb, k) => bell(k, last / 2 + Math.sin((beat / 8 + Effects.hash(tb * 7919 + 3)) * Math.PI * 2) * per * 0.28, per * 0.17);
+    if (shape === 'top') return (tb, k) => Math.pow(1 - k / (last + 1), 1.6);
+    return (tb, k) => 1 - 0.15 * k / last;
   }
   // The room view (roomview.html, its own window): the party rooms' lights as the party would see them,
   // simulated, whichever lights are ticked (testing on the Office strip, it shows the living room and the
@@ -2259,7 +2274,7 @@
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
   const HIT = new Set(['hitswap', 'pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
-  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'scramble', 'fillflood', 'meteorfall']);   // set as placed: never tiered or balanced (a star is one bright segment)
+  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'scramble', 'fillflood', 'meteorfall', 'tubeform']);   // set as placed: never tiered or balanced (a star is one bright segment)
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
     // a color battle at full motion brightness made a verse outshine its drop
@@ -2730,13 +2745,19 @@
     // their own way: meteors fall down them. On every kick and snare of a drop (more tubes and quicker the
     // harder the song; a calm song's on the beat, slow), through a buildup more and quicker toward the drop,
     // on the snare in a verse, and a slow drip on the beat in the quiet parts.
+    // (the user: the meteor is great, but not ALL THE TIME. The tubes play what the other lights play,
+    // alternating, gradients, chases, in a shape of their own; the meteors are moments)
     if (S.hasTubes) {
       const T = { target: 'tubes', blend: 'add' };
-      if (s.type === 'drop') clip(10, 'meteorfall', b0, len, chill ? { follow: 'beat', many: 1, fall: 1.4, tail: 6 }
+      if (s.type === 'drop' && variant % 2 === 1) clip(10, 'meteorfall', b0, len, chill ? { follow: 'beat', many: 1, fall: 1.4, tail: 6 }
         : { follow: drumsHere ? 'drums' : 'beat', many: style === 'rave' ? 4 : hard ? 3 : 2, fall: style === 'rave' ? 0.35 : hard ? 0.45 : 0.6, tail: 4 }, { ...T, opacity: 1 });
-      else if (s.type === 'buildup') clip(10, 'meteorfall', b0, len, { follow: chill ? 'beat' : snaresHere >= 4 ? 'snare' : 'build', many: chill ? 1 : 5, fall: chill ? 1.4 : 0.7, tail: 3, grows: !chill }, { ...T, opacity: 1 });
-      else if (s.type === 'verse' && drumsHere && !chill) clip(10, 'meteorfall', b0, len, { follow: 'snare', many: 1, fall: 0.7, tail: 4 }, { ...T, opacity: 0.85 });
-      else clip(10, 'meteorfall', b0, len, { follow: 'beat', many: 1, fall: 1.8, tail: 6 }, { ...T, opacity: 0.6 });
+      else if (s.type === 'buildup' && !chill) clip(10, 'meteorfall', b0, len, { follow: snaresHere >= 4 ? 'snare' : 'build', many: 5, fall: 0.7, tail: 3, grows: true }, { ...T, opacity: 1 });
+      // their shape: the whole tube, an orb floating in the middle of each (the user's idea), orbs drifting up
+      // and down, or a glow from the top; calm parts float, the big parts fill the tubes (the same on a rebuild)
+      const calm = ['intro', 'breakdown', 'outro'].includes(s.type) || chill;
+      const forms = calm ? ['orb', 'drift', 'drift', 'top'] : s.type === 'drop' ? ['full', 'full', 'orb'] : ['full', 'orb', 'drift', 'top'];
+      const form = forms[Math.floor(Effects.hash((S.lookSeed || 0) * 13 + idx * 7919 + variant * 31) * forms.length)];
+      if (form !== 'full') clip(10, 'tubeform', b0, len, { shape: form }, { target: 'tubes', opacity: 1 });
     }
     S.sectionClips = null;
   }
@@ -3046,10 +3067,16 @@
     // buildup (it has its own). About two a song.
     if (style !== 'chill' && s.type !== 'buildup') {
       const ev = a.events, hitsIn = (f0, f1) => ['kick', 'snare', 'roll'].reduce((n, k) => n + (ev[k] || []).filter(e => e[0] >= f0 && e[0] < f1).length, 0);
+      // (a fill is a burst: a bar or less, busier than the two bars before it and the two after. The fills
+      // found are often whole busy stretches, 8 to 24 beats: Bombs Away's first drop was 16 beats of solid cyan,
+      // its drums busier than the quiet breakdown before it only because the drop had begun. 76 of 274 are fills.)
+      const beatS = 60 / p.bpm, rate = (t0, t1) => hitsIn(t0, t1) / Math.max(1e-6, (t1 - t0) / beatS);
       for (const [f0, f1] of fills) {
-        const beats = (f1 - f0) * p.bpm / 60; if (beats < 1 || hitsIn(f0, f1) / beats < 2.5) continue;
+        const beats = (f1 - f0) / beatS, r = rate(f0, f1);
+        if (beats < 1 || beats > 4.5 || r < 2.5 || r < 1.4 * Math.max(0.25, rate(f0 - 8 * beatS, f0)) || r < 1.2 * Math.max(0.25, rate(f1, f1 + 8 * beatS))) continue;
         const st = t2b(Math.max(f0, s.start)), en = clamp(Math.ceil(timeToBeat(Math.min(f1, s.end))), b0, b0 + len);
         if (en - st >= 1) clip(9, 'fillflood', st, en - st, {}, { palette: [punchColor(st)], opacity: 1 });
+        if (en - st >= 1 && S.hasTubes) clip(10, 'meteorfall', st, en - st, { follow: 'drums', many: 4, fall: 0.4, tail: 3 }, { target: 'tubes', blend: 'add', opacity: 1 });   // and a meteor burst in the kitchen
         const land = Math.round(timeToBeat(f1));
         if (land > b0 && land <= b0 + len) clip(8, 'whiteflash', land, 2, {}, { opacity: 0.9, blend: 'add' });
       }

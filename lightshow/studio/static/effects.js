@@ -445,6 +445,10 @@ const Effects = (() => {
       }
     } });
 
+  def({ id: 'tubeform', name: 'Tube shape', cat: 'room', desc: 'For the meteor tubes (the kitchen): how each tube carries the show\'s color down its LEDs while the clip plays: the whole tube, an orb floating in the middle (fading to both ends), orbs drifting slowly up and down, or a glow from the top. Draws nothing itself.', swatch: ['#5cc8ff', '#000000'],
+    params: { shape: { type: 'select', def: 'orb', options: { full: 'the whole tube', orb: 'a floating orb', drift: 'orbs drifting', top: 'a glow from the top' }, label: 'Shape' } },
+    render(c) { clear(c.out); } });
+
   def({ id: 'pulsar', name: 'Pulsar', cat: 'medium', desc: 'Dark strip; on every beat one or two points flare up somewhere and fade.', swatch: ['#8ad8ff', '#000010'],
     params: { every: P.speed(1, 'Flare every (beats)'), count: P.count(1, 4), size: P.size(0.08, 'Flare size'), decay: P.decay(0.6), color: P.color() },
     render(c) { clear(c.out); const k = Math.floor(c.beat / c.p.every); const ph = (c.beat - k * c.p.every) / c.p.every; const env = Math.exp(-ph / (c.p.decay * 0.6 + 0.02));
