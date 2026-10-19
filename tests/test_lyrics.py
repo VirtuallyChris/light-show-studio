@@ -242,5 +242,44 @@ class TestResult(unittest.TestCase):
             shutil.rmtree(d)
 
 
+class TestLearn(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        from lightshow.studio.spotify import Track
+        self.track = Track(id="abc", name="Higher Power", artists=["Coldplay", "Someone"], duration=211.3)
+
+    def test_the_model_hosts_answer_is_written_for_the_song(self):
+        asked = []
+        data = L.learn(self.track, "copy.flac", self.dir, ask=lambda req: asked.append(req) or
+                       L.result([{"t": 1.0, "end": 1.2, "w": "hold", "p": 0.5}], [], source="lrclib", language="en", model="m"))
+        self.assertEqual(asked[0]["title"], "Higher Power")
+        self.assertEqual(asked[0]["artist"], "Coldplay")
+        self.assertEqual(asked[0]["duration"], 211.3)
+        self.assertTrue(os.path.isabs(asked[0]["path"]))
+        back = L.read(L.lyrics_path(self.dir, "abc"))
+        self.assertEqual(back["track_id"], "abc")
+        self.assertEqual(back["words"], data["words"])
+
+    def test_a_song_with_lyrics_is_not_redone(self):
+        L.write(L.lyrics_path(self.dir, "abc"), {"words": [], "track_id": "abc"})
+        self.assertEqual(L.learn(self.track, "copy.flac", self.dir, ask=lambda req: self.fail("asked again"))["track_id"], "abc")
+
+    def test_nothing_written_when_the_models_cannot_run(self):
+        self.assertIsNone(L.learn(self.track, "copy.flac", self.dir, ask=lambda req: None))
+        self.assertFalse(os.path.exists(L.lyrics_path(self.dir, "abc")))
+
+    def test_the_hosts_warm_up_is_no_song(self):
+        self.assertIsNone(L.answer(None, {"samples": 100, "sr": 16000}))
+        with self.assertRaises(ValueError):
+            L.answer(None, {"path": "relative.flac"})
+
+    def test_the_model_host_knows_the_lyrics_model(self):
+        from lightshow.studio import models_host
+        self.assertIn("lyrics", models_host.LOADERS)
+        self.assertIn("lyrics", models_host.HANDLERS)
+        self.assertEqual(L._worker().name, "lyrics")
+
+
 if __name__ == "__main__":
     unittest.main()

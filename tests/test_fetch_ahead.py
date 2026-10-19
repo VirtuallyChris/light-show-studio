@@ -88,6 +88,38 @@ class TestFetchAhead(unittest.TestCase):
         self.assertEqual(order, ["t1"])                                   # from the copy kept: no second download
         self.assertTrue(os.path.exists(os.path.join(lib.dir, "copies", "t1.flac")))
 
+    def test_each_song_gets_its_lyrics_from_the_copy_before_it_goes(self):
+        f, lib, folders, order = self.make()
+        lib.dir = "jam-dir"
+        got = []
+        f.lyrics = lambda t, path, jam_dir: got.append((t.id, os.path.exists(path), jam_dir)) or {"words": [], "source": "lrclib"}
+        f.submit([track(1), track(2)])
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 2 and f.idle()))
+        self.assertEqual(got, [("t1", True, "jam-dir"), ("t2", True, "jam-dir")])     # the copy still there
+        self.assertTrue(all(not os.path.exists(d) for d in folders))
+
+    def test_lyrics_that_fail_do_not_stop_the_song_being_learned(self):
+        f, lib, folders, order = self.make()
+        lib.dir = "jam-dir"
+        logs = []
+        f.log = logs.append
+
+        def broken(t, path, jam_dir):
+            raise RuntimeError("no card")
+        f.lyrics = broken
+        f.submit([track(1)])
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 1 and f.idle()))
+        self.assertFalse(f.status()["failed"])
+        self.assertTrue(any("no lyrics" in m and "no card" in m for m in logs))
+
+    def test_no_lyrics_while_the_song_playing_now_waits_to_be_learned(self):
+        f, lib, folders, order = self.make()
+        lib.dir = "jam-dir"
+        f.lyrics = lambda t, path, jam_dir: self.fail("the song playing now waits")
+        f.now = "t2"
+        f.ready.append((track(2), "f", "p"))
+        f._lyrics(track(1), "copy.flac")
+
     def test_the_song_playing_unlearned_gets_all_the_effort(self):
         f, lib, folders, order = self.make()
         calls = []

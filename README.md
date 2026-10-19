@@ -301,9 +301,12 @@ line later. The words come from LRCLIB (lrclib.net, free and open; most songs sy
 line by line), moved onto the copy's own timeline by matching them to what Whisper
 (faster-whisper large-v3-turbo) hears in the Demucs vocal stem, and each line is then
 forced onto the vocals by a CTC aligner (wav2vec2 MMS_FA, torchaudio) for every word's
-start and end. A song LRCLIB does not have keeps Whisper's own words. For the kept Jam
-copies, `tools\lyrics_backfill.py` (model environment) writes
-`shows\_jam\lyrics\<track id>.json`; it waits while a Jam is streaming. It needs one more
+start and end. A song LRCLIB does not have keeps Whisper's own words. Learn ahead does it
+for every queued song right after learning it, while the copy is still on disk, and writes
+`shows\_jam\lyrics\<track id>.json` (about 8 s a song; the model loads the first time it is
+needed, about 3 GB of the card). It never holds up the song playing now, and a song whose
+lyrics fail is learned all the same. `tools\lyrics_backfill.py` does the same for copies
+already kept (`jam_keep_youtube_copies`), waiting while a Jam streams. It needs one more
 package in the model environment:
 
 ```bash

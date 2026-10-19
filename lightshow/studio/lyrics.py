@@ -23,7 +23,10 @@ The output, one JSON file a song:
      ...}
 
 The parts that need no model (LRC parsing, matching, placing lines, writing) run anywhere; the rest
-needs the model environment (.venv-songformer: CUDA PyTorch, Demucs, faster-whisper).
+needs the model environment (.venv-songformer: CUDA PyTorch, Demucs, faster-whisper), where it is one
+of the model host's models ("lyrics", loaded the first time it is asked: about 3 GB of the card).
+Learn ahead (fetch_ahead.py) asks it for each queued song right after the song is learned, while the
+copy is still on disk, and the answer goes to shows/_jam/lyrics/<track id>.json (learn()).
 """
 
 from __future__ import annotations
@@ -441,6 +444,41 @@ def read(path: str) -> dict | None:
         return None
 
 
+# ---------------------------------------------------------------- the studio's side
+
+
+def lyrics_path(jam_dir: str, track_id: str) -> str:
+    return os.path.join(jam_dir, "lyrics", f"{track_id}.json")
+
+
+def _worker():
+    global WORKER
+    if WORKER is None:
+        from .model_worker import ModelWorker
+        WORKER = ModelWorker("lightshow.studio.lyrics", "lyrics", start_timeout=900, request_timeout=300)
+    return WORKER
+
+
+WORKER = None
+
+
+def learn(track, path: str, jam_dir: str, ask=None) -> dict | None:
+    """A queued song's lyrics, from its copy just learned (the model host does the work): written to
+    shows/_jam/lyrics/<track id>.json and returned. None when the models cannot run (nothing written,
+    so it is tried again the next time the song is learned); a song that has lyrics is not redone."""
+    out = lyrics_path(jam_dir, track.id)
+    if os.path.exists(out):
+        return read(out)
+    req = {"path": os.path.abspath(path), "title": track.name, "artist": (track.artists or [""])[0],
+           "duration": track.duration or None}
+    data = (ask or _worker()._ask)(req)
+    if not data:
+        return None
+    data["track_id"] = track.id
+    write(out, data)
+    return data
+
+
 # ---------------------------------------------------------------- the models (model environment only)
 
 
@@ -448,6 +486,8 @@ class Models:
     """Demucs, Whisper and the aligner, loaded once for many songs (about 5 GB of the card together)."""
 
     def __init__(self, device: str | None = None, whisper: str = WHISPER):
+        # (Demucs here is a second copy of the stems model's, 80 MB: sharing the stems model's own would
+        # mean waiting on its thread, which is busy with the songs being learned)
         import torch
         self.torch = torch
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -599,3 +639,19 @@ def lyrics_for(models: Models, path: str, title: str, artist: str, album: str = 
     return result(words, out_lines, source="lrclib", synced=synced, model=f"lrclib + {ALIGNER} (lines placed with faster-whisper {models.whisper_name})",
                   offset=round(offset, 3) if offset is not None else None, agreement=round(agreement, 3),
                   seconds=round(time.monotonic() - started, 1), **info)
+
+
+def load_model() -> Models:
+    """The model host's loader for "lyrics"."""
+    return Models()
+
+
+def answer(models: Models, req: dict) -> dict | None:
+    """The model host's answer to {"path", "title", "artist", "album", "duration"}: the song's lyrics.
+    (The host's warm-up sends a few seconds of noise, not a song: nothing to do for that.)"""
+    if "path" not in req:
+        return None
+    path = req["path"]
+    if not os.path.isabs(path):
+        raise ValueError(f"a full path is needed, got {path!r}")
+    return lyrics_for(models, path, req.get("title", ""), req.get("artist", ""), req.get("album", ""), req.get("duration"))

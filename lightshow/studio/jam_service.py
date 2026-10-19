@@ -54,8 +54,10 @@ class JamService:
         self.load_config, self.save_config, self.local_ip = load_config, save_config, local_ip
         self.library = JamLibrary(shows_dir)
         # learn ahead: queued songs learned before they play, from a copy found on YouTube (fetch_ahead)
+        from . import lyrics
         from .fetch_ahead import FetchAhead
-        self.fetch = FetchAhead(self.library, keep=lambda: bool(self.load_config().get("jam_keep_youtube_copies", False)))
+        self.fetch = FetchAhead(self.library, keep=lambda: bool(self.load_config().get("jam_keep_youtube_copies", False)),
+                                lyrics=lyrics.learn)
         cfg = self.load_config()
         if cfg and "jam_keep_youtube_copies" not in cfg:     # written in, so the setting is there to see and change
             cfg["jam_keep_youtube_copies"] = False
