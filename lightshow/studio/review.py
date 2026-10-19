@@ -72,7 +72,8 @@ class Review:
         return t
 
     def songs(self) -> list[dict]:
-        """The learned songs with a kept copy and no saved show, by artist and title."""
+        """The learned songs with a kept copy and no saved show: the most doubted first (review_order.json), else by
+        artist and title."""
         try:
             names = os.listdir(self.library.learned_dir)
         except OSError:
@@ -91,7 +92,14 @@ class Review:
             seen = truth.get(tid) or {}
             out.append({"id": tid, "name": track.name, "artists": track.artists, "label": track.label,
                         "reviewed": seen.get("reviewed") or ("drops" if seen else "")})
-        return sorted(out, key=lambda s: s["label"].lower())
+        # the songs the learned labeler and the rules disagree on most come first (tools/section_labeler.py order):
+        # each review there teaches the most; without a ranking, by artist and title
+        try:
+            with open(os.path.join(self.library.dir, "review_order.json"), encoding="utf-8") as fh:
+                doubt = {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
+        except (OSError, ValueError):
+            doubt = {}
+        return sorted(out, key=lambda s: (-float(doubt.get(s["id"], 0.0)), s["label"].lower()))
 
     def song(self, track_id: str) -> dict | None:
         """What the studio's loader takes ({project, audio_url, analysis, saved}), for one learned song."""

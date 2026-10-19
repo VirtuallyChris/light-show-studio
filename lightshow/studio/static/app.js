@@ -427,7 +427,8 @@
     try { songs = (await (await fetch('/api/review/songs')).json()).songs || []; } catch (e) { /* none */ } finally { busy(null); }
     if (!songs.length) { toast('No learned songs to review: a song needs its copy kept (Jam settings) and no saved show.', true); return; }
     let last = null; try { last = localStorage.getItem('lss-review'); } catch (e) { /* none */ }
-    let i = songs.findIndex(s => s.id === last); if (i < 0) i = songs.findIndex(s => !s.reviewed); if (i < 0) i = 0;
+    // the first song not yet reviewed (the list puts the most doubted first); else where the last review left off
+    let i = songs.findIndex(s => !s.reviewed); if (i < 0) i = songs.findIndex(s => s.id === last); if (i < 0) i = 0;
     S.review = { on: true, songs, i, id: null, orig: '' };
     await reviewOpen(i);
   }

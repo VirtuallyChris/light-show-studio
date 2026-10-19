@@ -2,6 +2,9 @@
 
     .venv\\Scripts\\python tools\\section_labeler.py eval      score it against the rules, leaving one song out at a time
     .venv\\Scripts\\python tools\\section_labeler.py train     fit it on every reviewed song: shows/_jam/labeler.joblib
+    .venv\\Scripts\\python tools\\section_labeler.py order     the songs to review next: where the labeler and the rules
+                                                          disagree most (shows/_jam/review_order.json; the studio's
+                                                          review goes through them in that order)
 
 Every bar of a song is described by:
   - its levels (loudness, bass, drums, voice, the other instruments), against the song's and the bars around it;
@@ -251,9 +254,36 @@ def train():
     print(f"trained on {len(rev)} songs, {len(yy)} bars: {path}")
 
 
+def order():
+    """Train on every reviewed song, then rank the others by how much of each the labeler and the rules disagree on
+    (drop against not-drop counted double): the user's next reviews teach the most there."""
+    songs = load_all()
+    pcas = _pca(songs)
+    rev = [s for s in songs if (s["y"] >= 0).any()]
+    X = np.concatenate([matrix(s, pcas)[s["y"] >= 0] for s in rev]); yy = np.concatenate([s["y"][s["y"] >= 0] for s in rev])
+    clf = _model().fit(X, yy)
+    doubt = {}
+    for s in songs:
+        if (s["y"] >= 0).any():
+            continue
+        p = clf.classes_[clf.predict_proba(matrix(s, pcas)).argmax(1)]
+        w = s["spans"][:, 1] - s["spans"][:, 0]
+        types = float(np.average(p != s["rule"], weights=w))
+        drops = float(np.average((p == 3) != (s["rule"] == 3), weights=w))
+        doubt[s["tid"]] = round(0.5 * types + drops, 4)
+    path = os.path.join(LIB.dir, "review_order.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"_about": "how much the learned labeler and the rules disagree on each unreviewed song (review the high ones first)",
+                   **dict(sorted(doubt.items(), key=lambda kv: -kv[1]))}, fh, indent=1)
+    names = {s["tid"]: str(s["name"]) for s in songs}
+    print(f"{len(doubt)} songs ranked: {path}")
+    for tid, d in sorted(doubt.items(), key=lambda kv: -kv[1])[:10]:
+        print(f"  {d:.2f}  {names[tid]}")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "eval"
     if "--fresh" in sys.argv and os.path.isdir(CACHE):
         for f in os.listdir(CACHE):
             os.remove(os.path.join(CACHE, f))
-    {"eval": evaluate, "train": train}[cmd]()
+    {"eval": evaluate, "train": train, "order": order}[cmd]()
