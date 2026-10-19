@@ -228,6 +228,9 @@ button.icon { width: 2.1rem; padding: 0; display: inline-flex; align-items: cent
 .brand { font-size: 1.1rem; margin-right: .3rem; }
 .project-name { width: clamp(8rem, 11vw, 13rem); }
 .recent { max-width: 11rem; }
+.review-bar { display: inline-flex; align-items: center; gap: .2rem; }
+.review-bar[hidden] { display: none; }
+.rev-pos { min-width: 4.5rem; text-align: center; font-variant-numeric: tabular-nums; opacity: .85; cursor: default; }
 .fps { min-width: 3rem; text-align: right; }
 .narrow-only { display: none !important; }
 

@@ -301,7 +301,7 @@
     return P();
   }
   async function save() {
-    if (!P() || !S.name || (S.jam && S.jam.live)) return false;            // a jam never writes over a saved show
+    if (!P() || !S.name || (S.jam && S.jam.live) || S.review) return false;   // a jam never writes over a saved show; a song under review is not a show
     collectProject();
     try {
       const r = await fetch(`/api/projects/${encodeURIComponent(S.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(P()) });
@@ -343,6 +343,7 @@
   async function loadResponse(r) {
     const data = await r.json();
     if (data.error) { toast(data.error, true); return; }
+    if (!data.review && S.review) { await reviewKeep(false); S.review = null; reviewBar(); }   // a saved show opened: review ends
     stopPlayback();
     S.analysis = data.analysis; S.name = data.project;
     S.project = data.saved || newProject(data.analysis, data.project);
@@ -367,6 +368,61 @@
     if (fresh === 'rebuilt') toast(`${S.name}: rebuilt with the latest show logic (the old show is kept as a backup)`);
     else if (fresh === 'edited') toast(`${S.name} was built by older show logic. It has your own changes, so it is left as it is: press Auto-build show to rebuild it.`, true);
   }
+  // ---- Review: the learned Jam songs with no saved show, one after another, their sections set right by
+  // ear (review.py). Moving on keeps any change to the sections in the section truth (what the rules that
+  // read songs are tuned against); the check mark says they were right as found. Never saved as a show.
+  const secKey = () => JSON.stringify((P() ? P().sections : []).map(s => [s.type, +s.start.toFixed(2), +s.end.toFixed(2)]));
+  const reviewBody = ok => JSON.stringify({ id: S.review.id, ok, sections: P().sections.map(s => ({ type: s.type, start: s.start, end: s.end })) });
+  async function reviewKeep(ok) {
+    const R = S.review; if (!R || !R.id || !P()) return;
+    if (!ok && secKey() === R.orig) return;                             // nothing changed: nothing to keep
+    try {
+      const r = await fetch('/api/review/truth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reviewBody(ok) });
+      const d = await r.json(); if (d.error) throw new Error(d.error);
+      const song = R.songs.find(x => x.id === R.id); if (song) song.reviewed = d.entry.reviewed;
+      R.orig = secKey();
+      toast(ok ? `${S.name}: the sections are right, kept` : `${S.name}: your sections are kept`);
+    } catch (e) { toast('The review was not kept: ' + e.message, true); }
+  }
+  async function reviewOpen(i) {
+    const R = S.review; if (!R || !R.songs.length) return;
+    await reviewKeep(false);
+    R.i = (i + R.songs.length) % R.songs.length;
+    const song = R.songs[R.i];
+    try { localStorage.setItem('lss-review', song.id); } catch (e) { /* no storage: it starts at the first unreviewed */ }
+    busy(`Opening ${song.label}…`);
+    try {
+      const r = await fetch('/api/review/song/' + encodeURIComponent(song.id));
+      R.id = null; await loadResponse(r);
+      if (S.analysis) { autoBuild(true); draw(); }                       // (its show, to judge the sections by)
+      R.id = song.id; R.orig = secKey();
+    } catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
+    reviewBar();
+  }
+  function reviewBar() {
+    const R = S.review, on = !!(R && R.on);
+    $('#reviewBar').hidden = !on; $('#btnReview').hidden = on;
+    if (!on) return;
+    const song = R.songs[R.i] || {};
+    $('#revPos').textContent = `${R.i + 1} / ${R.songs.length}${song.reviewed ? ' ✓' : ''}`;
+    $('#revPos').title = (song.label || '') + (song.reviewed ? ` (reviewed: ${song.reviewed})` : '');
+  }
+  async function reviewStart() {
+    busy('Finding learned songs…');
+    let songs = [];
+    try { songs = (await (await fetch('/api/review/songs')).json()).songs || []; } catch (e) { /* none */ } finally { busy(null); }
+    if (!songs.length) { toast('No learned songs to review: a song needs its copy kept (Jam settings) and no saved show.', true); return; }
+    let last = null; try { last = localStorage.getItem('lss-review'); } catch (e) { /* none */ }
+    let i = songs.findIndex(s => s.id === last); if (i < 0) i = songs.findIndex(s => !s.reviewed); if (i < 0) i = 0;
+    S.review = { on: true, songs, i, id: null, orig: '' };
+    await reviewOpen(i);
+  }
+  async function reviewStop() { await reviewKeep(false); S.review = null; reviewBar(); }
+  // the window closing with changes not yet kept: sent on the way out
+  addEventListener('pagehide', () => {
+    if (S.review && S.review.id && P() && secKey() !== S.review.orig)
+      try { navigator.sendBeacon('/api/review/truth', new Blob([reviewBody(false)], { type: 'application/json' })); } catch (e) { /* closing anyway */ }
+  });
   async function refreshRecent() {
     const sel = $('#recent'); const cur = sel.value;
     try {
@@ -3369,13 +3425,14 @@
   // ------------------------------------------------------------------ keyboard & controls
   document.addEventListener('keydown', e => {
     // Ctrl+S saves the project wherever the focus is (otherwise the browser offers to save the page)
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); S.review ? reviewKeep(false) : saveNow(); return; }
     // e.target can be the document itself (or any non-element node), which has no matches()
     if (e.target && typeof e.target.matches === 'function' && e.target.matches('input, select, textarea')) {
       if (e.key === 'Escape') e.target.blur();
       return;
     }
     const be = $('#beatEdit').checked;
+    if (S.review && (e.key === '[' || e.key === ']')) { reviewOpen(S.review.i + (e.key === ']' ? 1 : -1)); return; }
     if (e.code === 'Space') { e.preventDefault(); if (be && S.audio.playing) { beginChange(); const t = pos(); const p = P(); const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); changed(); } else togglePlay(); }
     else if (e.key === 'Enter') { togglePlay(); }
     else if (e.key === 'Home') { seek(0); scrollTo(0); }
@@ -3424,6 +3481,11 @@
   $('#btnOpen').onclick = () => $('#fileInput').click(); $('#fileInput').onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ''; };
   $('#btnPath').onclick = () => { const v = $('#pathInput').value.trim(); if (v) openPath(v); }; $('#pathInput').onkeydown = e => { if (e.key === 'Enter') $('#btnPath').click(); };
   $('#recent').onchange = e => { if (e.target.value) openProject(e.target.value); };
+  $('#btnReview').onclick = reviewStart;
+  $('#revPrev').onclick = () => reviewOpen(S.review.i - 1);
+  $('#revNext').onclick = () => reviewOpen(S.review.i + 1);
+  $('#revOk').onclick = async () => { await reviewKeep(true); reviewBar(); };
+  $('#revClose').onclick = reviewStop;
   $('#btnHalf').onclick = () => scaleTempo(0.5); $('#btnDouble').onclick = () => scaleTempo(2); $('#btnRegrid').onclick = () => { if (P()) regrid(); }; $('#btnNudgeL').onclick = () => P() && nudge(-10); $('#btnNudgeR').onclick = () => P() && nudge(10);
   $('#btnPhase').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 1) % 4; changed(); };
   $('#btnPhaseL').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 3) % 4; changed(); };

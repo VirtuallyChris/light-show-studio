@@ -27,6 +27,7 @@ from . import audiotrim
 from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
 from .jam_service import JamService
 from .rooms import Rooms, FADE_S
+from .review import Review
 from .cues import CueRunner, LiveHooks
 from .doorbell import Doorbell
 
@@ -527,6 +528,7 @@ class Studio:
         self.doorbell_live = lights
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
+        self.review = Review(self.jam.library, read_only=self.read_only)   # learned songs' sections, set right by ear
         self.jam.player_enabled = player
         if lights:                                       # the real studio (a test copy loads no models of its own)
             self.jam.warm_ahead()
@@ -574,6 +576,7 @@ class Studio:
             web.get("/api/cast/status", self.cast_status),
             web.post("/api/cast/synccheck", self.cast_sync_check),
             *self.jam.routes(),
+            *self.review.routes(),
             web.static("/static", STATIC),
         ])
         if self.quit_when_closed:
