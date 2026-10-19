@@ -462,16 +462,18 @@ MODEL_TYPE = {"chorus": "drop", "verse": "verse", "pre-chorus": "verse", "precho
               "outro": "outro", "bridge": "breakdown"}
 
 
-def _model_says(a: dict, t0: float, t1: float) -> dict | None:
+def _model_says(a: dict, t0: float, t1: float, raw: bool = False) -> dict | None:
     """What share of t0..t1 SongFormer calls each of the studio's types (its own labels, kept with the analysis
-    as "songformer"), or None for a song analysed before they were kept."""
+    as "songformer"; raw: its own words, a pre-chorus apart from a verse), or None for a song analysed before
+    they were kept."""
     segs = a.get("songformer")
     if not segs or t1 <= t0:
         return None
     share: dict[str, float] = {}
     for x in segs:
         o = min(t1, float(x["end"])) - max(t0, float(x["start"]))
-        k = MODEL_TYPE.get(str(x.get("label", "")).lower())
+        lab = str(x.get("label", "")).lower()
+        k = lab if raw else MODEL_TYPE.get(lab)
         if o > 0 and k:
             share[k] = share.get(k, 0.0) + o / (t1 - t0)
     return share
@@ -915,12 +917,21 @@ def flat_buildups(a: dict) -> list:
     up (the last quarter 1.5 times the first half and one a beat or more), the song climbing through it (its
     last quarter louder than its first by 0.08 of the song's loud level) or the synths opening up (by 0.12),
     or the drop landing on it louder (by 0.1). Across the 196 buildups of 194 learned songs, 21 showed none
-    (Turnover's New Scream had three flat ones in its verses). One that shows none:
+    (Turnover's New Scream had three flat ones in its verses). Where SongFormer calls a long one (6 bars or
+    more) a verse, only its snares speeding up or its last quarter above every earlier one counts: a verse
+    lands on a louder chorus too, and its instruments coming back after a one-bar dip is no climb (SHOTS I'M
+    NOT CALLING, 0:55 to 1:17: a steady backbeat called a buildup). One that shows none:
 
     - loud from its first bar (0.25 above the bars before it), into a drop: the drop starts there;
     - inside a drop (a drop either side of it): part of the drop before it;
     - not before a drop, with the drums falling away (under 0.3): a breakdown;
-    - else part of the section before it (it is that verse going on).
+    - else part of the section before it (it is that verse going on);
+    - and one SongFormer calls a verse is a verse, whatever is around it.
+
+    A buildup builds by holding the bass back: one with more bass than the drop it leads into (its first 8
+    bars, by 0.05),
+    where SongFormer hears a chorus (80% of it) and the snares do not speed up, is that chorus: the drop
+    starts there (SHOTS I'M NOT CALLING's last chorus, 2:06, its bass the song's strongest).
 
     Changes the analysis in place (a saved one too, on load); returns what changed."""
     secs = [dict(s) for s in (a.get("sections") or [])]
@@ -929,7 +940,7 @@ def flat_buildups(a: dict) -> list:
         return []
     fps = float(a.get("feature_fps", FEATURE_FPS))
     beat = 60.0 / float(a.get("bpm") or 120.0)
-    other, drums = _curve(a, "other"), _curve(a, "drums_present")
+    other, drums, bass = _curve(a, "other"), _curve(a, "drums_present"), _curve(a, "bass")
     loud_top = float(np.percentile(en, 90)) or 1.0
     ev = a.get("events") or {}
     snares = np.array(sorted(float(e[0]) for k in ("snare", "roll") for e in (ev.get(k) or [])))
@@ -958,11 +969,30 @@ def flat_buildups(a: dict) -> list:
         climbs = (e4 - e1) / loud_top >= 0.08 or (o1 is not None and o4 - o1 >= 0.12)
         into_drop = nx is not None and nx.get("type") == "drop"
         lands = into_drop and (mean(en, nx["start"], min(nx["end"], nx["start"] + 8 * beat)) - e4) / loud_top >= 0.1
+        says = _model_says(a, t0, t1, raw=True) or {}
+        if (into_drop and not accel and says.get("chorus", 0.0) >= 0.8 and bass is not None
+                and mean(bass, t0, t1) >= mean(bass, nx["start"], min(nx["end"], nx["start"] + 32 * beat)) + 0.05):
+            nx["start"] = t0                                         # the bass is all there: the chorus has begun
+            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (t0 - 0.5 <= d < nx["end"])] + [round(float(t0), 3)])
+            changes.append((round(t0, 1), "buildup with the drop's bass, a chorus: the drop starts here"))
+            continue
+        heard_verse = t1 - t0 >= 24 * beat and says.get("verse", 0.0) >= 0.8
+        if heard_verse:                                              # a long one SongFormer calls a verse: rising to its end
+            qs = [mean(en, t0 + k * q, t0 + (k + 1) * q) for k in range(3)]
+            oq = [mean(other, t0 + k * q, t0 + (k + 1) * q) for k in range(3)] if other is not None else None
+            climbs = (e4 - max(qs)) / loud_top >= 0.08 or (oq is not None and o4 - max(oq) >= 0.12)
+            lands = False
         if accel or climbs or lands:
             out.append(sec)
             continue
         before = mean(en, max(pv["start"], pv["end"] - 8 * beat), pv["end"]) if pv else None
-        if into_drop and (pv is None or (e_all - before) / loud_top >= 0.25):
+        if heard_verse:                                              # SongFormer's verse, and nothing builds: a verse
+            if pv is not None and pv.get("type") == "verse":
+                pv["end"] = t1
+            else:
+                out.append({**sec, "type": "verse"})
+            changes.append((round(t0, 1), "flat buildup SongFormer hears as a verse: a verse"))
+        elif into_drop and (pv is None or (e_all - before) / loud_top >= 0.25):
             nx["start"] = t0                                         # the drop arrives here
             a["drops"] = sorted([d for d in (a.get("drops") or []) if not (t0 - 0.5 <= d < nx["end"])] + [round(float(t0), 3)])
             changes.append((round(t0, 1), "flat buildup: the drop starts here"))
