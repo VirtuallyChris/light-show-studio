@@ -267,6 +267,7 @@
   //       before each release, the key moments' own moves; the strings breathe with the bass
   //   43: no light follows the singer's voice (no concert does): no voice orbs on the tubes, the vocal
   //       spotlight a steady glow while the singer is nearly alone
+  //   (calm music, calmAt: brightness only swells, set as the show plays, not a rebuild)
   const SHOW_VERSION = 43;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
@@ -837,6 +838,77 @@
     }
     return d.g[clamp(Math.floor(t * fps), 0, d.g.length - 1)];
   }
+  /** How calm a song is overall, 0..1: a chill show is; else how much of its look comes from the calm scenes
+   *  (indie pop, dreamy, R&B, soundtrack, folk, jazz), less as the genre model hears it drive harder (its
+   *  level: 0.85 or under counts in full, gone by 1.25: an indie song that pushes is not a calm one). */
+  function songCalm() {
+    if (showStyle() === 'chill') return 1;
+    const w = sceneWeights(), total = Object.values(w).reduce((x, y) => x + y, 0) || 1;
+    const share = Object.entries(w).filter(([k]) => SCENES[k].calm).reduce((x, [, v]) => x + v, 0) / total;
+    const g = (S.analysis && S.analysis.genre) || {}, lv = typeof g.level === 'number' ? g.level : 1.2;
+    return clamp(share, 0, 1) * clamp((1.25 - lv) / 0.4, 0, 1);
+  }
+  /** How calm the music is at t, 0..1. In a chill song or a chill part the brightness only swells, slowly:
+   *  quick pulsing reads as a crazy part of the song whatever the colors and effects are (the user).
+   *  An intro, breakdown or outro without drums is calm; so is a verse without drums that is quiet for the
+   *  song. In a calm song (songCalm) its verses and quieter parts are calm as far as the song is, its
+   *  buildups and choruses nearly so (0.8 of it; a chill show's drops 0.6): they swell in too; a part well below the rest of its song
+   *  (relLoud) is calm partly whatever the song. Drops and buildups of a song that drives are never calm,
+   *  and the calm lets go over the beat before a drop so the breath and the hit land. A low party level
+   *  calms the show too (a quarter: a calm background, all swells). */
+  const CALM = new WeakMap();
+  function calmAt(t) {
+    const a = S.analysis, p = P(); if (!a || !p || S.noCalm) return 0;      // (S.noCalm: the tests' before and after)
+    const sig = p.sections.map(x => x.type + x.start.toFixed(2)).join(',') + showStyle();
+    let d = CALM.get(a);
+    if (!d || d.sig !== sig) {
+      const fps = a.feature_fps || 30, dr = (a.curves || {}).drums_present || [], en = a.energy || [];
+      const mean = (c, t0, t1) => { let m = 0, n = 0; for (let i = Math.floor(t0 * fps); i < Math.min(c.length, t1 * fps); i++) { m += c[i]; n++; } return n ? m / n : 0; };
+      const sorted = Array.from(en).filter(x => x > 0).sort((x, y) => x - y), ref = sorted.length ? sorted[Math.floor(sorted.length * 0.9)] : 1;
+      const chill = showStyle() === 'chill', sc = songCalm();
+      d = { sig, song: sc, drops: p.sections.filter(x => x.type === 'drop').map(x => x.start), secs: p.sections.map(x => {
+        const drums = mean(dr, x.start, x.end), loud = mean(en, x.start, x.end) / (ref || 1), rel = relLoud(x);
+        let c;
+        if (x.type === 'drop' || x.type === 'buildup') c = chill ? (x.type === 'drop' ? 0.6 : 0.8) : 0.8 * sc;
+        else if (['intro', 'breakdown', 'outro'].includes(x.type)) c = drums < 0.3 ? 1 : Math.max(0.4, sc);
+        else c = drums < 0.3 && loud < 0.6 ? 1 : Math.max(sc, rel <= -0.4 ? 0.5 : 0);
+        return [x.start, x.end, c];
+      }) };
+      CALM.set(a, d);
+    }
+    let c = 0;
+    for (const [s0, s1, k] of d.secs) if (t >= s0 && t < s1) { c = k; break; }
+    const beat = 60 / (a.bpm || 120);
+    if (c > 0) for (const t0 of d.drops) if (t0 > t && t0 - t < beat) c *= (t0 - t) / beat;
+    return Math.max(c, 1 - calmRamp(0.3, 0.9));
+  }
+  /** The brightness speed limit (calmAt). Each output (the lights, the preview, the room view) remembers what
+   *  it last showed. In calm music each light as a whole may brighten or dim only so fast (all the way in
+   *  2 s when fully calm, 1 s half calm), so a pulse becomes a swell and a cut a crossfade, while things
+   *  moving along it keep moving (a comet does not change how bright the light is overall); each pixel too,
+   *  more loosely (all the way in half a second when fully calm), which takes the edge off a hard flash.
+   *  Outside the calm nothing is held back, so a drop still hits at once. Paused, a seek or a new song: the
+   *  frame as it is. */
+  const SMOOTH = {};
+  function calmSmooth(key, t, frame) {
+    const song = (S.name || '') + '|' + ((S.analysis && S.analysis.duration) || 0), st = SMOOTH[key];
+    const fresh = () => { SMOOTH[key] = { song, t, px: new Map(frame.map(f => [f.light.ip, Float32Array.from(f.px)])) }; return frame; };
+    if (!S.audio.playing || !st || st.song !== song || t < st.t - 0.05 || t - st.t > 0.5) return fresh();
+    const dt = Math.max(0, t - st.t), c = calmAt(t); st.t = t;
+    if (c <= 0.01) { for (const f of frame) st.px.set(f.light.ip, Float32Array.from(f.px)); return frame; }
+    const pxStep = 255 * dt / (0.5 * c), meanStep = 255 * dt / (2 * c);
+    for (const f of frame) {
+      const prev = st.px.get(f.light.ip);
+      if (!prev || prev.length !== f.px.length) { st.px.set(f.light.ip, Float32Array.from(f.px)); continue; }
+      const nx = new Float32Array(f.px.length); let m0 = 0, m1 = 0;
+      for (let i = 0; i < nx.length; i++) { nx[i] = prev[i] + clamp(f.px[i] - prev[i], -pxStep, pxStep); m0 += prev[i]; m1 += nx[i]; }
+      const gap = Math.abs(m1 - m0) / nx.length;
+      if (gap > meanStep) { const k = meanStep / gap; for (let i = 0; i < nx.length; i++) nx[i] = prev[i] + (nx[i] - prev[i]) * k; }
+      st.px.set(f.light.ip, nx);
+      f.px = Array.from(nx, v => Math.round(v));
+    }
+    return frame;
+  }
 
   /** The song's main color, as 0..1 RGB: the jam's primary for this song, else its chosen main color,
    *  else the first color of its palette. */
@@ -870,10 +942,11 @@
       || (p && (p.palettes[p.defaultPalette] || [])[0]) || '#ffffff';
     return Effects.hex2rgb(Effects.solid(hx));
   }
-  function renderFrame(t, lights = selectedLights()) {
+  function renderFrame(t, lights = selectedLights(), smoothKey = null) {
     const p = P(); const b = timeToBeat(t); const f = featureAt(t); const lanePal = currentPalette(b);
-    const music = musicAt(t);
-    const kick = Math.exp(-frac(b) * 6);
+    const music = musicAt(t), calm = calmAt(t);
+    // (in calm music the beat's pulse is a slow swell over the bar instead of a kick every beat)
+    const kick = Math.exp(-frac(b) * 6) * (1 - calm) + calm * (0.5 + 0.5 * Math.cos(frac((b - p.phase) / 4) * Math.PI * 2));
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
     const out = [];
     S.roomSpaces = S.roomSpaces || {};
@@ -904,16 +977,17 @@
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub };
         e.render(c);
         let alpha = (clip.opacity ?? 1) * partyScale(clip);
+        if (calm > 0 && (clip.blend === 'cut' || PARTY_FLASHY.has(clip.effect))) alpha *= 1 - calm;   // (no flashes in calm music)
         if (alpha <= 0.002) return;
         // Ducking, like sidechain compression: the layer dips on every kick and snare and swells back,
         // so the hits on top land on a dark strip and the whole show breathes with the drums.
         if (clip.duck > 0 && music.hasDrums) {
           let env = 0;
           for (const h of [music.kick, music.snare]) if (h && h.index >= 0) env = Math.max(env, Math.exp(-h.age / 0.16) * (0.6 + 0.4 * h.strength));
-          alpha *= 1 - clamp(clip.duck, 0, 1) * env * calmRamp(0.3, 0.9);
+          alpha *= 1 - clamp(clip.duck, 0, 1) * env * calmRamp(0.3, 0.9) * (1 - calm);
         }
         // a drop's bed can breathe with the bass: brighter as the bass swells, dimmer as it drops out
-        if (clip.bassPump > 0) { const pump = clip.bassPump * calmRamp(0.3, 0.9); alpha *= (1 - pump) + pump * clamp(music.bassLevel * 1.15, 0, 1); }
+        if (clip.bassPump > 0) { const pump = clip.bassPump * calmRamp(0.3, 0.9) * (1 - calm); alpha *= (1 - pump) + pump * clamp(music.bassLevel * 1.15, 0, 1); }
         if (clip.fadeIn > 0) alpha *= clamp(clipBeat / clip.fadeIn, 0, 1);
         if (clip.fadeOut > 0) alpha *= clamp((clip.len - clipBeat) / clip.fadeOut, 0, 1);
         Effects.composite(out, src, n, alpha, clip.blend || 'normal');
@@ -947,7 +1021,7 @@
       if (g && g.level > 0) for (let i = 0; i < n * 3; i++) flat[i] = Math.max(flat[i], Math.round(g.rgb[i % 3] * g.level * 255));
       out.push({ light: L, px: flat });
     }
-    return out;
+    return smoothKey ? calmSmooth(smoothKey, t, out) : out;
   }
   /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
    *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
@@ -976,7 +1050,7 @@
     S.roomViewSent = performance.now();
     // (and the kitchen's meteor tubes whenever they are ticked, their room switched on or not: the user)
     const party = partyLights(), lights = [...party, ...S.lights.filter(l => l.on && lightKind(l) === 'tubes' && !party.includes(l))];
-    const frame = lights.length ? renderFrame(t, lights) : [];
+    const frame = lights.length ? renderFrame(t, lights, 'room') : [];
     const space = S.roomSpaces[roomSpaceKey(lights)];
     roomViewCh.postMessage({ type: 'frame', song: S.name || '', lights: frame.map(fr => {
       const r = roomOf(fr.light), at = space && space.of.get(fr.light);
@@ -1014,7 +1088,7 @@
     if (S.audio.playing && S.view.follow !== false) followPlayhead(t);
     $('#timeDisplay').textContent = fmtTime(t);
     $('#barDisplay').textContent = 'bar ' + barLabel(timeToBeat(t));
-    const frame = renderFrame(t); drawPreview(frame);
+    const frame = renderFrame(t, undefined, 'preview'); drawPreview(frame);
     if (S.dirty) { S.dirty = false; _draw(); }
     compose();
     drawOverview();
@@ -1029,7 +1103,7 @@
     if (!S.audio.playing && !S.forceSend && performance.now() - S.lastLightSend < 200) return;   // paused: ~5 fps hold
     const t = pos();
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
-    const lf = renderFrame(lt);
+    const lf = renderFrame(lt, undefined, 'lights');
     wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => f.light.flip ? flipPx(f.px) : f.px) });
     S.forceSend = false; S.framesSent = (S.framesSent || 0) + 1; S.lastLightSend = performance.now();
   }
@@ -3355,6 +3429,6 @@
     }
     card.hidden = true;
   }
-  window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, save, _draw, compose,
+  window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels };
 })();
