@@ -204,12 +204,12 @@ const Effects = (() => {
     } });
 
   // ---- Effects that belong to one kind of song or one kind of moment, placed only where they fit ----
-  def({ id: 'spotlight', name: 'Vocal spotlight', cat: 'slow', desc: 'A soft warm glow in the middle of every strip that swells with the singer\'s voice (the separated vocal track), like a spotlight on a singer alone on stage.', swatch: ['#ffd9a0', '#000000'],
-    params: { width: P.size(0.35, 'Width at full voice'), tint: { type: 'select', def: 'warm', options: { warm: 'warm white', white: 'white', palette: 'the palette' }, label: 'Color' } },
+  def({ id: 'spotlight', name: 'Vocal spotlight', cat: 'slow', desc: 'A soft, steady warm glow in the middle of every strip, like a spotlight on a singer alone on stage. Shows place it where the voice is nearly alone; it holds still rather than following the voice.', swatch: ['#ffd9a0', '#000000'],
+    params: { width: P.size(0.35, 'Width'), tint: { type: 'select', def: 'warm', options: { warm: 'warm white', white: 'white', palette: 'the palette' }, label: 'Color' } },
     render(c) {
-      clear(c.out); const m = c.music || {}, v = clamp(m.vocalLevel ?? 0.5); if (v < 0.02) return;
-      const w = Math.max(0.08, c.p.width * (0.45 + 0.55 * v)), col = c.p.tint === 'palette' ? c.pal[0] : c.p.tint === 'white' ? [1, 1, 1] : [1, 0.78, 0.5];
-      for (let i = 0; i < c.n; i++) { const x = c.n <= 1 ? 0 : (i / (c.n - 1)) - 0.5, g = Math.exp(-((x / w) ** 2) * 2.2) * (0.25 + 0.75 * v); if (g > 0.01) set(c.out, i, col[0] * g, col[1] * g, col[2] * g, g); }
+      clear(c.out);                                                   // (steady: a spotlight does not pulse with the voice)
+      const w = Math.max(0.08, c.p.width), col = c.p.tint === 'palette' ? c.pal[0] : c.p.tint === 'white' ? [1, 1, 1] : [1, 0.78, 0.5];
+      for (let i = 0; i < c.n; i++) { const x = c.n <= 1 ? 0 : (i / (c.n - 1)) - 0.5, g = Math.exp(-((x / w) ** 2) * 2.2); if (g > 0.01) set(c.out, i, col[0] * g, col[1] * g, col[2] * g, g); }
     } });
 
   def({ id: 'wobble', name: 'Wobble', cat: 'fast', desc: 'Pulses at the bass wobble\'s own speed (found on the separated bass track), not the beat\'s: the light opens out from the middle and closes again with every wobble.', swatch: ['#7c3aed', '#000000'],
@@ -446,7 +446,7 @@ const Effects = (() => {
     } });
 
   def({ id: 'tubeform', name: 'Tube shape', cat: 'room', desc: 'For the meteor tubes (the kitchen): how each tube carries the show\'s color down its LEDs while the clip plays: the whole tube, an orb floating in the middle (fading to both ends), orbs drifting slowly up and down, or a glow from the top. Draws nothing itself.', swatch: ['#5cc8ff', '#000000'],
-    params: { shape: { type: 'select', def: 'orb', options: { full: 'the whole tube', orb: 'a floating orb', drift: 'orbs drifting', top: 'a glow from the top', voice: 'the singer orb (breathes with the voice)' }, label: 'Shape' } },
+    params: { shape: { type: 'select', def: 'orb', options: { full: 'the whole tube', orb: 'a floating orb', drift: 'orbs drifting', top: 'a glow from the top' }, label: 'Shape' } },
     render(c) { clear(c.out); } });
 
   def({ id: 'pulsar', name: 'Pulsar', cat: 'medium', desc: 'Dark strip; on every beat one or two points flare up somewhere and fade.', swatch: ['#8ad8ff', '#000010'],

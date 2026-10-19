@@ -264,8 +264,10 @@
   //   41: the motion over a bed never in the bed's own colors (steps, bounce, scanner, chase too); hitswap drops
   //       for dance, rave and heavy scenes only
   //   42: know the song (songmap.py): a part heard again gets its look, the repeats grow to a peak, a breath
-  //       before each release, the key moments' own moves; the tubes breathe with the voice, the strings the bass
-  const SHOW_VERSION = 42;
+  //       before each release, the key moments' own moves; the strings breathe with the bass
+  //   43: no light follows the singer's voice (no concert does): no voice orbs on the tubes, the vocal
+  //       spotlight a steady glow while the singer is nearly alone
+  const SHOW_VERSION = 43;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -925,7 +927,7 @@
         for (const lane of p.lanes) if (!lane.hidden) for (const c of lane.clips) if (c.target === 'tubes' && b >= c.start && b < c.start + c.len) {
           if (c.effect === 'tubeform') form = c.params || {};
         }
-        const shape = tubeShape(form, tubes, b, music);
+        const shape = tubeShape(form, tubes, b);
         for (let tb = 0; tb < tubes.count; tb++) for (let k = 0; k < tubes.per; k++) {
           const i = (tb * tubes.per + k) * 4, j = tb * 4, sh = shape(tb, k);
           if (i + 3 >= dst.length) break;
@@ -950,13 +952,9 @@
   /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
    *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
    *  in its own time, a slow bob over 8 beats), or a glow from the top fading down. */
-  function tubeShape(form, tubes, beat, music) {
+  function tubeShape(form, tubes, beat) {
     const per = tubes.per, last = Math.max(1, per - 1), shape = (form && form.shape) || 'full';
     const bell = (k, mid, w) => Math.exp(-0.5 * ((k - mid) / w) ** 2);
-    if (shape === 'voice') {                                          // the singer's orb: bigger and brighter as the voice swells
-      const v = clamp((music && music.vocalLevel) || 0, 0, 1);
-      return (tb, k) => bell(k, last / 2 + Math.sin((beat / 8 + Effects.hash(tb * 7919 + 3)) * Math.PI * 2) * per * 0.12, per * (0.12 + 0.2 * v)) * (0.3 + 0.7 * v);
-    }
     if (shape === 'orb') return (tb, k) => bell(k, last / 2, per * 0.2);
     if (shape === 'drift') return (tb, k) => bell(k, last / 2 + Math.sin((beat / 8 + Effects.hash(tb * 7919 + 3)) * Math.PI * 2) * per * 0.28, per * 0.17);
     if (shape === 'top') return (tb, k) => Math.pow(1 - k / (last + 1), 1.6);
@@ -2858,14 +2856,7 @@
       // and down, or a glow from the top; calm parts float, the big parts fill the tubes (the same on a rebuild)
       const calm = ['intro', 'breakdown', 'outro'].includes(s.type) || chill;
       const forms = calm ? ['orb', 'drift', 'drift', 'top'] : s.type === 'drop' ? ['full', 'full', 'orb'] : ['full', 'orb', 'drift', 'top'];
-      let form = forms[Math.floor(Effects.hash((S.lookSeed || 0) * 13 + idx * 7919 + variant * 31) * forms.length)];
-      // an instrument for each light: where the voice carries a verse or a breakdown, the tubes are its orbs,
-      // swelling and breathing with the singer
-      const voc = (((S.analysis || {}).curves) || {}).vocals, fpsA = (S.analysis || {}).feature_fps || 30;
-      if (voc && ['verse', 'breakdown'].includes(s.type)) {
-        let sum = 0, n = 0; for (let i = Math.floor(s.start * fpsA); i < Math.min(voc.length, s.end * fpsA); i++) { sum += voc[i]; n++; }
-        if (n && sum / n >= 0.35 && Effects.hash((S.lookSeed || 0) + idx * 104729) < 0.7) form = 'voice';
-      }
+      const form = forms[Math.floor(Effects.hash((S.lookSeed || 0) * 13 + idx * 7919 + variant * 31) * forms.length)];
       if (form !== 'full') clip(10, 'tubeform', b0, len, { shape: form }, { target: 'tubes', opacity: 1 });
     }
     S.sectionClips = null;
