@@ -269,6 +269,17 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual(a["drops"], [20.0])
         self.assertEqual(drops_on_their_bar(a), [])                                    # on its bar now: nothing more
 
+    def test_a_stop_start_build_does_not_pull_the_drop_early(self):
+        """A Boy On A Phone: loud and quiet bars by turns before the drop; the loud one is not the drop."""
+        from lightshow.studio.analysis import drops_on_their_bar
+        a = self._song(80, 30, 120.0); a["downbeats"] = [i * 2.0 for i in range(40)]
+        parts = [(0, 10, 0.4, 0.2, 0.2)] + [(t, t + 2, 0.82 if (t // 2) % 2 == 0 else 0.4, 0.5, 0.85 if (t // 2) % 2 == 0 else 0.2) for t in range(10, 22, 2)]
+        self._levels(a, parts + [(22, 50, 0.85, 0.6, 0.9), (50, 80, 0.5, 0.3, 0.6)])
+        a["sections"] = [{"start": 0.0, "end": 22.0, "type": "verse"}, {"start": 22.0, "end": 50.0, "type": "drop"}, {"start": 50.0, "end": 80.0, "type": "verse"}]
+        a["drops"] = [22.0]
+        self.assertEqual(drops_on_their_bar(a), [])
+        self.assertEqual(a["sections"][1]["start"], 22.0)
+
     def test_choruses_hidden_in_a_long_verse(self):
         """LUNGS BURN: a loud master found as one long verse; its choruses lift the drums and carry the hook."""
         from lightshow.studio.analysis import choruses_in_long_sections

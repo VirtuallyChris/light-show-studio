@@ -755,8 +755,12 @@ def drops_on_their_bar(a: dict) -> list:
         for b in sorted(x for x in bars if sec["start"] - 2 * bar - 0.3 <= x <= sec["start"] - 0.5 * bar and x > prev["start"] + bar):
             e1, d1 = mean(en, b, b + bar) / top, mean(drums, b, b + bar)
             e0, d0 = mean(en, b - bar, b) / top, mean(drums, b - bar, b)
+            # ...and it stays up, every bar from there to where the drop was found (The Wldlfe's A Boy On A
+            # Phone: loud and quiet bars by turns before its drop, a stop-start build, moved the drop a bar early)
+            stays = all(mean(en, x, x + bar) / top >= de - 0.08 and (dd < 0.5 or mean(drums, x, x + bar) >= min(0.75, dd - 0.15))
+                        for x in bars if b <= x < sec["start"] - 0.3)
             if (de - 0.06 <= e1 <= de + 0.15 and (dd < 0.5 or d1 >= min(0.8, dd - 0.1))
-                    and (e1 - e0 >= 0.15 or d1 - d0 >= 0.4)):
+                    and (e1 - e0 >= 0.15 or d1 - d0 >= 0.4) and stays):
                 changes.append((round(sec["start"], 1), "drop heard a bar early", round(b, 1)))
                 a["drops"] = sorted([d for d in (a.get("drops") or []) if not (sec["start"] - 0.5 <= d < sec["end"])] + [round(b, 3)])
                 prev["end"], sec["start"] = b, b
