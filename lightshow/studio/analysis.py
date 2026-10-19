@@ -1340,6 +1340,54 @@ def grid_on_attacks(a: dict) -> list:
     return [(0.0, f"beat grid onto the attacks ({-GRID_LAG * 1000:.0f} ms)")]
 
 
+HIT_LEAD = 0.013        # the kick and snare events lead their attacks by ~13 ms (measured with GRID_LAG)
+
+
+def grid_tempo_from_hits(a: dict) -> list:
+    """A grid at the wrong tempo drifts off the music: Charlie Puth's Light Switch was fitted at 91.81 bpm, the
+    song 92.0, and its kicks and snares slid 2.2 ms a second against the beats (370 ms over the song: the lights
+    went off and back every minute and a half). Across 222 learned songs the next drifted 45 ms in six minutes.
+
+    The tempo within 0.8% of the grid's at which the drum hits (kicks and snares, 64 or more) sit closest to one
+    lattice of quarter beats is found; when they sit clearly closer than on the grid (0.1 more of a 0..1 fit,
+    and 0.6 or more) and it is 0.05% away or more, the grid is laid again at that tempo: through the hits (as
+    far ahead of the beat as the events always are, HIT_LEAD), on the quarter of a beat nearest the old grid
+    mid-song, the bars counted on from there. Once (flagged grid_tempo_checked). Returns what changed."""
+    if a.get("grid_tempo_checked") or len(a.get("beats") or []) < 32:
+        return []
+    a["grid_tempo_checked"] = True
+    ev = a.get("events") or {}
+    h = np.sort(np.asarray([float(e[0]) for k in ("kick", "snare") for e in (ev.get(k) or [])], dtype=float))
+    if len(h) < 64:
+        return []
+    beats = np.asarray(a["beats"], dtype=float)
+    P = float((beats[-1] - beats[0]) / (len(beats) - 1))
+    mid = float(np.median(h))
+    fit = lambda per: float(np.abs(np.mean(np.exp(2j * np.pi * (h - mid) / (per / 4)))))
+    cands = P * (1 + np.linspace(-0.008, 0.008, 1601))
+    scores = np.array([fit(c) for c in cands])
+    best = float(cands[int(np.argmax(scores))])
+    if scores.max() < 0.6 or scores.max() - fit(P) < 0.1 or abs(best / P - 1) < 0.0005:
+        return []
+    q = best / 4
+    phi = float(np.angle(np.mean(np.exp(2j * np.pi * (h - mid) / q)))) / (2 * np.pi) * q
+    lattice = mid + phi + HIT_LEAD                                   # a point of the hits' quarter-beat lattice, as a beat
+    i_old = int(np.argmin(np.abs(beats - mid)))
+    anchor = lattice + round((beats[i_old] - lattice) / q) * q       # the quarter beat nearest the old grid mid-song
+    j0 = int(np.floor(anchor / best))
+    new = anchor - j0 * best + best * np.arange(0, int((float(a.get("duration") or beats[-1]) - (anchor - j0 * best)) / best) + 1)
+    new = new[new >= 0]
+    i_new = int(np.argmin(np.abs(new - anchor)))
+    phase = (int(a.get("downbeat_phase") or 0) + (i_new - i_old)) % 4
+    a["beats"] = [round(float(b), 4) for b in new]
+    a["downbeat_phase"] = phase
+    a["downbeats"] = a["beats"][phase::4]
+    a["beat_offset"] = a["beats"][0]
+    old_bpm = float(a.get("bpm") or 60.0 / P)
+    a["bpm"] = round(60.0 / best, 3)
+    return [(0.0, f"tempo {old_bpm:.2f} -> {a['bpm']:.2f} bpm: the drums drifted off the grid")]
+
+
 def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
     on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning.
@@ -1350,7 +1398,7 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    changes = grid_on_attacks(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    changes = grid_on_attacks(a) + grid_tempo_from_hits(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
                + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
                + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
     from . import songmap                                   # and the song's map on the settled sections: its parts, tension, moments
