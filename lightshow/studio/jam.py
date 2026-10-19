@@ -273,7 +273,10 @@ class JamLibrary:
             return None
         if doc.get("version") != _analysis_version():
             return None
-        shift = self.beat_fixes().get(track_id)
+        fixes = self.beat_fixes()
+        shift = fixes.get(track_id)
+        if shift is None:                                       # a twin's fix, when the copies are the same audio
+            shift = next((fixes[t] for t, off in self.twins(track_id) if t in fixes and abs(off) < 0.05), None)
         if shift:
             shift_beats(doc["analysis"], float(shift))
         mine = self.reviewed_sections(track_id)
@@ -298,7 +301,79 @@ class JamLibrary:
                 return None
             self._truth = cache
         secs = (cache[1].get(track_id) or {}).get("sections")
-        return [dict(s) for s in secs] if secs else None
+        if secs:
+            return [dict(s) for s in secs]
+        for twin, off in self.twins(track_id):                  # reviewed under another id: the same song, moved onto this copy
+            secs = (cache[1].get(twin) or {}).get("sections")
+            if secs:
+                return [{**s, "start": round(max(0.0, float(s["start"]) + off), 3), "end": round(float(s["end"]) + off, 3)} for s in secs]
+        return None
+
+    # The same recording under several Spotify ids (a single, then the album it is on, then a compilation): what
+    # the user did for one (their sections, a beat fix, the lyrics) is used for all. Twins share an artist, the
+    # name and the length (within 1.5 s), and their loudness curves match (0.9 or more) at some offset (two
+    # YouTube copies may start apart: Found - Live's by 1.6 s). 13 such pairs among 246 learned songs; Pay No
+    # Mind's live version (45 s longer) is not one. Confirmed pairs are kept in twins.json.
+    def twins(self, track_id: str) -> list:
+        """[(twin id, seconds to add to the twin's times for this copy)], confirmed by the audio."""
+        idx = self._learned_index()
+        me = idx.get(track_id)
+        if not me:
+            return []
+        cands = [t for t, v in idx.items() if v and t != track_id and v[1] == me[1] and v[0] & me[0] and abs(v[2] - me[2]) <= 1.5]
+        if not cands:
+            return []
+        path = os.path.join(self.dir, "twins.json")
+        known = self.__dict__.get("_twins")
+        if known is None:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    known = json.load(fh)
+            except (OSError, ValueError):
+                known = {}
+            self._twins = known
+        out, changed = [], False
+        for t in cands:
+            key = "|".join(sorted((track_id, t)))
+            if key not in known:
+                known[key] = self._match(*sorted((track_id, t)))
+                changed = True
+            m = known[key]
+            if m and m[0] >= 0.9:
+                off = float(m[1]) if sorted((track_id, t))[0] == track_id else -float(m[1])
+                out.append((t, round(off, 3)))
+        if changed:
+            try:
+                tmp = path + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(known, fh, indent=1)
+                os.replace(tmp, path)
+            except OSError:
+                pass
+        return out
+
+    def _match(self, a_id: str, b_id: str) -> list | None:
+        """[how well a's and b's loudness curves match (0..1), seconds to add to b's times for a's], within 20 s."""
+        def energy(tid):
+            try:
+                with open(self._learned_path(tid), encoding="utf-8") as fh:
+                    an = json.load(fh)["analysis"]
+                return np.asarray(an.get("energy") or [], dtype=float), float(an.get("feature_fps") or 30.0)
+            except (OSError, ValueError, KeyError):
+                return None, 30.0
+        (ea, fps), (eb, _) = energy(a_id), energy(b_id)
+        if ea is None or eb is None or len(ea) < 300 or len(eb) < 300:
+            return None
+        n, best = min(len(ea), len(eb)), (-1.0, 0)
+        for lag in range(-int(20 * fps), int(20 * fps) + 1, 2):
+            x, y = ea[max(0, lag):n + min(0, lag)], eb[max(0, -lag):n - max(0, lag)]
+            m = min(len(x), len(y))
+            if m < 30 * fps or np.std(x[:m]) == 0 or np.std(y[:m]) == 0:
+                continue
+            c = float(np.corrcoef(x[:m], y[:m])[0, 1])
+            if c > best[0]:
+                best = (c, lag)
+        return [round(best[0], 3), round(best[1] / fps, 3)]
 
     # The beat grid set right by ear (the studio's review: Light Switch's beats sat on its claps, half a beat
     # off its kicks): track id -> seconds the whole grid moves, applied every time the song is read.
@@ -334,6 +409,11 @@ class JamLibrary:
         try:
             mtime = os.path.getmtime(path)
         except OSError:
+            for twin, off in self.twins(track_id):              # a twin's words, moved onto this copy
+                lyr = self.lyrics(twin) if os.path.exists(os.path.join(self.dir, "lyrics", re.sub(r"[^A-Za-z0-9]", "", twin) + ".json")) else None
+                if lyr:
+                    mv = lambda x: {**x, **{k: round(float(x[k]) + off, 3) for k in ("t", "end") if k in x}}
+                    return {**lyr, "words": [mv(w) for w in lyr["words"]], "lines": [mv(x) for x in lyr["lines"]]}
             return None
         cache = self.__dict__.setdefault("_lyrics", {})
         if track_id in cache and cache[track_id][0] == mtime:

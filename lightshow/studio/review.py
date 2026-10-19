@@ -91,7 +91,16 @@ class Review:
                 continue
             seen = truth.get(tid) or {}
             out.append({"id": tid, "name": track.name, "artists": track.artists, "label": track.label,
-                        "reviewed": seen.get("reviewed") or ("drops" if seen else "")})
+                        "reviewed": seen.get("reviewed") or ("drops" if seen else ""),
+                        "twins": [t for t, _ in self.library.twins(tid)] if hasattr(self.library, "twins") else []})
+        # the same song under several ids (twins: an album and a single): listed once, the reviewed one if any
+        keep, gone = [], set()
+        for s in sorted(out, key=lambda s: (not s["reviewed"], s["id"])):
+            if s["id"] in gone:
+                continue
+            keep.append(s)
+            gone.update(s["twins"])
+        out = keep
         # the songs the learned labeler and the rules disagree on most come first (tools/section_labeler.py order):
         # each review there teaches the most; without a ranking, by artist and title
         try:
