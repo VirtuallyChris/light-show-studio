@@ -59,25 +59,7 @@ def _analysis_version() -> int:
 
 
 
-def shift_beats(a: dict, seconds: float) -> None:
-    """Move an analysis' whole beat grid (its beats, bar lines and first beat) by seconds, in place; a beat
-    pushed before the start is dropped, and one comes in at the start where the gap allows (the bar count
-    from the first beat kept by moving the downbeat phase with it)."""
-    beats = [round(float(b) + seconds, 4) for b in a.get("beats") or []]
-    if not beats:
-        return
-    period = (beats[-1] - beats[0]) / max(1, len(beats) - 1)
-    phase = int(a.get("downbeat_phase") or 0)
-    while beats and beats[0] < 0:
-        beats.pop(0)
-        phase = (phase - 1) % 4
-    while beats and beats[0] - period >= 0:
-        beats.insert(0, round(beats[0] - period, 4))
-        phase = (phase + 1) % 4
-    a["beats"], a["downbeat_phase"] = beats, phase
-    if beats:
-        a["beat_offset"] = beats[0]
-    a["downbeats"] = beats[phase::4]
+from .analysis import shift_beats  # noqa: E402,F401 - (moved there; the beat fixes use it)
 
 class JamLibrary:
     """Shows saved on disk, and what has been learned about tracks heard before."""

@@ -1298,6 +1298,48 @@ def _curve(a: dict, name: str):
     return np.asarray(c, dtype=float) if c else None
 
 
+def shift_beats(a: dict, seconds: float) -> None:
+    """Move an analysis' whole beat grid (its beats, bar lines and first beat) by seconds, in place; a beat
+    pushed before the start is dropped, and one comes in at the start where the gap allows (the bar count
+    from the first beat kept by moving the downbeat phase with it)."""
+    beats = [round(float(b) + seconds, 4) for b in a.get("beats") or []]
+    if not beats:
+        return
+    period = (beats[-1] - beats[0]) / max(1, len(beats) - 1)
+    phase = int(a.get("downbeat_phase") or 0)
+    while beats and beats[0] < 0:
+        beats.pop(0)
+        phase = (phase - 1) % 4
+    while beats and beats[0] - period >= 0:
+        beats.insert(0, round(beats[0] - period, 4))
+        phase = (phase + 1) % 4
+    a["beats"], a["downbeat_phase"] = beats, phase
+    if beats:
+        a["beat_offset"] = beats[0]
+    a["downbeats"] = beats[phase::4]
+
+
+# The onset envelope the grid is fitted to (librosa's, hop 512 with a 2048-sample window) peaks ~28 ms after a
+# drum's attack: measured on 7 songs with a steady kick, each kick's attack found by the spectral flux at 2.9 ms
+# steps (2026-10-18): the beat grid 26.8 to 32.3 ms late (median 28.8), the kick events 13 ms early. So the
+# grids placed on that envelope (the onset fit of Beat This' beats, librosa's own) are moved back onto the
+# attacks; Beat This' grid taken as it is was never fitted to it.
+GRID_LAG = 0.028
+
+
+def grid_on_attacks(a: dict) -> list:
+    """Move a grid fitted to the onset envelope GRID_LAG earlier, onto the attacks: once (flagged
+    grid_on_attack), for a new analysis and a saved one alike. Returns what changed."""
+    if a.get("grid_on_attack") or not a.get("beats"):
+        return []
+    a["grid_on_attack"] = True
+    src = str(a.get("beat_source") or "librosa")
+    if "onset" not in src and src != "librosa":
+        return []
+    shift_beats(a, -GRID_LAG)
+    return [(0.0, f"beat grid onto the attacks ({-GRID_LAG * 1000:.0f} ms)")]
+
+
 def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
     on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning.
@@ -1308,7 +1350,7 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    changes = (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    changes = grid_on_attacks(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
                + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
                + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
     from . import songmap                                   # and the song's map on the settled sections: its parts, tension, moments

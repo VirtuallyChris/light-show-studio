@@ -39,6 +39,8 @@ def score_song(analysis: dict, truth: dict) -> tuple[int, int, list[float]]:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")       # (names like Alexandra Căpitănescu on a Windows console)
     try:
         with open(os.path.join(JAM, "section_truth.json"), encoding="utf-8") as fh:
             truth = {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
