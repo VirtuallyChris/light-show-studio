@@ -289,7 +289,7 @@
     autoBuild(true);
     return 'rebuilt';
   }
-  function changed() { scheduleSave(); draw(); }
+  function changed() { reviewRebuild(true); scheduleSave(); draw(); }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); S.project = JSON.parse(S.undo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); S.project = JSON.parse(S.redo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function scheduleSave() { clearTimeout(S.saveTimer); S.saveTimer = setTimeout(save, 1500); }
@@ -373,9 +373,20 @@
   // read songs are tuned against); the check mark says they were right as found. Never saved as a show.
   const secKey = () => JSON.stringify((P() ? P().sections : []).map(s => [s.type, +s.start.toFixed(2), +s.end.toFixed(2)]));
   const reviewBody = ok => JSON.stringify({ id: S.review.id, ok, sections: P().sections.map(s => ({ type: s.type, start: s.start, end: s.end })) });
+  /** Under review, the lights follow the sections as they move: rebuilt with the sections exactly as set (a
+   *  build takes about 30 ms: a drag rebuilds about 12 times a second, letting go once more); only when the
+   *  sections changed. */
+  function reviewRebuild(final) {
+    const R = S.review; if (!R || !R.id || !P()) return;
+    const k = secKey(), now = performance.now();
+    if (k === R.built || (!final && now - (R.builtAt || 0) < 80)) return;
+    R.built = k; R.builtAt = now;
+    autoBuild(true, true);
+  }
   async function reviewKeep(ok) {
     const R = S.review; if (!R || !R.id || !P()) return;
     if (!ok && secKey() === R.orig) return;                             // nothing changed: nothing to keep
+    if (ok && secKey() !== R.found) ok = false;                         // changed: a correction, whatever was pressed
     try {
       const r = await fetch('/api/review/truth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reviewBody(ok) });
       const d = await r.json(); if (d.error) throw new Error(d.error);
@@ -395,7 +406,7 @@
       const r = await fetch('/api/review/song/' + encodeURIComponent(song.id));
       R.id = null; await loadResponse(r);
       if (S.analysis) { autoBuild(true); draw(); }                       // (its show, to judge the sections by)
-      R.id = song.id; R.orig = secKey();
+      R.id = song.id; R.orig = R.found = R.built = secKey();
     } catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
     reviewBar();
   }
@@ -418,6 +429,8 @@
     await reviewOpen(i);
   }
   async function reviewStop() { await reviewKeep(false); S.review = null; reviewBar(); }
+  /** Done: the song as it stands is the truth (a correction if anything was changed), and on to the next. */
+  async function reviewDone() { const R = S.review; if (!R) return; await reviewKeep(true); await reviewOpen(R.i + 1); }
   // the window closing with changes not yet kept: sent on the way out
   addEventListener('pagehide', () => {
     if (S.review && S.review.id && P() && secKey() !== S.review.orig)
@@ -1588,7 +1601,7 @@
     }
     if (d.type === 'beat') { p.beats[d.index] = t; p.beats.sort((a, b) => a - b); d.index = p.beats.indexOf(t); S.view.sel = { type: 'beat', index: d.index }; draw(); return; }
     if (d.type === 'drop') { p.drops[d.index] = beatToTime(snapBeat(b)); draw(); return; }
-    if (d.type === 'section-edge') { const s = p.sections[d.index], prev = p.sections[d.index - 1]; const nt = beatToTime(snapBeat(b)); if (nt > prev.start + 0.5 && nt < s.end - 0.5) { s.start = nt; prev.end = nt; if (d.marker !== null && d.marker !== undefined) p.drops[d.marker] = nt; draw(); } return; }
+    if (d.type === 'section-edge') { const s = p.sections[d.index], prev = p.sections[d.index - 1]; const nt = beatToTime(snapBeat(b)); if (nt > prev.start + 0.5 && nt < s.end - 0.5) { s.start = nt; prev.end = nt; if (d.marker !== null && d.marker !== undefined) p.drops[d.marker] = nt; reviewRebuild(false); draw(); } return; }
     if (d.type === 'clip' || d.type === 'palclip') {
       const c = d.clip; d.moved = true;
       const laneOf = d.type === 'clip' ? p.lanes[d.lane] : null;
@@ -2385,11 +2398,11 @@
     if (g && STYLE_NAMES[g.style]) return g.style;
     return ((S.analysis && S.analysis.mood && S.analysis.mood.drive) || 0.6) > 0.72 ? 'dance' : 'groove';
   }
-  function autoBuild(quiet = false) {
+  function autoBuild(quiet = false, keepSections = false) {
     if (!P()) return; if (!quiet) { S.building = true; beginChange(); S.building = false; } const p = P();
     p.built = { show: SHOW_VERSION, analysis: (S.analysis && S.analysis.version) ?? null, at: new Date().toISOString() };
     p.handEdited = false;
-    p.sections = withBuildups(p.sections);
+    if (!keepSections) p.sections = withBuildups(p.sections);      // (keepSections: the sections exactly as the user set them)
     for (const lane of p.lanes) lane.clips = []; p.paletteClips = [];
     while (p.lanes.length < DEFAULT_LANES) p.lanes.push(newLane());
     // one palette carries the whole song, chosen from its key, brightness and drive
@@ -3432,7 +3445,7 @@
       return;
     }
     const be = $('#beatEdit').checked;
-    if (S.review && (e.key === '[' || e.key === ']')) { reviewOpen(S.review.i + (e.key === ']' ? 1 : -1)); return; }
+    if (S.review && (e.key === '[' || e.key === ']')) { e.key === ']' ? reviewDone() : reviewOpen(S.review.i - 1); return; }
     if (e.code === 'Space') { e.preventDefault(); if (be && S.audio.playing) { beginChange(); const t = pos(); const p = P(); const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); changed(); } else togglePlay(); }
     else if (e.key === 'Enter') { togglePlay(); }
     else if (e.key === 'Home') { seek(0); scrollTo(0); }
@@ -3483,8 +3496,7 @@
   $('#recent').onchange = e => { if (e.target.value) openProject(e.target.value); };
   $('#btnReview').onclick = reviewStart;
   $('#revPrev').onclick = () => reviewOpen(S.review.i - 1);
-  $('#revNext').onclick = () => reviewOpen(S.review.i + 1);
-  $('#revOk').onclick = async () => { await reviewKeep(true); reviewBar(); };
+  $('#revDone').onclick = reviewDone;
   $('#revClose').onclick = reviewStop;
   $('#btnHalf').onclick = () => scaleTempo(0.5); $('#btnDouble').onclick = () => scaleTempo(2); $('#btnRegrid').onclick = () => { if (P()) regrid(); }; $('#btnNudgeL').onclick = () => P() && nudge(-10); $('#btnNudgeR').onclick = () => P() && nudge(10);
   $('#btnPhase').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 1) % 4; changed(); };

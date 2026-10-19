@@ -25,12 +25,11 @@
     <button id="btnOpen" title="Open a song (or drop one anywhere)">Open song</button>
     <input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a" hidden>
     <select id="recent" class="recent" title="Saved shows"><option value="">Saved shows…</option></select>
-    <button id="btnReview" title="Review learned songs: the Jam songs with no saved show, one after another, to set their sections right by ear. [ and ] move between songs; moving on keeps any change you made to the sections, and the check mark says they were right as they were. Nothing is saved as a show.">Review</button>
+    <button id="btnReview" title="Review learned songs: the Jam songs with no saved show, one after another, to set their sections right by ear. The lights follow your sections as you move them. Done (or ]) moves on: your changes are kept as corrections; with none, the song is marked right as it was. Nothing is saved as a show.">Review</button>
     <span id="reviewBar" class="review-bar" hidden>
-      <button id="revPrev" title="The song before ([): keeps your changes to this one">&#9664;</button>
+      <button id="revPrev" title="The song before ([)">&#9664;</button>
       <span id="revPos" class="rev-pos"></span>
-      <button id="revOk" title="The sections are right as they are">&#10003;</button>
-      <button id="revNext" title="The next song (]): keeps your changes to this one">&#9654;</button>
+      <button id="revDone" class="accent" title="Done, the next song (]): your changes are kept as corrections; with none, it is marked right as it was">Done</button>
       <button id="revClose" title="Leave review (keeps your changes)">&times;</button>
     </span>
   </div>
