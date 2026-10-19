@@ -295,6 +295,21 @@ A model that will not start is tried again every 2 minutes, and why goes to
 `studio.log` and `models.log`.
 Without it, the built-in detector below is used.
 
+**Lyrics, word by word (data only for now).** `lyrics.py` gives a song its lyrics with
+the time each word is sung, for light moments on color words, big words and the hook
+line later. The words come from LRCLIB (lrclib.net, free and open; most songs synced
+line by line), moved onto the copy's own timeline by matching them to what Whisper
+(faster-whisper large-v3-turbo) hears in the Demucs vocal stem, and each line is then
+forced onto the vocals by a CTC aligner (wav2vec2 MMS_FA, torchaudio) for every word's
+start and end. A song LRCLIB does not have keeps Whisper's own words. For the kept Jam
+copies, `tools\lyrics_backfill.py` (model environment) writes
+`shows\_jam\lyrics\<track id>.json`; it waits while a Jam is streaming. It needs one more
+package in the model environment:
+
+```bash
+.venv-songformer\Scripts\python.exe -m pip install faster-whisper
+```
+
 **How sections are found.** The analyser works per bar over the whole file,
 with cues checked against hand-labelled tracks. A *drop* is loud **and**
 full-spectrum: a verse can be just as loud on a modern master, but its mids
