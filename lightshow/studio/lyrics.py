@@ -28,6 +28,7 @@ needs the model environment (.venv-songformer: CUDA PyTorch, Demucs, faster-whis
 
 from __future__ import annotations
 
+import bisect
 import difflib
 import json
 import os
@@ -260,38 +261,57 @@ def match_heard(lines: list[dict], heard: list[dict]) -> dict[tuple[int, int], f
 
 
 NEAR_S = 8.0                     # how far from where the lyrics put a line it is looked for in what Whisper heard
+AGREE_S = 1.5                    # how close to a candidate offset's place a line must be heard to agree with it
 PER_WORD_S = 0.3                 # a guess at how long a word takes, to go back from a matched word to the line start
+
+
+def _found_near(toks: list[tuple[int, str]], line_t: float, heard: list[dict], hw: list[str], at: float,
+                radius: float, prefer: float) -> float | None:
+    """A line looked for in what Whisper heard within `radius` of `at`: the offset that puts it there
+    (the one nearest `prefer` if it was heard more than once), or None. Two words in a row must match."""
+    lo = bisect.bisect_left([h["t"] for h in heard], at - radius)
+    near = [k for k in range(lo, len(heard)) if heard[k]["t"] <= at + radius]
+    if len(toks) < 2 or not near:
+        return None
+    sm = difflib.SequenceMatcher(None, [n for _, n in toks], [hw[k] for k in near], autojunk=False)
+    cands = [heard[near[b]]["t"] - PER_WORD_S * toks[a][0] - line_t for a, b, size in sm.get_matching_blocks() if size >= 2]
+    return min(cands, key=lambda d: abs(d - prefer)) if cands else None
 
 
 def line_offsets(lines: list[dict], found: dict, heard: list[dict] = (), slack: float = 0.0) -> tuple[list[float], float | None]:
     """For synced lyrics: how far each line's time must move to land on the copy.
 
-    First one offset for the whole song: the median over the lines whose first word Whisper heard,
-    matched over the whole song (a copy with an intro moves every line the same). That matching can
-    pair a chorus with the wrong chorus, so it is only trusted for the median. Then each line is
-    looked for again, only within NEAR_S (plus `slack`: how much the copy's length differs from the
-    release's) of where that offset puts it; each line takes the median of those offsets near it
-    (an edit with a part cut out moves the lines before and after the cut differently)."""
+    First one offset for the whole song (a copy with an intro moves every line the same). The lines
+    whose first word Whisper heard, matched over the whole song, give the candidates; that matching
+    can pair a chorus with the wrong chorus, often enough to outvote the right pairs (In Camera:
+    26.5 s off), so each candidate (and no offset at all) is tried on every line, each looked for
+    only close to where the candidate puts it, and the one most lines agree with wins (a tie: the
+    smallest). Then each line is looked for again within NEAR_S (plus `slack`: how much the copy's
+    length differs from the release's) of where that offset puts it; each line takes the median of
+    the offsets near it (an edit with a part cut out moves the lines before and after the cut
+    differently)."""
     samples = [t - lines[li]["t"] for (li, wi), t in found.items() if wi == 0]
     if not samples:
         return [0.0] * len(lines), None
-    overall = statistics.median(samples)
-    radius = NEAR_S + slack
+    heard = sorted(heard, key=lambda h: h["t"])
     hw = [norm(h["w"]) for h in heard]
-    local = []                                            # (line time, offset) from the second look
+    toks = []
     for line in lines:
-        toks = [(wi, norm(w["w"])) for wi, w in enumerate(split_line(line["text"]))]
-        toks = [(wi, n) for wi, n in toks if n]
-        at = line["t"] + overall
-        near = [k for k, h in enumerate(heard) if at - radius <= h["t"] <= at + radius]
-        if len(toks) < 2 or not near:
-            continue
-        sm = difflib.SequenceMatcher(None, [n for _, n in toks], [hw[k] for k in near], autojunk=False)
-        blocks = [(a, b, size) for a, b, size in sm.get_matching_blocks() if size >= 2]
-        if not blocks:
-            continue
-        cands = [heard[near[b]]["t"] - PER_WORD_S * toks[a][0] - line["t"] for a, b, _ in blocks]
-        local.append((line["t"], min(cands, key=lambda d: abs(d - overall))))
+        tk = [(wi, norm(w["w"])) for wi, w in enumerate(split_line(line["text"]))]
+        toks.append([(wi, n) for wi, n in tk if n])
+
+    def agree(off: float) -> list[float]:
+        ds = (_found_near(tk, ln["t"], heard, hw, ln["t"] + off, AGREE_S, off) for tk, ln in zip(toks, lines))
+        return [d for d in ds if d is not None]
+
+    cands = sorted({round(d, 1) for d in samples} | {0.0}, key=abs)
+    votes = max((agree(c) for c in cands), key=len) if heard else []         # max keeps the first (smallest) of a tie
+    overall = statistics.median(votes) if votes else statistics.median(samples)
+    local = []                                            # (line time, offset) from the second look
+    for tk, line in zip(toks, lines):
+        d = _found_near(tk, line["t"], heard, hw, line["t"] + overall, NEAR_S + slack, overall)
+        if d is not None:
+            local.append((line["t"], d))
     out = []
     for line in lines:
         ds = [d for t0, d in local if abs(t0 - line["t"]) <= 40]

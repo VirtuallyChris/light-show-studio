@@ -15,6 +15,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -44,7 +45,7 @@ def song_info(copy: str, learned_dir: str) -> dict:
     info = {"title": "", "artist": "", "album": "", "duration": None}
     try:
         tags = sf.SoundFile(copy).copy_metadata()
-        info.update(title=tags.get("title", ""), artist=(tags.get("artist", "") or "").split("/")[0].split(",")[0].strip(),
+        info.update(title=tags.get("title", ""), artist=re.split(r"[/,;]", tags.get("artist", "") or "")[0].strip(),
                     album=tags.get("album", ""))
     except Exception:
         pass

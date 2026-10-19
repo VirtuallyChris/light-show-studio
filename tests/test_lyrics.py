@@ -156,6 +156,15 @@ class TestPlacing(unittest.TestCase):
         self.assertAlmostEqual(overall, 1.0)
         self.assertEqual([round(d, 2) for d in offs], [1.0] * len(lines))
 
+    def test_wrong_pairs_outvoting_the_right_ones_do_not_move_the_song(self):
+        # In Camera: most lines' first words were paired with a later repeat, 26.5 s on; the median of
+        # those pairs moved the whole song. Heard where the lyrics put them, the lines say no offset.
+        heard = heard_from(LINES, 0.0)
+        found = {(li, 0): ln["t"] + (26.5 if li % 3 else 0.0) for li, ln in enumerate(LINES)}
+        offs, overall = L.line_offsets(LINES, found, heard)
+        self.assertEqual(overall, 0.0)
+        self.assertEqual([round(d, 2) for d in offs], [0.0] * len(LINES))
+
     def test_lone_common_words_do_not_count(self):
         heard = [{"t": 3.0, "end": 3.2, "w": "the", "p": 0.5}, {"t": 99.0, "end": 99.2, "w": "and", "p": 0.5}]
         self.assertEqual(L.match_heard(LINES, heard), {})
