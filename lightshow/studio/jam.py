@@ -269,6 +269,31 @@ class JamLibrary:
             return None
         return doc if doc.get("version") == _analysis_version() else None
 
+    def lyrics(self, track_id: str) -> dict | None:
+        """The song's lyrics with word times (lyrics.py; shows/_jam/lyrics/<id>.json), slimmed to what a
+        show needs: words {t, end, w, line, bg?, p} and lines {t, end, text}. None when there are none (not
+        learned yet, or an instrumental). Read again only when the file changes: learn ahead may write it
+        after the song has started."""
+        path = os.path.join(self.dir, "lyrics", re.sub(r"[^A-Za-z0-9]", "", track_id) + ".json")
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+        cache = self.__dict__.setdefault("_lyrics", {})
+        if track_id in cache and cache[track_id][0] == mtime:
+            return cache[track_id][1]
+        try:
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except (OSError, ValueError):
+            return None
+        keep = ("t", "end", "w", "line", "bg", "p")
+        words = [{k: w[k] for k in keep if k in w} for w in doc.get("words") or [] if w.get("w")]
+        out = {"source": doc.get("source"), "words": words,
+               "lines": [{k: x.get(k) for k in ("t", "end", "text")} for x in doc.get("lines") or []]} if words else None
+        cache[track_id] = (mtime, out)
+        return out
+
     # Spotify often has one recording under two ids (the single, and the album it is on): learned under one,
     # it played under the other as a song never heard (Knox Hamilton's Set It on Fire, learned at 16:51 and
     # learned again from scratch at 17:50, glowing meanwhile). A twin is found by its artist, name and length.
@@ -1558,7 +1583,8 @@ class JamEngine:
             if jt.kind == "custom":
                 return base
             if jt.kind == "learned":
-                return {**base, "analysis": jt.analysis}
+                lyr = self.library.lyrics(jt.track.id) if jt.track.id else None
+                return {**base, "analysis": {**jt.analysis, "lyrics": lyr} if lyr else jt.analysis}
             a, dur = jt.analysis, jt.track.duration
             head = min(self.relay.capture_time - jt.start, dur)
             feat = self.features.slice(jt.start, jt.start + head)

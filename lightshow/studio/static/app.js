@@ -268,7 +268,9 @@
   //   43: no light follows the singer's voice (no concert does): no voice orbs on the tubes, the vocal
   //       spotlight a steady glow while the singer is nearly alone
   //   (calm music, calmAt: brightness only swells, set as the show plays, not a rebuild)
-  const SHOW_VERSION = 43;
+  //   44: the words (lyrics.py): a color sung turns the room that color for a moment, a big word (fire,
+  //       lights, stars, thunder, heart...) gets its hit, the hook line the same room sweep every time
+  const SHOW_VERSION = 44;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2377,6 +2379,7 @@
     if (showStyle() !== 'chill') for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
     addMoments();
     addFlavor();
+    addLyricMoments();
     balance();
     S.view.sel = null; inspector(); changed();
     if (quiet) return;
@@ -2422,6 +2425,60 @@
         clip(9, 'whiteflash', b, 1.5, {}, { palette: ['#ffffff'], opacity: k === 'the biggest hit' ? 1 : 0.9 });
       } else if (k === 'the lead comes in') clip(9, 'glitch', b, 1.5, {}, punch);
       else clip(9, 'sweepout', b, 2, { origin: 0.5 }, { ...punch, opacity: 0.95 });   // the voice coming in, a new part
+    }
+  }
+  // The words the lights know (lyrics.py): a color sung turns the room that color for a moment, a big word
+  // gets its hit, and the hook line (the line sung most, three times or more) the same move every time.
+  const LYRIC_COLORS = { red: '#ff0000', crimson: '#dc0030', scarlet: '#ff2000', cherry: '#e0002a', blue: '#0040ff', navy: '#0020a0',
+    green: '#00ff40', emerald: '#00c060', purple: '#8000ff', violet: '#8a00ff', indigo: '#4000ff', pink: '#ff40a0', magenta: '#ff00c0',
+    orange: '#ff6000', yellow: '#ffd000', gold: '#ffb000', golden: '#ffb000', silver: '#c0d0ff', white: '#ffffff', cyan: '#00e0ff',
+    teal: '#00c0b0', neon: '#00ffd0', black: 'dark', rainbow: 'rainbow' };
+  const LYRIC_HITS = {                                            // a big word: [effect, length in beats, its own colors or null]
+    fire: ['colorslam', 2, ['#ff3000', '#ffa000']], fires: ['colorslam', 2, ['#ff3000', '#ffa000']], burn: ['colorslam', 2, ['#ff3000', '#ffa000']],
+    burning: ['colorslam', 2, ['#ff3000', '#ffa000']], flame: ['colorslam', 2, ['#ff3000', '#ffa000']], flames: ['colorslam', 2, ['#ff3000', '#ffa000']],
+    light: ['whiteflash', 1.5, ['#ffffff']], lights: ['whiteflash', 1.5, ['#ffffff']], shine: ['whiteflash', 1.5, ['#ffffff']], bright: ['whiteflash', 1.5, ['#ffffff']],
+    star: ['sparkle', 2, ['#ffffff']], stars: ['sparkle', 2, ['#ffffff']], sky: ['sweepout', 2, null], fly: ['sweepout', 2, null], high: ['sweepout', 2, null],
+    lightning: ['lightning', 1.5, ['#ffffff', '#8ad8ff']], thunder: ['lightning', 1.5, ['#ffffff', '#8ad8ff']], storm: ['lightning', 1.5, ['#ffffff', '#8ad8ff']],
+    boom: ['whiteflash', 1, ['#ffffff']], bang: ['whiteflash', 1, ['#ffffff']], explode: ['whiteflash', 1.5, ['#ffffff']], fireworks: ['fireworks', 4, null],
+    heart: ['colorslam', 1.5, ['#c00020']], heartbeat: ['colorslam', 1.5, ['#c00020']], jump: ['sweepout', 1.5, null], dance: ['sweepout', 1.5, null],
+    sun: ['colorslam', 2, ['#ffb000', '#ff6000']], sunshine: ['colorslam', 2, ['#ffb000', '#ff6000']] };
+  function addLyricMoments() {
+    const p = P(), ly = (S.analysis || {}).lyrics; if (!p || !ly || !(ly.words || []).length) return;
+    const norm = x => String(x || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9 ]+/g, '').replace(/\s+/g, ' ').trim();
+    const ps = ly.words.map(w => w.p).filter(x => typeof x === 'number').sort((x, y) => x - y), pLow = ps.length >= 20 ? ps[Math.floor(ps.length * 0.1)] : -1;
+    const busy = new Set([...ONE_SHOTS, ...PARTY_FLASHY, ...PARTY_ONE_SHOTS]), placed = [], lastOf = {};
+    const free = (b, w = 1) => !placed.some(x => Math.abs(x - b) < 2) && !p.lanes.some(l => l.clips.some(c => c.len <= 4 && busy.has(c.effect) && Math.abs(c.start - b) < w));
+    const at = t => Math.round(timeToBeat(t) * 4) / 4;
+    const put = (b, fx, len, pal, key) => {
+      if (b < 1 || !free(b) || (key && lastOf[key] != null && b - lastOf[key] < 8)) return false;
+      const calm = calmAt(beatToTime(b)) >= 0.5;                  // calm music: a soft sweep in the color (no flashes there)
+      if (fx === 'dark') { if (calm) return false; clip(7, 'dark', b, 0.5); }
+      else if (calm) clip(9, 'sweepout', b, 2, { origin: 0.5 }, { palette: pal || [punchColor(b)], opacity: 0.85 });
+      else if (fx === 'sparkle') clip(9, 'sparkle', b, len, { density: 0.35, life: 0.25 }, { palette: pal, blend: 'add', opacity: 1 });
+      else clip(9, fx, b, len, fx === 'sweepout' ? { origin: 0.5 } : {}, { palette: pal || [punchColor(b)], opacity: 1 });
+      placed.push(b); if (key) lastOf[key] = b; return true;
+    };
+    // the hook line: the same move, in the same color, every time it is sung
+    const count = {}; for (const ln of ly.lines || []) { const k = norm(ln.text); if (k.split(' ').length >= 2) count[k] = (count[k] || 0) + 1; }
+    const hook = Object.entries(count).filter(([, n]) => n >= 3).sort((x, y) => y[1] - x[1] || y[0].length - x[0].length)[0];
+    if (hook) {
+      const times = (ly.lines || []).filter(ln => norm(ln.text) === hook[0]).map(ln => at(ln.t)), col = punchColor(times[0] || 0);
+      for (const b of times) {
+        if (b < 1 || !free(b)) continue;
+        if (calmAt(beatToTime(b)) >= 0.5) clip(9, 'sweepout', b, 2, { origin: 0.5 }, { palette: [col], opacity: 0.85 });
+        else clip(8, 'roomsweep', b, 2, { every: 2, width: 0.7 }, { palette: [col], blend: 'add', opacity: 0.9 });
+        placed.push(b);
+      }
+    }
+    // the words themselves, as they are sung (not the backing vocals, nor a word the aligner barely found)
+    for (const w of ly.words) {
+      if (w.bg || (typeof w.p === 'number' && w.p < pLow)) continue;
+      const k = norm(w.w).replace(/ /g, ''), b = at(w.t);
+      const col = LYRIC_COLORS[k];
+      if (col === 'dark') put(b, 'dark', 0.5, null, k);
+      else if (col === 'rainbow') put(b, 'colorslam', 2, ['#ff0000', '#ffd000', '#00ff40', '#0040ff', '#8000ff'], k);
+      else if (col) put(b, 'colorslam', 2, [col], k);
+      else if (LYRIC_HITS[k]) { const [fx, len, pal] = LYRIC_HITS[k]; put(b, fx, len, pal, k); }
     }
   }
   // Effects that are mostly dark with a few bright things moving (comets, sparks, sweeps): laid
