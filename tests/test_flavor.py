@@ -255,6 +255,20 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual([(x["type"], x["start"], x["end"]) for x in a["sections"]], [("verse", 0.0, 20.0), ("drop", 20.0, 50.0), ("verse", 50.0, 80.0)])
         self.assertEqual(a["drops"], [20.0])
 
+    def test_a_drop_starts_on_the_bar_it_is_heard(self):
+        """how to exit a room: the drop found a bar after the song goes loud with full drums."""
+        from lightshow.studio.analysis import drops_on_their_bar
+        a = self._song(80, 30, 120.0); a["downbeats"] = [i * 2.0 for i in range(40)]
+        self._levels(a, [(0, 20, 0.45, 0.3, 0.05), (20, 50, 0.85, 0.6, 0.9), (50, 80, 0.5, 0.3, 0.6)])
+        a["sections"] = [{"start": 0.0, "end": 22.0, "type": "breakdown"}, {"start": 22.0, "end": 50.0, "type": "drop"},
+                         {"start": 50.0, "end": 80.0, "type": "verse"}]
+        a["drops"] = [22.0]
+        self.assertEqual(len(drops_on_their_bar(a)), 1)
+        self.assertEqual([(x["type"], x["start"]) for x in a["sections"]], [("breakdown", 0.0), ("drop", 20.0), ("verse", 50.0)])
+        self.assertEqual(a["sections"][0]["end"], 20.0)
+        self.assertEqual(a["drops"], [20.0])
+        self.assertEqual(drops_on_their_bar(a), [])                                    # on its bar now: nothing more
+
     def test_a_drop_out_of_a_pause_starts_at_the_hit(self):
         from lightshow.studio.analysis import drop_after_pause
         a = self._song(80); fps = 30

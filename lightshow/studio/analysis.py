@@ -612,6 +612,45 @@ def drop_neighbors(a: dict) -> list:
     return changes
 
 
+def drops_on_their_bar(a: dict) -> list:
+    """A drop starts on the bar where it is heard: within the two bars before where it was found, the first
+    bar line where the song is already as loud as the drop (within 0.06 of the loud level, and no more
+    than 0.15 louder: a bar far louder than the drop says the drop itself is wrong, not late) and its drums
+    are in (0.8, or the drop's own less 0.1, when the drop has drums), after a clearly quieter bar (0.15
+    quieter, or the drums 0.4 down). The Maine's how to exit a room: the drop at 57.1 s, heard at 54.0, a
+    bar early (the breakdown's bass kept drop_landings from seeing it); Midnight City's three, a bar each.
+    45 drops of 194 learned songs. Changes the analysis in place; returns what changed."""
+    secs = a.get("sections") or []
+    en = np.asarray(a.get("energy") or [], dtype=float)
+    drums = _curve(a, "drums_present")
+    bars = [float(b) for b in a.get("downbeats") or []]
+    if len(secs) < 2 or len(en) == 0 or drums is None or len(bars) < 4:
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    top = float(np.percentile(en, 90)) or 1.0
+    bar = float(np.median(np.diff(bars)))
+
+    def mean(c, t0, t1):
+        i0 = max(0, int(t0 * fps))
+        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0
+    changes = []
+    for i, sec in enumerate(secs):
+        if sec.get("type") != "drop" or i == 0 or secs[i - 1].get("type") == "drop":
+            continue
+        prev = secs[i - 1]
+        de, dd = mean(en, sec["start"], sec["start"] + 2 * bar) / top, mean(drums, sec["start"], sec["start"] + 2 * bar)
+        for b in sorted(x for x in bars if sec["start"] - 2 * bar - 0.3 <= x <= sec["start"] - 0.5 * bar and x > prev["start"] + bar):
+            e1, d1 = mean(en, b, b + bar) / top, mean(drums, b, b + bar)
+            e0, d0 = mean(en, b - bar, b) / top, mean(drums, b - bar, b)
+            if (de - 0.06 <= e1 <= de + 0.15 and (dd < 0.5 or d1 >= min(0.8, dd - 0.1))
+                    and (e1 - e0 >= 0.15 or d1 - d0 >= 0.4)):
+                changes.append((round(sec["start"], 1), "drop heard a bar early", round(b, 1)))
+                a["drops"] = sorted([d for d in (a.get("drops") or []) if not (sec["start"] - 0.5 <= d < sec["end"])] + [round(b, 3)])
+                prev["end"], sec["start"] = b, b
+                break
+    return changes
+
+
 def flat_buildups(a: dict) -> list:
     """A buildup where nothing builds is not one. A buildup builds by at least one of: its snares speeding
     up (the last quarter 1.5 times the first half and one a beat or more), the song climbing through it (its
@@ -780,7 +819,7 @@ def settle_sections(a: dict) -> list:
         a["drops_found"] = list(a.get("drops") or [])
     return (drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
             + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
-            + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
+            + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
 
 
 def hook_drops(a: dict) -> list:
