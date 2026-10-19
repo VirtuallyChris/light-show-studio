@@ -281,8 +281,10 @@ class FetchAhead:
 
     def __init__(self, library, download=_download, to_flac=_to_flac, length=_length, analyze=_analyze,
                  is_available=available, clock=time.monotonic, log=print, search=_search_youtube, download_from=_download_from,
-                 search_music=_search_ytmusic, keep=lambda: False):
+                 search_music=_search_ytmusic, keep=lambda: False, lyrics=None):
         self.library = library
+        # lyrics.learn: each song's lyrics with word times, from the copy right after it is learned (None: none)
+        self.lyrics = lyrics
         # config jam_keep_youtube_copies (off by default): keep each copy after it is learned, in
         # shows/_jam/copies, and learn from it again instead of downloading it (a relearn, a new analysis)
         self.keep = keep
@@ -531,6 +533,23 @@ class FetchAhead:
     def _wanted_now(self, track) -> bool:
         return not self._learned_well(track.id) and not self.library.match_project(track)
 
+    def _lyrics(self, track, path: str) -> None:
+        """The song's lyrics from its copy (lyrics.learn), while the copy is still here. Never in the way:
+        skipped while a song playing now, unlearned, waits to be analysed, and a failure only logs."""
+        if self.lyrics is None:
+            return
+        with self.lock:
+            if self.now and any(t.id == self.now for t, _, _ in self.ready):
+                self.log(f"[learn ahead] {track.label}: no lyrics this time (the song playing now is waiting to be learned)")
+                return
+        try:
+            t0 = self.clock()
+            data = self.lyrics(track, path, self.library.dir)
+            if data:
+                self.log(f"[learn ahead] {track.label}: lyrics, {len(data.get('words') or [])} words ({data.get('source')}) in {self.clock() - t0:.0f} s")
+        except Exception as e:  # noqa: BLE001 - the song is learned either way
+            self.log(f"[learn ahead] {track.label}: no lyrics ({type(e).__name__}: {e})")
+
     def _analyses(self) -> None:
         from . import priority
         priority.low_thread()                          # the room's own playback and the live analysis come first
@@ -552,6 +571,7 @@ class FetchAhead:
                 a = self.analyze(path, os.path.join(folder, "cache"), **({"urgent": True} if urgent else {}))
                 self.library.save_learned(track, a, source="youtube")
                 self._measure_copy(track, path)
+                self._lyrics(track, path)
                 self.checked[track.id] = True                  # learned again: not again this run, whatever it says
                 with self.lock:
                     self.learned_now += 1

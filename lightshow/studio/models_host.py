@@ -326,10 +326,20 @@ def _drums(state, req, payload):
     return {"hits": drums_infer.find(state, y)}, b""
 
 
+def _load_lyrics():
+    from . import lyrics
+    return lyrics.load_model()
+
+
+def _lyrics(state, req, payload):
+    from . import lyrics
+    return {"lyrics": lyrics.answer(state, req)}, b""
+
+
 LOADERS = {"songformer_infer": _load_sections, "stems_infer": _load_stems, "genre_infer": _load_genre, "beats_infer": _load_beats,
-           "drums_infer": _load_drums}
+           "drums_infer": _load_drums, "lyrics": _load_lyrics}
 HANDLERS = {"songformer_infer": _sections, "stems_infer": _stems, "genre_infer": _genre, "beats_infer": _beats,
-            "drums_infer": _drums}
+            "drums_infer": _drums, "lyrics": _lyrics}
 LOAD_LOCK = threading.Lock()
 WARM_AUDIO = {"songformer_infer": (24000, 60), "stems_infer": (22050, 30), "genre_infer": (16000, 6),   # (rate, seconds)
               "beats_infer": (22050, 8), "drums_infer": (44100, 8)}
