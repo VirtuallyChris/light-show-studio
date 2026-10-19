@@ -90,5 +90,25 @@ class BeatFixTest(unittest.TestCase):
             self.assertAlmostEqual(fixes["aaa"], 0.17)
 
 
+class ReviewedSectionsPlayTest(unittest.TestCase):
+    def test_the_users_sections_replace_the_rules(self):
+        from lightshow.studio.analysis import settle_sections
+        a = {"sections": [{"type": "drop", "start": 0.0, "end": 10.0}], "drops": [0.0], "beats": [], "duration": 10.0,
+             "sections_truth": [{"type": "verse", "start": 0.0, "end": 10.0}]}
+        settle_sections(a)
+        self.assertEqual([s["type"] for s in a["sections"]], ["verse"])
+        self.assertEqual(a["drops"], [])                        # a song with no drops at all, as the user said
+
+    def test_done_without_changes_keeps_a_correction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = FakeLibrary(tmp)
+            lib.add("aaa", "Zed", ["B"])
+            r = Review(lib)
+            secs = [{"type": "verse", "start": 0.0, "end": 10.0}]
+            r.keep("aaa", secs, ok=False)
+            r.keep("aaa", secs, ok=True)
+            self.assertEqual(r.truth()["aaa"]["reviewed"], "corrected")
+
+
 if __name__ == "__main__":
     unittest.main()

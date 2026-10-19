@@ -129,6 +129,9 @@ class Review:
                  "reviewed": "right as found" if ok else "corrected", "added": datetime.date.today().isoformat()}
         if beat_shift and abs(beat_shift) < 2.0:
             entry["beat_shift"] = round(float(beat_shift), 4)
+        old = self.truth().get(track_id) or {}
+        if ok and not beat_shift and old.get("sections") == secs:
+            return old                                    # reviewed before and left as it was: kept as it was ("corrected" stays)
         if self.read_only:
             return entry
         if beat_shift and abs(beat_shift) < 2.0:

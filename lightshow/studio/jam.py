@@ -276,7 +276,29 @@ class JamLibrary:
         shift = self.beat_fixes().get(track_id)
         if shift:
             shift_beats(doc["analysis"], float(shift))
+        mine = self.reviewed_sections(track_id)
+        if mine:
+            doc["analysis"]["sections_truth"] = mine            # settle_sections plays these (the user's own)
         return doc
+
+    def reviewed_sections(self, track_id: str) -> list | None:
+        """The sections the user set by ear for a learned song (the studio's review, section_truth.json), or None.
+        A song can have no drops at all: the user's word stands (Walking On A Dream, Oogie Boogie's Song)."""
+        path = os.path.join(self.dir, "section_truth.json")
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+        cache = self.__dict__.get("_truth")
+        if not cache or cache[0] != mtime:
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    cache = (mtime, json.load(fh))
+            except (OSError, ValueError):
+                return None
+            self._truth = cache
+        secs = (cache[1].get(track_id) or {}).get("sections")
+        return [dict(s) for s in secs] if secs else None
 
     # The beat grid set right by ear (the studio's review: Light Switch's beats sat on its claps, half a beat
     # off its kicks): track id -> seconds the whole grid moves, applied every time the song is read.
