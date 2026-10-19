@@ -834,6 +834,31 @@
 
   /** The song's main color, as 0..1 RGB: the jam's primary for this song, else its chosen main color,
    *  else the first color of its palette. */
+  /** The party level (the Party Hub's slider) is how intense the show is, not only how bright: at 100% the
+   *  show as built; lower, it calms down, live, as it plays. The strobes, flashes, glitches, blackouts and
+   *  black cuts go first (none under half); the one-shots thin out (each kept or not by the level, the same
+   *  every time: none at 25%, all from 95%); the drum hits soften to a gentle breath; the moving things ease
+   *  back and the meteors stop; the beds play on at full, and the pumping with the kick and bass fades. So at
+   *  a quarter it is a nice background in the song's colors (the user's idea), at 100% the concert. */
+  const PARTY_FLASHY = new Set(['strobe', 'drumstrobe', 'whiteflash', 'flash', 'lightning', 'glitch', 'scramble', 'hyperchase', 'chaos',
+    'dropblast', 'fillflood', 'colorslam', 'drumgate', 'dark', 'blackout', 'thunder', 'fireworks', 'strobeRiser']);
+  const PARTY_ONE_SHOTS = new Set(['sweepout', 'ripple', 'hookstrike', 'fillrush', 'roomsweep', 'ghostspark', 'wobble', 'deep808', 'ticks', 'heartbeat', 'spotlight']);
+  const PARTY_HITS = new Set(['pulse', 'drumhits', 'basshits', 'zonehits', 'buildhits', 'bassnote', 'leadtrace', 'leadglow', 'halves', 'roomsplit', 'hitswap', 'battle', 'blocks', 'alternate', 'roomchase', 'pulsar']);
+  const calmRamp = (lo, hi) => clamp(((S.partyLevel ?? 1) - lo) / (hi - lo), 0, 1);
+  function partyScale(clip) {
+    const L = S.partyLevel ?? 1; if (L >= 0.999) return 1;
+    const fx = clip.effect;
+    if (clip.alone) return 0.3 + 0.7 * calmRamp(0.2, 0.9);                     // a build's strobe that plays alone: softer, never gone
+    if (clip.blend === 'cut' || PARTY_FLASHY.has(fx)) return calmRamp(0.5, 0.9);
+    if (PARTY_ONE_SHOTS.has(fx) || (clip.len <= 4 && clip.blend !== 'cut' && !BED.has(fx))) {
+      let h = 0; for (const ch of String(clip.id || clip.start)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return Effects.hash(h) < calmRamp(0.3, 0.95) ? 0.5 + 0.5 * calmRamp(0.3, 0.9) : 0;
+    }
+    if (fx === 'meteorfall') return calmRamp(0.4, 0.85);
+    if (PARTY_HITS.has(fx)) return 0.3 + 0.7 * calmRamp(0.2, 0.9);
+    if (BED.has(fx) || fx === 'tubeform' || fx === 'candle' || fx === 'starlight' || fx === 'solid' || fx === 'roomwave' || fx === 'twinkle') return 1;
+    return 0.55 + 0.45 * calmRamp(0.2, 0.85);                                  // the moving things
+  }
   function partyColor() {
     const p = P(); const hx = (S.jamColors && S.jamColors[0]) || (p && p.settings && p.settings.mainColor)
       || (p && (p.palettes[p.defaultPalette] || [])[0]) || '#ffffff';
@@ -872,16 +897,17 @@
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub };
         e.render(c);
-        let alpha = clip.opacity ?? 1;
+        let alpha = (clip.opacity ?? 1) * partyScale(clip);
+        if (alpha <= 0.002) return;
         // Ducking, like sidechain compression: the layer dips on every kick and snare and swells back,
         // so the hits on top land on a dark strip and the whole show breathes with the drums.
         if (clip.duck > 0 && music.hasDrums) {
           let env = 0;
           for (const h of [music.kick, music.snare]) if (h && h.index >= 0) env = Math.max(env, Math.exp(-h.age / 0.16) * (0.6 + 0.4 * h.strength));
-          alpha *= 1 - clamp(clip.duck, 0, 1) * env;
+          alpha *= 1 - clamp(clip.duck, 0, 1) * env * calmRamp(0.3, 0.9);
         }
         // a drop's bed can breathe with the bass: brighter as the bass swells, dimmer as it drops out
-        if (clip.bassPump > 0) alpha *= (1 - clip.bassPump) + clip.bassPump * clamp(music.bassLevel * 1.15, 0, 1);
+        if (clip.bassPump > 0) { const pump = clip.bassPump * calmRamp(0.3, 0.9); alpha *= (1 - pump) + pump * clamp(music.bassLevel * 1.15, 0, 1); }
         if (clip.fadeIn > 0) alpha *= clamp(clipBeat / clip.fadeIn, 0, 1);
         if (clip.fadeOut > 0) alpha *= clamp((clip.len - clipBeat) / clip.fadeOut, 0, 1);
         Effects.composite(out, src, n, alpha, clip.blend || 'normal');
@@ -905,7 +931,7 @@
       }
       // The party level (set on the Party Hub): below 100% the song's main color is laid over the whole
       // show, that much more opaque, so the room calms down into one color without going dark.
-      const cover = 1 - clamp(S.partyLevel ?? 1, 0, 1), pc = cover > 0 ? partyColor() : null;
+      const cover = 0.5 * (1 - clamp(S.partyLevel ?? 1, 0, 1)), pc = cover > 0 ? partyColor() : null;   // (gentler: the show calms itself, partyScale)
       if (pc) for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) dst[i * 4 + k] = clamp(dst[i * 4 + k], 0, 1) * (1 - cover) + pc[k] * cover;
       const flat = new Array(n * 3);
       for (let i = 0; i < n; i++) { flat[i * 3] = Math.round(clamp(dst[i * 4], 0, 1) * 255 * master); flat[i * 3 + 1] = Math.round(clamp(dst[i * 4 + 1], 0, 1) * 255 * master); flat[i * 3 + 2] = Math.round(clamp(dst[i * 4 + 2], 0, 1) * 255 * master); }
