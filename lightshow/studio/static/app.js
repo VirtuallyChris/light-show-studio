@@ -968,7 +968,9 @@
     if (!roomViewCh || !S.roomViewAt || performance.now() - S.roomViewAt > 3000) return;
     if (performance.now() - (S.roomViewSent || 0) < 30) return;
     S.roomViewSent = performance.now();
-    const lights = partyLights(), frame = lights.length ? renderFrame(t, lights) : [];
+    // (and the kitchen's meteor tubes whenever they are ticked, their room switched on or not: the user)
+    const party = partyLights(), lights = [...party, ...S.lights.filter(l => l.on && lightKind(l) === 'tubes' && !party.includes(l))];
+    const frame = lights.length ? renderFrame(t, lights) : [];
     const space = S.roomSpaces[roomSpaceKey(lights)];
     roomViewCh.postMessage({ type: 'frame', song: S.name || '', lights: frame.map(fr => {
       const r = roomOf(fr.light), at = space && space.of.get(fr.light);
