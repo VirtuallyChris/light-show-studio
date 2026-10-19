@@ -653,6 +653,82 @@ def drop_tails_and_releases(a: dict) -> list:
     return changes
 
 
+def verses_in_long_drops(a: dict) -> list:
+    """A drop of 16 bars or more that hides verses: Madeon's Enjoy, mastered loud end to end, came out one
+    drop from 0:28 to 2:12, its verses inside it. A drop's own bars are full: its drums near their fullest in
+    it, and its bass in when it has bass. A stretch of four bars or more that is not (the drums 0.3 under the
+    drop's fullest, or the bass out where the drop's full bars have it) is a verse, or a breakdown when the
+    drums are nearly gone; the drop is what is left, four bars or more. Changes the analysis in place;
+    returns what changed."""
+    secs = a.get("sections") or []
+    drums, bass = _curve(a, "drums_present"), _curve(a, "bass")
+    bars = [float(b) for b in a.get("downbeats") or []]
+    if not secs or drums is None or bass is None or len(bars) < 8:
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    bar = float(np.median(np.diff(bars)))
+
+    def mean(c, t0, t1):
+        i0 = max(0, int(t0 * fps))
+        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0
+    out, changes = [], []
+    for sec in secs:
+        inb = [b for b in bars if sec["start"] - 0.1 <= b <= sec["end"] - 0.5 * bar]
+        if sec.get("type") != "drop" or len(inb) < 16:
+            out.append(sec)
+            continue
+        d = [mean(drums, b, b + bar) for b in inb]
+        top_d = float(np.percentile(d, 80))
+        fullb = [mean(bass, b, b + bar) for b, x in zip(inb, d) if x >= top_d - 0.1]
+        has_bass = len(fullb) > 0 and float(np.median(fullb)) >= 0.3
+        full = [x >= top_d - 0.3 and (not has_bass or mean(bass, b, b + bar) >= 0.15) for b, x in zip(inb, d)]
+        runs, k = [], 0                                  # the stretches that are not full, four bars or more
+        while k < len(inb):
+            if full[k]:
+                k += 1
+                continue
+            j = k
+            while j < len(inb) and not full[j]:
+                j += 1
+            if j - k >= 4:
+                runs.append((k, j))
+            k = j
+        if not runs or sum(full) < 4:
+            out.append(sec)
+            continue
+        label = ["drop"] * len(inb)                      # each bar: drop, or the verse / breakdown it is part of
+        for k0, k1 in runs:
+            kind = "breakdown" if float(np.mean(d[k0:k1])) < 0.2 else "verse"
+            for k in range(k0, k1):
+                label[k] = kind
+        pieces = []                                      # [type, first bar, last bar + 1]
+        for k, lab in enumerate(label):
+            if pieces and pieces[-1][0] == lab:
+                pieces[-1][2] = k + 1
+            else:
+                pieces.append([lab, k, k + 1])
+        for pc in list(pieces):                          # a drop of under four bars between them joins the one before
+            if pc[0] == "drop" and pc[2] - pc[1] < 4 and len(pieces) > 1:
+                i = pieces.index(pc)
+                j = i - 1 if i > 0 else i + 1
+                pieces[j][1], pieces[j][2] = min(pieces[j][1], pc[1]), max(pieces[j][2], pc[2])
+                pieces.remove(pc)
+        if not any(pc[0] == "drop" for pc in pieces):
+            out.append(sec)                              # (never the whole drop gone)
+            continue
+        for n, (lab, k0, k1) in enumerate(pieces):
+            t0 = sec["start"] if n == 0 else inb[k0]
+            t1 = sec["end"] if n == len(pieces) - 1 else inb[k1]
+            out.append({**sec, "start": t0, "end": t1, "type": lab})
+            if lab != "drop":
+                changes.append((round(t0, 1), f"a {lab} inside a long drop", round(t1, 1)))
+        a["drops"] = sorted([x for x in (a.get("drops") or []) if not (sec["start"] - 0.5 <= x < sec["end"])]
+                            + [round(out[-len(pieces) + n]["start"], 3) for n, pc in enumerate(pieces) if pc[0] == "drop"])
+    if changes:
+        a["sections"] = out
+    return changes
+
+
 def choruses_in_long_sections(a: dict) -> list:
     """A verse or breakdown of 24 bars or more that hides its choruses. A song mastered loud from end to end
     gives the section finder nothing to cut on: little image's LUNGS BURN came out one 129 s verse and one
@@ -934,7 +1010,7 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    return (choruses_in_long_sections(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    return (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
             + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
             + drop_tails_and_releases(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
 

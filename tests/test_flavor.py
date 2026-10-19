@@ -294,6 +294,18 @@ class TestSettleSections(unittest.TestCase):
                          [("verse", 0.0, 40.0), ("drop", 40.0, 56.0), ("verse", 56.0, 100.0), ("drop", 100.0, 116.0), ("verse", 116.0, 130.0)])
         self.assertEqual(a["drops"], [40.0, 100.0])
 
+    def test_verses_hidden_in_a_long_drop(self):
+        """Enjoy: one drop found from 0:28 to 2:12; inside it, stretches with the drums down and no bass are verses."""
+        from lightshow.studio.analysis import verses_in_long_drops
+        a = self._song(130, 30, 120.0); a["downbeats"] = [i * 2.0 for i in range(65)]
+        self._levels(a, [(0, 20, 0.7, 0.05, 0.3), (20, 40, 0.75, 0.6, 0.9), (40, 60, 0.72, 0.02, 0.35), (60, 100, 0.75, 0.6, 0.9), (100, 130, 0.7, 0.1, 0.3)])
+        a["sections"] = [{"start": 0.0, "end": 100.0, "type": "drop"}, {"start": 100.0, "end": 130.0, "type": "outro"}]
+        a["drops"] = [0.0]
+        self.assertEqual([c[1] for c in verses_in_long_drops(a)], ["a verse inside a long drop", "a verse inside a long drop"])
+        self.assertEqual([(x["type"], x["start"], x["end"]) for x in a["sections"]],
+                         [("verse", 0.0, 20.0), ("drop", 20.0, 40.0), ("verse", 40.0, 60.0), ("drop", 60.0, 100.0), ("outro", 100.0, 130.0)])
+        self.assertEqual(a["drops"], [20.0, 60.0])
+
     def test_a_drops_tail_and_a_release_after_a_breakdown(self):
         """Everything Goes On: the drop carries on four bars past where it was found; a big part after a
         breakdown is a drop too."""
