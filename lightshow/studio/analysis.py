@@ -274,6 +274,9 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "problems": problems,
         "builtin_sections": builtin_sections,
         "builtin_drops": builtin_drops,
+        # SongFormer's own sections, labels and all (the studio takes its labels from the loudness and only
+        # its timing from SongFormer; settle_sections asks these for a second opinion)
+        "songformer": [{"start": round(float(x["start"]), 2), "end": round(float(x["end"]), 2), "label": str(x["label"])} for x in segs or []],
     }
     lap("output")
     moved = settle_sections(out)
@@ -454,6 +457,67 @@ def loud_buildups(a: dict) -> list:
     return changes
 
 
+# SongFormer's labels, in the studio's terms (its "inst" says nothing either way: an EDM drop or an instrumental verse)
+MODEL_TYPE = {"chorus": "drop", "verse": "verse", "pre-chorus": "verse", "prechorus": "verse", "intro": "intro",
+              "outro": "outro", "bridge": "breakdown"}
+
+
+def _model_says(a: dict, t0: float, t1: float) -> dict | None:
+    """What share of t0..t1 SongFormer calls each of the studio's types (its own labels, kept with the analysis
+    as "songformer"), or None for a song analysed before they were kept."""
+    segs = a.get("songformer")
+    if not segs or t1 <= t0:
+        return None
+    share: dict[str, float] = {}
+    for x in segs:
+        o = min(t1, float(x["end"])) - max(t0, float(x["start"]))
+        k = MODEL_TYPE.get(str(x.get("label", "")).lower())
+        if o > 0 and k:
+            share[k] = share.get(k, 0.0) + o / (t1 - t0)
+    return share
+
+
+def _model_against_drop(a: dict, t0: float, t1: float) -> bool:
+    """SongFormer calls most of this stretch (60%) a verse, an intro or an outro: no rule makes it a drop. The
+    loudness alone made The Maine's loud first verse a drop; SongFormer heard a verse there."""
+    sh = _model_says(a, t0, t1)
+    return bool(sh) and sh.get("verse", 0) + sh.get("intro", 0) + sh.get("outro", 0) >= 0.6
+
+
+def _model_for_drop(a: dict, t0: float, t1: float, most: float = 0.6) -> bool:
+    sh = _model_says(a, t0, t1)
+    return bool(sh) and sh.get("drop", 0) >= most
+
+
+def model_choruses(a: dict) -> list:
+    """A verse or breakdown (8 s or more) SongFormer calls a chorus (70% of it or more) that is as big as the
+    song's drops (loudness within 0.08, drums and bass within 0.15; in a song with no drop, louder than its
+    middle section) is a drop: the second opinion the loudness labels lacked. Changes the analysis in place."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    lv = _section_levels(a)
+    if not secs or lv is None or not a.get("songformer"):
+        return []
+    drops = [x for x in secs if x.get("type") == "drop"]
+    if drops:
+        de, db, dd = (float(np.mean([lv(x)[k] for x in drops])) for k in range(3))
+    else:
+        body = [lv(x)[0] for x in secs if x.get("type") not in ("intro", "outro")]
+        mid = float(np.median(body)) if body else 1.0
+    made, changes = set(), []
+    for i, x in enumerate(secs):
+        if x.get("type") not in ("verse", "breakdown") or x["end"] - x["start"] < 8 or not _model_for_drop(a, x["start"], x["end"], 0.7):
+            continue
+        e, b, d = lv(x)
+        big = (e >= de - 0.08 and d >= dd - 0.15 and b >= db - 0.15) if drops else e >= mid + 0.03
+        if big:
+            secs[i] = {**x, "type": "drop"}
+            made.add(i)
+            changes.append((round(x["start"], 1), "SongFormer hears a chorus, as big as the drops"))
+    if made:
+        _merge_drops(a, secs, made)
+    return changes
+
+
 def _section_levels(a: dict):
     """mean(section) -> (loudness as a share of the song's loud level, bass, drums), or None without the curves."""
     en = np.asarray(a.get("energy") or [], dtype=float)
@@ -514,7 +578,7 @@ def drops_where_none(a: dict) -> list:
     top_bass = max(v[1] for v in L.values())
     over = max((lv(x)[0] for x in have), default=0.0) + 0.03
     picks = {i for i in body if secs[i].get("type") != "drop" and L[i][0] >= max(loudest - 0.1, mid + 0.05, over)
-             and L[i][1] >= 0.5 * top_bass and L[i][2] >= 0.4}
+             and L[i][1] >= 0.5 * top_bass and L[i][2] >= 0.4 and not _model_against_drop(a, secs[i]["start"], secs[i]["end"])}
     if not picks:
         return []
     changes = [(round(secs[i]["start"], 1), "drops missed: one of the loudest parts") for i in sorted(picks)]
@@ -570,7 +634,7 @@ def drops_by_sound(a: dict) -> list:
         return []
     made, changes = set(), []
     for i, x in enumerate(secs):
-        if x.get("type") not in ("verse", "breakdown") or x["end"] - x["start"] < 8:
+        if x.get("type") not in ("verse", "breakdown") or x["end"] - x["start"] < 8 or _model_against_drop(a, x["start"], x["end"]):
             continue
         e, b, dr = lv(x)
         for d in drops:
@@ -596,7 +660,7 @@ def drop_neighbors(a: dict) -> list:
     out = _standing_out(secs, lv)
     made, changes = set(), []
     for i, x in enumerate(secs):
-        if x.get("type") != "verse":
+        if x.get("type") != "verse" or _model_against_drop(a, x["start"], x["end"]):
             continue
         e, b, dr = lv(x)
         for j in (i - 1, i + 1):
@@ -634,7 +698,7 @@ def drop_tails_and_releases(a: dict) -> list:
     dd = float(np.mean([lv(x)[2] for x in drops]))
     made, changes = set(), []
     for i, x in enumerate(secs):
-        if x.get("type") != "verse" or i == 0:
+        if x.get("type") != "verse" or i == 0 or _model_against_drop(a, x["start"], x["end"]):
             continue
         e, b, dr = lv(x)
         prev = secs[i - 1]
@@ -690,7 +754,8 @@ def verses_in_long_drops(a: dict) -> list:
             j = k
             while j < len(inb) and not full[j]:
                 j += 1
-            if j - k >= 4:
+            r0, r1 = inb[k], (inb[j] if j < len(inb) else sec["end"])
+            if j - k >= 4 and not _model_for_drop(a, r0, r1):
                 runs.append((k, j))
             k = j
         if not runs or sum(full) < 4:
@@ -773,6 +838,7 @@ def choruses_in_long_sections(a: dict) -> list:
         if run:
             groups.append(run)
         groups = [(g[0], min(sec["end"], g[-1] + bar)) for g in groups if (g[-1] - g[0]) / bar + 1 >= 4]
+        groups = [g for g in groups if not _model_against_drop(a, g[0], g[1])]
         if not groups:
             out.append(sec)
             continue
@@ -1012,7 +1078,7 @@ def settle_sections(a: dict) -> list:
         a["drops_found"] = list(a.get("drops") or [])
     return (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
             + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
-            + drop_tails_and_releases(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
+            + model_choruses(a) + drop_tails_and_releases(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
 
 
 def hook_drops(a: dict) -> list:

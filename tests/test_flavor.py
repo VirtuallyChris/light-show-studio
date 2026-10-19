@@ -306,6 +306,26 @@ class TestSettleSections(unittest.TestCase):
                          [("verse", 0.0, 20.0), ("drop", 20.0, 40.0), ("verse", 40.0, 60.0), ("drop", 60.0, 100.0), ("outro", 100.0, 130.0)])
         self.assertEqual(a["drops"], [20.0, 60.0])
 
+    def test_songformer_is_asked_for_a_second_opinion(self):
+        """The Maine: a loud first verse after the intro looked like a drop by its loudness alone; SongFormer
+        heard a verse there, so it stays one. And a section SongFormer calls a chorus, as big as the drops,
+        is a drop."""
+        from lightshow.studio.analysis import drop_tails_and_releases, model_choruses
+        a = self._song(120, 30, 120.0); a["downbeats"] = [i * 2.0 for i in range(60)]
+        self._levels(a, [(0, 20, 0.3, 0.05, 0.05), (20, 40, 0.86, 0.75, 0.85), (40, 60, 0.5, 0.2, 0.4), (60, 80, 0.85, 0.75, 0.85),
+                         (80, 100, 0.84, 0.74, 0.84), (100, 120, 0.4, 0.1, 0.1)])
+        secs = [{"start": 0.0, "end": 20.0, "type": "intro"}, {"start": 20.0, "end": 40.0, "type": "verse"}, {"start": 40.0, "end": 60.0, "type": "verse"},
+                {"start": 60.0, "end": 80.0, "type": "drop"}, {"start": 80.0, "end": 100.0, "type": "verse"}, {"start": 100.0, "end": 120.0, "type": "outro"}]
+        a["sections"], a["drops"] = [dict(x) for x in secs], [60.0]
+        self.assertEqual([c[1] for c in drop_tails_and_releases(a)], ["a release after the breakdown"])    # without SongFormer: a drop
+        a["sections"], a["drops"] = [dict(x) for x in secs], [60.0]
+        a["songformer"] = [{"start": 0, "end": 20, "label": "intro"}, {"start": 20, "end": 40, "label": "verse"}, {"start": 40, "end": 60, "label": "verse"},
+                           {"start": 60, "end": 100, "label": "chorus"}, {"start": 100, "end": 120, "label": "outro"}]
+        self.assertEqual(drop_tails_and_releases(a), [])                                    # SongFormer: a verse
+        self.assertEqual(a["sections"][1]["type"], "verse")
+        self.assertEqual([c[1] for c in model_choruses(a)], ["SongFormer hears a chorus, as big as the drops"])
+        self.assertEqual([(x["type"], x["start"], x["end"]) for x in a["sections"]][3:5], [("drop", 60.0, 100.0), ("outro", 100.0, 120.0)])
+
     def test_a_drops_tail_and_a_release_after_a_breakdown(self):
         """Everything Goes On: the drop carries on four bars past where it was found; a big part after a
         breakdown is a drop too."""
