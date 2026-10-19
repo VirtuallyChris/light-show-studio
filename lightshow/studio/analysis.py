@@ -1257,6 +1257,58 @@ def drums_and_bass_place_drops(a: dict) -> list:
     return changes
 
 
+def verses_without_synths(a: dict) -> list:
+    """A verse hidden in a long drop: in a drop of 45 s or more, a stretch of 6 bars or more (12 s or more)
+    where the other instruments (the synths, the guitars) fall to half of the drop's full bars or less while
+    the drums play on (within 0.2) is a verse. Astrale's Frisson, mastered loud from end to end, was one drop
+    of 184 s; its verses (0:34, 1:42) drop the synths to almost nothing and the voice carries them. Learned
+    from the songs the user set right by ear (shows/_jam/section_truth.json): 3 of their stretches found,
+    none of their drops cut; 7 of the 246 learned songs change. Changes the analysis in place; returns what
+    changed."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    if _curve(a, "other") is None or _curve(a, "drums_present") is None:
+        return []
+    changes, i = [], 0
+    while i < len(secs):
+        x = secs[i]
+        if x.get("type") != "drop" or x["end"] - x["start"] < 45.0:
+            i += 1
+            continue
+        bl = _bar_levels(a, x["start"], x["end"])
+        if len(bl) < 6:
+            i += 1
+            continue
+        full = float(np.percentile([lv["other"] for _, _, lv in bl], 75))
+        drums = float(np.percentile([lv["dp"] for _, _, lv in bl], 75))
+        low = [lv["other"] <= 0.5 * full and lv["dp"] >= drums - 0.2 for _, _, lv in bl]
+        parts, j, t = [], 0, x["start"]
+        while j < len(bl):
+            if not low[j]:
+                j += 1
+                continue
+            k = j
+            while k + 1 < len(bl) and low[k + 1]:
+                k += 1
+            if k - j + 1 >= 6 and bl[k][1] - bl[j][0] >= 12.0:
+                r0 = x["start"] if bl[j][0] - x["start"] < 1.0 else bl[j][0]
+                r1 = x["end"] if x["end"] - bl[k][1] < 1.0 else bl[k][1]
+                parts += [(t, r0, "drop"), (r0, r1, "verse")]
+                t = r1
+                changes.append((round(r0, 1), "a verse in a long drop: the synths gone, the drums on"))
+            j = k + 1
+        if parts:
+            parts.append((t, x["end"], "drop"))
+            before = len(secs)
+            _split(secs, i, parts)
+            i += len(secs) - before + 1
+        else:
+            i += 1
+    if changes:
+        a["sections"] = secs
+        a["drops"] = sorted(round(float(x["start"]), 3) for x in secs if x.get("type") == "drop")
+    return changes
+
+
 def long_buildups(a: dict) -> list:
     """A long buildup (20 s or more) starts where its drums come in (0.4 or more, through to its end but for
     a last bar of the pause before the drop), when there are 8 s or more before that without them (under
@@ -1400,7 +1452,7 @@ def settle_sections(a: dict) -> list:
         a["drops_found"] = list(a.get("drops") or [])
     changes = grid_on_attacks(a) + grid_tempo_from_hits(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
                + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
-               + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
+               + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + verses_without_synths(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
     from . import songmap                                   # and the song's map on the settled sections: its parts, tension, moments
     songmap.add(a)
     return changes

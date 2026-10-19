@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from lightshow.studio.analysis import drums_and_bass_place_drops, long_buildups
+from lightshow.studio.analysis import drums_and_bass_place_drops, long_buildups, verses_without_synths
 
 FPS = 30
 BAR = 2.0
@@ -64,6 +64,18 @@ class DrumsPlaceDrops(unittest.TestCase):
         a = song([QUIET] * 10 + [drums] * 3 + [pause] + [FULL] * 6, [("buildup", 0.0, 28.0), ("drop", 28.0, 40.0)])
         long_buildups(a)
         self.assertEqual(self.types(a), [("breakdown", 0.0), ("buildup", 20.0), ("drop", 28.0)])
+
+    def test_a_verse_without_synths_in_a_long_drop(self):
+        verse = {**FULL, "other": 0.1, "voc": 0.8}
+        a = song([FULL] * 8 + [verse] * 8 + [FULL] * 10, [("drop", 0.0, 52.0)])
+        verses_without_synths(a)
+        self.assertEqual(self.types(a), [("drop", 0.0), ("verse", 16.0), ("drop", 32.0)])
+
+    def test_a_short_drop_keeps_its_quiet_bars(self):
+        verse = {**FULL, "other": 0.1, "voc": 0.8}
+        a = song([FULL] * 4 + [verse] * 6 + [FULL] * 4, [("drop", 0.0, 28.0)])
+        verses_without_synths(a)
+        self.assertEqual(self.types(a), [("drop", 0.0)])
 
 
 if __name__ == "__main__":
