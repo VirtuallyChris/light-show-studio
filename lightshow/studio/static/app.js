@@ -261,7 +261,9 @@
   //   38: buildups only where something builds (the snares speeding up, not just busy)
   //   39: the kitchen's meteor tubes: the show across them, meteors falling down them
   //   40: real fills only (a burst, a bar or less); the tubes' meteors are moments, their shapes per section
-  const SHOW_VERSION = 40;
+  //   41: the motion over a bed never in the bed's own colors (steps, bounce, scanner, chase too); hitswap drops
+  //       for dance, rave and heavy scenes only
+  const SHOW_VERSION = 41;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2296,8 +2298,10 @@
   }
   // Effects that are mostly dark with a few bright things moving (comets, sparks, sweeps): laid
   // over a base, they take the opposite colors, so a comet over red is cyan-blue and stands out.
+  // (the stage steps, a bounce, a scanner, a chase and pulsar flares as the motion over a bed too: Knock Yourself
+  // Out's drop had steps in the very red and blue its bed swapped between, so nothing was seen to move)
   const OVERLAY = new Set(['comet', 'dualcomet', 'meteors', 'orbit', 'sparkle', 'ghostspark', 'leadtrace', 'hookstrike',
-                           'sweepout', 'ripple', 'colorslam', 'fillrush', 'pulse']);
+                           'sweepout', 'ripple', 'colorslam', 'fillrush', 'pulse', 'steps', 'bounce', 'scanner', 'roomscan', 'chase', 'pulsar']);
   // Concert lighting in three tiers. The bed sets the color and the mood and stays low; motion keeps
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
@@ -2638,7 +2642,11 @@
           // The song's drop moves (the first three it drew that fit), one per drop, in turn. A chill or
           // groove song lifts its drops with motion rather than flashing: the flashy ones are for dance and rave.
           // (a calm scene's livelier drops, `lift`, are for songs that are not calm)
-          const fit = look.drops.filter(r => (hard || (!r.flash && !r.fast)) && (!r.rave || style === 'rave') && (room || !r.room) && (!chill || !r.lift));
+          // (the whole room swapping its two colors on every hit, hitswap, is a hard drop's move: dance and rave,
+          // or a heavy scene's; carrying a groove drop alone it was two colors flashing, Knock Yourself Out)
+          const heavy = !!(SCENES[S.look] || {}).dark;
+          const fit = look.drops.filter(r => (hard || (!r.flash && !r.fast)) && (!r.rave || style === 'rave') && (room || !r.room) && (!chill || !r.lift)
+            && (r.base[0] !== 'hitswap' || hard || heavy));
           // the song's own scene leads: its first and third drops are that scene's, the second a guest's (a song
           // heard as pop punk, pop rock and alternative rock alike got pop rock's waves in every drop)
           // (a calm scene's livelier drops first when the song is not calm: Unholy is R&B, but no ballad)
