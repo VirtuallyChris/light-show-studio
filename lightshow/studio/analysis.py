@@ -1440,6 +1440,33 @@ def grid_tempo_from_hits(a: dict) -> list:
     return [(0.0, f"tempo {old_bpm:.2f} -> {a['bpm']:.2f} bpm: the drums drifted off the grid")]
 
 
+def grid_on_the_backbeat(a: dict) -> list:
+    """The snare backbeat lands on the grid's beats or half beats. Where 40 or more snares sit together (0.6 or
+    more of a 0..1 fit) between them, a third of a half beat or more away, the grid is half a real beat off:
+    on a grid counting a fast song at half its tempo, a quarter of a counted beat. Moved onto the snares.
+    Found in 3 of 246 learned songs (sleepover, WANTURBODY, Sad Machine: the snares 165-201 ms off the
+    beat); All-In-One's own beats sat where the snares are in both it had run on.
+    Once (flagged grid_backbeat_checked). Returns what changed."""
+    if a.get("grid_backbeat_checked") or len(a.get("beats") or []) < 16:
+        return []
+    a["grid_backbeat_checked"] = True
+    sn = np.asarray([float(e[0]) for e in ((a.get("events") or {}).get("snare") or [])], dtype=float) + HIT_LEAD
+    if len(sn) < 40:
+        return []
+    beats = np.asarray(a["beats"], dtype=float)
+    half = float(np.median(np.diff(beats))) / 2
+    z = np.mean(np.exp(2j * np.pi * ((sn - beats[0]) / half)))
+    off = float(np.angle(z) / (2 * np.pi))
+    if abs(z) < 0.6 or abs(off) < 0.3:
+        return []
+    # either way puts the snares on the half-beat lattice; the one with more kicks on the beat itself is the beat
+    kicks = np.asarray([float(e[0]) for e in ((a.get("events") or {}).get("kick") or [])], dtype=float) + HIT_LEAD
+    on_beat = lambda s: float(np.mean(np.cos(2 * np.pi * (kicks - beats[0] - s) / (2 * half)))) if len(kicks) else 0.0
+    shift = max((off * half, (off - np.sign(off)) * half), key=on_beat)
+    shift_beats(a, shift)
+    return [(0.0, f"beat grid onto the snare backbeat ({shift * 1000:+.0f} ms)")]
+
+
 def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
     on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning.
@@ -1450,7 +1477,7 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    changes = grid_on_attacks(a) + grid_tempo_from_hits(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    changes = grid_on_attacks(a) + grid_tempo_from_hits(a) + grid_on_the_backbeat(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
                + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
                + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + verses_without_synths(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
     if a.get("sections_truth"):                             # a song the user set right by ear: their sections, as they are
