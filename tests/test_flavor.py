@@ -269,6 +269,34 @@ class TestSettleSections(unittest.TestCase):
         self.assertEqual(a["drops"], [20.0])
         self.assertEqual(drops_on_their_bar(a), [])                                    # on its bar now: nothing more
 
+    def test_choruses_hidden_in_a_long_verse(self):
+        """LUNGS BURN: a loud master found as one long verse; its choruses lift the drums and carry the hook."""
+        from lightshow.studio.analysis import choruses_in_long_sections
+        a = self._song(130, 30, 120.0); a["downbeats"] = [i * 2.0 for i in range(65)]
+        self._levels(a, [(0, 40, 0.6, 0.5, 0.6), (40, 56, 0.68, 0.55, 0.95), (56, 100, 0.6, 0.5, 0.6), (100, 116, 0.68, 0.55, 0.95), (116, 130, 0.6, 0.5, 0.6)])
+        a["hook"] = {"times": [41.0, 47.0, 101.0, 107.0], "length": 2}
+        a["sections"] = [{"start": 0.0, "end": 130.0, "type": "verse"}]
+        a["drops"] = []
+        self.assertEqual(len(choruses_in_long_sections(a)), 2)
+        self.assertEqual([(x["type"], x["start"], x["end"]) for x in a["sections"]],
+                         [("verse", 0.0, 40.0), ("drop", 40.0, 56.0), ("verse", 56.0, 100.0), ("drop", 100.0, 116.0), ("verse", 116.0, 130.0)])
+        self.assertEqual(a["drops"], [40.0, 100.0])
+
+    def test_a_drops_tail_and_a_release_after_a_breakdown(self):
+        """Everything Goes On: the drop carries on four bars past where it was found; a big part after a
+        breakdown is a drop too."""
+        from lightshow.studio.analysis import drop_tails_and_releases
+        a = self._song(120, 30, 120.0); a["downbeats"] = [i * 2.0 for i in range(60)]
+        self._levels(a, [(0, 20, 0.3, 0.05, 0.05), (20, 40, 0.85, 0.75, 0.8), (40, 48, 0.78, 0.78, 0.75), (48, 70, 0.4, 0.1, 0.1),
+                         (70, 90, 0.82, 0.8, 0.75), (90, 120, 0.4, 0.1, 0.1)])
+        a["sections"] = [{"start": 0.0, "end": 20.0, "type": "breakdown"}, {"start": 20.0, "end": 40.0, "type": "drop"},
+                         {"start": 40.0, "end": 48.0, "type": "verse"}, {"start": 48.0, "end": 70.0, "type": "breakdown"},
+                         {"start": 70.0, "end": 90.0, "type": "verse"}, {"start": 90.0, "end": 120.0, "type": "breakdown"}]
+        a["drops"] = [20.0]
+        self.assertEqual([c[1] for c in drop_tails_and_releases(a)], ["the drop carrying on", "a release after the breakdown"])
+        self.assertEqual([(x["type"], x["start"], x["end"]) for x in a["sections"]],
+                         [("breakdown", 0.0, 20.0), ("drop", 20.0, 48.0), ("breakdown", 48.0, 70.0), ("drop", 70.0, 90.0), ("breakdown", 90.0, 120.0)])
+
     def test_a_drop_out_of_a_pause_starts_at_the_hit(self):
         from lightshow.studio.analysis import drop_after_pause
         a = self._song(80); fps = 30

@@ -612,6 +612,119 @@ def drop_neighbors(a: dict) -> list:
     return changes
 
 
+def drop_tails_and_releases(a: dict) -> list:
+    """Two more ways a drop hides as a verse.
+    - Its tail: a verse of four bars or less straight after a drop, still about as full (loudness within 0.1,
+      bass and drums within 0.1), is the drop carrying on (Porter Robinson's Everything Goes On: the drop
+      ended at 110 s, the music full until 123). Longer, it is a real verse (a loud rock verse after a chorus).
+    - A release: a verse right after a breakdown, intro or buildup (8 s or more, clearly quieter: 0.25 under
+      the drops), as big as the song's drops (loudness within 0.07, or 0.05 after an intro: a band kicking in after
+      an intro is a loud verse more often than not; bass and drums within 0.1), is a drop: the
+      build-and-release of a song made of breakdowns and drops (Everything Goes On at 40 s, Pressure's second).
+    Changes the analysis in place; returns what changed."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    lv = _section_levels(a)
+    bars = [float(b) for b in a.get("downbeats") or []]
+    drops = [x for x in secs if x.get("type") == "drop"]
+    if len(secs) < 2 or lv is None or not drops:
+        return []
+    bar = float(np.median(np.diff(bars))) if len(bars) > 2 else 240.0 / float(a.get("bpm") or 120.0)
+    de = float(np.mean([lv(x)[0] for x in drops]))
+    db = float(np.mean([lv(x)[1] for x in drops]))
+    dd = float(np.mean([lv(x)[2] for x in drops]))
+    made, changes = set(), []
+    for i, x in enumerate(secs):
+        if x.get("type") != "verse" or i == 0:
+            continue
+        e, b, dr = lv(x)
+        prev = secs[i - 1]
+        pe, pb, pd = lv(prev)
+        if prev.get("type") == "drop" and x["end"] - x["start"] <= 4 * bar + 0.5 and e >= pe - 0.1 and b >= pb - 0.1 and dr >= pd - 0.1:
+            changes.append((round(x["start"], 1), "the drop carrying on"))
+        elif (prev.get("type") in ("breakdown", "intro", "buildup") and prev["end"] - prev["start"] >= 8 and pe <= de - 0.25
+              and e >= de - (0.05 if prev.get("type") == "intro" else 0.07) and b >= db - 0.1 and dr >= dd - 0.1):
+            changes.append((round(x["start"], 1), "a release after the breakdown"))
+        else:
+            continue
+        secs[i] = {**x, "type": "drop"}
+        made.add(i)
+    if made:
+        _merge_drops(a, secs, made)
+    return changes
+
+
+def choruses_in_long_sections(a: dict) -> list:
+    """A verse or breakdown of 24 bars or more that hides its choruses. A song mastered loud from end to end
+    gives the section finder nothing to cut on: little image's LUNGS BURN came out one 129 s verse and one
+    drop, its two choruses inside the verse. They are still plain: the bars where the song lifts, its drums
+    clearly fuller than the section's middle (0.8, and 0.15 over it) or its hook playing (near the section's
+    middle loudness, 0.03 under it at most), lifted bars together (two quiet bars between allowed), four bars or more from
+    the first to the last, are a drop. Runs first (before the drop rules), so they see the drops it finds.
+    Changes the analysis in place; returns what changed."""
+    secs = a.get("sections") or []
+    en = np.asarray(a.get("energy") or [], dtype=float)
+    drums = _curve(a, "drums_present")
+    bars = [float(b) for b in a.get("downbeats") or []]
+    if not secs or len(en) == 0 or drums is None or len(bars) < 8:
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    bar = float(np.median(np.diff(bars)))
+    hooks = sorted(float(t) for t in ((a.get("hook") or {}).get("times") or []))
+
+    def mean(c, t0, t1):
+        i0 = max(0, int(t0 * fps))
+        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0
+    out, changes = [], []
+    for sec in secs:
+        inb = [b for b in bars if sec["start"] - 0.1 <= b <= sec["end"] - 0.5 * bar]
+        if sec.get("type") not in ("verse", "breakdown") or len(inb) < 24:
+            out.append(sec)
+            continue
+        mid_d = float(np.median([mean(drums, b, b + bar) for b in inb]))
+        mid_e = float(np.median([mean(en, b, b + bar) for b in inb]))
+        lifted = [mean(drums, b, b + bar) >= max(0.8, mid_d + 0.15)
+                  or (any(b - 0.2 <= h < b + bar for h in hooks) and mean(en, b, b + bar) >= mid_e - 0.03) for b in inb]
+        groups, run, quiet = [], [], 0
+        for b, up in zip(inb, lifted):
+            if up:
+                run.append(b)
+                quiet = 0
+            elif run:
+                quiet += 1
+                if quiet > 2:
+                    groups.append(run)
+                    run, quiet = [], 0
+        if run:
+            groups.append(run)
+        groups = [(g[0], min(sec["end"], g[-1] + bar)) for g in groups if (g[-1] - g[0]) / bar + 1 >= 4]
+        if not groups:
+            out.append(sec)
+            continue
+        t = sec["start"]
+        for g0, g1 in groups:
+            if g0 - t >= bar:
+                out.append({**sec, "start": t, "end": g0})
+            out.append({**sec, "start": max(t, g0), "end": g1, "type": "drop"})
+            changes.append((round(g0, 1), f"a chorus inside a long {sec.get('type')}", round(g1, 1)))
+            t = g1
+        if sec["end"] - t >= bar:
+            out.append({**sec, "start": t, "end": sec["end"]})
+        else:
+            out[-1]["end"] = sec["end"]
+    if changes:
+        a["sections"] = out
+        a["drops"] = sorted(set(list(a.get("drops") or []) + [round(float(c[0]), 3) for c in changes]))
+        merged = []
+        for x in out:                                    # (a chorus that runs into a drop is one drop with it)
+            if merged and x.get("type") == "drop" and merged[-1].get("type") == "drop" and abs(merged[-1]["end"] - x["start"]) < 0.5:
+                merged[-1] = {**merged[-1], "end": x["end"]}
+                a["drops"] = [d for d in a["drops"] if abs(d - x["start"]) > 0.5]
+            else:
+                merged.append(x)
+        a["sections"] = merged
+    return changes
+
+
 def drops_on_their_bar(a: dict) -> list:
     """A drop starts on the bar where it is heard: within the two bars before where it was found, the first
     bar line where the song is already as loud as the drop (within 0.06 of the loud level, and no more
@@ -817,9 +930,9 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    return (drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    return (choruses_in_long_sections(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
             + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
-            + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
+            + drop_tails_and_releases(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
 
 
 def hook_drops(a: dict) -> list:
