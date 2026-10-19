@@ -263,7 +263,9 @@
   //   40: real fills only (a burst, a bar or less); the tubes' meteors are moments, their shapes per section
   //   41: the motion over a bed never in the bed's own colors (steps, bounce, scanner, chase too); hitswap drops
   //       for dance, rave and heavy scenes only
-  const SHOW_VERSION = 41;
+  //   42: know the song (songmap.py): a part heard again gets its look, the repeats grow to a peak, a breath
+  //       before each release, the key moments' own moves; the tubes breathe with the voice, the strings the bass
+  const SHOW_VERSION = 42;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -923,7 +925,7 @@
         for (const lane of p.lanes) if (!lane.hidden) for (const c of lane.clips) if (c.target === 'tubes' && b >= c.start && b < c.start + c.len) {
           if (c.effect === 'tubeform') form = c.params || {};
         }
-        const shape = tubeShape(form, tubes, b);
+        const shape = tubeShape(form, tubes, b, music);
         for (let tb = 0; tb < tubes.count; tb++) for (let k = 0; k < tubes.per; k++) {
           const i = (tb * tubes.per + k) * 4, j = tb * 4, sh = shape(tb, k);
           if (i + 3 >= dst.length) break;
@@ -948,9 +950,13 @@
   /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
    *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
    *  in its own time, a slow bob over 8 beats), or a glow from the top fading down. */
-  function tubeShape(form, tubes, beat) {
+  function tubeShape(form, tubes, beat, music) {
     const per = tubes.per, last = Math.max(1, per - 1), shape = (form && form.shape) || 'full';
     const bell = (k, mid, w) => Math.exp(-0.5 * ((k - mid) / w) ** 2);
+    if (shape === 'voice') {                                          // the singer's orb: bigger and brighter as the voice swells
+      const v = clamp((music && music.vocalLevel) || 0, 0, 1);
+      return (tb, k) => bell(k, last / 2 + Math.sin((beat / 8 + Effects.hash(tb * 7919 + 3)) * Math.PI * 2) * per * 0.12, per * (0.12 + 0.2 * v)) * (0.3 + 0.7 * v);
+    }
     if (shape === 'orb') return (tb, k) => bell(k, last / 2, per * 0.2);
     if (shape === 'drift') return (tb, k) => bell(k, last / 2 + Math.sin((beat / 8 + Effects.hash(tb * 7919 + 3)) * Math.PI * 2) * per * 0.28, per * 0.17);
     if (shape === 'top') return (tb, k) => Math.pow(1 - k / (last + 1), 1.6);
@@ -2279,7 +2285,22 @@
     S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
     S.cute = cuteParts();
     const counts = {};
-    p.sections.forEach((s, i) => { counts[s.type] = (counts[s.type] || 0); buildSection(s, i, false, counts[s.type]); counts[s.type]++; });
+    // The song's own parts (songmap.py): a part heard again gets the look it had (the same drop move, motion,
+    // bed and colors), so the room knows the chorus the moment it is back; a new part gets a new look. The
+    // repeats grow, the last of them the song's peak (buildSection).
+    const sp = sectionParts(p.sections), keyOf = i => sp[i] ? p.sections[i].type + ':' + sp[i] : null, total = {}, first = {}, seen = {}, variantOf = {};
+    p.sections.forEach((s, i) => { const k = keyOf(i); if (k) { total[k] = (total[k] || 0) + 1; if (!(k in first)) first[k] = i; } });
+    p.sections.forEach((s, i) => {
+      const k = keyOf(i);
+      let variant;
+      if (k && k in variantOf) variant = variantOf[k];
+      else { counts[s.type] = counts[s.type] || 0; variant = counts[s.type]++; if (k) variantOf[k] = variant; }
+      if (k) seen[k] = (seen[k] || 0) + 1;
+      S.secPart = k ? { key: k, occ: seen[k], of: total[k], first: first[k] } : null;
+      buildSection(s, i, false, variant);
+    });
+    S.secPart = null;
+    addKeyMoments();
     // drop markers that are not section starts still get a blast (a chill song never flashes, so it gets none)
     if (showStyle() !== 'chill') for (const d of p.drops) { const b = Math.round(timeToBeat(d)); if (!p.lanes.some(l => l.clips.some(c => c.effect === 'dropblast' && Math.abs(c.start - b) < 3))) clip(3, 'dropblast', b, 2); }
     addMoments();
@@ -2295,6 +2316,41 @@
     if (fills) bits.push(`${fills} fills`);
     if ((a.events && a.events.lead || []).length) bits.push(`${a.events.lead.length} lead hits`);
     toast('Built: ' + bits.filter(Boolean).join(' \u00b7 '));
+  }
+  /** Each section's part (songmap.py: the letter of the part it is, by most of its time), or null. */
+  function sectionParts(sections) {
+    const ps = (((S.analysis || {}).songmap || {}).parts) || [];
+    return sections.map(s => {
+      let best = null, most = 0;
+      for (const q of ps) { const o = Math.min(s.end, q.end) - Math.max(s.start, q.start); if (o > most) { most = o; best = q; } }
+      return best && most >= 0.5 * (s.end - s.start) ? best.part : null;
+    });
+  }
+  /** The song's key moments (songmap.py: its top ten, ranked) as moves designed for each, in place of whatever
+   *  small one-shot was near; and a breath before each release: half a beat of near-dark right before the
+   *  music lands, as the studio hears it coming. Never in a calm song. */
+  function addKeyMoments() {
+    const p = P(), sm = (S.analysis || {}).songmap || {}; if (showStyle() === 'chill' || !p) return;
+    const near = (fx, b, w) => p.lanes.some(l => l.clips.some(c => c.effect === fx && Math.abs(c.start - b) < w));
+    const clearShots = b => { for (const l of p.lanes) l.clips = l.clips.filter(c => !(ONE_SHOTS.has(c.effect) && c.len <= 4 && Math.abs(c.start - b) < 2)); };
+    const dropAt = b => p.sections.some(x => x.type === 'drop' && Math.abs(timeToBeat(x.start) - b) < 1);
+    for (const r of ((sm.tension || {}).releases) || []) {
+      const b = Math.round(timeToBeat(r.t));
+      if (r.strength >= 0.35 && b >= 2 && !near('dark', b - 0.5, 1.5)) clip(7, 'dark', b - 0.5, 0.5);
+    }
+    for (const m of sm.moments || []) {
+      const b = Math.round(timeToBeat(m.t)); if (b < 2) continue;
+      const punch = { palette: [punchColor(b)], opacity: 1 }, k = m.kind || '';
+      if (k === 'release' && dropAt(b)) { if (!near('roomsweep', b, 2)) clip(8, 'roomsweep', b, 2, { every: 2, width: 0.7 }, { blend: 'add', opacity: 0.9 }); continue; }
+      if (k === 'the music stops' || k === 'the key changes') continue;          // (addMoments and addFlavor have these)
+      clearShots(b);
+      if (k === 'release' || k === 'the bass comes in') clip(9, 'colorslam', b, 2, {}, punch);
+      else if (k === 'the biggest hit' || k === 'the drums come in') {
+        if (!near('dark', b - 0.25, 1)) clip(7, 'dark', b - 0.25, 0.25);
+        clip(9, 'whiteflash', b, 1.5, {}, { palette: ['#ffffff'], opacity: k === 'the biggest hit' ? 1 : 0.9 });
+      } else if (k === 'the lead comes in') clip(9, 'glitch', b, 1.5, {}, punch);
+      else clip(9, 'sweepout', b, 2, { origin: 0.5 }, { ...punch, opacity: 0.95 });   // the voice coming in, a new part
+    }
   }
   // Effects that are mostly dark with a few bright things moving (comets, sparks, sweeps): laid
   // over a base, they take the opposite colors, so a comet over red is cyan-blue and stands out.
@@ -2466,13 +2522,14 @@
     // Two colors (Jam mode): the primary leads, the secondary is "the other one". Nothing else comes
     // in: the opposite of the pair is the pair swapped, not the opposite side of the color wheel.
     const pair = S.pairMode && p.palettes.Jam;
-    S.buildPal = pair ? p.palettes.Jam.slice() : paletteVariant(fam[idx % fam.length], idx);
+    const pidx = S.secPart ? S.secPart.first : idx;                   // (a part heard again: the colors it had)
+    S.buildPal = pair ? p.palettes.Jam.slice() : paletteVariant(fam[pidx % fam.length], pidx);
     const opposite = pair ? (cols => cols.slice().reverse()) : contrastPalette;
     // Buildups and breakdowns run on the opposite colors, so the drop lands back on the song's
     // own palette and the change of color hits with it.
     if (s.type === 'buildup' || s.type === 'breakdown') S.buildPal = opposite(S.buildPal);
     S.contrastPal = opposite(S.buildPal);
-    if (S.noLimits) { const sp = wildPlan()[idx]; if (sp) { S.buildPal = Effects.solidPalette(sp.build); S.contrastPal = Effects.solidPalette(sp.over); } }
+    if (S.noLimits) { const sp = wildPlan()[pidx]; if (sp) { S.buildPal = Effects.solidPalette(sp.build); S.contrastPal = Effects.solidPalette(sp.over); } }
     const chillStyle = showStyle() === 'chill';
     S.bedLevel = ({ drop: 0.4, buildup: 0.35 }[s.type] || 0.3) + (chillStyle ? 0.1 : 0);
     S.bedDuck = chillStyle ? 0.35 : ({ drop: 0.7, verse: 0.55, buildup: 0.5 }[s.type] || 0.4);
@@ -2562,6 +2619,7 @@
         else if (look.verseTop[v] && look.verseTop[v][0] === 'scanner' && acrossRooms()) clip(1, 'roomscan', b0, len, { speed: 16, width: 0.7 }, { opacity: 0.75 });
         else top(look.verseTop[v]);                                     // drop material (dual comets, strobes) stays out of verses
         drums(chill ? 0.7 : 0.95);
+        if (!chill && first[0]) first[0].bassPump = 0.2;                 // (the strings breathe with the bass line in a verse too)
         if (!chill && drumsHere && longStrips && snaresHere >= len / 8)   // the snare lands on a quarter of the ceiling, in turn
           clip(5, 'zonehits', b0, len, { follow: 'snare', mode: 'quarters', decay: 0.3 }, { opacity: 0.4, blend: 'add', ...(S.mixedLights ? { target: 'long' } : {}) });
         break;
@@ -2661,7 +2719,8 @@
             const r = ok[(kind + k) % ok.length] || look.drops.find(r => !r.flash && !r.fast && !r.room && (!chill || !r.lift)) || SCENES.dreamy.drops[0];
             mAt = c0; mLen = c1 - c0; mVar = variant + k;
             clip(0, r.base[0], c0, c1 - c0, chill ? { ...r.base[1], speed: Math.max(r.base[1].speed || 8, 8) } : r.base[1]);
-            if (r.top === 'motion') motion(chill ? (swells() ? 0.75 : 0.5) : style === 'rave' ? 1.3 : 1);
+            const grow = 1 + 0.12 * Math.min(3, ((S.secPart || {}).occ || 1) - 1);   // (each time the part is back, a little quicker)
+            if (r.top === 'motion') motion((chill ? (swells() ? 0.75 : 0.5) : style === 'rave' ? 1.3 : 1) * grow);
             // a dance drop's flashes come every other beat and softer: flashing on every beat is rave's
             else if (style === 'dance' && r.flash && Array.isArray(r.top)) top([r.top[0], 'rate' in r.top[1] ? { ...r.top[1], rate: r.top[1].rate * 0.6 } : { ...r.top[1], every: Math.max(2, r.top[1].every || 1) },
                                                                                    { ...(r.top[2] || {}), opacity: ((r.top[2] || {}).opacity || 1) * 0.6 }]);
@@ -2670,6 +2729,13 @@
           mAt = b0; mLen = len; mVar = variant;
         }
         if (chill) clip(4, 'starlight', b0, len, { density: 0.22, life: 2, tint: S.starTint || 'white' }, { blend: 'add' });   // a calm song's lift: more stars, a little quicker
+        // the last time a chorus comes back is the song's peak: sparkle over everything, a blinder on each phrase
+        if (!chill && S.secPart && S.secPart.of >= 2 && S.secPart.occ === S.secPart.of) {
+          const had = P().lanes.flatMap(l => l.clips).filter(c => c.effect === 'sparkle' && c.start < b0 + len && c.start + c.len > b0);
+          if (had.length) for (const c of had) c.params.density = Math.max(c.params.density || 0, 0.28);   // (the look has sparkle: more of it)
+          else clip(4, 'sparkle', b0, len, { density: 0.18, life: 0.15 }, { blend: 'add', opacity: 0.55 });
+          for (let bt = b0 + 32; bt < b0 + len - 4; bt += 32) clip(9, 'whiteflash', bt, 1, {}, { palette: ['#ffffff'], opacity: 0.8 });
+        }
         drums(chill ? 0.8 : 1, 0.85);
         // the bed breathes with the bass line (a wobble, a bass that drops out for a beat)
         const pump = chill ? 0 : style === 'rave' ? 0.5 : style === 'dance' ? 0.4 : 0.3;
@@ -2792,7 +2858,14 @@
       // and down, or a glow from the top; calm parts float, the big parts fill the tubes (the same on a rebuild)
       const calm = ['intro', 'breakdown', 'outro'].includes(s.type) || chill;
       const forms = calm ? ['orb', 'drift', 'drift', 'top'] : s.type === 'drop' ? ['full', 'full', 'orb'] : ['full', 'orb', 'drift', 'top'];
-      const form = forms[Math.floor(Effects.hash((S.lookSeed || 0) * 13 + idx * 7919 + variant * 31) * forms.length)];
+      let form = forms[Math.floor(Effects.hash((S.lookSeed || 0) * 13 + idx * 7919 + variant * 31) * forms.length)];
+      // an instrument for each light: where the voice carries a verse or a breakdown, the tubes are its orbs,
+      // swelling and breathing with the singer
+      const voc = (((S.analysis || {}).curves) || {}).vocals, fpsA = (S.analysis || {}).feature_fps || 30;
+      if (voc && ['verse', 'breakdown'].includes(s.type)) {
+        let sum = 0, n = 0; for (let i = Math.floor(s.start * fpsA); i < Math.min(voc.length, s.end * fpsA); i++) { sum += voc[i]; n++; }
+        if (n && sum / n >= 0.35 && Effects.hash((S.lookSeed || 0) + idx * 104729) < 0.7) form = 'voice';
+      }
       if (form !== 'full') clip(10, 'tubeform', b0, len, { shape: form }, { target: 'tubes', opacity: 1 });
     }
     S.sectionClips = null;

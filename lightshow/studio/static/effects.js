@@ -446,7 +446,7 @@ const Effects = (() => {
     } });
 
   def({ id: 'tubeform', name: 'Tube shape', cat: 'room', desc: 'For the meteor tubes (the kitchen): how each tube carries the show\'s color down its LEDs while the clip plays: the whole tube, an orb floating in the middle (fading to both ends), orbs drifting slowly up and down, or a glow from the top. Draws nothing itself.', swatch: ['#5cc8ff', '#000000'],
-    params: { shape: { type: 'select', def: 'orb', options: { full: 'the whole tube', orb: 'a floating orb', drift: 'orbs drifting', top: 'a glow from the top' }, label: 'Shape' } },
+    params: { shape: { type: 'select', def: 'orb', options: { full: 'the whole tube', orb: 'a floating orb', drift: 'orbs drifting', top: 'a glow from the top', voice: 'the singer orb (breathes with the voice)' }, label: 'Shape' } },
     render(c) { clear(c.out); } });
 
   def({ id: 'pulsar', name: 'Pulsar', cat: 'medium', desc: 'Dark strip; on every beat one or two points flare up somewhere and fade.', swatch: ['#8ad8ff', '#000010'],
