@@ -30,8 +30,7 @@ const LightGL = (() => {
       float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rad;   // distance outside the body (px)
       float lum = max(v_color.r, max(v_color.g, v_color.b));
       float body = clamp(0.5 - d, 0.0, 1.0);                             // anti-aliased edge
-      vec3 off = vec3(0.082, 0.094, 0.122);                              // an unlit bulb
-      vec3 col = mix(off, v_color, smoothstep(0.02, 0.12, lum));
+      vec3 col = v_color;                                                // black where it is dark, as the real lights (the user)
       float glow = lum * 0.55 * exp(-max(d, 0.0) / max(v_shape.y, 0.001)) * (1.0 - body);
       float a = body + glow;
       if (a < 0.003) discard;

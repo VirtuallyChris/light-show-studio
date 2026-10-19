@@ -6,7 +6,7 @@
 <title>Room view</title>
 <link rel="icon" href="/static/icon.ico">
 <style>
-  :root { --bg: #07080b; --text: #8b93a7; --dim: #4b5263; }
+  :root { --bg: #000000; --text: #8b93a7; --dim: #4b5263; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
   canvas { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; }
   #note { position: fixed; left: 0; right: 0; top: 46%; text-align: center; color: var(--dim); pointer-events: none; }
@@ -93,11 +93,11 @@
     if (bg.width !== W || bg.height !== H) { bg.width = W; bg.height = H; }
     const g = bctx;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#07080b'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#000000'; g.fillRect(0, 0, w, h);
     g.font = '12px system-ui';
     g.fillStyle = '#5d6577'; g.fillText(L.song ? `Room view · ${L.song}` : 'Room view', 24, 26);
     for (const b of L.boxes) {
-      g.fillStyle = '#0d1016'; g.strokeStyle = '#1c2230'; g.lineWidth = 1;
+      g.fillStyle = '#000000'; g.strokeStyle = '#161a23'; g.lineWidth = 1;
       g.beginPath(); g.roundRect(b.x0, b.top, b.x1 - b.x0, b.floor - b.top, 10); g.fill(); g.stroke();
       g.fillStyle = '#4b5263'; g.textAlign = 'center'; g.fillText(b.name || 'Room', (b.x0 + b.x1) / 2, b.floor - 10); g.textAlign = 'left';
     }
@@ -106,7 +106,7 @@
       if (l.pole) {                        // the pole's body and foot, under its segments
         const p = l.pole;
         g.fillStyle = '#1a1e28'; g.fillRect(p.x - 2, p.yTop + p.h, 4, 12);
-        g.fillStyle = '#0a0c11'; g.beginPath(); g.roundRect(p.x - p.pw / 2 - 2, p.yTop - 2, p.pw + 4, p.h + 4, 5); g.fill();
+        g.fillStyle = '#000000'; g.beginPath(); g.roundRect(p.x - p.pw / 2 - 2, p.yTop - 2, p.pw + 4, p.h + 4, 5); g.fill();
       }
       g.fillStyle = '#3d4352'; g.textAlign = l.align; g.fillText(l.text, l.x, l.y); g.textAlign = 'left';
     }
