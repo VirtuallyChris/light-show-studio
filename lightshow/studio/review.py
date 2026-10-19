@@ -111,8 +111,9 @@ class Review:
         return {"project": label, "audio_url": f"/api/review/audio/{_safe(track_id)}", "analysis": a, "saved": None,
                 "review": {"id": track_id, "truth": self.truth().get(track_id)}}
 
-    def keep(self, track_id: str, sections: list, ok: bool) -> dict:
-        """The user's word on a song's sections, into the truth (written whole, through a temporary file)."""
+    def keep(self, track_id: str, sections: list, ok: bool, beat_shift: float = 0.0) -> dict:
+        """The user's word on a song's sections, into the truth (written whole, through a temporary file);
+        beat_shift: seconds the user moved its beat grid, added to the song's beat fix (jam.py)."""
         t = self._head(track_id)
         if not t:
             raise ValueError("no such learned song")
@@ -126,8 +127,12 @@ class Review:
         label = Track(id=track_id, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=0.0).label
         entry = {"name": label, "drops": [s["start"] for s in secs if s["type"] == "drop"], "sections": secs,
                  "reviewed": "right as found" if ok else "corrected", "added": datetime.date.today().isoformat()}
+        if beat_shift and abs(beat_shift) < 2.0:
+            entry["beat_shift"] = round(float(beat_shift), 4)
         if self.read_only:
             return entry
+        if beat_shift and abs(beat_shift) < 2.0:
+            self.library.set_beat_fix(track_id, float(self.library.beat_fixes().get(track_id) or 0.0) + float(beat_shift))
         with self.lock:
             truth = self.truth()
             truth.setdefault("_about", "Sections the user set by ear (review mode in the studio): drops are what "
@@ -166,7 +171,8 @@ class Review:
         body = await request.json()
         try:
             entry = await asyncio.get_running_loop().run_in_executor(
-                None, self.keep, str(body.get("id") or ""), list(body.get("sections") or []), bool(body.get("ok")))
+                None, self.keep, str(body.get("id") or ""), list(body.get("sections") or []), bool(body.get("ok")),
+                float(body.get("beat_shift") or 0.0))
         except (ValueError, KeyError, TypeError) as e:
             return web.json_response({"error": str(e)}, status=400)
         return web.json_response({"ok": True, "entry": entry})

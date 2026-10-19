@@ -58,6 +58,27 @@ def _analysis_version() -> int:
     return ANALYSIS_VERSION
 
 
+
+def shift_beats(a: dict, seconds: float) -> None:
+    """Move an analysis' whole beat grid (its beats, bar lines and first beat) by seconds, in place; a beat
+    pushed before the start is dropped, and one comes in at the start where the gap allows (the bar count
+    from the first beat kept by moving the downbeat phase with it)."""
+    beats = [round(float(b) + seconds, 4) for b in a.get("beats") or []]
+    if not beats:
+        return
+    period = (beats[-1] - beats[0]) / max(1, len(beats) - 1)
+    phase = int(a.get("downbeat_phase") or 0)
+    while beats and beats[0] < 0:
+        beats.pop(0)
+        phase = (phase - 1) % 4
+    while beats and beats[0] - period >= 0:
+        beats.insert(0, round(beats[0] - period, 4))
+        phase = (phase + 1) % 4
+    a["beats"], a["downbeat_phase"] = beats, phase
+    if beats:
+        a["beat_offset"] = beats[0]
+    a["downbeats"] = beats[phase::4]
+
 class JamLibrary:
     """Shows saved on disk, and what has been learned about tracks heard before."""
 
@@ -75,6 +96,7 @@ class JamLibrary:
         self._genres: dict | None = None
         self.levels_path = os.path.join(self.dir, "levels.json")
         self._levels: dict | None = None
+        self.beat_fixes_path = os.path.join(self.dir, "beat_fixes.json")
         self._levels_lock = threading.Lock()
         self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
         self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
@@ -267,7 +289,37 @@ class JamLibrary:
                 doc = json.load(fh)
         except (OSError, ValueError):
             return None
-        return doc if doc.get("version") == _analysis_version() else None
+        if doc.get("version") != _analysis_version():
+            return None
+        shift = self.beat_fixes().get(track_id)
+        if shift:
+            shift_beats(doc["analysis"], float(shift))
+        return doc
+
+    # The beat grid set right by ear (the studio's review: Light Switch's beats sat on its claps, half a beat
+    # off its kicks): track id -> seconds the whole grid moves, applied every time the song is read.
+    def beat_fixes(self) -> dict:
+        try:
+            with open(self.beat_fixes_path, encoding="utf-8") as fh:
+                return {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
+        except (OSError, ValueError):
+            return {}
+
+    def set_beat_fix(self, track_id: str, seconds: float) -> None:
+        try:
+            with open(self.beat_fixes_path, encoding="utf-8") as fh:
+                fixes = json.load(fh)
+        except (OSError, ValueError):
+            fixes = {"_about": "Seconds each learned song's beat grid moves (set by ear in the studio's review)."}
+        if abs(seconds) < 0.001:
+            fixes.pop(track_id, None)
+        else:
+            fixes[track_id] = round(float(seconds), 4)
+        os.makedirs(self.dir, exist_ok=True)
+        tmp = self.beat_fixes_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(fixes, fh, indent=1)
+        os.replace(tmp, self.beat_fixes_path)
 
     def lyrics(self, track_id: str) -> dict | None:
         """The song's lyrics with word times (lyrics.py; shows/_jam/lyrics/<id>.json), slimmed to what a

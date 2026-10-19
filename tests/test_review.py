@@ -64,5 +64,31 @@ class ReviewTest(unittest.TestCase):
             Review(self.lib).keep("aaa", [{"type": "chorus", "start": 0, "end": 10}], ok=False)
 
 
+
+class BeatFixTest(unittest.TestCase):
+    def test_shift_beats_moves_the_grid_and_keeps_the_bars(self):
+        from lightshow.studio.jam import shift_beats
+        a = {"beats": [0.2 + 0.5 * i for i in range(16)], "downbeat_phase": 0, "downbeats": []}
+        bar_one = a["beats"][4]
+        shift_beats(a, -0.3)                                   # the first beat goes before the start
+        self.assertAlmostEqual(a["beats"][0], 0.4)
+        self.assertIn(round(bar_one - 0.3, 4), a["downbeats"])
+        shift_beats(a, 0.5)                                    # room for a beat at the start again
+        self.assertAlmostEqual(a["beats"][0], 0.4)
+        self.assertIn(round(bar_one + 0.2, 4), a["downbeats"])
+
+    def test_a_grid_moved_under_review_becomes_the_songs_fix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = FakeLibrary(tmp)
+            lib.add("aaa", "Zed", ["B"])
+            fixes = {}
+            lib.beat_fixes = lambda: dict(fixes)
+            lib.set_beat_fix = lambda tid, s: fixes.__setitem__(tid, s)
+            r = Review(lib)
+            r.keep("aaa", [{"type": "verse", "start": 0, "end": 10}], ok=False, beat_shift=0.16)
+            r.keep("aaa", [{"type": "verse", "start": 0, "end": 10}], ok=False, beat_shift=0.01)
+            self.assertAlmostEqual(fixes["aaa"], 0.17)
+
+
 if __name__ == "__main__":
     unittest.main()

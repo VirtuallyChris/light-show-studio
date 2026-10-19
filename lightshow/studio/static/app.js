@@ -371,8 +371,11 @@
   // ---- Review: the learned Jam songs with no saved show, one after another, their sections set right by
   // ear (review.py). Moving on keeps any change to the sections in the section truth (what the rules that
   // read songs are tuned against); the check mark says they were right as found. Never saved as a show.
-  const secKey = () => JSON.stringify((P() ? P().sections : []).map(s => [s.type, +s.start.toFixed(2), +s.end.toFixed(2)]));
-  const reviewBody = ok => JSON.stringify({ id: S.review.id, ok, sections: P().sections.map(s => ({ type: s.type, start: s.start, end: s.end })) });
+  const secKey = () => JSON.stringify((P() ? P().sections : []).map(s => [s.type, +s.start.toFixed(2), +s.end.toFixed(2)]).concat([P() && P().beats.length ? +P().beats[0].toFixed(3) : 0]));
+  /** how far the grid was moved under review (seconds; the median beat's move, when the beats still pair up) */
+  const gridShift = () => { const R = S.review, b = P() && P().beats; if (!R || !R.beats || !b || b.length !== R.beats.length) return 0;
+    const d = b.map((x, i) => x - R.beats[i]).sort((x, y) => x - y); return d[Math.floor(d.length / 2)] || 0; };
+  const reviewBody = ok => JSON.stringify({ id: S.review.id, ok, beat_shift: gridShift(), sections: P().sections.map(s => ({ type: s.type, start: s.start, end: s.end })) });
   /** Under review, the lights follow the sections as they move: rebuilt with the sections exactly as set (a
    *  build takes about 30 ms: a drag rebuilds about 12 times a second, letting go once more); only when the
    *  sections changed. */
@@ -391,7 +394,7 @@
       const r = await fetch('/api/review/truth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reviewBody(ok) });
       const d = await r.json(); if (d.error) throw new Error(d.error);
       const song = R.songs.find(x => x.id === R.id); if (song) song.reviewed = d.entry.reviewed;
-      R.orig = secKey();
+      R.orig = secKey(); R.beats = P().beats.slice();                   // (a grid move is kept once)
       toast(ok ? `${S.name}: the sections are right, kept` : `${S.name}: your sections are kept`);
     } catch (e) { toast('The review was not kept: ' + e.message, true); }
   }
@@ -406,7 +409,7 @@
       const r = await fetch('/api/review/song/' + encodeURIComponent(song.id));
       R.id = null; await loadResponse(r);
       if (S.analysis) { autoBuild(true); draw(); }                       // (its show, to judge the sections by)
-      R.id = song.id; R.orig = R.found = R.built = secKey();
+      R.id = song.id; R.orig = R.found = R.built = secKey(); R.beats = P().beats.slice();
     } catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
     reviewBar();
   }
@@ -3498,6 +3501,8 @@
   $('#revPrev').onclick = () => reviewOpen(S.review.i - 1);
   $('#revDone').onclick = reviewDone;
   $('#revClose').onclick = reviewStop;
+  const quarter = dir => { const p = P(); if (!p || p.beats.length < 2) return; nudge(dir * 250 * (p.beats[p.beats.length - 1] - p.beats[0]) / (p.beats.length - 1)); };
+  $('#btnQuarterL').onclick = () => quarter(-1); $('#btnQuarterR').onclick = () => quarter(1);
   $('#btnHalf').onclick = () => scaleTempo(0.5); $('#btnDouble').onclick = () => scaleTempo(2); $('#btnRegrid').onclick = () => { if (P()) regrid(); }; $('#btnNudgeL').onclick = () => P() && nudge(-10); $('#btnNudgeR').onclick = () => P() && nudge(10);
   $('#btnPhase').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 1) % 4; changed(); };
   $('#btnPhaseL').onclick = () => { if (!P()) return; beginChange(); P().phase = (P().phase + 3) % 4; changed(); };
