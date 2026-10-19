@@ -1076,9 +1076,12 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    return (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
-            + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
-            + model_choruses(a) + drop_tails_and_releases(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
+    changes = (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+               + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
+               + model_choruses(a) + drop_tails_and_releases(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
+    from . import songmap                                   # and the song's map on the settled sections: its parts, tension, moments
+    songmap.add(a)
+    return changes
 
 
 def hook_drops(a: dict) -> list:
