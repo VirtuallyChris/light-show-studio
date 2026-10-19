@@ -259,7 +259,8 @@
   //   37: shows by scene (21 kinds of music, from the genre model) instead of five vibes; buildups in five
   //       kinds; how hard a section goes follows its loudness within the song
   //   38: buildups only where something builds (the snares speeding up, not just busy)
-  const SHOW_VERSION = 38;
+  //   39: the kitchen's meteor tubes: the show across them, meteors falling down them
+  const SHOW_VERSION = 39;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -585,7 +586,7 @@
       const row = document.createElement('label');
       const rm = roomOf(l);
       if (rm && !rm.on) row.classList.add('room-off');
-      row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${rm ? esc(rm.name) + (rm.on ? '' : ' (off)') + ' · ' : ''}${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="200" value="${l.segments}" title="Segments (LED zones)">`;
+      row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${rm ? esc(rm.name) + (rm.on ? '' : ' (off)') + ' · ' : ''}${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="255" value="${l.segments}" title="Segments (LED zones)">`;
       const nm = row.querySelector('.light-name'); nm.value = l.name || '';
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
       nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
@@ -622,7 +623,7 @@
    *  view shows. A room with one light (the Office, a test room) is not part of the party. */
   function partyLights() {
     const inRooms = S.lights.filter(l => roomOf(l) && !roomOff(l)), per = new Map();
-    for (const l of inRooms) per.set(roomOf(l), (per.get(roomOf(l)) || 0) + 1);
+    for (const l of inRooms) per.set(roomOf(l), (per.get(roomOf(l)) || 0) + (lightKind(l) === 'tubes' ? 2 : 1));   // (the kitchen's tubes are a party room alone)
     return inRooms.filter(l => per.get(roomOf(l)) >= 2);
   }
 
@@ -716,8 +717,10 @@
         rooms.forEach(o => { o.speakers = o.speakers.filter(x => x !== k); }); if (!has) r.speakers.push(k); saveRooms(rooms); });
     });
   }
-  /** Short lamps (a dozen segments or fewer) and long strips play different parts of a show. */
-  const lightKind = l => (l.segments || 10) <= 12 ? 'short' : 'long';
+  /** Short lamps (a dozen segments or fewer) and long strips play different parts of a show; the meteor
+   *  tubes (H6821: 20 hanging tubes, every LED its own color) a part of their own. */
+  const TUBE_SKUS = new Set(['H6821']), TUBE_COUNT = 20;
+  const lightKind = l => TUBE_SKUS.has(l.sku) ? 'tubes' : (l.segments || 10) <= 12 ? 'short' : 'long';
   /** the ticked lights belong to the room, not the song: saved with the studio's settings */
   function saveSelection() {
     fetch('/api/devices/selected', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -845,24 +848,28 @@
     const key = roomSpaceKey(lights), space = S.roomSpaces[key] || (S.roomSpaces = { [key]: roomSpace(lights), ...S.roomSpaces })[key];
     for (const L of lights) {
       const room = space.of.get(L) || { i: 0, n: 1, side: 0, kinds: [lightKind(L)] };
-      const alone = room.n === 1 && !!(S.rooms && S.rooms.length);   // a light alone in its room: no party-only clips
-      const n = Math.max(1, L.segments); const dst = buf('dst' + L.ip, n); dst.fill(0);
-      const kind = lightKind(L);
-      // two passes: the layers, then the black cuts on top of all of them (a cut on layer 2 was lit over again
-      // by the layers above it: a black swipe must cut through everything)
+      const kind = lightKind(L), tubes = kind === 'tubes' ? { count: TUBE_COUNT, per: Math.max(1, Math.round(L.segments / TUBE_COUNT)) } : null;
+      // a light alone in its room plays no party-only clips (the Office); the kitchen's tubes are party
+      const alone = !tubes && room.n === 1 && !!(S.rooms && S.rooms.length);
+      const n = Math.max(1, L.segments); let dst = buf('dst' + L.ip, n); dst.fill(0);
+      // The meteor tubes hang scattered over the kitchen: the show plays across the tubes (each tube one
+      // pixel of it: washes, hits, flashes, a chase tube to tube), each tube's color runs down its LEDs
+      // (a little softer at the bottom), and their own layers (the meteors falling, target 'tubes') play on
+      // every LED on top. Under the meteors the rest is kept at half, so a falling head stands out.
+      const layers = (out, np, keyOf, wanted, sub) => {
       for (const pass of [0, 1]) p.lanes.forEach((lane, li) => {
         if (lane.hidden) return;
         let clip = null;
-        for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && (!c.target || c.target === kind) && !(c.party && alone) && (!clip || c.start >= clip.start)) clip = c;
+        for (const c of lane.clips) if (b >= c.start && b < c.start + c.len && wanted(c) && !(c.party && alone) && (!clip || c.start >= clip.start)) clip = c;
         if (!clip || (clip.blend === 'cut') !== (pass === 1)) return;
         const e = Effects.byId[clip.effect]; if (!e) return;
-        const src = buf('src' + li + L.ip, n); src.fill(0);
+        const n = np, src = buf('src' + li + keyOf, n); src.fill(0);
         for (let i = 0; i < n; i++) src[i * 4 + 3] = 1;  // full coverage unless the effect clears
         const clipBeat = b - clip.start;
         const c = { n, out: src, t, beat: b, beatSec: Math.max(0.05, beatToTime(b + 1) - beatToTime(b)), phase: frac(b), bar: (b - p.phase) / 4, barPhase: frac((b - p.phase) / 4),
           clipT0: beatToTime(clip.start), clipT1: beatToTime(clip.start + clip.len),
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
-          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room };
+          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub };
         e.render(c);
         let alpha = clip.opacity ?? 1;
         // Ducking, like sidechain compression: the layer dips on every kick and snare and swells back,
@@ -876,8 +883,22 @@
         if (clip.bassPump > 0) alpha *= (1 - clip.bassPump) + clip.bassPump * clamp(music.bassLevel * 1.15, 0, 1);
         if (clip.fadeIn > 0) alpha *= clamp(clipBeat / clip.fadeIn, 0, 1);
         if (clip.fadeOut > 0) alpha *= clamp((clip.len - clipBeat) / clip.fadeOut, 0, 1);
-        Effects.composite(dst, src, n, alpha, clip.blend || 'normal');
+        Effects.composite(out, src, n, alpha, clip.blend || 'normal');
       });
+      };
+      if (!tubes) layers(dst, n, L.ip, c => !c.target || c.target === kind, null);
+      else {
+        const across = buf('tubes' + L.ip, tubes.count); across.fill(0);
+        layers(across, tubes.count, L.ip + 't', c => !c.target, null);
+        const falling = p.lanes.some(lane => !lane.hidden && lane.clips.some(c => c.target === 'tubes' && b >= c.start && b < c.start + c.len));
+        const under = falling ? 0.5 : 1;
+        for (let tb = 0; tb < tubes.count; tb++) for (let k = 0; k < tubes.per; k++) {
+          const i = (tb * tubes.per + k) * 4, j = tb * 4, sh = under * (1 - 0.15 * k / Math.max(1, tubes.per - 1));
+          if (i + 3 >= dst.length) break;
+          dst[i] = across[j] * sh; dst[i + 1] = across[j + 1] * sh; dst[i + 2] = across[j + 2] * sh; dst[i + 3] = 1;
+        }
+        layers(dst, n, L.ip + 'm', c => c.target === 'tubes', tubes);
+      }
       // The party level (set on the Party Hub): below 100% the song's main color is laid over the whole
       // show, that much more opaque, so the room calms down into one color without going dark.
       const cover = 1 - clamp(S.partyLevel ?? 1, 0, 1), pc = cover > 0 ? partyColor() : null;
@@ -2086,7 +2107,8 @@
     S.motionFam = own[0];
     S.motionFams = [own[0], own[1] || own[0]];
     const kinds = new Set(showLights().map(lightKind));
-    S.mixedLights = kinds.size === 2;                                // long strips and short lamps: each plays its own part
+    S.mixedLights = kinds.has('long') && kinds.has('short');        // long strips and short lamps: each plays its own part
+    S.hasTubes = kinds.has('tubes');
   }
   const SWEEPS = new Set(['comets', 'scanner', 'bounce', 'meteors', 'orbit']);    // motions that travel the strip (drawn half as often)
   /** How hard one section goes: the song's show style, moved one step (groove and dance only) by how loud
@@ -2237,7 +2259,7 @@
   // things alive in the middle; the hits (drums, strikes, flashes) own the top of the range.
   const BED = new Set(['gradient', 'aurora', 'breathe', 'colorwash', 'wave', 'solid', 'ember', 'twinkle']);
   const HIT = new Set(['hitswap', 'pulse', 'hookstrike', 'flash', 'dropblast', 'whiteflash', 'colorslam', 'sweepout', 'ripple', 'strobe', 'fillrush', 'drumstrobe', 'drumhits', 'lightning', 'basshits', 'zonehits']);
-  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'scramble', 'fillflood']);   // set as placed: never tiered or balanced (a star is one bright segment)
+  const FREE = new Set(['strobeRiser', 'buildhits', 'fadein', 'fadeout', 'dark', 'blackout', 'starlight', 'glitch', 'scramble', 'fillflood', 'meteorfall']);   // set as placed: never tiered or balanced (a star is one bright segment)
   function tier(c) {
     // the base layer of a verse, intro, breakdown or outro is a bed whatever the effect: a room wave or
     // a color battle at full motion brightness made a verse outshine its drop
@@ -2703,6 +2725,18 @@
       else if (!chill && noDrums() && ['drop', 'verse'].includes(s.type) && ((ev.basshit || []).filter(e => e[0] >= s.start && e[0] < s.end).length) >= 0.4 * len)
         clip(6, 'basshits', b0, len, { decay: 0.45 }, { target: 'short', blend: 'add', opacity: s.type === 'drop' ? 0.85 : 0.5 });   // no drums: the bass keeps time
       else clip(6, 'breathe', b0, len, { speed: 4, floor: 0.15 }, { target: 'short', opacity: 0.6, palette: S.contrastPal });
+    }
+    // The kitchen's meteor tubes mirror the show (its colors, washes, hits and flashes play across them) in
+    // their own way: meteors fall down them. On every kick and snare of a drop (more tubes and quicker the
+    // harder the song; a calm song's on the beat, slow), through a buildup more and quicker toward the drop,
+    // on the snare in a verse, and a slow drip on the beat in the quiet parts.
+    if (S.hasTubes) {
+      const T = { target: 'tubes', blend: 'add' };
+      if (s.type === 'drop') clip(10, 'meteorfall', b0, len, chill ? { follow: 'beat', many: 1, fall: 1.4, tail: 6 }
+        : { follow: drumsHere ? 'drums' : 'beat', many: style === 'rave' ? 4 : hard ? 3 : 2, fall: style === 'rave' ? 0.35 : hard ? 0.45 : 0.6, tail: 4 }, { ...T, opacity: 1 });
+      else if (s.type === 'buildup') clip(10, 'meteorfall', b0, len, { follow: chill ? 'beat' : snaresHere >= 4 ? 'snare' : 'build', many: chill ? 1 : 5, fall: chill ? 1.4 : 0.7, tail: 3, grows: !chill }, { ...T, opacity: 1 });
+      else if (s.type === 'verse' && drumsHere && !chill) clip(10, 'meteorfall', b0, len, { follow: 'snare', many: 1, fall: 0.7, tail: 4 }, { ...T, opacity: 0.85 });
+      else clip(10, 'meteorfall', b0, len, { follow: 'beat', many: 1, fall: 1.8, tail: 6 }, { ...T, opacity: 0.6 });
     }
     S.sectionClips = null;
   }

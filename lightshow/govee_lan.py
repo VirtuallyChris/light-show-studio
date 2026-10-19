@@ -30,7 +30,12 @@ LISTEN_PORT = 4002
 
 # Segments (separately colorable zones) of models whose count is known, for a new light
 # nobody has set a count for yet. Anything else starts at 10 until set in the studio.
-SKU_SEGMENTS = {"H6076": 7}
+# Segments of models that cannot be counted otherwise. The H6821 (meteor lights: 20 hanging tubes of 12
+# LEDs) takes every LED in one frame, top of tube 1 first (found 2026-10-18, see razer_leds).
+SKU_SEGMENTS = {"H6076": 7, "H6821": 240}
+# Models that take frames at a fixed rate whatever their Wi-Fi: the H6821's 240-LED frames ran clean at 15
+# a second and skipped now and then at 30.
+SKU_FPS = {"H6821": 15}
 CONTROL_PORT = 4003
 # Light frames are marked as real-time traffic (DSCP 46, "expedited forwarding"), so a Wi-Fi access
 # point that honors the mark (WMM) sends them ahead of other traffic, such as a Cast stream. Windows
@@ -97,14 +102,18 @@ class GoveeDevice:
         self.send("colorwc", {"color": {"r": 0, "g": 0, "b": 0}, "colorTemInKelvin": int(kelvin)})
 
     # -- real-time per-segment protocol ("Razer Chroma" mode) ---------------
-    # Packet: BB 00 <len> <cmd> <data...> <xor checksum>. cmd 0xB1 = enable
+    # Packet: BB <len, two bytes> <cmd> <data...> <xor checksum>. cmd 0xB1 = enable
     # (data: 01/00), cmd 0xB0 = LED data (data: gradient flag, count, RGB*count).
     # The device drops back to its normal effect if no LED packet arrives for
     # about a minute, so the show loop keeps sending.
     def razer(self, enable: bool) -> None:
         self.send("razer", {"pt": _razer_packet(0xB1, bytes([1 if enable else 0]))})
 
-    MAX_RAZER_LEDS = 84  # the packet's one-byte length field allows 2 + 3*84 = 254 bytes of data
+    # The length was long taken for one byte after a fixed 00, which capped a frame at 84 colors (2 + 3*84
+    # = 254 bytes); the 00 is the length's high byte, so a frame carries as many colors as its one-byte
+    # count allows. Found on the H6821's 240 LEDs (each its own color, one packet); a light with fewer
+    # segments gets the same packets as ever (high byte 0).
+    MAX_RAZER_LEDS = 255
 
     def razer_leds(self, colors: list[tuple[int, int, int]], gradient: bool = False) -> None:
         if len(colors) > self.MAX_RAZER_LEDS:
@@ -126,7 +135,7 @@ def _resample_colors(colors, n):
 
 
 def _razer_packet(cmd: int, data: bytes) -> str:
-    pkt = bytearray([0xBB, 0x00, len(data), cmd]) + data
+    pkt = bytearray([0xBB, (len(data) >> 8) & 0xFF, len(data) & 0xFF, cmd]) + data
     crc = 0
     for b in pkt:
         crc ^= b

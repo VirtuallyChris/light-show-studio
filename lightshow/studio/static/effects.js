@@ -408,6 +408,43 @@ const Effects = (() => {
         const col = colorFor(c, hash(k * 53), k); const fade = Math.sin(Math.PI * Math.min(1, age * 1.15)) ** 0.4;
         for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const behind = (head - x) * dir; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.025) ** 2)) * fade; if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
+  def({ id: 'meteorfall', name: 'Meteor fall', cat: 'room', desc: 'For the meteor tubes (the kitchen): on every hit a meteor falls down a few tubes picked at random, a bright head with a fading tail; with "Grows", more of them and quicker as the clip goes on (a buildup). On a strip it falls along the strip.', swatch: ['#ffffff', '#5cc8ff'],
+    params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'the kick', snare: 'the snare', beat: 'the beat', build: 'a build: beats, eighths, sixteenths' }, label: 'Falls on' },
+      many: { type: 'range', def: 2, min: 1, max: 8, step: 1, label: 'Tubes a hit' },
+      fall: { type: 'range', def: 0.5, min: 0.15, max: 3, step: 0.05, label: 'Fall time (s)' },
+      tail: { type: 'range', def: 4, min: 0, max: 10, step: 1, label: 'Tail (LEDs)' },
+      grows: P.bool('Grows (more and quicker toward the end)', false), color: P.color() },
+    render(c) {
+      clear(c.out);
+      const tb = c.tubes || { count: 1, per: c.n }, per = tb.per, count = tb.count, m = c.music || {}, k = c.clipT;
+      const fall = c.p.fall * (c.p.grows ? 1 - 0.45 * k : 1), tail = Math.round(c.p.tail);
+      const many = Math.max(1, Math.min(count, c.p.grows ? Math.round(c.p.many * (0.3 + 0.7 * k)) : Math.round(c.p.many)));
+      // the hits whose meteors are still falling: [time, an id that picks their tubes]
+      const hits = [];
+      const steps = (sub, beat0) => { const b = c.clipBeat * sub, last = Math.floor(b);
+        for (let q = last; q >= 0 && (b - q) * c.beatSec / sub <= fall; q--) hits.push([c.t - (b - q) * c.beatSec / sub, sub * 100003 + q + beat0]); };
+      if (c.p.follow === 'build') steps(k < 0.5 ? 1 : k < 0.75 ? 2 : 4, Math.round(c.clipT0 * 10));
+      else if (c.p.follow === 'beat' || !m.hasDrums || !m.hitsBetween) steps(1, Math.round(c.clipT0 * 10));
+      else for (const st of c.p.follow === 'drums' ? ['kick', 'snare', 'roll'] : c.p.follow === 'kick' ? ['kick'] : ['snare', 'roll'])
+        for (const th of m.hitsBetween(st, c.t - fall, c.t + 1e-6)) if (th >= c.clipT0 - 0.02) hits.push([th, Math.round(th * 1000)]);
+      for (const [th, id] of hits) {
+        const prog = (c.t - th) / fall; if (prog < 0 || prog > 1) continue;
+        const head = prog * (per + tail + 1) - 1;                      // enters at the top, leaves past the bottom
+        const used = new Set();
+        for (let j = 0; used.size < many && j < many * 6; j++) used.add(Math.floor(hash(id * 7919 + j * 104729 + 7) * count));
+        let w = 0;
+        for (const tube of used) {
+          const col = colorFor(c, tube / Math.max(1, count - 1), id + w++), hot = [0.55 + 0.45 * col[0], 0.55 + 0.45 * col[1], 0.55 + 0.45 * col[2]];
+          for (let led = 0; led < per; led++) {
+            const d = head - led; if (d < -0.5 || d > tail + 1) continue;
+            const v = d < 0.5 ? 1 - Math.abs(d) : Math.max(0, 1 - (d - 0.5) / (tail + 0.5));
+            const cc = d < 0.75 ? hot : col, i = tube * per + led;
+            if (v > 0.01) add(c.out, i, cc[0] * v, cc[1] * v, cc[2] * v, v);
+          }
+        }
+      }
+    } });
+
   def({ id: 'pulsar', name: 'Pulsar', cat: 'medium', desc: 'Dark strip; on every beat one or two points flare up somewhere and fade.', swatch: ['#8ad8ff', '#000010'],
     params: { every: P.speed(1, 'Flare every (beats)'), count: P.count(1, 4), size: P.size(0.08, 'Flare size'), decay: P.decay(0.6), color: P.color() },
     render(c) { clear(c.out); const k = Math.floor(c.beat / c.p.every); const ph = (c.beat - k * c.p.every) / c.p.every; const env = Math.exp(-ph / (c.p.decay * 0.6 + 0.02));

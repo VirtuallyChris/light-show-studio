@@ -108,6 +108,16 @@ def kelvin_rgb(k: float) -> tuple[int, int, int]:
     return tuple(int(max(0, min(255, round(c)))) for c in (r, g, b))
 
 
+def _big_change(new, old) -> bool:
+    """A frame that changes most of a light a lot from the last one sent to it: a flash on or off, a slam
+    to a new color (half its segments moving by 300 or more of 765 across red, green and blue)."""
+    if not new or not old or len(new) != len(old):
+        return False
+    n = len(new) // 3
+    moved = sum(1 for i in range(0, n * 3, 3) if abs(new[i] - old[i]) + abs(new[i + 1] - old[i + 1]) + abs(new[i + 2] - old[i + 2]) >= 300)
+    return moved * 2 >= n
+
+
 class LightOutput:
     """Holds the currently selected lights and pushes frames to them."""
 
@@ -435,9 +445,16 @@ class LightOutput:
         self.last_frame = now
         self.frames += 1
         def due(ip: str) -> bool:
-            """Is this light ready for another frame at its own rate? (Over it, this one is skipped.)"""
+            """Is this light ready for another frame at its own rate? (Over it, this one is skipped.) A big
+            change (a strobe flashing or going black, the room slamming to a new color) goes out at once,
+            the moment the page drew it, however soon after the last frame (a fortieth of a second at the
+            least): at 15 frames a second a flash waited up to 67 ms for its turn, smeared and out of step
+            with the lights on other rates. The user's idea."""
             cap = self.fps_by_ip.get(ip) or self.max_fps
-            return not (cap and cap > 0 and now - self.last_sent_ip.get(ip, 0.0) < 0.9 / cap)
+            since = now - self.last_sent_ip.get(ip, 0.0)
+            if not (cap and cap > 0 and since < 0.9 / cap):
+                return True
+            return since >= 0.025 and _big_change(by_ip.get(ip), self.last_px.get(ip))
         out = []
         for d in self.devices:
             flat = by_ip.get(d.ip)
@@ -494,7 +511,8 @@ class Studio:
             # each kind of light where it can keep up: a light pole (a dozen segments or fewer) at 15 frames a
             # second, a strip at 30 (the ceiling), down to 15 when the Wi-Fi struggles
             self.link = LinkMonitor(self.output, 15, ceiling,
-                                    range_for=lambda ip: (15, 15, 15) if self._light_segments(ip) <= 12 else (15, ceiling, 30))
+                                    range_for=lambda ip: (15, 15, 15) if self._light_segments(ip) <= 12 or self._light_fixed_fps(ip)
+                                    else (15, ceiling, 30))
             self.output.max_fps = self.link.governor.fps
             self.link.start()
         self.cast = CastManager(govee_lan.local_ip())
@@ -999,6 +1017,11 @@ class Studio:
                 flipped.pop(key, None)
         save_config(cfg)
         return web.json_response({"ok": True})
+
+    def _light_fixed_fps(self, ip: str) -> bool:
+        """A model that takes frames at a fixed rate (govee_lan.SKU_FPS: the kitchen's meteor tubes)."""
+        d = next((d for d in self.known if d.ip == ip), None)
+        return d is not None and d.sku in govee_lan.SKU_FPS
 
     def _light_segments(self, ip: str) -> int:
         """How many segments the light at this address has (as the light list works it out)."""
