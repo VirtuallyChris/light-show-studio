@@ -518,6 +518,7 @@ class Studio:
         self.cast = CastManager(govee_lan.local_ip())
         self.requested: list[str] = []                   # the lights ticked in the studio (by address)
         self.rooms = Rooms(load_config, save_config, self.cast, touch=lights)   # a test copy never touches a speaker
+        self.cast.on_release = self.rooms.unmute_all             # casting stops: the speakers it muted play again
         # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
         self.cues = CueRunner(load_config, save_config, self._show_length,
                               live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length, pcm=self._cue_pcm)) if lights else None)

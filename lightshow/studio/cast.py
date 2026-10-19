@@ -39,6 +39,7 @@ class CastManager:
         self.media_path = ""       # local file behind the stream, for reloading at a new point
         self.media_root = ""       # stream URL without its start parameter
         self.title = ""
+        self.on_release = None     # called when the studio lets go of the speakers (Rooms.unmute_all)
 
     # -- discovery -----------------------------------------------------------------
     def discover(self, timeout: float = 5.0) -> list[dict]:
@@ -117,6 +118,8 @@ class CastManager:
         self.state = "IDLE"
         self.media_url = self.media_path = self.media_root = ""
         self.base = 0.0
+        if cast is not None and callable(self.on_release):      # the speakers are no longer the studio's
+            threading.Thread(target=self.on_release, daemon=True).start()
 
     # -- pychromecast status listener --------------------------------------------------
     def new_media_status(self, status) -> None:

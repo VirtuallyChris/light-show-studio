@@ -28,7 +28,7 @@ class FakeSpeaker:
     """Like a Google speaker: every change chimes, and setting a level unmutes it."""
 
     def __init__(self, level):
-        self.status = mock.Mock(volume_level=level, volume_muted=False)
+        self.status = mock.Mock(volume_level=level, volume_muted=False, app_id=None)
         self.levels, self.chimes = [], 0
 
     @property
@@ -48,6 +48,7 @@ class FakeSpeaker:
 class FakeCast:
     def __init__(self, speakers):
         self.speakers = speakers
+        self.cast = object()                             # the studio is casting
 
     def _device(self, name):
         return self.speakers.get(name)
@@ -118,6 +119,35 @@ class TestSpeakers(unittest.TestCase):
         self.assertFalse(self.home.muted)
         self.assertEqual(self.home.status.volume_level, 0.4)
         self.assertEqual(self.r.muted(), {})
+
+    def test_switching_rooms_touches_no_speaker_unless_the_studio_casts(self):
+        self.r.cast.cast = None                                        # the jam plays on this PC
+        self.r.set_on(self.rid, False)
+        self.assertEqual(self.r.sync_speakers(wait=True), [])
+        self.assertFalse(self.home.muted)
+
+    def test_a_room_switched_off_leaves_a_speaker_someone_else_casts_to(self):
+        self.home.status.app_id = "233637DE"                          # YouTube, from a phone
+        self.r.set_on(self.rid, False)
+        self.r.sync_speakers(wait=True)
+        self.assertFalse(self.home.muted)
+        self.assertEqual(self.r.muted(), {})                           # not muted, so not unmuted later either
+
+    def test_letting_go_of_the_speakers_unmutes_the_ones_the_studio_muted(self):
+        from lightshow.studio.cast import CastManager
+        self.r.set_on(self.rid, False)
+        self.r.sync_speakers(wait=True)
+        cm = CastManager(None)
+        released = []
+        cm.on_release = lambda: released.append(True)
+        cm.cast = mock.Mock()
+        with mock.patch("lightshow.studio.cast.time.sleep", lambda s: None):
+            cm.disconnect()
+        for _ in range(50):
+            if released:
+                break
+            __import__("time").sleep(0.01)
+        self.assertEqual(released, [True])
 
     def test_a_test_copy_never_touches_a_speaker(self):
         r = Rooms(self.st.load, self.st.save, FakeCast({"Living Home": self.home}), touch=False)
@@ -233,7 +263,7 @@ class TestKeptLevels(unittest.TestCase):
 
         def device(name):
             return self.spk.get(name)
-        self.cast = SimpleNamespace(_device=device)
+        self.cast = SimpleNamespace(_device=device, cast=object())     # the studio is casting
         self.rooms = Rooms(lambda: dict(self.cfg), lambda c: self.cfg.update(c), cast=self.cast)
         self.t = 0.0
 
@@ -285,6 +315,25 @@ class TestKeptLevels(unittest.TestCase):
         self.look("Kitchen Home", "Office speaker"); self.look("Kitchen Home", "Office speaker")
         self.assertEqual(self.calls, [])                     # nothing set back
         self.assertEqual(self.rooms.levels(), {"Kitchen Home": 0.45, "Office speaker": 0.3})
+
+    def test_not_casting_no_speaker_is_touched(self):
+        """The jam played on this PC while the user's wife cast to the office speaker: hands off."""
+        st = self.speaker("Office", 0.4)
+        self.look("Office")
+        self.cast.cast = None
+        st.volume_level = 0.1
+        self.look("Office"); self.look("Office")
+        self.assertEqual(self.calls, [])
+
+    def test_a_speaker_someone_else_casts_to_is_left_alone(self):
+        st = self.speaker("Office", 0.4)
+        self.look("Office")
+        st.app_id, st.volume_level = "CC32E753", 0.1                # Spotify casting to it from a phone
+        self.look("Office"); self.look("Office")
+        self.assertEqual(self.calls, [])
+        st.app_id = "CC1AD845"                                       # the studio's own stream: held as before
+        self.look("Office"); self.look("Office")
+        self.assertEqual(self.calls, [("set", "Office", 0.4)])
 
     def test_never_more_than_once_in_ten_seconds_and_never_a_group(self):
         st = self.speaker("Living Room", 0.6)

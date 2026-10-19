@@ -20,6 +20,9 @@ import time
 import uuid
 
 FADE_S = 5.0                                        # the lights' fade; speakers mute and unmute at once
+# What may be running on a speaker the studio touches: nothing, the backdrop, or the Default Media Receiver
+# (the studio's own stream plays in it). Anything else (Spotify, YouTube...) is someone else casting.
+OURS_OR_IDLE = {None, "", "E8C28D3C", "CC1AD845"}
 
 
 def clean(rooms) -> list[dict]:
@@ -103,9 +106,25 @@ class Rooms:
         self._store(name, max(0.0, min(1.0, float(level))))
         return True
 
+    # -- whose speakers they are -----------------------------------------------------------------------
+    # The studio only ever changes a speaker's volume or mute while it is casting (to it, or to a group it is
+    # in: "Everywhere" is all of them), and never one someone else is casting to: the user's wife was casting
+    # to the office speaker, the jam played on this PC, and switching the Office on in the Party Hub unmuted
+    # it under her. When the studio lets go of the speakers, every one it muted plays again (Rooms.unmute_all,
+    # from CastManager.disconnect), so none is left muted for whoever casts next.
+    def casting(self) -> bool:
+        return self.cast is not None and getattr(self.cast, "cast", None) is not None
+
+    @staticmethod
+    def foreign(c) -> bool:
+        """Is someone else casting to this speaker (another app running on it)?"""
+        st = getattr(c, "status", None)
+        return st is not None and getattr(st, "app_id", None) not in OURS_OR_IDLE
+
     def sync_speakers(self, wait: bool = False) -> list[threading.Thread]:
-        """Mute the speakers of rooms that are off, and unmute those of rooms that are on again."""
-        if not self.touch or self.cast is None:
+        """Mute the speakers of rooms that are off, and unmute those of rooms that are on again: while the
+        studio is casting only (see casting)."""
+        if not self.touch or self.cast is None or not self.casting():
             return []
         want = {s for r in self.list() if not r["on"] for s in r["speakers"]}
         have = set(self.muted())
@@ -137,6 +156,8 @@ class Rooms:
             if c is None:
                 raise LookupError("not on the network")
             saved = self.muted().get(name)
+            if out and (self.foreign(c) or not self.casting()):
+                return                                   # someone else plays there, or the studio stopped casting
             if out:
                 live = float(c.status.volume_level) if c.status is not None else None
                 level = saved if saved is not None else live
@@ -185,7 +206,7 @@ class Rooms:
         """A group's volume was moved on purpose (the Party Hub's cast volume, the jam casting to "Everywhere"):
         each speaker in it moved with it. Once they have settled, the levels they are at are the ones kept (it
         set them all back 5 s later, as if someone had turned them down)."""
-        if not self.touch or self.cast is None:
+        if not self.touch or self.cast is None or not self.casting():
             return
         sleep(wait_s)
         off = self.__dict__.setdefault("_off_seen", {})
@@ -200,8 +221,9 @@ class Rooms:
                 continue
 
     def keep_levels(self, names, clock=time.monotonic) -> list[str]:
-        """Look at each of these speakers once; set back the ones off their kept level. Returns what it did."""
-        if not self.touch or self.cast is None:
+        """Look at each of these speakers once; set back the ones off their kept level. Returns what it did.
+        Only while the studio is casting, and never a speaker someone else is casting to."""
+        if not self.touch or self.cast is None or not self.casting():
             return []
         kept, muted, did = self.levels(), self.muted(), []
         off = self.__dict__.setdefault("_off_seen", {})
@@ -211,7 +233,7 @@ class Rooms:
                 continue                                         # its room is off, or a mute is on its way
             try:
                 c = self.cast._device(name)
-                if c is None or c.status is None or getattr(c.cast_info, "cast_type", "") == "group":
+                if c is None or c.status is None or getattr(c.cast_info, "cast_type", "") == "group" or self.foreign(c):
                     continue
                 live, is_muted = float(c.status.volume_level), bool(c.status.volume_muted)
             except Exception:  # noqa: BLE001 - a speaker that does not answer is looked at next time
