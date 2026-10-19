@@ -1091,6 +1091,208 @@ def drop_landings(a: dict) -> list:
     return changes
 
 
+def _bar_levels(a: dict, t0: float, t1: float) -> list:
+    """The bars (downbeat to downbeat) inside t0..t1, each with its mean loudness (a share of the song's loud
+    level), bass, drums present, drum loudness, vocals and the other instruments: [(b0, b1, {...})]."""
+    en = np.asarray(a.get("energy") or [], dtype=float)
+    bars = [float(b) for b in a.get("downbeats") or []]
+    if len(en) == 0 or len(bars) < 3:
+        return []
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+    top = float(np.percentile(en, 90)) or 1.0
+    curves = {"e": en / top, **{k: _curve(a, n) for k, n in (("bass", "bass"), ("dp", "drums_present"), ("drum", "drum"),
+                                                              ("voc", "vocals"), ("other", "other"))}}
+
+    def mean(c, b0, b1):
+        if c is None:
+            return 0.0
+        i0 = max(0, int(b0 * fps))
+        return float(c[i0:max(i0 + 1, int(b1 * fps))].mean()) if i0 < len(c) else 0.0
+    edges = [b for b in bars if t0 - 0.05 <= b <= t1 + 0.05]
+    return [(b0, b1, {k: mean(c, b0, b1) for k, c in curves.items()}) for b0, b1 in zip(edges, edges[1:])]
+
+
+def _split(secs: list, i: int, parts: list) -> None:
+    """Section i replaced by parts [(start, end, type)], each keeping the section's other fields; parts shorter
+    than half a second are left out."""
+    secs[i:i + 1] = [{**secs[i], "start": round(p0, 3), "end": round(p1, 3), "type": k} for p0, p1, k in parts if p1 - p0 >= 0.5]
+
+
+def _join_same(secs: list) -> list:
+    """Two breakdowns (or outros) side by side are one."""
+    out = []
+    for x in secs:
+        if out and out[-1].get("type") == x.get("type") and abs(out[-1]["end"] - x["start"]) < 0.05 and x.get("type") in ("breakdown", "outro"):
+            out[-1] = {**out[-1], "end": x["end"]}
+        else:
+            out.append(x)
+    return out
+
+
+def drums_and_bass_place_drops(a: dict) -> list:
+    """Where a drop is, from the drums, the bass and the voice, bar by bar (WannaCry by Ninajirachi and Porter
+    Robinson, and Brooke Wheeler's whisper, had drops in the wrong places, a 39 s buildup and drops running on):
+
+    - an instrumental drop: 2 bars or more (7 s or more) of a verse without a voice (vocals under 0.12) as
+      big as the song's drops (drums there, 0.75 or more, and at least as loud as the drops' drums; bass
+      and loudness within 0.12 and 0.1 of theirs) is a drop (an intro stays an intro, however big: The
+      Maine's how to exit a room) (whisper's opening 0:02 to 0:19: the heaviest
+      drums of the song, no voice);
+    - a drop starts with its bass: when its first bars (2 or more, within its first 40%) have none (under
+      0.15) and are quieter (by 0.1) than the rest of it, which has (0.4), those bars are the buildup into
+      it (as loud as the drop, they are the drop: Passion Pit's Sleepyhead); of a longer stretch (over 4
+      bars) only the last 4 build, the rest is a verse (a breakdown without drums: under 0.4) (WannaCry's last drop came
+      14 s early, over the build's bare kick and snares);
+    - a drop ends where its drums stop: its last bars with the drums gone (under 0.35) belong to what
+      follows (whisper's last drop ran 4 s into the outro);
+    - a bridge inside a drop: 4 bars or more (7 s or more) after its first where the drums and the other
+      instruments both fall well back (under 0.65 of the drop's strong bars) and SongFormer hears a bridge
+      (60%) is a breakdown (whisper, 1:47 to 1:58);
+    (A long buildup: long_buildups.)
+
+    Changes the analysis in place; returns what changed."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    drops = [x for x in secs if x.get("type") == "drop"]
+    if len(secs) < 2 or not drops or _curve(a, "drums_present") is None or _curve(a, "bass") is None:
+        return []
+    allbars = [lv for d in drops for _, _, lv in _bar_levels(a, d["start"], d["end"])]
+    if not allbars:
+        return []
+    ref = {k: float(np.mean([b[k] for b in allbars])) for k in allbars[0]}
+    changes = []
+    # instrumental drops in verses and intros
+    i = 0
+    while i < len(secs):
+        x = secs[i]
+        if x.get("type") == "verse" and _curve(a, "vocals") is not None:
+            bl = _bar_levels(a, x["start"], x["end"])
+            big = [lv["voc"] < 0.12 and lv["dp"] >= 0.75 and lv["drum"] >= ref["drum"] and lv["bass"] >= ref["bass"] - 0.12
+                   and lv["e"] >= ref["e"] - 0.1 for _, _, lv in bl]
+            run = None
+            for j in range(len(bl)):
+                if not big[j]:
+                    continue
+                k = j
+                while k + 1 < len(bl) and big[k + 1]:
+                    k += 1
+                if k - j + 1 >= 2 and bl[k][1] - bl[j][0] >= 7.0:
+                    run = (bl[j][0], bl[k][1])
+                    break
+            if run:
+                r0 = x["start"] if run[0] - x["start"] <= (bl[0][1] - bl[0][0]) + 0.1 else run[0]   # (a bar's lead-in joins it)
+                r1 = x["end"] if x["end"] - run[1] < 1.0 else run[1]
+                _split(secs, i, [(x["start"], r0, x["type"]), (r0, r1, "drop"), (r1, x["end"], x["type"])])
+                changes.append((round(r0, 1), "an instrumental drop (no voice, as big as the drops)"))
+                i += 1
+                continue
+        i += 1
+    # each drop: its start with the bass, its end with the drums, a bridge inside it
+    i = 0
+    while i < len(secs):
+        x = secs[i]
+        if x.get("type") != "drop":
+            i += 1
+            continue
+        bl = _bar_levels(a, x["start"], x["end"])
+        n = len(bl)
+        if n >= 6:
+            j = 0
+            while j < n and j < 0.4 * n and bl[j][2]["bass"] >= 0.15:
+                j += 1
+            k = j
+            while k < n and bl[k][2]["bass"] < 0.15:
+                k += 1
+            rest = [lv["bass"] for _, _, lv in bl[k:]]
+            quieter = k > j and float(np.mean([lv["e"] for _, _, lv in bl[j:k]])) <= float(np.mean([lv["e"] for _, _, lv in bl[k:]] or [0])) - 0.1
+            if j < 0.4 * n and k - j >= 2 and k < n and rest and float(np.mean(rest)) >= 0.4 and n - k >= 4 and quieter:
+                t, b4 = bl[k][0], bl[max(0, k - 4)][0]               # (a buildup is its last 4 bars at most)
+                if i > 0 and secs[i - 1].get("type") == "buildup" and b4 <= x["start"] + 0.05:
+                    secs[i - 1] = {**secs[i - 1], "end": round(t, 3)}
+                    _split(secs, i, [(t, x["end"], "drop")])
+                else:
+                    calm = "verse" if float(np.mean([lv["dp"] for _, _, lv in bl[:max(0, k - 4)]] or [1])) >= 0.4 else "breakdown"
+                    parts = [(x["start"], b4, calm), (b4, t, "buildup"), (t, x["end"], "drop")]
+                    _split(secs, i, parts)
+                    i += len([q for q in parts if q[1] - q[0] >= 0.5]) - 1
+                changes.append((round(t, 1), "the drop starts with its bass"))
+                x = secs[i]
+                bl = _bar_levels(a, x["start"], x["end"])
+                n = len(bl)
+        if n >= 5:
+            k = n
+            while k > 0 and bl[k - 1][2]["dp"] < 0.35:
+                k -= 1
+            if 0 < n - k and k >= 4:
+                t = bl[k][0]
+                nx = secs[i + 1] if i + 1 < len(secs) else None
+                if nx is not None and nx.get("type") in ("outro", "breakdown", "verse"):
+                    secs[i + 1] = {**nx, "start": round(t, 3)}
+                    secs[i] = {**x, "end": round(t, 3)}
+                else:
+                    _split(secs, i, [(x["start"], t, "drop"), (t, x["end"], "outro" if nx is None else "breakdown")])
+                changes.append((round(t, 1), "the drop ends where its drums stop"))
+                x = secs[i]
+                bl = _bar_levels(a, x["start"], x["end"])
+                n = len(bl)
+        if n >= 6:
+            own = {k: float(np.percentile([lv[k] for _, _, lv in bl], 75)) for k in ("drum", "other")}   # (its strong bars)
+            low = [lv["drum"] < 0.65 * own["drum"] and lv["other"] < 0.65 * own["other"] for _, _, lv in bl]
+            for j in range(1, n):
+                if not low[j]:
+                    continue
+                k = j
+                while k + 1 < n and low[k + 1]:
+                    k += 1
+                r0, r1 = bl[j][0], bl[k][1]
+                if k - j + 1 >= 4 and r1 - r0 >= 7.0 and (_model_says(a, r0, r1, raw=True) or {}).get("bridge", 0.0) >= 0.6:
+                    tail = x["end"] if x["end"] - r1 < 1.0 else r1
+                    _split(secs, i, [(x["start"], r0, "drop"), (r0, tail, "breakdown"), (tail, x["end"], "drop")])
+                    changes.append((round(r0, 1), "a bridge inside the drop"))
+                    break
+        i += 1
+    if changes:
+        secs = _join_same(secs)
+        a["sections"] = secs
+        a["drops"] = sorted(round(float(x["start"]), 3) for x in secs if x.get("type") == "drop")
+    return changes
+
+
+def long_buildups(a: dict) -> list:
+    """A long buildup (20 s or more) starts where its drums come in (0.4 or more, through to its end but for
+    a last bar of the pause before the drop), when there are 8 s or more before that without them (under
+    0.3 on average): those are a breakdown. WannaCry (Ninajirachi and Porter Robinson): its soft chorus,
+    0:57 to 1:25, was part of a 39 s buildup; the build is 1:25 to 1:35. Run after drops_on_their_bar, so
+    the drop's own first bar is not taken for the drums coming in. Changes the analysis in place; returns
+    what changed."""
+    secs = [dict(x) for x in (a.get("sections") or [])]
+    if _curve(a, "drums_present") is None:
+        return []
+    changes, i = [], 0
+    while i < len(secs):
+        x = secs[i]
+        i += 1
+        if x.get("type") != "buildup" or x["end"] - x["start"] < 20.0:
+            continue
+        bl = _bar_levels(a, x["start"], x["end"])
+        k = len(bl)
+        if k and bl[-1][2]["dp"] < 0.3:
+            k -= 1                                                   # (the pause before the drop)
+        j = k
+        while j > 0 and bl[j - 1][2]["dp"] >= 0.4:
+            j -= 1
+        if j == k or j == 0:
+            continue
+        t = bl[j][0]
+        if t - x["start"] >= 8.0 and float(np.mean([lv["dp"] for _, _, lv in bl[:j]])) < 0.3:
+            secs[i - 1] = {**x, "start": round(t, 3)}
+            secs.insert(i - 1, {**x, "end": round(t, 3), "type": "breakdown"})
+            changes.append((round(x["start"], 1), "a long buildup starts where its drums come in"))
+            i += 1
+    if changes:
+        a["sections"] = _join_same(secs)
+    return changes
+
+
 def _curve(a: dict, name: str):
     c = (a.get("curves") or {}).get(name)
     return np.asarray(c, dtype=float) if c else None
@@ -1108,7 +1310,7 @@ def settle_sections(a: dict) -> list:
         a["drops_found"] = list(a.get("drops") or [])
     changes = (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
                + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
-               + model_choruses(a) + drop_tails_and_releases(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + flat_buildups(a) + sections_on_bar_lines(a))
+               + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
     from . import songmap                                   # and the song's map on the settled sections: its parts, tension, moments
     songmap.add(a)
     return changes
