@@ -53,6 +53,22 @@ def _norm(text: str) -> list[str]:
     return [w for w in re.split(r"[^a-z0-9]+", text) if w and not (w.isdigit() and len(w) == 4)]
 
 
+# Words a release adds to a title without changing the recording ("Found - Live" is the live album's Found:
+# the same audio). "remaster", "version", "explicit" and years are gone already (_norm). A remix, an acoustic
+# or an extended version is another recording: not here.
+SAME_RECORDING_WORDS = {"live", "edit", "radio", "mono", "stereo", "deluxe", "single", "album", "original", "mix", "mixed",
+                        "bonus", "track", "clean", "dirty"}
+
+
+def _same_title(a: str, b: str) -> int:
+    """2: the same title; 1: one is the other plus words that leave the recording as it is; 0: neither."""
+    if a == b:
+        return 2
+    wa, wb = a.split(), b.split()
+    short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+    return 1 if short and long_[:len(short)] == short and set(long_[len(short):]) <= SAME_RECORDING_WORDS else 0
+
+
 def _analysis_version() -> int:
     from .analysis import ANALYSIS_VERSION
     return ANALYSIS_VERSION
@@ -312,7 +328,8 @@ class JamLibrary:
 
     # The same recording under several Spotify ids (a single, then the album it is on, then a compilation): what
     # the user did for one (their sections, a beat fix, the lyrics) is used for all. Twins share an artist, the
-    # name and the length (within 1.5 s), and their loudness curves match (0.9 or more) at some offset (two
+    # name (or the name plus words like "live" or "radio edit": then the audio must match 0.95) and the length
+    # (within 1.5 s), and their loudness curves match (0.9 or more) at some offset (two
     # YouTube copies may start apart: Found - Live's by 1.6 s). 13 such pairs among 246 learned songs; Pay No
     # Mind's live version (45 s longer) is not one. Confirmed pairs are kept in twins.json.
     def twins(self, track_id: str) -> list:
@@ -321,7 +338,8 @@ class JamLibrary:
         me = idx.get(track_id)
         if not me:
             return []
-        cands = [t for t, v in idx.items() if v and t != track_id and v[1] == me[1] and v[0] & me[0] and abs(v[2] - me[2]) <= 1.5]
+        cands = {t: _same_title(v[1], me[1]) for t, v in idx.items() if v and t != track_id and v[0] & me[0] and abs(v[2] - me[2]) <= 1.5}
+        cands = {t: k for t, k in cands.items() if k}
         if not cands:
             return []
         path = os.path.join(self.dir, "twins.json")
@@ -340,7 +358,7 @@ class JamLibrary:
                 known[key] = self._match(*sorted((track_id, t)))
                 changed = True
             m = known[key]
-            if m and m[0] >= 0.9:
+            if m and m[0] >= (0.9 if cands[t] == 2 else 0.95):      # (a title that differs needs the audio closer still)
                 off = float(m[1]) if sorted((track_id, t))[0] == track_id else -float(m[1])
                 out.append((t, round(off, 3)))
         if changed:

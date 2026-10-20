@@ -43,6 +43,16 @@ class TwinsTest(unittest.TestCase):
         write(self.lib, "BBB", "Pay No Mind", ["Madeon"], 200.5, np.abs(np.random.default_rng(7).normal(size=30 * 200)))
         self.assertEqual(self.lib.twins("BBB"), [])
 
+    def test_a_live_album_title_of_the_same_audio_is_a_twin(self):
+        write(self.lib, "AAA", "Found", ["Woodlands Worship"], 288.4, self.e)
+        write(self.lib, "BBB", "Found - Live", ["Woodlands Worship"], 289.0, np.r_[np.zeros(48), self.e[:-48]])
+        self.assertEqual([t for t, _ in self.lib.twins("BBB")], ["AAA"])
+
+    def test_a_remix_is_not_even_with_the_same_length(self):
+        write(self.lib, "AAA", "Found", ["Woodlands Worship"], 288.4, self.e)
+        write(self.lib, "BBB", "Found - Remix", ["Woodlands Worship"], 288.4, self.e)
+        self.assertEqual(self.lib.twins("BBB"), [])
+
     def test_another_length_is_not(self):
         write(self.lib, "AAA", "Pay No Mind", ["Madeon"], 204.0, self.e)
         write(self.lib, "BBB", "Pay No Mind", ["Madeon"], 249.0, self.e)
