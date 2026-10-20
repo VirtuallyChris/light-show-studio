@@ -108,7 +108,8 @@ class Review:
                 doubt = {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
         except (OSError, ValueError):
             doubt = {}
-        return sorted(out, key=lambda s: (-float(doubt.get(s["id"], 0.0)), s["label"].lower()))
+        # (songs already reviewed last, whatever an older ranking said of them)
+        return sorted(out, key=lambda s: (bool(s["reviewed"]), -float(doubt.get(s["id"], 0.0)), s["label"].lower()))
 
     def song(self, track_id: str) -> dict | None:
         """What the studio's loader takes ({project, audio_url, analysis, saved}), for one learned song."""

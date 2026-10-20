@@ -43,6 +43,14 @@ class ReviewTest(unittest.TestCase):
         self.assertEqual([s["id"] for s in songs], ["ddd", "aaa"])          # by artist and title
         self.assertEqual(songs[0]["label"], "A Artist - Alpha")
 
+    def test_reviewed_songs_come_last_whatever_the_ranking_says(self):
+        with open(os.path.join(self.tmp.name, "review_order.json"), "w") as fh:
+            json.dump({"aaa": 0.9, "ddd": 0.1}, fh)
+        r = Review(self.lib)
+        self.assertEqual([s["id"] for s in r.songs()], ["aaa", "ddd"])                # the most doubted first
+        r.keep("aaa", [{"type": "verse", "start": 0, "end": 10}], ok=False)
+        self.assertEqual([s["id"] for s in r.songs()], ["ddd", "aaa"])                # reviewed: last
+
     def test_keep_writes_the_whole_song_and_its_drops(self):
         r = Review(self.lib)
         r.keep("aaa", [{"type": "drop", "start": 40, "end": 60}, {"type": "verse", "start": 0, "end": 40}], ok=False)
