@@ -21,6 +21,7 @@ import webbrowser
 from aiohttp import web
 
 from .. import govee_lan
+from . import webjson
 from .analysis import analyze_cached
 from .winpaths import local_appdata
 from . import audiotrim
@@ -40,17 +41,44 @@ AUDIO_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".opus"}
 DEFAULT_LIGHT_MAC = "5C:E7:53:E9:C7:FE"
 
 
+# config.json is read and saved by several threads (the jam, learn ahead, rooms, the web handlers). Saved whole
+# through a temporary file and swapped in, so a reader never sees half of it; and a read that fails on a bad file
+# hands back the last good one, not {}: a save after {} wrote an almost empty config (lights, rooms, offsets gone).
+_CONFIG_LOCK = threading.RLock()
+_CONFIG_GOOD: str | None = None
+
+
 def load_config() -> dict:
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    global _CONFIG_GOOD
+    with _CONFIG_LOCK:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as fh:
+                text = fh.read()
+            cfg = json.loads(text)
+            _CONFIG_GOOD = text
+            return cfg
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError):
+            return json.loads(_CONFIG_GOOD) if _CONFIG_GOOD else {}
 
 
 def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
-        json.dump(cfg, fh, indent=2)
+    global _CONFIG_GOOD
+    text = json.dumps(cfg, indent=2)
+    with _CONFIG_LOCK:
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        for attempt in range(10):                      # (Windows: a reader holding the file blocks the swap a moment)
+            try:
+                os.replace(tmp, CONFIG_PATH)
+                break
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.05)
+        _CONFIG_GOOD = text
 
 
 def safe_name(name: str) -> str:
@@ -1075,7 +1103,7 @@ class Studio:
                     break
                 fh.write(chunk)
         try:
-            return web.json_response(await self._analyse_into(name, dest, copy=False))
+            return await webjson.response(await self._analyse_into(name, dest, copy=False))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": f"analysis failed: {e}"}, status=500)
 
@@ -1088,7 +1116,7 @@ class Studio:
             return web.json_response({"error": "unsupported file type"}, status=400)
         name = body.get("name") or os.path.splitext(os.path.basename(path))[0]
         try:
-            return web.json_response(await self._analyse_into(name, path, copy=True))
+            return await webjson.response(await self._analyse_into(name, path, copy=True))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": f"analysis failed: {e}"}, status=500)
 
@@ -1167,8 +1195,8 @@ class Studio:
             with open(pj, encoding="utf-8") as fh:
                 project = json.load(fh)
         # (a show rebuilt before, project.before-rebuild.json beside it, was built by the studio, not by hand)
-        return web.json_response({"project": name, "audio_url": f"/api/audio/{name}", "analysis": analysis, "saved": project,
-                                  "rebuilt_before": os.path.exists(os.path.join(pdir, "project.before-rebuild.json"))})
+        return await webjson.response({"project": name, "audio_url": f"/api/audio/{name}", "analysis": analysis, "saved": project,
+                                       "rebuilt_before": os.path.exists(os.path.join(pdir, "project.before-rebuild.json"))})
 
     async def save_project(self, request):
         """Save a show. ?backup=1 (a show rebuilt because it was built by older show logic) keeps the
@@ -1325,8 +1353,9 @@ class Studio:
         finally:
             self.ws_clients -= 1
             self.last_client = time.monotonic()
-        if self.output.active:
-            self.output.stop()
+        if self.output.active:                          # (off the event loop: restoring the lights takes 3-4 s, and a
+            async with self.scan_lock:                  # page reloaded mid-jam froze everything, the speakers' stream too)
+                await loop.run_in_executor(None, self.output.stop)
         return ws
 
 

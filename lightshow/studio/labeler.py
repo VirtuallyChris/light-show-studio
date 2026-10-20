@@ -257,6 +257,14 @@ def _load():
         return _LOADED
 
 
+def warm() -> None:
+    """Load the trained model now (~1 s: joblib and XGBoost), not inside the first song's start."""
+    try:
+        _load()
+    except Exception as e:  # noqa: BLE001 - it loads with the first song instead
+        print(f"[labeler] not loaded ahead: {type(e).__name__}: {e}")
+
+
 def apply(a: dict) -> list[dict] | None:
     """The labeler's sections for a settled analysis (the rules' sections and song map in it), or None: no model, no
     SongFormer features for the song, too short."""
@@ -311,6 +319,7 @@ def retrain_soon(jam: str = JAM, log=print) -> bool:
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             line = next((x for x in r.stdout.splitlines() if x.startswith("[labeler]")), "")
             log(line or f"[labeler] retrain failed: {(r.stderr or '').strip().splitlines()[-1:]}")
+            warm()                                              # (the new model, loaded now rather than on a song's start)
         except Exception as e:  # noqa: BLE001
             log(f"[labeler] retrain failed: {type(e).__name__}: {e}")
         finally:

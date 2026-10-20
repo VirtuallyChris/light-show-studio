@@ -14,6 +14,7 @@ import time
 from aiohttp import web
 
 from . import loopback
+from . import webjson
 from .jam import CastOutput, JamEngine, JamLibrary, JamRunner, JamSettings, VirtualOutput
 from .loopback import Gate
 from .relay import Relay
@@ -169,6 +170,8 @@ class JamService:
     def warm_ahead(self) -> None:
         """Start the learn-ahead process and load its models now, with the studio, not when a jam starts
         (42 s later, last time, and the first song of the jam waited for it). The real studio only."""
+        from . import labeler
+        threading.Thread(target=labeler.warm, daemon=True, name="labeler-warm").start()   # (~1 s: not on the first song)
         if self._fetch_on():
             from .fetch_ahead import ANALYSER
             from .model_worker import HOST
@@ -685,7 +688,7 @@ class JamService:
         if self.engine is None:
             return web.json_response({"error": "not running"}, status=404)
         doc = await asyncio.get_running_loop().run_in_executor(None, self.engine.analysis_json, request.query.get("key", ""))
-        return web.json_response(doc) if doc else web.json_response({"error": "no such track"}, status=404)
+        return await webjson.response(doc) if doc else web.json_response({"error": "no such track"}, status=404)
 
     RECONNECT_AFTER_S = 3.0      # a speaker that had played less of the stream than this was only starting it
 

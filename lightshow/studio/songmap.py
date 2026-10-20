@@ -155,8 +155,9 @@ def tension(a: dict, step: float = 0.25) -> dict:
     else:
         bright = np.zeros(len(t))
     loud = np.array([at(en, x) for x in t])
-    bass = np.array([at(np.asarray(cur.get("bass") or [0.0]), x) for x in t])
-    drums = np.array([at(np.asarray(cur.get("drums_present") or [0.0]), x) for x in t])
+    bass_c, drums_c = np.asarray(cur.get("bass") or [0.0]), np.asarray(cur.get("drums_present") or [0.0])   # (once, not per step)
+    bass = np.array([at(bass_c, x) for x in t])
+    drums = np.array([at(drums_c, x) for x in t])
 
     def norm(v):
         lo, hi_ = np.percentile(v, 5), np.percentile(v, 95)

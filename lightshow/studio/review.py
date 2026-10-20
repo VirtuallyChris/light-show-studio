@@ -23,6 +23,7 @@ import threading
 
 from aiohttp import web
 
+from . import webjson
 from .spotify import Track
 
 SECTION_TYPES = ("intro", "verse", "buildup", "drop", "breakdown", "outro")
@@ -185,7 +186,7 @@ class Review:
 
     async def h_song(self, request):
         doc = await asyncio.get_running_loop().run_in_executor(None, self.song, request.match_info["id"])
-        return web.json_response(doc) if doc else web.json_response({"error": "That song is not learned, or its copy is gone."}, status=404)
+        return await webjson.response(doc) if doc else web.json_response({"error": "That song is not learned, or its copy is gone."}, status=404)
 
     async def h_audio(self, request):
         path = self.copy_path(request.match_info["id"])
