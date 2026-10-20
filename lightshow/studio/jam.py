@@ -96,6 +96,9 @@ class JamLibrary:
         self._levels: dict | None = None
         self.beat_fixes_path = os.path.join(self.dir, "beat_fixes.json")
         self._levels_lock = threading.Lock()
+        # the caches below (twins, the learned index, the user's sections) are used by the jam, learn ahead, the
+        # review and the labeler's threads at once: one lock (a dict changed mid-dump failed a song's start)
+        self._cache_lock = threading.RLock()
         self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
         self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
 
@@ -301,6 +304,45 @@ class JamLibrary:
             doc["analysis"]["sections_truth"] = mine            # settle_sections plays these (the user's own)
         return doc
 
+    def summary(self, track_id: str) -> dict | None:
+        """{"problems", "mood", "genre"} of a learned song, without parsing all of its megabytes (~95 ms a song: learn
+        ahead and the queue's colors read one field of 100+ songs): each value decoded where it stands in the file,
+        the whole file read only if one does not look right. Kept by the file's time. None: not learned."""
+        path = self._learned_path(track_id)
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+        lock = self.__dict__.setdefault("_cache_lock", threading.RLock())
+        cache = self.__dict__.setdefault("_summary", {})
+        with lock:
+            hit = cache.get(track_id)
+            if hit and hit[0] == mtime:
+                return hit[1]
+        out = None
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            dec, got = json.JSONDecoder(), {}
+            for key, find in (("problems", text.rfind), ("genre", text.rfind), ("mood", text.find)):
+                i = find(f'"{key}": ')
+                if i < 0:
+                    raise ValueError(key)
+                got[key], _ = dec.raw_decode(text, i + len(key) + 4)
+            if isinstance(got["problems"], list) and isinstance(got["mood"], dict) and isinstance(got["genre"], (dict, type(None))):
+                out = got
+        except (OSError, ValueError):
+            out = None
+        if out is None:                                    # (not where expected: the whole file, as before)
+            doc = self.learned(track_id)
+            if not doc:
+                return None
+            a = doc.get("analysis") or {}
+            out = {"problems": list(a.get("problems") or []), "mood": a.get("mood"), "genre": a.get("genre")}
+        with lock:
+            cache[track_id] = (mtime, out)
+        return out
+
     def reviewed_sections(self, track_id: str) -> list | None:
         """The sections the user set by ear for a learned song (the studio's review, section_truth.json), or None.
         A song can have no drops at all: the user's word stands (Walking On A Dream, Oogie Boogie's Song)."""
@@ -343,32 +385,34 @@ class JamLibrary:
         if not cands:
             return []
         path = os.path.join(self.dir, "twins.json")
-        known = self.__dict__.get("_twins")
-        if known is None:
-            try:
-                with open(path, encoding="utf-8") as fh:
-                    known = json.load(fh)
-            except (OSError, ValueError):
-                known = {}
-            self._twins = known
-        out, changed = [], False
-        for t in cands:
-            key = "|".join(sorted((track_id, t)))
-            if key not in known:
-                known[key] = self._match(*sorted((track_id, t)))
-                changed = True
-            m = known[key]
-            if m and m[0] >= (0.9 if cands[t] == 2 else 0.95):      # (a title that differs needs the audio closer still)
-                off = float(m[1]) if sorted((track_id, t))[0] == track_id else -float(m[1])
-                out.append((t, round(off, 3)))
-        if changed:
-            try:
-                tmp = path + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(known, fh, indent=1)
-                os.replace(tmp, path)
-            except OSError:
-                pass
+        lock = self.__dict__.setdefault("_cache_lock", threading.RLock())
+        with lock:
+            known = self.__dict__.get("_twins")
+            if known is None:
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        known = json.load(fh)
+                except (OSError, ValueError):
+                    known = {}
+                self._twins = known
+            todo = [t for t in cands if "|".join(sorted((track_id, t))) not in known]
+        found = {"|".join(sorted((track_id, t))): self._match(*sorted((track_id, t))) for t in todo}   # (slow: outside the lock)
+        with lock:
+            if found:
+                known.update(found)
+                try:
+                    tmp = path + ".tmp"
+                    with open(tmp, "w", encoding="utf-8") as fh:
+                        json.dump(known, fh, indent=1)
+                    os.replace(tmp, path)
+                except OSError:
+                    pass
+            out = []
+            for t in cands:
+                m = known.get("|".join(sorted((track_id, t))))
+                if m and m[0] >= (0.9 if cands[t] == 2 else 0.95):      # (a title that differs needs the audio closer still)
+                    off = float(m[1]) if sorted((track_id, t))[0] == track_id else -float(m[1])
+                    out.append((t, round(off, 3)))
         return out
 
     def _match(self, a_id: str, b_id: str) -> list | None:
@@ -455,25 +499,27 @@ class JamLibrary:
     def _learned_index(self) -> dict:
         """track id -> (artist words, name, length) of each learned song, read from the head of its file (the
         track comes right after the version: the megabytes after it are not read). Kept, and topped up."""
-        idx = self.__dict__.setdefault("_lidx", {})
-        try:
-            names = os.listdir(self.learned_dir)
-        except OSError:
-            return idx
-        dec = json.JSONDecoder()
-        for fn in names:
-            tid = fn[:-5]
-            if not fn.endswith(".json") or tid in idx:
-                continue
+        lock = self.__dict__.setdefault("_cache_lock", threading.RLock())
+        with lock:
+            idx = self.__dict__.setdefault("_lidx", {})
             try:
-                with open(os.path.join(self.learned_dir, fn), encoding="utf-8") as fh:
-                    head = fh.read(8192)
-                t, _ = dec.raw_decode(head, head.index('"track": ') + len('"track": '))
-                idx[tid] = (frozenset(w for a in t.get("artists") or [] for w in _norm(a)), " ".join(_norm(t.get("name") or "")),
-                            float(t.get("duration") or 0))
-            except (OSError, ValueError):
-                idx[tid] = None
-        return idx
+                names = os.listdir(self.learned_dir)
+            except OSError:
+                return dict(idx)
+            dec = json.JSONDecoder()
+            for fn in names:
+                tid = fn[:-5]
+                if not fn.endswith(".json") or tid in idx:
+                    continue
+                try:
+                    with open(os.path.join(self.learned_dir, fn), encoding="utf-8") as fh:
+                        head = fh.read(8192)
+                    t, _ = dec.raw_decode(head, head.index('"track": ') + len('"track": '))
+                    idx[tid] = (frozenset(w for a in t.get("artists") or [] for w in _norm(a)), " ".join(_norm(t.get("name") or "")),
+                                float(t.get("duration") or 0))
+                except (OSError, ValueError):
+                    idx[tid] = None
+            return dict(idx)                                 # (a copy: callers iterate it while others top it up)
 
     def twin_of(self, track: Track) -> str | None:
         """The id a song not learned under its own was learned under: one of its artists, the same name and
@@ -919,16 +965,29 @@ class JamEngine:
 
     # ------------------------------------------------------------------------- polling
     def poll(self) -> None:
-        """Ask Spotify what is playing and update the timeline. Call about once a second."""
-        with self.lock:
+        """Ask Spotify what is playing and update the timeline. Call about once a second.
+
+        Spotify is asked, and a new song's learned analysis loaded and settled (0.5 s or more), before the lock is
+        taken: held through them, the lock kept the page's state, the new song's analysis and the stream waiting."""
+        try:
+            np_ = self.spotify.now_playing()
+            err = ""
+        except Exception as e:  # noqa: BLE001 - shown in the UI; the relay keeps running regardless
+            np_, err = None, f"{type(e).__name__}: {e}"
+        head0 = self.relay.capture_time                    # (the recording's place as Spotify answered, as before)
+        cur0 = self.current
+        if np_ is not None and np_.track is not None and np_.playing and (cur0 is None or cur0.track.id != np_.track.id):
             try:
-                np_ = self.spotify.now_playing()
-                self.error = ""
-            except Exception as e:  # noqa: BLE001 - shown in the UI; the relay keeps running regardless
-                self.error = f"{type(e).__name__}: {e}"
+                self._prepare(np_.track)
+            except Exception as e:  # noqa: BLE001 - loaded the usual way, under the lock
+                self.say(f"{np_.track.label}: not prepared ahead ({type(e).__name__}: {e})")
+        with self.lock:
+            if np_ is None:
+                self.error = err
                 return
+            self.error = ""
             self.now = np_
-            head = self.relay.capture_time
+            head = head0
             if np_.track is None:
                 return
             if not np_.playing:
@@ -990,6 +1049,24 @@ class JamEngine:
         if self.cfg.skip_jumps:
             self._flush(jt)
 
+    def _prepare(self, track: Track) -> None:
+        """A song about to begin: its learned analysis loaded and settled now, outside the lock (_begin_track takes it).
+        Only the latest is kept."""
+        prep = self.__dict__.setdefault("_prep", {})
+        if track.id in prep or self.library.match_project(track):
+            return
+        learned = self.library.learned(track.id)
+        if not learned:
+            return
+        from .analysis import settle_sections
+        from .genre import restyle
+        a0 = learned["analysis"]
+        a0["genre"] = restyle(a0.get("genre"), float((a0.get("mood") or {}).get("drive", 0.6)))
+        settle_sections(a0)
+        ref = (np.asarray(a0["align_bands"], dtype=np.float32), float(a0.get("align_fps", SR_ANALYSIS / HOP))) if a0.get("align_bands") else None
+        prep.clear()
+        prep[track.id] = (learned, ref)
+
     def _begin_track(self, track: Track, est_start: float, prev: JamTrack | None, restarted: bool) -> None:
         natural = False
         if prev is not None and prev.end is None:
@@ -1004,15 +1081,16 @@ class JamEngine:
             natural = not restarted and -early <= est_start - expected_end <= 3.0
             prev.end = min(est_start, expected_end) if natural else est_start
             prev.skipped = not natural
-        project = self.library.match_project(track)
-        if not project:
+        ready = self.__dict__.setdefault("_prep", {}).pop(track.id, None)   # (loaded and settled ahead: poll, _prepare)
+        project = None if ready else self.library.match_project(track)
+        if not project and not ready:
             try:
                 twin = self.library.adopt_twin(track)
                 if twin:
                     self.say(f"{track.label}: the same song as one learned before (another Spotify id): its show")
             except Exception:  # noqa: BLE001 - it is learned the usual way instead
                 pass
-        learned = None if project else self.library.learned(track.id)
+        learned = ready[0] if ready else None if project else self.library.learned(track.id)
         kind = "custom" if project else "learned" if learned else "live"
         self.serial += 1
         # A song already playing when the jam began started before the recording did: its start
@@ -1029,15 +1107,17 @@ class JamEngine:
             jt.source = learned.get("source", "heard")
             jt.analysis = learned["analysis"]
             a0 = jt.analysis
-            a0["genre"] = restyle(a0.get("genre"), float((a0.get("mood") or {}).get("drive", 0.6)))
-            from .analysis import settle_sections
-            settle_sections(a0)
+            if not ready:                                   # (else restyled and settled ahead, outside the lock)
+                a0["genre"] = restyle(a0.get("genre"), float((a0.get("mood") or {}).get("drive", 0.6)))
+                from .analysis import settle_sections
+                settle_sections(a0)
             jt.genre = a0.get("genre")
             jt.version = 1
             jt.horizon = track.duration
-            a = learned["analysis"]
-            if a.get("align_bands"):
-                jt.ref = (np.asarray(a["align_bands"], dtype=np.float32), float(a.get("align_fps", SR_ANALYSIS / HOP)))
+            if ready:
+                jt.ref = ready[1]
+            elif a0.get("align_bands"):
+                jt.ref = (np.asarray(a0["align_bands"], dtype=np.float32), float(a0.get("align_fps", SR_ANALYSIS / HOP)))
         self.tracks.append(jt)
         del self.tracks[:-40]
         self.say(f"{'next up' if natural else 'now'}: {track.label}  [{kind}{' - ' + project if project else ''}]")

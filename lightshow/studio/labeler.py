@@ -329,13 +329,40 @@ def retrain_soon(jam: str = JAM, log=print) -> bool:
     return True
 
 
-def song_bars(lib, tid: str) -> dict | None:
-    """One learned song's bar features as the rules read it (cached), with the user's labels (-1 where none)."""
+_CODE_KEY: list = []
+
+
+def _cache_key(lib, tid: str) -> str:
+    """What a song's cached bar features depend on: its learned file, its beat fix, the analysis version, and the
+    code that reads it (the rules, the song map, these features). Any change and the song is read again."""
+    if not _CODE_KEY:
+        import hashlib
+        h = hashlib.sha1()
+        here = os.path.dirname(os.path.abspath(__file__))
+        for f in ("analysis.py", "songmap.py", "labeler.py"):
+            with open(os.path.join(here, f), "rb") as fh:
+                h.update(fh.read())
+        _CODE_KEY.append(h.hexdigest()[:12])
+    try:
+        mtime = os.path.getmtime(lib._learned_path(tid))
+    except OSError:
+        mtime = 0.0
+    fix = (lib.beat_fixes() if hasattr(lib, "beat_fixes") else {}).get(tid, 0.0)
+    from .analysis import ANALYSIS_VERSION
+    return f"{mtime:.0f}|{fix}|{ANALYSIS_VERSION}|{_CODE_KEY[0]}"
+
+
+def song_bars(lib, tid: str, user: dict | None = None) -> dict | None:
+    """One learned song's bar features as the rules read it (cached, rebuilt when what it depends on changes), with
+    the user's labels (-1 where none). user: the reviews, read once by the caller."""
     path = os.path.join(CACHE, tid + ".npz")
+    key = _cache_key(lib, tid)
+    out = None
     if os.path.exists(path):
         z = np.load(path)
-        out = {k: z[k] for k in z.files}
-    else:
+        if "key" in z.files and str(z["key"]) == key:
+            out = {k: z[k] for k in z.files if k != "key"}
+    if out is None:
         doc = lib.learned(tid)
         if not doc:
             return None
@@ -349,8 +376,8 @@ def song_bars(lib, tid: str) -> dict | None:
             return None
         out = {**f, "name": np.array(doc["track"]["name"])}
         os.makedirs(CACHE, exist_ok=True)
-        np.savez_compressed(path, **out)
-    t = truth(lib.dir).get(tid)
+        np.savez_compressed(path, **out, key=np.array(key))
+    t = (user if user is not None else truth(lib.dir)).get(tid)
     out["y"] = np.array([TYPES.index(_label_at(t["sections"], 0.5 * (b0 + b1))) if t and _label_at(t["sections"], 0.5 * (b0 + b1)) in TYPES
                          else -1 for b0, b1 in out["spans"]])
     out["tid"] = tid
@@ -359,7 +386,8 @@ def song_bars(lib, tid: str) -> dict | None:
 
 def load_all(lib) -> list[dict]:
     tids = [f[:-9] for f in os.listdir(FEAT) if f.endswith(".emb2.npy")] if os.path.isdir(FEAT) else []
-    return [s for s in (song_bars(lib, t) for t in tids) if s is not None]
+    user = truth(lib.dir)
+    return [s for s in (song_bars(lib, t, user) for t in tids) if s is not None]
 
 
 def _pca(songs):

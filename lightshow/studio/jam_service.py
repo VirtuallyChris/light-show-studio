@@ -49,6 +49,13 @@ def extras_for(pair) -> list[str] | None:
     return out
 
 
+def _summary(library, tid: str) -> dict:
+    """A learned song's problems, mood and genre (JamLibrary.summary: without parsing the whole file)."""
+    if hasattr(library, "summary"):
+        return library.summary(tid) or {}
+    return (library.learned(tid) or {}).get("analysis") or {}
+
+
 class JamService:
     def __init__(self, studio, shows_dir: str, load_config, save_config, local_ip):
         self.studio, self.shows_dir = studio, shows_dir
@@ -880,7 +887,7 @@ class JamService:
             return {}
         found = self.__dict__.setdefault("_found_genre", {})
         if tid not in found:
-            a = (self.library.learned(tid) or {}).get("analysis") or {}
+            a = _summary(self.library, tid)                               # (problems, mood, genre: not the whole file)
             from .genre import restyle
             g = restyle(a.get("genre"), float((a.get("mood") or {}).get("drive", 0.6))) or {}
             found[tid] = {**g, "problems": list(a.get("problems") or [])}
@@ -901,7 +908,7 @@ class JamService:
         (unknown tracks take turns). The order follows the default pairs: purple/green spooky, purple/orange
         warm, green/orange bright, red/blue hard."""
         if track_id not in self._moods:                     # a learned file is megabytes: read each once
-            self._moods[track_id] = ((self.library.learned(track_id) or {}).get("analysis") or {}).get("mood")
+            self._moods[track_id] = _summary(self.library, track_id).get("mood")
         mood = self._moods[track_id]
         if not mood:
             k = len(self._assigned)

@@ -327,8 +327,10 @@ class FetchAhead:
         if not self.library.has_learned(track_id):
             return False
         if track_id not in self.checked:
-            doc = self.library.learned(track_id) or {}
-            self.checked[track_id] = not ((doc.get("analysis") or {}).get("problems"))
+            summ = self.library.summary(track_id) if hasattr(self.library, "summary") else None
+            if summ is None:
+                summ = {"problems": ((self.library.learned(track_id) or {}).get("analysis") or {}).get("problems")}
+            self.checked[track_id] = not summ.get("problems")
         return self.checked[track_id]
 
     def _wanted(self, t) -> bool:
@@ -347,6 +349,9 @@ class FetchAhead:
         downloaded past the two-copy limit and analysed at above-normal priority, all effort on it."""
         if not self.is_available():
             return 0
+        for t in tracks:                                  # (read before the lock: the poll thread and the page wait on it)
+            if getattr(t, "id", None):
+                self._learned_well(t.id)
         with self.lock:
             if first:
                 self.now = now

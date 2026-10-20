@@ -933,7 +933,8 @@ class Studio:
         cfg = load_config()
         remembered = cfg.get("known_devices", {})
         before = json.dumps(remembered, sort_keys=True)
-        arp = govee_lan.arp_table() if any(not d.mac for d in self.known) else {}
+        # (arp is a subprocess with a 5 s timeout: in a worker thread, not on the event loop)
+        arp = await loop.run_in_executor(None, govee_lan.arp_table) if any(not d.mac for d in self.known) else {}
         for d in self.known:
             # The MAC comes from the ARP cache, which is empty now and then. A blank
             # must never replace a MAC we already know: the segment count is keyed by
