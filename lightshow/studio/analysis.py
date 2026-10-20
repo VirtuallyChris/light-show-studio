@@ -1477,15 +1477,20 @@ def settle_sections(a: dict) -> list:
     else:
         a["sections_found"] = [dict(s) for s in a.get("sections") or []]
         a["drops_found"] = list(a.get("drops") or [])
-    changes = grid_on_attacks(a) + grid_tempo_from_hits(a) + grid_on_the_backbeat(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
+    grid = grid_on_attacks(a) + grid_tempo_from_hits(a) + grid_on_the_backbeat(a)
+    from . import songmap
+    if a.get("sections_truth"):                             # a song the user set right by ear: their sections, as they are
+        a["sections"] = [dict(s) for s in a["sections_truth"]]   # (the rules' would be thrown away: not run, ~70 ms)
+        a["drops"] = [round(float(s["start"]), 3) for s in a["sections"] if s.get("type") == "drop"]
+        songmap.add(a)
+        a.pop("_songmap_bars", None)
+        return grid + [(0.0, "the sections the user set by ear")]
+    changes = grid + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
                + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
                + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + verses_without_synths(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
-    from . import songmap                                   # the song's map on the rules' sections (the labeler reads it)
-    songmap.add(a)
+    songmap.add(a)                                          # the song's map on the rules' sections (the labeler reads it)
     final = None
-    if a.get("sections_truth"):                             # a song the user set right by ear: their sections, as they are
-        final, why = [dict(s) for s in a["sections_truth"]], "the sections the user set by ear"
-    elif a.get("track_id") and not a.get("_no_labeler"):    # else the learned labeler's, where it can (labeler.py)
+    if a.get("track_id") and not a.get("_no_labeler"):      # the learned labeler's sections, where it can (labeler.py)
         try:
             from . import labeler
             got = labeler.apply(a)
@@ -1500,6 +1505,7 @@ def settle_sections(a: dict) -> list:
         a["drops"] = [round(float(s["start"]), 3) for s in final if s.get("type") == "drop"]
         changes = changes + [(0.0, why)]
         songmap.add(a)                                      # (and its map again, on the sections that play)
+    a.pop("_songmap_bars", None)                            # (the map's bars, kept between its two runs: not saved)
     return changes
 
 

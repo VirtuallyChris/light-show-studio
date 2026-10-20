@@ -14,7 +14,7 @@ import json
 from aiohttp import web
 
 # what the server keeps for itself: the jam's line-up spectrum, the rules' own sections and the sections as first found
-SERVER_ONLY = ("align_bands", "sections_rules", "sections_found", "drops_found")
+SERVER_ONLY = ("align_bands", "sections_rules", "sections_found", "drops_found", "_songmap_bars")
 
 
 def for_browser(doc):

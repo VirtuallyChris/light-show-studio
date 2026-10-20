@@ -103,7 +103,13 @@ def _model_kind(a: dict, t0: float, t1: float) -> str | None:
 def parts(a: dict) -> list[dict]:
     """Each section with its part: [{start, end, type, part ('A'...), occ (1...), of}]."""
     secs = a.get("sections") or []
-    bars, F = bar_features(a)
+    key = (len(a.get("downbeats") or []), (a.get("downbeats") or [None])[0], (a.get("downbeats") or [None])[-1])
+    hit = a.get("_songmap_bars")                         # (the same bars both times a load maps the song: kept)
+    if hit and hit[0] == key:
+        bars, F = hit[1]
+    else:
+        bars, F = bar_features(a)
+        a["_songmap_bars"] = (key, (bars, F))
     if not secs or len(F) < 4:
         return []
     idx = lambda t: int(np.clip(np.searchsorted(bars, t + 0.3) - 1, 0, len(F) - 1))
