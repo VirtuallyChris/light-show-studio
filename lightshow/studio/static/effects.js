@@ -77,9 +77,30 @@ const Effects = (() => {
     }
   }
   /** gradient sample through the palette, x wraps around */
+  /** A color part way along a palette (x 0..1 goes round it once). Between two colors near each other on the
+   *  color wheel (up to 150 degrees apart) the blend goes round the wheel, so every step on the way is a pure
+   *  bright color (red to green through yellow, not a dim olive); between two far apart (violet and lime, red
+   *  and cyan) each holds most of its span and the change is a quicker crossfade, since their RGB middle is a
+   *  muddy grey. White or grey in the palette: a plain blend (a tint). */
+  function rgbHue(c) {
+    const mx = Math.max(c[0], c[1], c[2]), d = mx - Math.min(c[0], c[1], c[2]);
+    if (!mx || d / mx < 0.2) return null;
+    const h = mx === c[0] ? ((c[1] - c[2]) / d) % 6 : mx === c[1] ? (c[2] - c[0]) / d + 2 : (c[0] - c[1]) / d + 4;
+    return ((h / 6) + 1) % 1;
+  }
   function palAt(pal, x) {
     const m = pal.length; if (m === 1) return pal[0];
-    x = frac(x) * m; const i = Math.floor(x), f = x - i; const a = pal[i % m], b = pal[(i + 1) % m];
+    x = frac(x) * m; const i = Math.floor(x); let f = x - i; const a = pal[i % m], b = pal[(i + 1) % m];
+    const ha = rgbHue(a), hb = rgbHue(b);
+    if (ha !== null && hb !== null) {
+      const d = hb - ha - Math.round(hb - ha);                       // the short way round, -0.5..0.5
+      if (Math.abs(d) <= 150 / 360) {
+        const va = Math.max(a[0], a[1], a[2]), vb = Math.max(b[0], b[1], b[2]);
+        const sa = (va - Math.min(a[0], a[1], a[2])) / va, sb = (vb - Math.min(b[0], b[1], b[2])) / vb;
+        return hsv(ha + d * f, lerp(sa, sb, f), lerp(va, vb, f));
+      }
+      f = clamp((f - 0.5) / 0.4 + 0.5); f = f * f * (3 - 2 * f);    // far apart: a crossfade over the middle 40%
+    }
     return [lerp(a[0], b[0], f), lerp(a[1], b[1], f), lerp(a[2], b[2], f)];
   }
   const palIdx = (pal, i) => pal[((Math.floor(i) % pal.length) + pal.length) % pal.length];
@@ -904,10 +925,19 @@ const Effects = (() => {
         for (let ch = 0; ch < 3; ch++) dst[j + ch] *= 1 - m;
         continue;
       }
+      // Add, as light does, but true to the colors: a layer in a color like the one under it adds (brighter),
+      // one in a color far from it (orange hits on a teal bed) takes the place where it is bright, mostly,
+      // rather than summing to a pale near-white (over a whole drop, the room washed out to lavender).
+      let keep = 1;
+      if (blend === 'add') {
+        const d0 = dst[j], d1 = dst[j + 1], d2 = dst[j + 2], s0 = clamp(src[j]), s1 = clamp(src[j + 1]), s2 = clamp(src[j + 2]);
+        const dd = Math.hypot(d0, d1, d2), ss = Math.hypot(s0, s1, s2);
+        if (dd > 0.02 && ss > 0.02) keep = 1 - Math.max(s0, s1, s2) * (1 - (d0 * s0 + d1 * s1 + d2 * s2) / (dd * ss));
+      }
       for (let ch = 0; ch < 3; ch++) {
         const d = dst[j + ch], s = clamp(src[j + ch]); let r;
         switch (blend) {
-          case 'add': r = d + s; break;
+          case 'add': r = d * keep + s; break;
           case 'screen': r = 1 - (1 - d) * (1 - s); break;
           case 'multiply': r = d * s; break;
           case 'max': r = Math.max(d, s); break;
