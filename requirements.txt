@@ -7,3 +7,5 @@ aiohttp>=3.9
 pychromecast>=14
 soundcard>=0.4.3
 reolink_aio>=0.21
+scikit-learn>=1.5
+xgboost>=3.0

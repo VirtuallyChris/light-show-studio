@@ -12,18 +12,20 @@ Every bar of a song is described by:
   - the rules' own label (analysis.settle_sections), the song map (parts, tension), drum events, its place;
   - SongFormer's audio embeddings (MuQ + MusicFM, PCA 64, raw and against the song), and how much it repeats;
   - the lyrics: sung or not, how often the words sung here come back, the hook line, first time heard.
-A gradient-boosted classifier labels each bar intro / verse / buildup / drop / breakdown / outro. The per-bar
+A gradient-boosted classifier (XGBoost, on the graphics card) labels each bar intro / verse / buildup / drop /
+breakdown / outro. The per-bar
 features are cached (shows/_jam/features/bars); after the rules change, add --fresh.
 
 The embeddings and heads come from tools\\songformer_features.py (the model environment, the graphics card):
 
     .venv-songformer\\Scripts\\python tools\\songformer_features.py
 
-2026-10-19, 49 reviewed songs, leaving one song out (time share right, types / drop-not-drop):
-  the rules 85.9% / 92.1%; this labeler 85.4-85.8% / 92.0-92.4%; SongFormer alone 65.1% / 80.2%;
-  All-In-One alone 65.7% / 80.7%. Rules and labeler agree 91% of the time and are right there 90%; even
-  the better of the two at every bar would be 89.6%. Not better than the rules yet: run eval again as
-  more songs are reviewed (the rules were tuned on some of these songs; new ones are the fair test).
+2026-10-19, 84 reviewed songs, leaving one song out (time share right, types / drop-not-drop):
+  all 84:            the rules 78.7% / 86.2%   this labeler 83.7% / 91.5%
+  the first 48:      the rules 85.9% / 92.1%   this labeler 86.2% / 92.7%   (the rules were tuned on some)
+  the 35 reviewed next (the fair test; picked where the labeler and the rules disagreed most):
+                     the rules 68.5% / 78.1%   this labeler 80.1% / 89.7%
+  SongFormer alone 65.1% / 80.2% and All-In-One alone 65.7% / 80.7% (on the first 49).
 """
 
 from __future__ import annotations
@@ -204,10 +206,32 @@ def matrix(s, pcas):
     return np.concatenate([s["base"], Pr, Pc, Pc - nb(Pc, -1), nb(Pc, 1) - Pc, rep, s["heads"], s["lyr"]], 1).astype(np.float32)
 
 
+class _XGB:
+    """XGBoost on the graphics card (300 rounds on ~7,000 bars in ~5 s; scikit-learn's own boosting took ~6 min
+    on this machine, most of it in the system's thread scheduling), each label weighted as if equally common."""
+
+    def __init__(self):
+        from xgboost import XGBClassifier
+        self.clf = XGBClassifier(n_estimators=300, learning_rate=0.05, max_depth=6, subsample=0.9, colsample_bytree=0.6,
+                                 reg_lambda=1.0, tree_method="hist", device="cuda", n_jobs=8, random_state=0)
+
+    def fit(self, X, y):
+        from sklearn.utils.class_weight import compute_sample_weight
+        self.classes_ = np.unique(y)
+        remap = {c: i for i, c in enumerate(self.classes_)}           # (XGBoost wants the labels it saw as 0..n-1)
+        self.clf.fit(X, np.array([remap[v] for v in y]), sample_weight=compute_sample_weight("balanced", y))
+        return self
+
+    def predict_proba(self, X):
+        self.clf.set_params(device="cpu")                            # (a few hundred bars: no copy to the card needed)
+        try:
+            return self.clf.predict_proba(X)
+        finally:
+            self.clf.set_params(device="cuda")
+
+
 def _model():
-    from sklearn.ensemble import HistGradientBoostingClassifier
-    return HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, max_leaf_nodes=24, l2_regularization=1.0,
-                                          class_weight="balanced", random_state=0)
+    return _XGB()
 
 
 def load_all():
@@ -227,19 +251,33 @@ def evaluate():
     rev = [s for s in songs if (s["y"] >= 0).any()]
     names = sorted({str(s["name"]).lower() for s in rev})
     print(f"{len(rev)} reviewed songs ({len(songs)} with features)", flush=True)
+    M = {s["tid"]: matrix(s, pcas) for s in rev}                 # each song's features once (the PCA uses no labels)
     Y, R, P, W = [], [], [], []
-    for nm in names:
+    for k, nm in enumerate(names):
         tr = [s for s in rev if str(s["name"]).lower() != nm]
-        X = np.concatenate([matrix(s, pcas)[s["y"] >= 0] for s in tr]); yy = np.concatenate([s["y"][s["y"] >= 0] for s in tr])
+        X = np.concatenate([M[s["tid"]][s["y"] >= 0] for s in tr]); yy = np.concatenate([s["y"][s["y"] >= 0] for s in tr])
         clf = _model().fit(X, yy)
+        if k % 10 == 0:
+            print(f"  {k}/{len(names)} songs scored", flush=True)
         for s in (s for s in rev if str(s["name"]).lower() == nm):
             m = s["y"] >= 0
-            pr = np.zeros((len(s["y"]), 6)); pr[:, clf.classes_] = clf.predict_proba(matrix(s, pcas))
+            pr = np.zeros((len(s["y"]), 6)); pr[:, clf.classes_] = clf.predict_proba(M[s["tid"]])
             Y.append(s["y"][m]); R.append(s["rule"][m]); P.append(pr.argmax(1)[m]); W.append((s["spans"][:, 1] - s["spans"][:, 0])[m])
+    added = {k: v.get("added", "?") for k, v in truth().items()}
+    G = np.concatenate([[added.get(s["tid"], "?")] * int((s["y"] >= 0).sum()) for nm in names for s in rev if str(s["name"]).lower() == nm])
     y, r, p, w = map(np.concatenate, (Y, R, P, W))
-    acc = lambda q: f"types {np.average(q == y, weights=w):.1%}  drop/not-drop {np.average((q == 3) == (y == 3), weights=w):.1%}"
-    print("the rules:   ", acc(r))
-    print("the labeler: ", acc(p))
+    def acc(q, m=None):
+        m = np.ones(len(y), bool) if m is None else m
+        return f"types {np.average((q == y)[m], weights=w[m]):.1%}  drop/not-drop {np.average(((q == 3) == (y == 3))[m], weights=w[m]):.1%}"
+    print("all reviewed songs")
+    print("  the rules:   ", acc(r))
+    print("  the labeler: ", acc(p))
+    for day in sorted(set(G)):                                  # songs reviewed after the rules were last tuned are the fair test
+        m = G == day
+        n = len({str(s["name"]).lower() for s in rev if added.get(s["tid"]) == day})
+        print(f"reviewed {day} ({n} songs)")
+        print("  the rules:   ", acc(r, m))
+        print("  the labeler: ", acc(p, m))
 
 
 def train():
