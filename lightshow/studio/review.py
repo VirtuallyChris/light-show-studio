@@ -1,5 +1,5 @@
 """Review mode: step through the learned Jam songs that have no saved show, set their sections right in the
-studio, and keep what the user says as the truth the section rules are scored against (score_sections.py).
+studio, and keep what the user says as the truth the section labeler learns from (labeler.py).
 
 A song can be reviewed when it was learned (shows/_jam/learned/<id>.json) and its copy kept
 (shows/_jam/copies/<id>.flac): the studio plays the copy, the learned analysis is the one a Jam uses (its
@@ -157,8 +157,8 @@ class Review:
             self.library.set_beat_fix(track_id, float(self.library.beat_fixes().get(track_id) or 0.0) + float(beat_shift))
         with self.lock:
             truth = self.truth()
-            truth.setdefault("_about", "Sections the user set by ear (review mode in the studio): drops are what "
-                                       "score_sections.py scores; sections are the whole song.")
+            truth.setdefault("_about", "Sections the user set by ear (review mode in the studio): the section labeler "
+                                       "learns from them; sections are the whole song.")
             truth[track_id] = entry
             tmp = self.truth_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as fh:

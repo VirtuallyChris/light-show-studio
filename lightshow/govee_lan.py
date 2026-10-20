@@ -12,6 +12,7 @@ Protocol summary (documented by Govee):
 from __future__ import annotations
 
 import base64
+import itertools
 import json
 import re
 import socket
@@ -82,14 +83,6 @@ class GoveeDevice:
         self._last = rgb
         self.send("colorwc", {"color": {"r": rgb[0], "g": rgb[1], "b": rgb[2]}, "colorTemInKelvin": 0})
 
-    def color_if_changed(self, r: int, g: int, b: int, threshold: int = 3) -> bool:
-        """Send colour only if it moved more than `threshold` on any channel."""
-        rgb = (_clamp8(r), _clamp8(g), _clamp8(b))
-        if self._last is not None and all(abs(a - b) <= threshold for a, b in zip(rgb, self._last)):
-            return False
-        self.color(*rgb)
-        return True
-
     def status(self, timeout: float = 1.0) -> dict | None:
         with _listener(timeout) as ls:
             self.send("devStatus")
@@ -119,8 +112,11 @@ class GoveeDevice:
         if len(colors) > self.MAX_RAZER_LEDS:
             colors = _resample_colors(colors, self.MAX_RAZER_LEDS)
         data = bytearray([1 if gradient else 0, len(colors)])
-        for r, g, b in colors:
-            data += bytes((_clamp8(r), _clamp8(g), _clamp8(b)))
+        try:                    # the page's frames are whole numbers 0..255 already: straight to bytes (~7x faster)
+            data += bytes(itertools.chain.from_iterable(colors))
+        except (TypeError, ValueError):     # floats or out of range: each clamped
+            for r, g, b in colors:
+                data += bytes((_clamp8(r), _clamp8(g), _clamp8(b)))
         self.send("razer", {"pt": _razer_packet(0xB0, bytes(data))})
 
     @property
@@ -280,37 +276,3 @@ def arp_table() -> dict[str, str]:
 
 def normalize_mac(mac: str) -> str:
     return mac.replace("-", ":").upper()
-
-
-def is_mac(s: str) -> bool:
-    return bool(re.fullmatch(r"[0-9a-fA-F]{2}([-:][0-9a-fA-F]{2}){5}", s))
-
-
-def resolve_targets(selectors: list[str], discovered: list[GoveeDevice]) -> list[GoveeDevice]:
-    """Pick devices by IP, wifi MAC, Govee device id, or SKU from the discovered list."""
-    if not selectors:
-        return list(discovered)
-    picked: list[GoveeDevice] = []
-    for sel in selectors:
-        s = sel.strip()
-        match = None
-        if is_mac(s):
-            want = normalize_mac(s)
-            match = next((d for d in discovered if d.mac == want), None)
-            if match is None:
-                # MAC known to ARP but device did not answer scan: control it blind.
-                ip = next((ip for ip, mac in arp_table().items() if mac == want), None)
-                if ip:
-                    match = GoveeDevice(ip=ip, mac=want)
-        else:
-            match = next((d for d in discovered if s in (d.ip, d.device_id)), None)
-            if match is None and re.fullmatch(r"\d+\.\d+\.\d+\.\d+", s):
-                match = GoveeDevice(ip=s)
-        if match is None:
-            matches = [d for d in discovered if d.sku.lower() == s.lower()]
-            picked.extend(m for m in matches if m not in picked)
-            if not matches:
-                raise LookupError(f"No device matched '{sel}'")
-        elif match not in picked:
-            picked.append(match)
-    return picked

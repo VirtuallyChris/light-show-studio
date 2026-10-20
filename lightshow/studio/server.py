@@ -599,7 +599,6 @@ class Studio:
             web.post("/api/cast/pause", self.cast_pause),
             web.post("/api/cast/resume", self.cast_resume),
             web.post("/api/cast/seek", self.cast_seek),
-            web.post("/api/cast/stop", self.cast_stop),
             web.post("/api/cast/volume", self.cast_volume),
             web.get("/api/cast/status", self.cast_status),
             web.post("/api/cast/synccheck", self.cast_sync_check),
@@ -1278,9 +1277,6 @@ class Studio:
     async def cast_seek(self, request):
         body = await request.json()
         return await self._cast_call(self.cast.seek, float(body.get("t", 0.0)))
-
-    async def cast_stop(self, request):
-        return await self._cast_call(self.cast.stop)
 
     async def cast_volume(self, request):
         body = await request.json()

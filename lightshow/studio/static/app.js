@@ -16,7 +16,7 @@
     defaults: { castOffset: 0, castOffsets: {} },
     undo: [], redo: [], saveTimer: null, lastFrame: null,
   };
-  const HEADER = 96, ROW = { ruler: 22, sections: 20, wave: 84, pal: 0, lane: 48 };
+  const HEADER = 96, ROW = { ruler: 22, sections: 20, wave: 84, lane: 48 };
   // The canvases draw in "logical" pixels scaled by UI, which follows the page's text size (the
   // stylesheet sizes that to the window). Sizes and mouse positions on the timeline go through it.
   let UI = 1;
@@ -527,7 +527,7 @@
     busy(`Connecting to ${name}…`);
     if (!(P() && P().settings.castOffsetCustom) && S.defaults.castOffsets[name] != null) $('#castOffset').value = S.defaults.castOffsets[name];
     try { const st = await castApi('connect', { name }); S.cast.active = true; S.cast.device = name; S.cast.verified = false; S.cast.pos = startPos; S.cast.at = performance.now(); S.cast.state = 'IDLE'; applyCastStatus(st); $('#btnCast').textContent = 'Stop cast'; $('#btnCast').classList.add('on'); $('#castOffsetWrap').hidden = false; $('#castVolume').hidden = false; $('#castLocalWrap').hidden = false; $('#btnSync').hidden = false;
-      S.cast.poll = setInterval(async () => { try { applyCastStatus(await castApi('status')); } catch (e) { } }, 500);
+      clearInterval(S.cast.poll); S.cast.poll = setInterval(async () => { try { applyCastStatus(await castApi('status')); } catch (e) { } }, 500);
       toast(`Casting to ${name}. Press play.`); }
     finally { busy(null); }
   }
@@ -936,7 +936,7 @@
    *  calms the show too (a quarter: a calm background, all swells). */
   const CALM = new WeakMap();
   function calmAt(t) {
-    const a = S.analysis, p = P(); if (!a || !p || S.noCalm) return 0;      // (S.noCalm: the tests' before and after)
+    const a = S.analysis, p = P(); if (!a || !p) return 0;
     const sig = p.sections.map(x => x.type + x.start.toFixed(2)).join(',') + showStyle();
     let d = CALM.get(a);
     if (!d || d.sig !== sig) {
@@ -968,11 +968,11 @@
    *  Outside the calm nothing is held back, so a drop still hits at once. Paused, a seek or a new song: the
    *  frame as it is. */
   const SMOOTH = {};
-  function calmSmooth(key, t, frame) {
+  function calmSmooth(key, t, frame, calm) {
     const song = (S.name || '') + '|' + ((S.analysis && S.analysis.duration) || 0), st = SMOOTH[key];
     const fresh = () => { SMOOTH[key] = { song, t, px: new Map(frame.map(f => [f.light.ip, Float32Array.from(f.px)])) }; return frame; };
     if (!S.audio.playing || !st || st.song !== song || t < st.t - 0.05 || t - st.t > 0.5) return fresh();
-    const dt = Math.max(0, t - st.t), c = calmAt(t); st.t = t;
+    const dt = Math.max(0, t - st.t), c = calm ?? calmAt(t); st.t = t;
     if (c <= 0.01) { for (const f of frame) st.px.set(f.light.ip, Float32Array.from(f.px)); return frame; }
     const pxStep = 255 * dt / (0.5 * c), meanStep = 255 * dt / (2 * c);
     for (const f of frame) {
@@ -1028,7 +1028,9 @@
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
     const out = [];
     S.roomSpaces = S.roomSpaces || {};
-    const key = roomSpaceKey(lights), space = S.roomSpaces[key] || (S.roomSpaces = { [key]: roomSpace(lights), ...S.roomSpaces })[key];
+    const key = roomSpaceKey(lights);
+    if (!S.roomSpaces[key] && Object.keys(S.roomSpaces).length >= 16) S.roomSpaces = {};   // (one per set of lights and rooms seen: kept from growing all night)
+    const space = S.roomSpaces[key] || (S.roomSpaces[key] = roomSpace(lights));
     for (const L of lights) {
       const room = space.of.get(L) || { i: 0, n: 1, side: 0, kinds: [lightKind(L)] };
       const kind = lightKind(L), tubes = kind === 'tubes' ? { count: TUBE_COUNT, per: Math.max(1, Math.round(L.segments / TUBE_COUNT)) } : null;
@@ -1099,7 +1101,7 @@
       if (g && g.level > 0) for (let i = 0; i < n * 3; i++) flat[i] = Math.max(flat[i], Math.round(g.rgb[i % 3] * g.level * 255));
       out.push({ light: L, px: flat });
     }
-    return smoothKey ? calmSmooth(smoothKey, t, out) : out;
+    return smoothKey ? calmSmooth(smoothKey, t, out, calm) : out;
   }
   /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
    *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
@@ -1159,14 +1161,25 @@
       pctx.globalAlpha = 1;
     });
   }
+  // Each frame redraws only what changed: while nothing moves (paused, no drag or hover) the timeline and the
+  // overview are left as they are, and the light preview refreshes ~5 times a second (the lights' own paused rate),
+  // so a paused studio no longer redraws everything 60 times a second.
+  const _shown = { key: '', preview: 0, text: {} };
+  function setText(id, v) { if (_shown.text[id] !== v) { _shown.text[id] = v; $('#' + id).textContent = v; } }
   function loop() {
     requestAnimationFrame(loop);
     if (!S.analysis) return;
     const t = pos();
     if (S.audio.playing && S.view.follow !== false) followPlayhead(t);
-    $('#timeDisplay').textContent = fmtTime(t);
-    $('#barDisplay').textContent = 'bar ' + barLabel(timeToBeat(t));
-    const frame = renderFrame(t, undefined, 'preview'); drawPreview(frame);
+    setText('timeDisplay', fmtTime(t));
+    setText('barDisplay', 'bar ' + barLabel(timeToBeat(t)));
+    const v = S.view, d = v.hoverDrop, m = v.drag && v.drag.type === 'marquee' ? v.drag : null;
+    const key = [t.toFixed(4), v.scroll, v.pps, v.vscroll, tl.clientWidth, tl.clientHeight, ov.clientWidth, ov.clientHeight,
+      d ? [d.x, d.y, d.w, d.h, d.replace].join() : '', m ? [m.x0, m.y0, m.x, m.y].join() : ''].join('|');
+    const now = performance.now(), moved = key !== _shown.key, dirty = S.dirty || S.ovDirty;
+    if (moved || dirty || now - _shown.preview > 200) { _shown.preview = now; drawPreview(renderFrame(t, undefined, 'preview')); }
+    if (!moved && !dirty) return;
+    _shown.key = key;
     if (S.dirty) { S.dirty = false; _draw(); }
     compose();
     drawOverview();
@@ -1199,7 +1212,7 @@
   // ------------------------------------------------------------------ timeline geometry
   const xOf = t => HEADER + (t - S.view.scroll) * S.view.pps;
   const tOf = x => S.view.scroll + (x - HEADER) / S.view.pps;
-  const lanesTop = () => ROW.ruler + ROW.sections + ROW.wave + ROW.pal;
+  const lanesTop = () => ROW.ruler + ROW.sections + ROW.wave;
   const laneTop = i => lanesTop() + i * ROW.lane - (S.view.vscroll || 0);
   const ADD_ROW = 26;  // the "+ layer" strip under the last layer
   function lanesOverflow() { const h = TH(); return Math.max(0, lanesTop() + P().lanes.length * ROW.lane + ADD_ROW - h); }
@@ -1228,7 +1241,7 @@
     // Layers share the height there is, rather than sitting in a strip. On a short window everything
     // still fits: the waveform gives up height first, then the layers go down to a compact one-line
     // size, so "+ add layer" is never pushed off the bottom.
-    const nl = Math.max(4, P().lanes.length), fixed = ROW.ruler + ROW.sections + ROW.pal + ADD_ROW + 2;
+    const nl = Math.max(4, P().lanes.length), fixed = ROW.ruler + ROW.sections + ADD_ROW + 2;
     ROW.wave = 84;
     let lane = (h - fixed - ROW.wave) / nl;
     if (lane < 44) { ROW.wave = Math.round(Math.max(44, h - fixed - 44 * nl)); lane = (h - fixed - ROW.wave) / nl; }
@@ -1609,9 +1622,9 @@
     if (d.type === 'beat') { p.beats[d.index] = t; p.beats.sort((a, b) => a - b); d.index = p.beats.indexOf(t); S.view.sel = { type: 'beat', index: d.index }; draw(); return; }
     if (d.type === 'drop') { p.drops[d.index] = beatToTime(snapBeat(b)); draw(); return; }
     if (d.type === 'section-edge') { const s = p.sections[d.index], prev = p.sections[d.index - 1]; const nt = beatToTime(snapBeat(b)); if (nt > prev.start + 0.5 && nt < s.end - 0.5) { s.start = nt; prev.end = nt; if (d.marker !== null && d.marker !== undefined) p.drops[d.marker] = nt; reviewRebuild(false); draw(); } return; }
-    if (d.type === 'clip' || d.type === 'palclip') {
+    if (d.type === 'clip') {
       const c = d.clip; d.moved = true;
-      const laneOf = d.type === 'clip' ? p.lanes[d.lane] : null;
+      const laneOf = p.lanes[d.lane];
       if (d.edge === 'l') { let ns = snapBeat(b); const ne = d.start0 + d.len0; if (laneOf) { const prevEnd = Math.max(0, ...laneOf.clips.filter(k => k !== c && k.start + k.len <= d.start0 + 0.001).map(k => k.start + k.len)); ns = Math.max(ns, prevEnd); } if (ns < ne - 0.25) { c.start = ns; c.len = ne - ns; } }
       else if (d.edge === 'r') { let ne = snapBeat(b); if (laneOf) { const nextStart = Math.min(Infinity, ...laneOf.clips.filter(k => k !== c && k.start >= d.start0 + d.len0 - 0.001).map(k => k.start)); ne = Math.min(ne, nextStart); } if (ne > d.start0 + 0.25) c.len = ne - d.start0; }
       else {
@@ -1641,7 +1654,7 @@
     if (d.type === 'group') {
       if (!d.moved) { S.undo.pop(); if (!d.tried) setSelection([d.id]); return; }   // a plain click on a member picks just that clip
       inspector(); changed(); return;
-    } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'section-edge' && d.marker !== null) P().drops.sort((a, b) => a - b); if (d.type === 'clip' || d.type === 'palclip') inspector(); changed(); });
+    } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'section-edge' && d.marker !== null) P().drops.sort((a, b) => a - b); if (d.type === 'clip') inspector(); changed(); });
   tl.addEventListener('dblclick', e => { const r = tl.getBoundingClientRect(); const h = hitTest((e.clientX - r.left) / UI, (e.clientY - r.top) / UI); if (!h) return; if (h.type === 'section') { beginChange(); const s = P().sections[h.index]; s.type = SECTION_TYPES[(SECTION_TYPES.indexOf(s.type) + 1) % SECTION_TYPES.length]; inspector(); changed(); } });
   tl.addEventListener('wheel', e => {
     e.preventDefault(); const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI;
@@ -1741,7 +1754,6 @@
   function deleteSelection(sel = S.view.sel) {
     if (!sel) return; const p = P(); beginChange();
     if (sel.type === 'clip') { const ids = sel === S.view.sel && S.view.multi.length ? S.view.multi : [sel.id]; for (const lane of p.lanes) lane.clips = lane.clips.filter(c => !ids.includes(c.id)); S.view.multi = []; }
-    if (sel.type === 'palclip') p.paletteClips = p.paletteClips.filter(c => c.id !== sel.id);
     if (sel.type === 'beat') p.beats.splice(sel.index, 1);
     if (sel.type === 'drop') p.drops.splice(sel.index, 1);
     if (sel.type === 'section' && p.sections.length > 1) { const i = sel.index; if (i > 0) { p.sections[i - 1].end = p.sections[i].end; } else { p.sections[1].start = p.sections[0].start; } p.sections.splice(i, 1); }

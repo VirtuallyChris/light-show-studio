@@ -115,7 +115,6 @@ class JamService:
             web.post("/api/jam/start", self.start),
             web.post("/api/jam/stop", self.stop),
             web.post("/api/jam/handover", self.handover),
-            web.post("/api/jam/link", self.link),
             web.post("/api/jam/synccheck", self.sync_check),
             web.post("/api/jam/demo/{action}", self.demo_action),
             web.get("/api/jam/analysis", self.analysis),
@@ -608,12 +607,6 @@ class JamService:
         if self.engine is None:
             return web.json_response({"error": "start the jam first"}, status=400)
         return await self._run(lambda: (self.engine.arm_handover(), self._state())[1])
-
-    async def link(self, request):
-        body = await request.json()
-        project = body.get("project")
-        self.library.link(body["track_id"], None if project is None else str(project))
-        return web.json_response({"ok": True})
 
     async def sync_check(self, request):
         if self.engine is None or not self.engine.streaming:

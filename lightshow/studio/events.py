@@ -25,8 +25,6 @@ from __future__ import annotations
 
 import numpy as np
 
-NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-
 
 def _peaks(env, sr, hop, wait_s, sensitivity):
     """Peak pick against a local baseline.
@@ -234,11 +232,6 @@ def _pattern(prof):
     q = np.sort(prof)
     k = max(2, len(q) // 4)
     return float(q[-k:].mean() / (q[:k].mean() + 0.02))
-
-
-def _contrast(prof, where):
-    top = np.sort(prof[where])[-2:].mean()
-    return float(top / (np.median(prof[where]) + 0.02))
 
 
 def choose_layout(S_p, freqs, sr, hop, beats, kick_rises):
@@ -932,18 +925,3 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
         "key_change": key_change,                       # {time, up}: the song moves up a key near the end
     }
 
-
-def summarise(ev: dict, duration: float) -> str:
-    bits = []
-    for name in ("lead", "bass", "ghost"):
-        items = ev["events"].get(name) or []
-        if items:
-            notes: dict[int, int] = {}
-            for _, _, pc in items:
-                notes[pc] = notes.get(pc, 0) + 1
-            bits.append(f"{name} {len(items)} ({len(items) / max(1, duration) * 60:.0f}/min, {NOTE_NAMES[max(notes, key=notes.get)]})")
-    if ev.get("hook"):
-        bits.append(f"hook x{len(ev['hook']['times'])}")
-    if ev.get("fills"):
-        bits.append(f"{len(ev['fills'])} fills")
-    return "; ".join(bits)
