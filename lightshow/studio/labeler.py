@@ -360,8 +360,8 @@ def _pca(songs):
 
 
 def train(lib, log=print) -> dict:
-    """Fit on every reviewed song and save it; then rank the songs not reviewed by how much the labeler and the rules
-    disagree on them (review_order.json: the review goes through the most disputed first)."""
+    """Fit on every reviewed song and save it; then rank the songs not reviewed by how unsure the labeler is of them
+    (review_order.json: the review goes through those first)."""
     t0 = time.time()
     songs = load_all(lib)
     pcas = _pca(songs)
@@ -375,15 +375,21 @@ def train(lib, log=print) -> dict:
     tmp = MODEL + ".tmp"
     joblib.dump({"model": model, "pcas": pcas, "songs": len(rev), "bars": int(len(yy)), "trained": time.strftime("%Y-%m-%d %H:%M")}, tmp)
     os.replace(tmp, MODEL)
+    # The songs to review next: where the labeler is least sure of itself (its bars split between labels, above all
+    # between drop and not-drop), so each review teaches it the most. (It used to be where it disagreed with the
+    # rules: a song it knew well, a twin of one reviewed, came first: Found - Live, after Found was reviewed.)
+    reviewed = {s["tid"] for s in rev}
     doubt = {}
     for s in songs:
-        if (s["y"] >= 0).any():
+        if s["tid"] in reviewed or any(t in reviewed for t, _ in lib.twins(s["tid"])):
             continue
-        p = model.proba(M[s["tid"]]).argmax(1)
+        P = model.proba(M[s["tid"]])
         w = s["spans"][:, 1] - s["spans"][:, 0]
-        doubt[s["tid"]] = round(0.5 * float(np.average(p != s["rule"], weights=w)) + float(np.average((p == 3) != (s["rule"] == 3), weights=w)), 4)
+        unsure = 1.0 - P.max(1)
+        drop_unsure = 1.0 - np.abs(2.0 * P[:, 3] - 1.0)
+        doubt[s["tid"]] = round(float(np.average(0.5 * unsure + drop_unsure, weights=w)), 4)
     with open(os.path.join(lib.dir, "review_order.json"), "w", encoding="utf-8") as fh:
-        json.dump({"_about": "how much the learned labeler and the rules disagree on each unreviewed song (review the high ones first)",
+        json.dump({"_about": "how unsure the learned labeler is of each song not reviewed yet (review the high ones first)",
                    **dict(sorted(doubt.items(), key=lambda kv: -kv[1]))}, fh, indent=1)
     log(f"[labeler] trained on {len(rev)} reviewed songs ({len(yy)} bars) in {time.time() - t0:.0f} s; {len(doubt)} songs ranked for review")
     return {"songs": len(rev), "bars": int(len(yy))}
