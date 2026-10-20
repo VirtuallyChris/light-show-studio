@@ -583,7 +583,18 @@ const Effects = (() => {
       clear(c.out); const m = c.music || {}; if (!m.hasDrums) return;
       let h = null;
       for (const x of [c.p.follow !== 'snare' ? m.kick : null, c.p.follow !== 'kick' ? m.snare : null, c.p.follow !== 'kick' ? m.roll : null]) if (x && x.index >= 0 && (!h || x.age < h.age)) h = x;
-      if (!h || h.age > c.p.length) return;
+      if (!h) return;
+      // the flash holds for its length, but never past 60% of the way to the next hit: a slow snare gets a long
+      // solid white (the lights see it), a sixteenth-note roll still strobes rather than blurring into white
+      let len = c.p.length;
+      if (m.hitsBetween) {
+        const at = c.t - h.age, streams = c.p.follow === 'kick' ? ['kick'] : c.p.follow === 'snare' ? ['snare', 'roll'] : ['kick', 'snare', 'roll'];
+        let next = Infinity;
+        // (a hit within 40 ms is the same one, doubled or flammed: not the next; and no flash under 40 ms)
+        for (const st of streams) { const n = m.hitsBetween(st, at + 0.04, at + 1)[0]; if (n !== undefined && n < next) next = n; }
+        if (next < Infinity) len = Math.min(len, Math.max(0.04, 0.6 * (next - at)));
+      }
+      if (h.age > len) return;
       const v = (c.p.grows ? 0.2 + 0.8 * c.clipT * c.clipT : 1) * (0.6 + 0.4 * h.strength);
       const col = c.p.white ? [1, 1, 1] : colorFor(c, 0.5, h.index);
       fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);

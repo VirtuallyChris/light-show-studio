@@ -271,7 +271,9 @@
   //   44: the words (lyrics.py): a color sung turns the room that color for a moment, a big word (fire,
   //       lights, stars, thunder, heart...) gets its hit, the hook line the same room sweep every time
   //   45: a long EDM snare build strobes white alone for its last 16 beats only; before, a build like any other
-  const SHOW_VERSION = 45;
+  //   46: the build's white strobe holds each snare 0.12 s (it was 0.05: one frame of the lights), never past 60%
+  //       of the way to the next snare (drumstrobe), so a fast roll still strobes
+  const SHOW_VERSION = 46;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2877,7 +2879,7 @@
         // in a dance, rave or electronic song: the whole room strobes white on every snare, faint at first, full
         // into the drop, and nothing else: black between the snares, or the flashes are lost (strobeAlone).
         // Gold Skies' two builds (1, 1, 2, 3-5 snares a beat by quarter); 3 of 55 learned builds.
-        if (strobeBuild) clip(4, 'drumstrobe', normal ? nb : b0, (normal ? sLen : len) - 1, { follow: 'snare', white: true, grows: true, length: 0.05 }, { blend: 'add', opacity: 1, alone: true });
+        if (strobeBuild) clip(4, 'drumstrobe', normal ? nb : b0, (normal ? sLen : len) - 1, { follow: 'snare', white: true, grows: true, length: 0.12 }, { blend: 'add', opacity: 1, alone: true });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         // and the build's last bar crosses the room (left pole, along the ceiling, right pole), twice, into the drop
