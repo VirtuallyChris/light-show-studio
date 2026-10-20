@@ -270,7 +270,8 @@
   //   (calm music, calmAt: brightness only swells, set as the show plays, not a rebuild)
   //   44: the words (lyrics.py): a color sung turns the room that color for a moment, a big word (fire,
   //       lights, stars, thunder, heart...) gets its hit, the hook line the same room sweep every time
-  const SHOW_VERSION = 44;
+  //   45: a long EDM snare build strobes white alone for its last 16 beats only; before, a build like any other
+  const SHOW_VERSION = 45;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2832,6 +2833,10 @@
         // every bar, drums or not); the hits on top, following the snares where they pick up, build it
         // (a clear EDM snare build has its white strobe alone: nothing under it or over it, see below)
         const strobeBuild = !chill && len >= 8 && edmBuild(s);
+        // A long build (Passion Pit's Seaweed Song: 64 beats) only strobes for its last 16 beats, the run into
+        // the drop; before that it is a build like any other (the glow, the hits around the room, the song's
+        // own kind of build). 36 s of white strobe alone was all the room got.
+        const sLen = strobeBuild ? Math.min(len, 16) : 0, nb = b1 - sLen, nlen = nb - b0;   // (the normal part: b0..nb)
         // The song's kind of buildup (its scene's, two in turn; see pickLook), all of them hits around the room:
         //   room   the glow under the hits brightens toward the drop
         //   dark   the hits light the room out of the dark, a glow coming up only in the last quarter
@@ -2841,17 +2846,19 @@
         const kinds = S.builds && S.builds.length ? S.builds : ['room'];
         let bk = chill || len < 8 ? 'room' : kinds[variant % kinds.length];
         if (bk === 'poles' && !S.mixedLights) bk = 'room';
-        if (!strobeBuild && bk === 'dark') {
-          const q3 = b0 + Math.round(len * 0.75);
-          clip(1, 'colorwash', q3, b1 - q3, { speed: 8, intensity: 0.4 }, { blend: 'add', fadeIn: Math.max(1, b1 - q3 - 1) });
-        } else if (!strobeBuild) {
-          clip(0, 'colorwash', b0, len, { speed: 8, intensity: bk === 'room' ? 0.3 : 0.2 });
-          clip(1, 'colorwash', b0, len, { speed: 8, intensity: bk === 'room' ? 0.45 : 0.3 }, { blend: 'add', fadeIn: Math.max(1, Math.round(len * 0.85)) });
+        const normal = nlen >= 8;                                   // (a short strobe build has no normal part)
+        const nEnd = sLen ? nb : b1 - 1;                             // where the normal part's moves stop
+        if (normal && bk === 'dark') {
+          const q3 = b0 + Math.round(nlen * 0.75);
+          clip(1, 'colorwash', q3, nb - q3, { speed: 8, intensity: 0.4 }, { blend: 'add', fadeIn: Math.max(1, nb - q3 - 1) });
+        } else if (normal) {
+          clip(0, 'colorwash', b0, nlen, { speed: 8, intensity: bk === 'room' ? 0.3 : 0.2 });
+          clip(1, 'colorwash', b0, nlen, { speed: 8, intensity: bk === 'room' ? 0.45 : 0.3 }, { blend: 'add', fadeIn: Math.max(1, Math.round(nlen * 0.85)) });
         }
-        if (!strobeBuild && (bk === 'scan' || bk === 'climb')) {
-          const q = Math.max(1, Math.round(len / 4)), across = room && bk === 'scan';
-          for (let k = 0, c0 = b0; k < 4 && c0 < b1 - 1; k++, c0 += q) {
-            const ln = k === 3 ? b1 - 1 - c0 : Math.min(q, b1 - 1 - c0), f = Math.pow(2, k);
+        if (normal && (bk === 'scan' || bk === 'climb')) {
+          const q = Math.max(1, Math.round(nlen / 4)), across = room && bk === 'scan';
+          for (let k = 0, c0 = b0; k < 4 && c0 < nEnd; k++, c0 += q) {
+            const ln = k === 3 ? nEnd - c0 : Math.min(q, nEnd - c0), f = Math.pow(2, k);
             if (ln <= 0) break;
             const op = { opacity: 0.45 + 0.15 * k, blend: 'add' };
             if (bk === 'climb') clip(2, 'steps', c0, ln, { zones: 8, every: Math.max(0.25, 2 / f), decay: Math.max(0.25, 2 / f) * 0.8, order: 'run' }, op);
@@ -2864,13 +2871,13 @@
         // brighter and snappier as it goes. A hard song's crazier builds start out in the dark, so the
         // light jumps around the room; a calm song's build is gentle, on the beat, two at most.
         const follow = chill ? 'beat' : snaresHere >= 4 ? 'snare' : drumsHere ? 'drums' : 'build';
-        if (!strobeBuild) clip(3, 'buildhits', b0, len, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild || bk === 'dark' ? 0.5 : 0 }, { opacity: 1 });
-        S.buildKind = strobeBuild ? 'strobe' : bk;
+        if (normal) clip(3, 'buildhits', b0, nlen, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild || bk === 'dark' ? 0.5 : 0 }, { opacity: 1 });
+        S.buildKind = normal ? bk : 'strobe';
         // A clear EDM snare build (a steady snare that doubles and doubles again: quarters, eighths, sixteenths)
         // in a dance, rave or electronic song: the whole room strobes white on every snare, faint at first, full
         // into the drop, and nothing else: black between the snares, or the flashes are lost (strobeAlone).
         // Gold Skies' two builds (1, 1, 2, 3-5 snares a beat by quarter); 3 of 55 learned builds.
-        if (strobeBuild) clip(4, 'drumstrobe', b0, len - 1, { follow: 'snare', white: true, grows: true, length: 0.05 }, { blend: 'add', opacity: 1, alone: true });
+        if (strobeBuild) clip(4, 'drumstrobe', normal ? nb : b0, (normal ? sLen : len) - 1, { follow: 'snare', white: true, grows: true, length: 0.05 }, { blend: 'add', opacity: 1, alone: true });
         // the concert move: one beat of black at the top of the buildup, and the drop lands out of the dark
         if (!chill && len >= 8 && p.sections[idx + 1] && p.sections[idx + 1].type === 'drop') clip(7, 'dark', b0 + len - 1, 1);
         // and the build's last bar crosses the room (left pole, along the ceiling, right pole), twice, into the drop
