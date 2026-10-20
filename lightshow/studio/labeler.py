@@ -14,9 +14,10 @@ keeps the user's own sections whatever either says. Each bar is described by:
 XGBoost on the graphics card learns them from every reviewed song (train: ~10 s); the bars' labels are smoothed
 into sections (the likeliest run of labels, a cost for every change, nothing shorter than two bars).
 
-2026-10-19, 84 reviewed songs, leaving one song out (time share right, types / drop-not-drop):
-  all 84: the rules 78.7% / 86.2%, the labeler 83.7% / 91.5%; the 35 reviewed after the rules were last tuned
-  (the fair test, the most disputed songs): the rules 68.5% / 78.1%, the labeler 80.1% / 89.7%.
+2026-10-19, 114 reviewed songs, leaving one song out (time share right, types / drop-not-drop), as sections:
+  all 114: the rules 77.3% / 85.4%, the labeler 84.1% / 91.6%; the 65 reviewed after the rules were last tuned
+  (the fair test; the most disputed songs, the later ones started from the labeler's own sections): the rules
+  71.2% / 80.6%, the labeler 83.1% / 91.0% (at 84 songs: 80.1% / 89.7%).
 """
 
 from __future__ import annotations
