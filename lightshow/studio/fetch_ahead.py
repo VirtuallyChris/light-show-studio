@@ -281,10 +281,12 @@ class FetchAhead:
 
     def __init__(self, library, download=_download, to_flac=_to_flac, length=_length, analyze=_analyze,
                  is_available=available, clock=time.monotonic, log=print, search=_search_youtube, download_from=_download_from,
-                 search_music=_search_ytmusic, keep=lambda: False, lyrics=None):
+                 search_music=_search_ytmusic, keep=lambda: False, lyrics=None, features=None):
         self.library = library
         # lyrics.learn: each song's lyrics with word times, from the copy right after it is learned (None: none)
         self.lyrics = lyrics
+        # labeler.learn_features: SongFormer's features for the learned section labeler, from the copy (None: none)
+        self.features = features
         # config jam_keep_youtube_copies (off by default): keep each copy after it is learned, in
         # shows/_jam/copies, and learn from it again instead of downloading it (a relearn, a new analysis)
         self.keep = keep
@@ -550,6 +552,21 @@ class FetchAhead:
         except Exception as e:  # noqa: BLE001 - the song is learned either way
             self.log(f"[learn ahead] {track.label}: no lyrics ({type(e).__name__}: {e})")
 
+    def _features(self, track, path: str) -> None:
+        """SongFormer's features for the learned section labeler (labeler.py), from the copy while it is here. Like
+        the lyrics: never in the way (skipped while the song playing now waits to be learned), a failure only logs."""
+        if self.features is None:
+            return
+        with self.lock:
+            if self.now and any(t.id == self.now for t, _, _ in self.ready):
+                return
+        try:
+            t0 = self.clock()
+            if self.features(track, path):
+                self.log(f"[learn ahead] {track.label}: SongFormer's features for the labeler in {self.clock() - t0:.0f} s")
+        except Exception as e:  # noqa: BLE001 - the song is learned either way (the rules read it)
+            self.log(f"[learn ahead] {track.label}: no SongFormer features ({type(e).__name__}: {e})")
+
     def _analyses(self) -> None:
         from . import priority
         priority.low_thread()                          # the room's own playback and the live analysis come first
@@ -572,6 +589,7 @@ class FetchAhead:
                 self.library.save_learned(track, a, source="youtube")
                 self._measure_copy(track, path)
                 self._lyrics(track, path)
+                self._features(track, path)
                 self.checked[track.id] = True                  # learned again: not again this run, whatever it says
                 with self.lock:
                     self.learned_now += 1

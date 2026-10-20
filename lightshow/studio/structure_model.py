@@ -58,6 +58,17 @@ def run_model(audio_path: str, cache_dir: str | None = None) -> tuple[list[dict]
     return segs, ""
 
 
+FEATURES = ModelWorker("lightshow.studio.songformer_infer", "features")   # (the same SongFormer, already loaded)
+
+
+def save_features(audio_path: str, out_dir: str, name: str) -> dict | None:
+    """SongFormer's embeddings and label heads for a song file, written to out_dir as <name>.emb2.npy / .npz /
+    .json, for the learned section labeler (labeler.py). None when the model environment cannot run."""
+    if not available():
+        return None
+    return FEATURES._ask({"path": os.path.abspath(audio_path), "features_out": os.path.abspath(out_dir), "name": name})
+
+
 def run_audio(y, sr: int) -> list[dict] | None:
     """SongFormer on audio held in memory (Jam mode). Nothing is written to disk."""
     return WORKER.ask_audio(y, sr) if available() else None

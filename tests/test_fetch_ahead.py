@@ -112,6 +112,27 @@ class TestFetchAhead(unittest.TestCase):
         self.assertFalse(f.status()["failed"])
         self.assertTrue(any("no lyrics" in m and "no card" in m for m in logs))
 
+    def test_each_song_gets_songformers_features_for_the_labeler_from_its_copy(self):
+        f, lib, folders, order = self.make()
+        got = []
+        f.features = lambda t, path: got.append((t.id, os.path.exists(path))) or {"window": 420}
+        f.submit([track(1), track(2)])
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 2 and f.idle()))
+        self.assertEqual(got, [("t1", True), ("t2", True)])                               # the copy still there
+
+    def test_features_that_fail_do_not_stop_the_song_being_learned(self):
+        f, lib, folders, order = self.make()
+        logs = []
+        f.log = logs.append
+
+        def broken(t, path):
+            raise RuntimeError("no card")
+        f.features = broken
+        f.submit([track(1)])
+        self.assertTrue(self.wait(lambda: len(lib.learned) == 1 and f.idle()))
+        self.assertFalse(f.status()["failed"])
+        self.assertTrue(any("no SongFormer features" in m and "no card" in m for m in logs))
+
     def test_no_lyrics_while_the_song_playing_now_waits_to_be_learned(self):
         f, lib, folders, order = self.make()
         lib.dir = "jam-dir"

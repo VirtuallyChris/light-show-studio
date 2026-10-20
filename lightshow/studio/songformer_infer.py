@@ -64,3 +64,91 @@ def segments(model, y) -> list[dict]:
     with torch.no_grad():
         result = model(np.asarray(y, dtype=np.float32))
     return [{"start": float(s["start"]), "end": float(s["end"]), "label": str(s["label"])} for s in result]
+
+
+# ---------------------------------------------------------------- the learned section labeler's inputs
+
+FEATURE_HEADS = (("sf5", 5), ("sf0", 0), ("sf6", 6))     # SongFormer's head with three of its dataset prefixes
+POOL = 12                                                   # 25 fps embeddings averaged to 0.48 s steps
+
+
+def _head_logits(net, embd, ds):
+    import torch
+    with torch.no_grad():
+        x = net.mixed_win_downsample(embd)
+        x = net.input_norm(x)
+        x = net.down_sample_conv(x)
+        x = x + net.dataset_class_prefix(torch.tensor([ds], device=embd.device)).unsqueeze(1)
+        x = net.transformer(x=x, src_key_padding_mask=None)
+        return net.function_head(x)[0], net.boundary_head(x).squeeze(-1)[0]
+
+
+def features(model, y, out_dir: str, name: str) -> dict:
+    """SongFormer's audio embeddings (MuQ and MusicFM, 30 s and 420 s context, layer 10: 4096 numbers 25 times a
+    second, averaged to 0.48 s steps) and three of its label heads, for the learned section labeler (labeler.py):
+    written to out_dir/<name>.emb2.npy, .npz and .json. A long song that does not fit on the card is done again
+    with a 150 s window. Returns the .json's contents."""
+    import json
+    import time
+
+    import numpy as np
+    import torch
+    from dataset.label2id import DATASET_ID_ALLOWED_LABEL_IDS, ID_TO_LABEL
+
+    dev = next(model.parameters()).device
+    audio = torch.tensor(np.asarray(y, dtype=np.float32)).to(dev)
+    ec = (lambda: torch.cuda.empty_cache()) if dev.type == "cuda" else (lambda: None)
+    t0 = time.time()
+    for win in (420, 150):
+        try:
+            chunks, i = [], 0
+            with torch.no_grad():
+                while i * SR < audio.shape[-1]:
+                    seg = audio[i * SR:min((i + win) * SR, audio.shape[-1])]
+                    muq_long = model.muq(seg.unsqueeze(0), output_hidden_states=True)["hidden_states"][10]
+                    ec()
+                    fm_long = model.musicfm.get_predictions(seg.unsqueeze(0))[1][10]
+                    m30, f30 = [], []
+                    for s30 in range(i, i + win, 30):
+                        a, b = s30 * SR, min((s30 + 30) * SR, audio.shape[-1], (i + win) * SR)
+                        if a >= audio.shape[-1]:
+                            break
+                        if b - a <= 1024:
+                            continue
+                        m30.append(model.muq(audio[a:b].unsqueeze(0), output_hidden_states=True)["hidden_states"][10])
+                        ec()
+                        f30.append(model.musicfm.get_predictions(audio[a:b].unsqueeze(0))[1][10])
+                        ec()
+                    embs = [torch.cat(f30, 1), torch.cat(m30, 1), fm_long, muq_long]
+                    n = min(e.shape[1] for e in embs)
+                    chunks.append(torch.cat([e[:, :n] for e in embs], -1))
+                    i += win
+            break
+        except torch.OutOfMemoryError:
+            ec()
+            if win == 150:
+                raise
+    meta = {"duration": len(y) / SR, "t_embed": time.time() - t0, "window": win, "emb2_fps": 25.0 / POOL}
+    arrays = {}
+    for name_h, ds in FEATURE_HEADS:
+        fl, bl = [], []
+        for embd in chunks:
+            f, b = _head_logits(model.songformer, embd, ds)
+            fl.append(f.float().cpu().numpy())
+            bl.append(b.float().cpu().numpy())
+        f, b = np.concatenate(fl), np.concatenate(bl)
+        allowed = DATASET_ID_ALLOWED_LABEL_IDS[ds]
+        f = f[:, allowed]
+        prob = np.exp(f - f.max(1, keepdims=True))
+        arrays[f"{name_h}_func"] = (prob / prob.sum(1, keepdims=True)).astype(np.float32)
+        arrays[f"{name_h}_bound"] = (1 / (1 + np.exp(-b))).astype(np.float32)
+        meta[name_h] = {"fps": 8.333, "labels": [ID_TO_LABEL[k] for k in allowed]}
+    emb = np.concatenate([e[0].float().cpu().numpy() for e in chunks])
+    n = emb.shape[0] // POOL * POOL
+    os.makedirs(out_dir, exist_ok=True)
+    np.save(os.path.join(out_dir, f"{name}.emb2.npy"), emb[:n].reshape(-1, POOL, emb.shape[1]).mean(1).astype(np.float16))
+    np.savez_compressed(os.path.join(out_dir, f"{name}.npz"), **arrays)
+    with open(os.path.join(out_dir, f"{name}.json"), "w", encoding="utf-8") as fh:
+        json.dump(meta, fh)
+    ec()
+    return meta

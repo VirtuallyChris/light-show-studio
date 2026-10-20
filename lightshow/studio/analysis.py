@@ -1480,12 +1480,26 @@ def settle_sections(a: dict) -> list:
     changes = grid_on_attacks(a) + grid_tempo_from_hits(a) + grid_on_the_backbeat(a) + (choruses_in_long_sections(a) + verses_in_long_drops(a) + drumless_drops(a) + drop_landings(a) + loud_buildups(a) + drop_after_pause(a) + hook_drops(a) + drop_pickup(a) + drums_start_verse(a)
                + drummed_breakdowns(a) + repeated_drops(a) + drops_where_none(a) + drops_by_sound(a) + drop_neighbors(a)
                + model_choruses(a) + drop_tails_and_releases(a) + drums_and_bass_place_drops(a) + verses_without_synths(a) + drops_on_their_bar(a) + gap_before_section(a) + outro_where_it_rings_out(a) + long_buildups(a) + flat_buildups(a) + sections_on_bar_lines(a))
-    if a.get("sections_truth"):                             # a song the user set right by ear: their sections, as they are
-        a["sections"] = [dict(s) for s in a["sections_truth"]]
-        a["drops"] = [round(float(s["start"]), 3) for s in a["sections"] if s.get("type") == "drop"]
-        changes = changes + [(0.0, "the sections the user set by ear")]
-    from . import songmap                                   # and the song's map on the settled sections: its parts, tension, moments
+    from . import songmap                                   # the song's map on the rules' sections (the labeler reads it)
     songmap.add(a)
+    final = None
+    if a.get("sections_truth"):                             # a song the user set right by ear: their sections, as they are
+        final, why = [dict(s) for s in a["sections_truth"]], "the sections the user set by ear"
+    elif a.get("track_id") and not a.get("_no_labeler"):    # else the learned labeler's, where it can (labeler.py)
+        try:
+            from . import labeler
+            got = labeler.apply(a)
+        except Exception as e:  # noqa: BLE001 - the rules' sections stand
+            print(f"[labeler] {a.get('track_id')}: {type(e).__name__}: {e}")
+            got = None
+        if got:
+            final, why = got, "the learned labeler's sections"
+    if final is not None:
+        a["sections_rules"] = [dict(s) for s in a["sections"]]
+        a["sections"] = final
+        a["drops"] = [round(float(s["start"]), 3) for s in final if s.get("type") == "drop"]
+        changes = changes + [(0.0, why)]
+        songmap.add(a)                                      # (and its map again, on the sections that play)
     return changes
 
 

@@ -162,6 +162,11 @@ class Review:
             with open(tmp, "w", encoding="utf-8") as fh:
                 json.dump(truth, fh, indent=1)
             os.replace(tmp, self.truth_path)
+        try:                                                  # the learned labeler learns from it (every few songs)
+            from . import labeler
+            labeler.retrain_soon(self.library.dir)
+        except Exception as e:  # noqa: BLE001 - the review is kept either way
+            print(f"[labeler] no retrain: {type(e).__name__}: {e}")
         return entry
 
     # -- routes ------------------------------------------------------------------------------

@@ -268,6 +268,8 @@ def _sections(model, req, payload):
     y, _ = _audio(req, payload, songformer_infer.SR)
     if len(y) < songformer_infer.SR * 8:
         raise ValueError("not enough audio to find sections in")
+    if req.get("features_out"):                         # the learned labeler's inputs, written next to the song's other files
+        return {"features": songformer_infer.features(model, y, req["features_out"], str(req["name"]))}, b""
     return {"segments": songformer_infer.segments(model, y)}, b""
 
 

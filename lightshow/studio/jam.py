@@ -279,6 +279,7 @@ class JamLibrary:
             shift = next((fixes[t] for t, off in self.twins(track_id) if t in fixes and abs(off) < 0.05), None)
         if shift:
             shift_beats(doc["analysis"], float(shift))
+        doc["analysis"]["track_id"] = track_id                  # (the learned labeler finds the song's features by it)
         mine = self.reviewed_sections(track_id)
         if mine:
             doc["analysis"]["sections_truth"] = mine            # settle_sections plays these (the user's own)
