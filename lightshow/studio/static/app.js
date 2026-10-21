@@ -275,7 +275,8 @@
   //       of the way to the next snare (drumstrobe), so a fast roll still strobes
   //   47: two colors (the jam's pair): the primary is the one seen most (the hits and motion), the
   //       secondary the bed under them; before, the bright hits were the secondary and it showed most
-  const SHOW_VERSION = 47;
+  //   48: a color sung in the lyrics holds the room in it for a bar (3 beats, then a beat's fade), not a 2-beat blip
+  const SHOW_VERSION = 48;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2539,13 +2540,13 @@
     const busy = new Set([...ONE_SHOTS, ...PARTY_FLASHY, ...PARTY_ONE_SHOTS]), placed = [], lastOf = {};
     const free = (b, w = 1) => !placed.some(x => Math.abs(x - b) < 2) && !p.lanes.some(l => l.clips.some(c => c.len <= 4 && busy.has(c.effect) && Math.abs(c.start - b) < w));
     const at = t => Math.round(timeToBeat(t) * 4) / 4;
-    const put = (b, fx, len, pal, key) => {
+    const put = (b, fx, len, pal, key, params = {}) => {
       if (b < 1 || !free(b) || (key && lastOf[key] != null && b - lastOf[key] < 8)) return false;
       const calm = calmAt(beatToTime(b)) >= 0.5;                  // calm music: a soft sweep in the color (no flashes there)
       if (fx === 'dark') { if (calm) return false; clip(7, 'dark', b, 0.5); }
-      else if (calm) clip(9, 'sweepout', b, 2, { origin: 0.5 }, { palette: pal || [punchColor(b)], opacity: 0.85 });
+      else if (calm) clip(9, 'sweepout', b, Math.max(2, len), { origin: 0.5 }, { palette: pal || [punchColor(b)], opacity: 0.85 });
       else if (fx === 'sparkle') clip(9, 'sparkle', b, len, { density: 0.35, life: 0.25 }, { palette: pal, blend: 'add', opacity: 1 });
-      else clip(9, fx, b, len, fx === 'sweepout' ? { origin: 0.5 } : {}, { palette: pal || [punchColor(b)], opacity: 1 });
+      else clip(9, fx, b, len, fx === 'sweepout' ? { origin: 0.5, ...params } : params, { palette: pal || [punchColor(b)], opacity: 1 });
       placed.push(b); if (key) lastOf[key] = b; return true;
     };
     // the hook line: the same move, in the same color, every time it is sung
@@ -2566,8 +2567,10 @@
       const k = norm(w.w).replace(/ /g, ''), b = at(w.t);
       const col = LYRIC_COLORS[k];
       if (col === 'dark') put(b, 'dark', 0.5, null, k);
-      else if (col === 'rainbow') put(b, 'colorslam', 2, ['#ff0000', '#ffd000', '#00ff40', '#0040ff', '#8000ff'], k);
-      else if (col) put(b, 'colorslam', 2, [col], k);
+      // a color sung holds the room in it for a bar: 3 beats full, then a beat to fade (2 beats fading from the
+      // start read as a blip: the user)
+      else if (col === 'rainbow') put(b, 'colorslam', 4, ['#ff0000', '#ffd000', '#00ff40', '#0040ff', '#8000ff'], k, { hold: 0.75 });
+      else if (col) put(b, 'colorslam', 4, [col], k, { hold: 0.75 });
       else if (LYRIC_HITS[k]) { const [fx, len, pal] = LYRIC_HITS[k]; put(b, fx, len, pal, k); }
     }
   }

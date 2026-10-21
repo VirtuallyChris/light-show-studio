@@ -857,8 +857,9 @@ const Effects = (() => {
   def({ id: 'whiteflash', name: 'Flash', cat: 'accent', desc: 'One flash of the clip\u2019s color, decaying over the clip. White unless you pick something else.', swatch: ['#ffffff', '#ffffff'], colors: ['#ffffff'],
     params: { color: P.color() }, render(c) { const v = Math.exp(-c.clipT * 5); const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], v); } });
 
-  def({ id: 'colorslam', name: 'Slam', cat: 'accent', desc: 'Whole strip slams to a palette color and fades back out.', swatch: ['#ff0000', '#000000'],
-    params: { color: P.color() }, render(c) { const v = Math.exp(-c.clipT * 4); const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], v); } });
+  def({ id: 'colorslam', name: 'Slam', cat: 'accent', desc: 'Whole strip slams to a palette color and fades back out (after holding it, if set).', swatch: ['#ff0000', '#000000'],
+    params: { color: P.color(), hold: { type: 'range', def: 0, min: 0, max: 0.9, step: 0.05, label: 'Hold (share of the clip)' } },
+    render(c) { const h = c.p.hold || 0, v = c.clipT < h ? 1 : Math.exp(-(c.clipT - h) / (1 - h) * 4); const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], v); } });
 
   def({ id: 'glitch', name: 'Glitch', cat: 'accent', desc: 'A burst of digital glitch over the clip: blocks of the strip jump on and off in one solid color, now and then white, black between, covering what is under it.', swatch: ['#ff0040', '#000000'],
     params: { rate: { type: 'range', def: 0.125, min: 0.03, max: 0.5, step: 0.01, label: 'Jumps every (beats)' }, density: { type: 'range', def: 0.45, min: 0.1, max: 0.9, step: 0.01, label: 'Lit' },
