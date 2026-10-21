@@ -273,7 +273,9 @@
   //   45: a long EDM snare build strobes white alone for its last 16 beats only; before, a build like any other
   //   46: the build's white strobe holds each snare 0.12 s (it was 0.05: one frame of the lights), never past 60%
   //       of the way to the next snare (drumstrobe), so a fast roll still strobes
-  const SHOW_VERSION = 46;
+  //   47: two colors (the jam's pair): the primary is the one seen most (the hits and motion), the
+  //       secondary the bed under them; before, the bright hits were the secondary and it showed most
+  const SHOW_VERSION = 47;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
   /** A saved show (just opened, S.project) brought up to date if it was built by older logic and not
    *  edited by hand since: built again on the current analysis, keeping its settings (style, color...).
@@ -2736,11 +2738,14 @@
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
     const fam = S.songPals && S.songPals.length ? S.songPals : [p.defaultPalette];
-    // Two colors (Jam mode): the primary leads, the secondary is "the other one". Nothing else comes
-    // in: the opposite of the pair is the pair swapped, not the opposite side of the color wheel.
+    // Two colors (Jam mode): the primary is the one seen most, the secondary "the other one". Nothing else
+    // comes in: the opposite of the pair is the pair swapped, not the opposite side of the color wheel.
+    // The bed takes the secondary and the hits and motion over it the primary (contrastPal): the hits are the
+    // brightest thing in the room, so with the primary as the bed the secondary showed most (37% primary
+    // over 8 songs; 61-65% now).
     const pair = S.pairMode && p.palettes.Jam;
     const pidx = S.secPart ? S.secPart.first : idx;                   // (a part heard again: the colors it had)
-    S.buildPal = pair ? p.palettes.Jam.slice() : paletteVariant(fam[pidx % fam.length], pidx);
+    S.buildPal = pair ? p.palettes.Jam.slice().reverse() : paletteVariant(fam[pidx % fam.length], pidx);
     const opposite = pair ? (cols => cols.slice().reverse()) : contrastPalette;
     // Buildups and breakdowns run on the opposite colors, so the drop lands back on the song's
     // own palette and the change of color hits with it.
