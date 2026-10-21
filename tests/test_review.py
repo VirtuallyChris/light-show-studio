@@ -72,6 +72,57 @@ class ReviewTest(unittest.TestCase):
             Review(self.lib).keep("aaa", [{"type": "chorus", "start": 0, "end": 10}], ok=False)
 
 
+    def test_every_song_lists_all_learned_songs_with_a_copy_and_their_shows(self):
+        songs = Review(self.lib).every_song()
+        self.assertEqual([(s["id"], s["show"]) for s in songs], [("ddd", None), ("aaa", None), ("bbb", "Has A Show")])       # by artist and title
+
+    def test_a_hand_edited_jam_song_becomes_a_show_of_its_own(self):
+        # "if i start adding a bunch of additional lights then it would be a custom show fully"
+        self.lib.shows_dir = os.path.join(self.tmp.name, "shows")
+        linked = {}
+        self.lib.link = lambda tid, name: linked.__setitem__(tid, name)
+        name = Review(self.lib).make_custom("aaa", {"name": "x", "lanes": [{"clips": [{"effect": "solid"}]}]})
+        self.assertEqual(name, "B Band - Zed")
+        pdir = os.path.join(self.lib.shows_dir, name)
+        self.assertTrue(os.path.exists(os.path.join(pdir, "song.flac")))                # the song comes with it
+        with open(os.path.join(pdir, "project.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["lanes"][0]["clips"][0]["effect"], "solid")
+        self.assertEqual(linked, {"aaa": name})                                          # the jam plays it
+
+    def test_undone_back_to_the_jams_show_the_custom_show_is_set_aside(self):
+        # "if i undo it should re grey out": the show made for the song goes (to the Recycle Bin), unpinned
+        from lightshow.studio import review as review_mod
+        self.lib.shows_dir = os.path.join(self.tmp.name, "shows")
+        linked = {}
+        self.lib.link = lambda tid, name: linked.pop(tid, None) if name is None else linked.__setitem__(tid, name)
+        self.lib.links = lambda: linked
+        r = Review(self.lib)
+        name = r.make_custom("aaa", {"lanes": []})
+        recycled = []
+        old, review_mod._recycle = review_mod._recycle, lambda path, aside: recycled.append(path)
+        try:
+            self.assertFalse(r.drop_custom("aaa", "Some Other Show"))                     # only the show pinned to it
+            self.assertTrue(r.drop_custom("aaa", name))
+        finally:
+            review_mod._recycle = old
+        self.assertEqual(linked, {})
+        self.assertEqual(recycled, [os.path.join(self.lib.shows_dir, name)])
+
+    def test_a_test_copy_makes_no_show(self):
+        self.lib.shows_dir = os.path.join(self.tmp.name, "shows")
+        Review(self.lib, read_only=True).make_custom("aaa", {"lanes": []})
+        self.assertFalse(os.path.exists(self.lib.shows_dir))
+
+    def test_a_link_to_a_deleted_show_is_ignored(self):
+        from lightshow.studio.jam import JamLibrary
+        from lightshow.studio.spotify import Track
+        lib = JamLibrary(os.path.join(self.tmp.name, "real"))
+        lib.link("t1", "Gone Show")
+        self.assertIsNone(lib.match_project(Track(id="t1", name="Some Song", artists=["X"], duration=100.0)))
+        os.makedirs(os.path.join(lib.shows_dir, "Gone Show"))
+        open(os.path.join(lib.shows_dir, "Gone Show", "project.json"), "w").close()
+        self.assertEqual(lib.match_project(Track(id="t1", name="Some Song", artists=["X"], duration=100.0)), "Gone Show")
+
 
 class BeatFixTest(unittest.TestCase):
     def test_shift_beats_moves_the_grid_and_keeps_the_bars(self):

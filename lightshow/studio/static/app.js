@@ -294,7 +294,7 @@
     autoBuild(true);
     return 'rebuilt';
   }
-  function changed() { reviewRebuild(true); scheduleSave(); draw(); }
+  function changed() { reviewRebuild(true); reviewCustom(); scheduleSave(); draw(); }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); S.project = JSON.parse(S.undo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); S.project = JSON.parse(S.redo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function scheduleSave() { clearTimeout(S.saveTimer); S.saveTimer = setTimeout(save, 1500); }
@@ -348,7 +348,7 @@
   async function loadResponse(r) {
     const data = await r.json();
     if (data.error) { toast(data.error, true); return; }
-    if (!data.review && S.review) { await reviewKeep(false); S.review = null; reviewBar(); }   // a saved show opened: review ends
+    if (!data.review && S.review) { await reviewSaveCustom(); await reviewKeep(false); S.review = null; reviewBar(); }   // a saved show opened: review ends
     stopPlayback();
     S.analysis = data.analysis; S.name = data.project;
     S.project = data.saved || newProject(data.analysis, data.project);
@@ -385,11 +385,41 @@
    *  build takes about 30 ms: a drag rebuilds about 12 times a second, letting go once more); only when the
    *  sections changed. */
   function reviewRebuild(final) {
-    const R = S.review; if (!R || !R.id || !P()) return;
+    const R = S.review; if (!R || !R.id || !P() || R.custom) return;
     const k = secKey(), now = performance.now();
     if (k === R.built || (!final && now - (R.builtAt || 0) < 80)) return;
     R.built = k; R.builtAt = now;
     autoBuild(true, true);
+  }
+  // The lights as built (to tell a hand edit from a rebuild): every clip, and the layers shown
+  const clipSig = () => JSON.stringify((P() ? P().lanes : []).map(l => [!!l.hidden, l.clips.map(c => [c.effect, c.start, c.len, c.params, c.palette, c.opacity, c.blend, c.target, c.fadeIn, c.fadeOut])]));
+  /** A song under review whose lights are changed by hand (a clip added, moved, recolored...) is a show of its own:
+   *  saved with the song as you go, and the jam plays it. Undone back to the lights as built, it is the jam's own
+   *  again (that show set aside, to the Recycle Bin). Moving sections alone only keeps the sections (reviewKeep). */
+  function reviewCustom() {
+    const R = S.review; if (!R || !R.id || !P()) return;
+    const mine = clipSig() !== R.clips;
+    if (mine !== !!R.custom) {
+      R.custom = mine; draw();
+      toast(mine ? `${S.name}: your own show now. It is saved as you go, and the jam plays it.` : `${S.name}: back to the jam's own show`);
+    }
+    if (mine || R.savedAs) { clearTimeout(R.saveT); R.saveT = setTimeout(reviewSaveCustom, 1200); }
+  }
+  async function reviewSaveCustom() {
+    const R = S.review; if (!R || !R.id) return;
+    clearTimeout(R.saveT);
+    const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+    try {
+      if (R.custom) {
+        collectProject(); P().handEdited = true;
+        const d = await post('/api/review/custom', { track_id: R.id, project: P() }); if (d.error) throw new Error(d.error);
+        if (!R.savedAs) refreshRecent();
+        R.savedAs = d.name;
+      } else if (R.savedAs) {
+        const d = await post('/api/review/uncustom', { track_id: R.id, name: R.savedAs }); if (d.error) throw new Error(d.error);
+        R.savedAs = null; refreshRecent();
+      }
+    } catch (e) { toast('Your show was not saved: ' + e.message, true); }
   }
   async function reviewKeep(ok) {
     const R = S.review; if (!R || !R.id || !P()) return;
@@ -405,16 +435,16 @@
   }
   async function reviewOpen(i) {
     const R = S.review; if (!R || !R.songs.length) return;
-    await reviewKeep(false);
+    await reviewSaveCustom(); await reviewKeep(false);
     R.i = (i + R.songs.length) % R.songs.length;
     const song = R.songs[R.i];
-    try { localStorage.setItem('lss-review', song.id); } catch (e) { /* no storage: it starts at the first unreviewed */ }
+    if (!R.edit) try { localStorage.setItem('lss-review', song.id); } catch (e) { /* no storage: it starts at the first unreviewed */ }
     busy(`Opening ${song.label}…`);
     try {
       const r = await fetch('/api/review/song/' + encodeURIComponent(song.id));
       R.id = null; await loadResponse(r);
       if (S.analysis) { autoBuild(true); draw(); }                       // (its show, to judge the sections by)
-      R.id = song.id; R.orig = R.found = R.built = secKey(); R.beats = P().beats.slice();
+      R.id = song.id; R.orig = R.found = R.built = secKey(); R.beats = P().beats.slice(); R.clips = clipSig(); R.custom = false; R.savedAs = null;   // (the lights as built: a change to them is a hand edit)
     } catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
     reviewBar();
   }
@@ -422,6 +452,8 @@
     const R = S.review, on = !!(R && R.on);
     $('#reviewBar').hidden = !on; $('#btnReview').hidden = on;
     if (!on) return;
+    $('#revPrev').hidden = $('#revPos').hidden = !!R.edit;              // one song from the song box: nothing to step through
+    $('#revDone').title = R.edit ? 'Done: your sections are kept (moved lights make it your own show as you go)' : 'Done, the next song (]): your changes are kept as corrections; with none, it is marked right as it was';
     const song = R.songs[R.i] || {};
     $('#revPos').textContent = `${R.i + 1} / ${R.songs.length}${song.reviewed ? ' ✓' : ''}`;
     $('#revPos').title = (song.label || '') + (song.reviewed ? ` (reviewed: ${song.reviewed})` : '');
@@ -437,21 +469,49 @@
     S.review = { on: true, songs, i, id: null, orig: '' };
     await reviewOpen(i);
   }
-  async function reviewStop() { await reviewKeep(false); S.review = null; reviewBar(); }
+  // (the song stays on screen, but no longer under its name: a later tweak saved it as a show with no song beside
+  // it, a folder of its own in shows/ that the jam could not play)
+  // (made your own show: it stays open as that show, saved like any other from here)
+  async function reviewStop() {
+    const R = S.review; if (R) await reviewSaveCustom();
+    await reviewKeep(false);
+    const mine = R && R.custom && R.savedAs;
+    S.review = null; S.name = mine || ''; if (mine) { P().name = mine; $('#projectName').value = mine; }
+    reviewBar(); draw();
+  }
   /** Done: the song as it stands is the truth (a correction if anything was changed), and on to the next. */
-  async function reviewDone() { const R = S.review; if (!R) return; await reviewKeep(true); await reviewOpen(R.i + 1); }
+  async function reviewDone() {
+    const R = S.review; if (!R) return;
+    if (R.edit) { await reviewStop(); return; }                         // one song opened from the song box: changes kept, done
+    await reviewKeep(true); await reviewOpen(R.i + 1);
+  }
   // the window closing with changes not yet kept: sent on the way out
   addEventListener('pagehide', () => {
     if (S.review && S.review.id && P() && secKey() !== S.review.orig)
       try { navigator.sendBeacon('/api/review/truth', new Blob([reviewBody(false)], { type: 'application/json' })); } catch (e) { /* closing anyway */ }
   });
+  /** The song box: your saved shows and every song learned in a jam (its show as the jam plays it), by name. */
   async function refreshRecent() {
-    const sel = $('#recent'); const cur = sel.value;
+    const esc = x => String(x).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     try {
-      const list = await (await fetch('/api/projects')).json();
-      sel.innerHTML = '<option value="">Saved shows…</option>' + list.map(p => `<option value="${p.name}">${p.name}${p.has_project ? '' : ' (song only)'}</option>`).join('');
-      sel.value = cur;
+      const [list, every] = await Promise.all([fetch('/api/projects').then(r => r.json()),
+        fetch('/api/review/every').then(r => r.json()).then(d => d.songs || []).catch(() => [])]);
+      const to = new Map();
+      for (const p of list) to.set(p.name, { show: p.name, note: p.has_project ? 'your show' : 'song only' });
+      for (const s of every) if (!s.show && !to.has(s.label)) to.set(s.label, { jam: s, note: 'jam song' });
+      S.songBox = to;
+      $('#songList').innerHTML = [...to].map(([v, t]) => `<option value="${esc(v)}" label="${t.note}"></option>`).join('');
     } catch (e) { /* server away */ }
+  }
+  /** Open what the song box names: a saved show, or a jam song in review (one song, no stepping on). */
+  async function openNamed(v) {
+    const t = S.songBox && S.songBox.get(v); if (!t) return false;
+    $('#recent').value = ''; $('#recent').blur();
+    if (t.show) { await openProject(t.show); return true; }
+    if (S.review) await reviewStop();
+    S.review = { on: true, edit: true, songs: [{ ...t.jam, reviewed: '' }], i: 0, id: null, orig: '' };
+    await reviewOpen(0);
+    return true;
   }
 
   // ------------------------------------------------------------------ audio
@@ -1308,7 +1368,9 @@
     p.lanes.forEach((lane, li) => {
       const y = laneTop(li); g.fillStyle = lane.hidden ? '#0c0d10' : li % 2 ? '#14161b' : '#121317'; g.fillRect(HEADER, y, w, ROW.lane); g.strokeStyle = '#2f333d'; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
       // a hidden layer is greyed out as a whole: its clips in grey, faded
-      const ga = lane.hidden ? 0.35 : 1; g.globalAlpha = ga; g.filter = lane.hidden ? 'grayscale(1)' : 'none';
+      // (a jam song under review whose lights are the jam's own, untouched: every layer at half, until a change to
+      // the lights makes it your own show; undone back to the jam's, half again)
+      const ga = (lane.hidden ? 0.35 : 1) * (S.review && S.review.id && !S.review.custom ? 0.5 : 1); g.globalAlpha = ga; g.filter = lane.hidden ? 'grayscale(1)' : 'none';
       for (const c of lane.clips) {
         const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x1 < HEADER || x0 > w) continue;
         // a clip that starts off to the left is drawn from the timeline's edge: its width must be
@@ -2471,6 +2533,7 @@
     addFlavor();
     addLyricMoments();
     balance();
+    if (S.review) S.review.clips = clipSig();                         // (a song under review: these lights are the built ones, not a hand edit)
     S.view.sel = null; inspector(); changed();
     if (quiet) return;
     const a = S.analysis, hooks = (a.hook && a.hook.times || []).length, fills = (a.fills || []).length;
@@ -3476,7 +3539,7 @@
       return;
     }
     const be = $('#beatEdit').checked;
-    if (S.review && (e.key === '[' || e.key === ']')) { e.key === ']' ? reviewDone() : reviewOpen(S.review.i - 1); return; }
+    if (S.review && (e.key === '[' || e.key === ']')) { e.key === ']' ? reviewDone() : S.review.edit || reviewOpen(S.review.i - 1); return; }
     if (e.code === 'Space') { e.preventDefault(); if (be && S.audio.playing) { beginChange(); const t = pos(); const p = P(); const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); changed(); } else togglePlay(); }
     else if (e.key === 'Enter') { togglePlay(); }
     else if (e.key === 'Home') { seek(0); scrollTo(0); }
@@ -3524,7 +3587,9 @@
   $('#btnAuto').onclick = () => { if (!P()) return toast('Open a song first'); if (P().lanes.some(l => l.clips.length) && !confirm('Replace all clips with an auto-built show?')) return; autoBuild(); };
   $('#btnOpen').onclick = () => $('#fileInput').click(); $('#fileInput').onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ''; };
   $('#btnPath').onclick = () => { const v = $('#pathInput').value.trim(); if (v) openPath(v); }; $('#pathInput').onkeydown = e => { if (e.key === 'Enter') $('#btnPath').click(); };
-  $('#recent').onchange = e => { if (e.target.value) openProject(e.target.value); };
+  $('#recent').addEventListener('input', e => { if (!e.inputType || e.inputType === 'insertReplacementText') openNamed(e.target.value); });   // picked from the list
+  $('#recent').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); openNamed(e.target.value) || toast('No show or jam song by that name', true); } if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); } });
+  $('#recent').addEventListener('focus', () => refreshRecent());
   $('#btnReview').onclick = reviewStart;
   $('#revPrev').onclick = () => reviewOpen(S.review.i - 1);
   $('#revDone').onclick = reviewDone;

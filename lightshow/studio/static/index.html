@@ -24,7 +24,8 @@
     <input id="projectName" class="project-name" placeholder="untitled" title="Project name">
     <button id="btnOpen" title="Open a song (or drop one anywhere)">Open song</button>
     <input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a" hidden>
-    <select id="recent" class="recent" title="Saved shows"><option value="">Saved shows…</option></select>
+    <input id="recent" class="recent" list="songList" placeholder="Shows…" autocomplete="off" spellcheck="false"
+           title="Type a song: your saved shows and every song learned in a jam. A jam song opens with the show the jam plays: move its sections and only your sections are kept; change its lights and it becomes your own show."><datalist id="songList"></datalist>
     <button id="btnReview" title="Review learned songs: the Jam songs with no saved show, one after another, to set their sections right by ear. The lights follow your sections as you move them. Done (or ]) moves on: your changes are kept as corrections; with none, the song is marked right as it was. Nothing is saved as a show.">Review</button>
     <span id="reviewBar" class="review-bar" hidden>
       <button id="revPrev" title="The song before ([)">&#9664;</button>

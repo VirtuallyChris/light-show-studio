@@ -249,8 +249,10 @@ class JamLibrary:
 
     def match_project(self, track: Track) -> str | None:
         linked = self.links().get(track.id)
-        if linked is not None:
-            return linked or None                      # '' means "deliberately no custom show"
+        if linked == "":
+            return None                                # '' means "deliberately no custom show"
+        if linked is not None and os.path.isfile(os.path.join(self.shows_dir, linked, "project.json")):
+            return linked                              # (a show since deleted: as if never linked, the auto show)
         title = set(_norm(track.name))
         if not title:
             return None

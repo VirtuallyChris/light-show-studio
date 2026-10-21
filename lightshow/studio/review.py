@@ -19,6 +19,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import threading
 
 from aiohttp import web
@@ -31,6 +32,27 @@ SECTION_TYPES = ("intro", "verse", "buildup", "drop", "breakdown", "outro")
 
 def _safe(track_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", track_id)
+
+
+def _recycle(path: str, aside_dir: str) -> None:
+    """Into the Recycle Bin (Windows); elsewhere, or if that fails, moved into aside_dir. Never deleted outright."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class SHFILEOPSTRUCTW(ctypes.Structure):
+                _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", wintypes.LPCWSTR), ("pTo", wintypes.LPCWSTR),
+                            ("fFlags", ctypes.c_uint16), ("fAnyOperationsAborted", wintypes.BOOL), ("hNameMappings", ctypes.c_void_p),
+                            ("lpszProgressTitle", wintypes.LPCWSTR)]
+            # FO_DELETE with FOF_ALLOWUNDO (the Recycle Bin), no questions, no progress, no error boxes
+            op = SHFILEOPSTRUCTW(None, 3, os.path.abspath(path) + "\0", None, 0x0040 | 0x0010 | 0x0004 | 0x0400, False, None, None)
+            if ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op)) == 0 and not os.path.exists(path):
+                return
+        except Exception:  # noqa: BLE001 - set aside instead
+            pass
+    os.makedirs(aside_dir, exist_ok=True)
+    shutil.move(path, os.path.join(aside_dir, os.path.basename(path) + datetime.datetime.now().strftime(" %Y%m%d-%H%M%S")))
 
 
 class Review:
@@ -112,6 +134,64 @@ class Review:
         # (songs already reviewed last, whatever an older ranking said of them)
         return sorted(out, key=lambda s: (bool(s["reviewed"]), -float(doubt.get(s["id"], 0.0)), s["label"].lower()))
 
+    def every_song(self) -> list[dict]:
+        """Every learned song with a kept copy, for the studio's song box: {id, label, show} (show: the saved show
+        it plays, if it has one), each song once (twins: the one with a show, else the reviewed one, else any)."""
+        try:
+            names = os.listdir(self.library.learned_dir)
+        except OSError:
+            return []
+        truth, out = self.truth(), []
+        for fn in names:
+            if not fn.endswith(".json"):
+                continue
+            tid = fn[:-5]
+            t = self._head(tid)
+            if not t or not os.path.exists(self.copy_path(tid)):
+                continue
+            track = Track(id=tid, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=float(t.get("duration") or 0))
+            out.append({"id": tid, "label": track.label, "show": self.library.match_project(track), "reviewed": bool(truth.get(tid)),
+                        "twins": [t for t, _ in self.library.twins(tid)] if hasattr(self.library, "twins") else []})
+        keep, gone = [], set()
+        for s in sorted(out, key=lambda s: (not s["show"], not s["reviewed"], s["id"])):
+            if s["id"] in gone:
+                continue
+            keep.append(s)
+            gone.update(s["twins"])
+        return sorted(({k: s[k] for k in ("id", "label", "show")} for s in keep), key=lambda s: s["label"].lower())
+
+    def make_custom(self, track_id: str, project: dict) -> str:
+        """A jam song edited by hand becomes a show of its own: shows/<Artist - Title>/ with the song's kept copy
+        and the show, and the track pinned to it (links.json), so the jam plays it from then on."""
+        t = self._head(track_id)
+        if not t or not os.path.exists(self.copy_path(track_id)):
+            raise ValueError("That song is not learned, or its copy is gone.")
+        label = Track(id=track_id, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=0.0).label
+        name = re.sub(r"[^\w\- .()]+", "_", label).strip(" .")[:80] or "untitled"          # (server.safe_name)
+        if self.read_only:
+            return name
+        pdir = os.path.join(self.library.shows_dir, name)
+        os.makedirs(pdir, exist_ok=True)
+        if not any(f.startswith("song.") for f in os.listdir(pdir)):
+            shutil.copy2(self.copy_path(track_id), os.path.join(pdir, "song.flac"))
+        tmp = os.path.join(pdir, "project.json.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({**project, "name": name}, fh)
+        os.replace(tmp, os.path.join(pdir, "project.json"))
+        self.library.link(track_id, name)
+        return name
+
+    def drop_custom(self, track_id: str, name: str) -> bool:
+        """Undone back to the jam's own show: the show make_custom made for the song is set aside (to the Recycle
+        Bin) and the track no longer pinned to it. Only a show pinned to this song, by this name."""
+        if self.read_only or not name or self.library.links().get(track_id) != name:
+            return False
+        self.library.link(track_id, None)
+        pdir = os.path.join(self.library.shows_dir, name)
+        if os.path.isdir(pdir):
+            _recycle(pdir, os.path.join(self.library.dir, "set_aside"))
+        return True
+
     def song(self, track_id: str) -> dict | None:
         """What the studio's loader takes ({project, audio_url, analysis, saved}), for one learned song."""
         doc = self.library.learned(track_id)
@@ -178,7 +258,26 @@ class Review:
             web.get("/api/review/song/{id}", self.h_song),
             web.get("/api/review/audio/{id}", self.h_audio),
             web.post("/api/review/truth", self.h_truth),
+            web.get("/api/review/every", self.h_every),
+            web.post("/api/review/custom", self.h_custom),
+            web.post("/api/review/uncustom", self.h_uncustom),
         ]
+
+    async def h_uncustom(self, request):
+        body = await request.json()
+        done = await asyncio.get_running_loop().run_in_executor(None, self.drop_custom, str(body.get("track_id", "")), str(body.get("name", "")))
+        return web.json_response({"ok": True, "dropped": done})
+
+    async def h_every(self, request):
+        return web.json_response({"songs": await asyncio.get_running_loop().run_in_executor(None, self.every_song)})
+
+    async def h_custom(self, request):
+        body = await request.json()
+        try:
+            name = await asyncio.get_running_loop().run_in_executor(None, self.make_custom, str(body["track_id"]), dict(body["project"]))
+        except (KeyError, TypeError, ValueError) as e:
+            return web.json_response({"error": str(e)}, status=400)
+        return web.json_response({"ok": True, "name": name, "read_only": self.read_only})
 
     async def h_songs(self, request):
         songs = await asyncio.get_running_loop().run_in_executor(None, self.songs)
