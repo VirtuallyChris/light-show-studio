@@ -463,6 +463,42 @@ class JamLibrary:
             json.dump(fixes, fh, indent=1)
         os.replace(tmp, self.beat_fixes_path)
 
+    # -- locked shows: a song whose show the user wants kept exactly as it is ("it's epic") ---------------
+    # shows/_jam/locked/<id>.json holds the show as it was built and the analysis it was built on, so no
+    # change to the show logic, a retrained section labeler, a song learned again or the jam's color settings
+    # can change it; the jam plays it as it is. Removing the file unlocks the song.
+    def _locked_path(self, track_id: str) -> str:
+        return os.path.join(self.dir, "locked", re.sub(r"[^A-Za-z0-9]", "", track_id) + ".json")
+
+    def locked(self, track_id: str) -> dict | None:
+        """{"project", "analysis", ...} for a locked song, else None."""
+        if not track_id:
+            return None
+        path = self._locked_path(track_id)
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None                                   # (nearly every song: one quick look)
+        cache = self.__dict__.setdefault("_locked_cache", {})
+        if path in cache and cache[path][0] == mtime:
+            return cache[path][1]
+        try:
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except (OSError, ValueError):
+            return None
+        doc = doc if isinstance(doc, dict) and isinstance(doc.get("project"), dict) and isinstance(doc.get("analysis"), dict) else None
+        cache[path] = (mtime, doc)
+        return doc
+
+    def lock(self, track_id: str, project: dict, analysis: dict, label: str = "") -> None:
+        path = self._locked_path(track_id)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"label": label, "locked_at": time.strftime("%Y-%m-%d %H:%M"), "project": project, "analysis": analysis}, fh)
+        os.replace(tmp, path)
+
     def lyrics(self, track_id: str) -> dict | None:
         """The song's lyrics with word times (lyrics.py; shows/_jam/lyrics/<id>.json), slimmed to what a
         show needs: words {t, end, w, line, bg?, p} and lines {t, end, text}. None when there are none (not
@@ -1818,6 +1854,9 @@ class JamEngine:
             if jt.kind == "custom":
                 return base
             if jt.kind == "learned":
+                kept = self.library.locked(jt.track.id)
+                if kept:                                     # locked by the user: the show and its analysis as they were
+                    return {**base, "analysis": kept["analysis"], "locked": kept["project"]}
                 lyr = self.library.lyrics(jt.track.id) if jt.track.id else None
                 return {**base, "analysis": {**jt.analysis, "lyrics": lyr} if lyr else jt.analysis}
             a, dur = jt.analysis, jt.track.duration

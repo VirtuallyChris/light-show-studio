@@ -166,7 +166,7 @@
     a._swells = undefined;
   }
   function recolor() {
-    if (!J.live || !J.doc || J.doc.kind === 'custom') return;
+    if (!J.live || !J.doc || J.doc.kind === 'custom' || J.doc.locked) return;      // (a locked show keeps its colors)
     // not while the song's show is still being loaded (a cover can arrive half way): the load uses it itself
     if (!St.P() || J.key !== J.doc.key) return;
     if (J.doc.light) { S.jamColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
@@ -612,6 +612,13 @@
       adopt(data.analysis, data.project, data.saved || null, data);
       if (!data.saved) try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
       if (J.failedKey !== room.key) toast(`${room.label}: playing your show`);
+    } else if (doc.locked) {
+      // locked by the user (jam.py JamLibrary.lock): the show exactly as it was kept, on the analysis it was
+      // built on; nothing is built, restyled or recolored (it is not saved anywhere either: S.name stays empty)
+      adopt(doc.analysis, room.label, null);
+      S.project = JSON.parse(JSON.stringify(doc.locked)); St.migrateProject(S.project);
+      J.built = sectionKeys();
+      if (J.failedKey !== room.key) toast(`${room.label}: its locked show`);
     } else if (doc.light) {
       adopt(doc.analysis, room.label, null);
       buildLight();                                                   // a stopgap until its copy is learned

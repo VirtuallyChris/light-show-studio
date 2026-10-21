@@ -534,6 +534,30 @@ class TestEngine(unittest.TestCase):
         self.assertAlmostEqual(t.start, true_start, delta=0.04)                  # the stale clock alone would be 350 ms out
         self.assertEqual(sim.engine.analysis_json(t.key)["analysis"]["bpm"], sim.library.learned(self.ta.id)["analysis"]["bpm"])
 
+    def test_a_locked_song_plays_its_kept_show_and_analysis(self):
+        # "Make sure this song doesn't change at all": a locked song's show and the analysis it was built on
+        # are served as they were kept, whatever the song's learned analysis says now; unlocked, as before.
+        from lightshow.studio.analysis import analyze_audio
+
+        mono = self.a["audio"].mean(axis=1)
+        lib = JamLibrary(self.dir)
+        lib.save_learned(self.ta, analyze_audio(mono, SR, events=False))
+        kept_analysis = {"bpm": 99.0, "beats": [0.5, 1.1], "sections": [], "drops": [], "duration": 30.0}
+        kept_show = {"name": "kept", "lanes": [{"clips": [{"effect": "solid", "start": 0, "len": 4}]}]}
+        lib.lock(self.ta.id, kept_show, kept_analysis, "kept")
+        self.assertIsNone(lib.locked("someone-else"))
+        sim = Sim(self.dir, target=20.0)
+        sim.run(3.0, analyse=False)
+        sim.play(self.a, self.ta)
+        sim.run(20)
+        doc = sim.engine.analysis_json(sim.engine.current.key)
+        self.assertEqual(doc["locked"], kept_show)
+        self.assertEqual(doc["analysis"]["bpm"], 99.0)
+        os.remove(lib._locked_path(self.ta.id))                                 # unlocked: the learned show again
+        doc = sim.engine.analysis_json(sim.engine.current.key)
+        self.assertNotIn("locked", doc)
+        self.assertEqual(doc["analysis"]["bpm"], lib.learned(self.ta.id)["analysis"]["bpm"])
+
     def test_a_song_already_playing_is_measured_from_its_real_start(self):
         # The jam begins 15 s into a song. Everything learned must still be in the song's own time.
         sim = Sim(self.dir, target=20.0)
