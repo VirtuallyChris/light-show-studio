@@ -128,9 +128,11 @@
     if (!t || !t.id || t.kind === 'custom') return '';
     if (wildOn(t)) return '';                                        // No Limits: the show picks them, section by section
     const [a, b] = shownColors(t), own = (J.state.track_colors || {})[t.id];
-    if (!themeOn()) return `<span class="jam-pair"><span class="jam-sw" style="background:${a}" title="Its album cover's colors"></span><span class="jam-sw" style="background:${b}"></span></span>`;
+    // (shown the way the room sees them: the stored secondary is on the bright hits and shows most, so it is
+    // the one called Primary, first; what is stored, and the show, are as before)
+    if (!themeOn()) return `<span class="jam-pair"><span class="jam-sw" style="background:${b}" title="Its album cover's colors"></span><span class="jam-sw" style="background:${a}"></span></span>`;
     const off = !!(own && own.off);
-    return `<span class="jam-pair" data-id="${esc(t.id)}"><input type="color" class="jp-a" value="${a}" title="Primary color for this song (kept for next time)"><input type="color" class="jp-b" value="${b}" title="Secondary color for this song">`
+    return `<span class="jam-pair" data-id="${esc(t.id)}"><input type="color" class="jp-b" value="${b}" title="Primary color for this song: the one seen most (kept for next time)"><input type="color" class="jp-a" value="${a}" title="Secondary color for this song">`
       + (['pick', 'mix'].includes((J.state.jam_colors || {}).mode) || off ? `<button class="jp-theme small ${off ? '' : 'on'}" title="${off ? 'This song plays in its album cover\'s colors. Click for the party\'s' : 'This song plays in the party\'s colors. Click for its album cover\'s'}">${off ? 'cover' : 'party'}</button>` : '')
       + `${own && !off ? '<button class="jp-reset small" title="Back to the jam\'s colors">&#8634;</button>' : ''}</span>`;
   }
@@ -141,8 +143,8 @@
       ['wild', 'No Limits', 'Every section its own palette: a breakdown all blue, a red drop, a rainbow, green there…']].map(([k, n, t]) => `<button class="small${source === k ? ' on' : ''}" data-src="${k}" title="${t}">${n}</button>`).join('')}</span></div>`;
     if (source !== 'party') return `<div class="jam-sec"><h4>Colors</h4>${pick}</div>`;
     return `<div class="jam-sec"><h4>Colors</h4>${pick}
-        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Primary"><input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Secondary">` : ''}</span></div>
-        ${jc.mode === 'mix' ? `<div class="jam-row"><label title="Each song gets one of these, chosen by its vibe, never the same pair twice in a row">Pairs</label><span class="jam-pairs">${(jc.pairs || []).map((p, i) => `<span class="jam-pair"><input type="color" class="mx-a" data-i="${i}" value="${esc(p[0])}"><input type="color" class="mx-b" data-i="${i}" value="${esc(p[1])}"></span>`).join('')}</span></div>
+        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Primary: the one seen most"><input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Secondary">` : ''}</span></div>
+        ${jc.mode === 'mix' ? `<div class="jam-row"><label title="Each song gets one of these, chosen by its vibe, never the same pair twice in a row">Pairs</label><span class="jam-pairs">${(jc.pairs || []).map((p, i) => `<span class="jam-pair"><input type="color" class="mx-b" data-i="${i}" value="${esc(p[1])}"><input type="color" class="mx-a" data-i="${i}" value="${esc(p[0])}"></span>`).join('')}</span></div>
         <div class="jam-row"><label title="A song that goes all out gets rainbow drops">Rainbow for epic songs</label><input type="checkbox" id="jamRainbow" ${jc.rainbow ? 'checked' : ''}></div>` : ''}
         ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take two more colors now and then, picked for each song from its own two (purple and green get red and orange)">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}></span></div>` : ''}</div>`;
   }

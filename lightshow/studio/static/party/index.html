@@ -421,8 +421,8 @@
     // its own two, the jam's, or its cover's as they will play: a tap on either picks from the sixteen
     const [a, b] = t.colors || coverPair(t.image) || ['#808080', '#808080'];
     return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}" data-own="${t.own ? 1 : ''}" data-name="${esc(t.name || t.label || '')}" data-style="${esc(t.style || '')}" data-vibe="${esc(t.vibe || '')}" data-genre="${esc(t.genre || '')}" data-heard="${esc(t.genre_found || '')}" data-theme="${themed || t.theme_off ? (t.theme_off ? 'cover' : 'party') : ''}"${bare ? ' data-bare="1"' : ''}>${bare ? '' : `
-      <button class="sw ${t.colors ? '' : 'fixed'}" data-k="a" style="background:${esc(a)}" aria-label="Primary color"></button>
-      <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Secondary color"></button>
+      <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Primary color"></button>
+      <button class="sw ${t.colors ? '' : 'fixed'}" data-k="a" style="background:${esc(a)}" aria-label="Secondary color"></button>
       ${t.only ? '<span class="only-tag" title="Just these two colors">2</span>' : ''}
       ${st.theme_on !== false || t.colors ? chip : ''}${t.own ? '<button class="reset" title="Back to the jam’s colors" aria-label="Back to the jam’s colors">&#8634;</button>' : ''}`}</div>`;
   }
@@ -440,7 +440,7 @@
     sheet.querySelector('.sx-title').textContent = box.dataset.name || 'Colors';
     for (const grid of sheet.querySelectorAll('.sx-grid')) {
       const k = grid.dataset.k;
-      grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'a' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
+      grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'b' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
       for (const btn of grid.querySelectorAll('[data-c]')) btn.onclick = () => {
         cur[k] = btn.dataset.c;
         for (const o of grid.querySelectorAll('.on')) o.classList.remove('on');
@@ -509,7 +509,7 @@
     sheet.querySelector('.sx-title').textContent = title;
     for (const grid of sheet.querySelectorAll('.sx-grid')) {
       const k = grid.dataset.k;
-      grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'a' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
+      grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'b' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
       for (const btn of grid.querySelectorAll('[data-c]')) btn.onclick = () => {
         cur[k] = btn.dataset.c;
         for (const o of grid.querySelectorAll('.on')) o.classList.remove('on');
@@ -702,7 +702,7 @@
       </div>
       <div class="modes" role="group" aria-label="How songs get the colors"><button data-m="pick" class="${mode === 'pick' ? 'on' : ''}">Two colors</button><button data-m="mix" class="${mode === 'mix' ? 'on' : ''}">A pair each song</button></div>
       <div class="pairs">${pairs.map((p, i) => `<div class="pair-ed" data-i="${i}">
-          <button class="sw" data-k="a" style="background:${esc(p[0])}" aria-label="Color one"></button><button class="sw" data-k="b" style="background:${esc(p[1])}" aria-label="Color two"></button>
+          <button class="sw" data-k="b" style="background:${esc(p[1])}" aria-label="Primary color"></button><button class="sw" data-k="a" style="background:${esc(p[0])}" aria-label="Secondary color"></button>
           ${mode === 'mix' && pairs.length > 1 ? '<button class="rm" aria-label="Remove this pair">&times;</button>' : ''}</div>`).join('')}
         ${mode === 'mix' && pairs.length < 8 ? '<button class="mini" id="pairAdd">+ Pair</button>' : ''}</div>`;
     if (html === themeShown || sheetOpen || document.activeElement === $('#setPick')) return;
@@ -752,7 +752,7 @@
     // the room's song tints the card: its own pair, else its cover's
     const pair = r && (r.colors || (r.kind !== 'custom' && coverPair(r.image)));
     const card = $('#nowCard');
-    if (pair) { card.style.setProperty('--c1', pair[0]); card.style.setProperty('--c2', pair[1]); } else { card.style.removeProperty('--c1'); card.style.removeProperty('--c2'); }
+    if (pair) { card.style.setProperty('--c1', pair[1]); card.style.setProperty('--c2', pair[0]); }   // (the one seen most first) else { card.style.removeProperty('--c1'); card.style.removeProperty('--c2'); }
     const idle = msg => `<div class="np idle">${artBox(null)}<div class="title">${msg}</div></div>`;
     // a skip or a step back tapped: the song it goes to, grayed, until the room gets there (a few seconds)
     if (skipping && (!r || r.id !== skipping.from || performance.now() - skipping.at > 25000)) skipping = null;
@@ -969,10 +969,11 @@
     <div class="grab" aria-hidden="true"></div>
     <div class="sx-head"><span class="sx-title">Colors</span></div>
     <div class="sx-theme song-only" role="group" aria-label="Its colors"><button data-t="party">Party colors</button><button data-t="cover">Album art</button></div>
+    <!-- (the stored secondary, k "b", is on the bright hits and shows most: it is the one called Primary) -->
     <div class="sx-label">Primary</div>
-    <div class="sx-grid" data-k="a"></div>
-    <div class="sx-label">Secondary</div>
     <div class="sx-grid" data-k="b"></div>
+    <div class="sx-label">Secondary</div>
+    <div class="sx-grid" data-k="a"></div>
     <div class="sx-label song-only">Vibe</div>
     <div class="sx-vibes song-only" role="group" aria-label="Vibe"></div>
     <div class="sx-label song-only">Genre</div>
