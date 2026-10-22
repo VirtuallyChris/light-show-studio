@@ -62,6 +62,15 @@ class ReviewTest(unittest.TestCase):
         self.assertIn("_about", truth)
         self.assertEqual(r.songs()[1]["reviewed"], "corrected")
 
+    def test_claudes_review_is_marked_and_the_users_own_replaces_it(self):
+        r = Review(self.lib)
+        secs = [{"type": "verse", "start": 0, "end": 10}]
+        r.keep("aaa", secs, ok=False, by="claude")
+        self.assertEqual((r.truth()["aaa"]["by"], r.truth()["aaa"]["reviewed"]), ("claude", "claude"))
+        r.keep("aaa", secs, ok=True)                                  # the user agrees: theirs now, unmarked
+        self.assertNotIn("by", r.truth()["aaa"])
+        self.assertEqual(r.truth()["aaa"]["reviewed"], "right as found")
+
     def test_a_test_copy_never_writes(self):
         r = Review(self.lib, read_only=True)
         r.keep("aaa", [{"type": "verse", "start": 0, "end": 10}], ok=True)

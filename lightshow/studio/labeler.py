@@ -47,6 +47,16 @@ def has_features(tid: str) -> bool:
     return bool(tid) and all(os.path.exists(os.path.join(FEAT, tid + ext)) for ext in (".emb2.npy", ".npz", ".json"))
 
 
+# Reviews Claude made by itself (review_by_claude: the user's style, read from the bars) count for this much of one of
+# the user's when the labeler learns; the user's own reviews are the truth it is scored against (evaluate).
+CLAUDE_WEIGHT = float(os.environ.get("LSS_CLAUDE_WEIGHT", 0.5))
+
+
+def _weights(songs) -> np.ndarray:
+    """Per labeled bar, how much it counts: the user's 1, Claude's CLAUDE_WEIGHT."""
+    return np.concatenate([np.full(int((s["y"] >= 0).sum()), CLAUDE_WEIGHT if s.get("by") == "claude" else 1.0) for s in songs])
+
+
 def truth(jam: str = JAM) -> dict:
     try:
         with open(os.path.join(jam, "section_truth.json"), encoding="utf-8") as fh:
@@ -176,11 +186,12 @@ class Model:
         self.clf = XGBClassifier(n_estimators=300, learning_rate=0.05, max_depth=6, subsample=0.9, colsample_bytree=0.6,
                                  reg_lambda=1.0, tree_method="hist", device="cuda", n_jobs=8, random_state=0)
 
-    def fit(self, X, y):
+    def fit(self, X, y, w=None):
         from sklearn.utils.class_weight import compute_sample_weight
         self.classes_ = np.unique(y)
         remap = {c: i for i, c in enumerate(self.classes_)}           # (XGBoost wants the labels it saw as 0..n-1)
-        self.clf.fit(X, np.array([remap[v] for v in y]), sample_weight=compute_sample_weight("balanced", y))
+        sw = compute_sample_weight("balanced", y) * (1.0 if w is None else np.asarray(w, float))
+        self.clf.fit(X, np.array([remap[v] for v in y]), sample_weight=sw)
         self.clf.set_params(device="cpu")                            # (labelling a song: a few hundred bars, no card needed)
         return self
 
@@ -381,6 +392,7 @@ def song_bars(lib, tid: str, user: dict | None = None) -> dict | None:
     out["y"] = np.array([TYPES.index(_label_at(t["sections"], 0.5 * (b0 + b1))) if t and _label_at(t["sections"], 0.5 * (b0 + b1)) in TYPES
                          else -1 for b0, b1 in out["spans"]])
     out["tid"] = tid
+    out["by"] = (t or {}).get("by") or ("user" if t else "")          # (reviews Claude made itself: "claude")
     return out
 
 
@@ -408,7 +420,7 @@ def train(lib, log=print) -> dict:
         raise ValueError(f"only {len(rev)} reviewed songs with features: review a few more first")
     M = {s["tid"]: matrix(s, pcas) for s in songs}
     X = np.concatenate([M[s["tid"]][s["y"] >= 0] for s in rev]); yy = np.concatenate([s["y"][s["y"] >= 0] for s in rev])
-    model = Model().fit(X, yy)
+    model = Model().fit(X, yy, _weights(rev))
     import joblib
     tmp = MODEL + ".tmp"
     joblib.dump({"model": model, "pcas": pcas, "songs": len(rev), "bars": int(len(yy)), "trained": time.strftime("%Y-%m-%d %H:%M")}, tmp)
@@ -435,31 +447,43 @@ def train(lib, log=print) -> dict:
 
 def evaluate(lib, log=print) -> None:
     """Leaving one song out: the rules against the labeler (bar by bar, and smoothed into sections), all reviewed
-    songs and by the day they were reviewed (songs reviewed after the rules were last tuned are the fair test)."""
+    songs and by the day they were reviewed (songs reviewed after the rules were last tuned are the fair test).
+    Scored on the user's own reviews only; Claude's (review_by_claude) only ever help train, and with some, the
+    labeler is scored both with and without them."""
     songs = load_all(lib)
     pcas = _pca(songs)
     rev = [s for s in songs if (s["y"] >= 0).any()]
-    names = sorted({str(s["name"]).lower() for s in rev})
-    log(f"{len(rev)} reviewed songs ({len(songs)} with features)")
+    mine = [s for s in rev if s.get("by") != "claude"]
+    names = sorted({str(s["name"]).lower() for s in mine})
+    claude = len(rev) - len(mine)
+    log(f"{len(mine)} songs reviewed by the user, {claude} by Claude ({len(songs)} with features)")
     M = {s["tid"]: matrix(s, pcas) for s in rev}
-    Y, R, P, S, W, G = [], [], [], [], [], []
+    arms = [("with Claude's", rev)] + ([("without Claude's", mine)] if claude else [])
+    Y, R, G, W, P, S = [], [], [], [], {a: [] for a, _ in arms}, {a: [] for a, _ in arms}
     added = {k: v.get("added", "?") for k, v in truth(lib.dir).items()}
     for k, nm in enumerate(names):
-        tr = [s for s in rev if str(s["name"]).lower() != nm]
-        model = Model().fit(np.concatenate([M[s["tid"]][s["y"] >= 0] for s in tr]), np.concatenate([s["y"][s["y"] >= 0] for s in tr]))
+        test = [s for s in mine if str(s["name"]).lower() == nm]
+        for arm, pool in arms:
+            tr = [s for s in pool if str(s["name"]).lower() != nm]
+            model = Model().fit(np.concatenate([M[s["tid"]][s["y"] >= 0] for s in tr]), np.concatenate([s["y"][s["y"] >= 0] for s in tr]), _weights(tr))
+            for s in test:
+                m = s["y"] >= 0
+                pr = model.proba(M[s["tid"]])
+                P[arm].append(pr.argmax(1)[m]); S[arm].append(smooth(pr)[m])
+        for s in test:
+            m = s["y"] >= 0
+            Y.append(s["y"][m]); R.append(s["rule"][m])
+            W.append((s["spans"][:, 1] - s["spans"][:, 0])[m]); G.append(np.full(int(m.sum()), added.get(s["tid"], "?")))
         if k % 20 == 0:
             log(f"  {k}/{len(names)} songs scored")
-        for s in (s for s in rev if str(s["name"]).lower() == nm):
-            m = s["y"] >= 0
-            pr = model.proba(M[s["tid"]])
-            Y.append(s["y"][m]); R.append(s["rule"][m]); P.append(pr.argmax(1)[m]); S.append(smooth(pr)[m])
-            W.append((s["spans"][:, 1] - s["spans"][:, 0])[m]); G.append(np.full(int(m.sum()), added.get(s["tid"], "?")))
-    y, r, p, sm, w, g = map(np.concatenate, (Y, R, P, S, W, G))
+    y, r, w, g = map(np.concatenate, (Y, R, W, G))
 
     def acc(q, mask):
         return f"types {np.average((q == y)[mask], weights=w[mask]):.1%}  drop/not-drop {np.average(((q == 3) == (y == 3))[mask], weights=w[mask]):.1%}"
     for title, mask in [("all reviewed songs", np.ones(len(y), bool))] + [(f"reviewed {d}", g == d) for d in sorted(set(g))]:
         log(title)
         log(f"  the rules:                 {acc(r, mask)}")
-        log(f"  the labeler, bar by bar:   {acc(p, mask)}")
-        log(f"  the labeler, as sections:  {acc(sm, mask)}")
+        for arm, _ in arms:
+            sfx = f" ({arm} reviews)" if claude else ""
+            log(f"  the labeler, bar by bar{sfx}:   {acc(np.concatenate(P[arm]), mask)}")
+            log(f"  the labeler, as sections{sfx}:  {acc(np.concatenate(S[arm]), mask)}")

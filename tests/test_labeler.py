@@ -29,6 +29,12 @@ class SmoothTest(unittest.TestCase):
                          [("intro", 0.0, 5.0), ("verse", 5.0, 9.0), ("drop", 9.0, 14.0)])
 
 
+class WeightsTest(unittest.TestCase):
+    def test_claudes_labeled_bars_count_less_than_the_users(self):
+        songs = [{"y": np.array([0, -1, 3]), "by": "user"}, {"y": np.array([1, 1]), "by": "claude"}]
+        np.testing.assert_allclose(labeler._weights(songs), [1.0, 1.0, labeler.CLAUDE_WEIGHT, labeler.CLAUDE_WEIGHT])
+
+
 class WherePlaysTest(unittest.TestCase):
     def song(self, **kw):
         return {"sections": [{"type": "verse", "start": 0.0, "end": 10.0}], "drops": [], "beats": [], "duration": 10.0, **kw}
