@@ -47,9 +47,11 @@ def has_features(tid: str) -> bool:
     return bool(tid) and all(os.path.exists(os.path.join(FEAT, tid + ext)) for ext in (".emb2.npy", ".npz", ".json"))
 
 
-# Reviews Claude made by itself (review_by_claude: the user's style, read from the bars) count for this much of one of
-# the user's when the labeler learns; the user's own reviews are the truth it is scored against (evaluate).
-CLAUDE_WEIGHT = float(os.environ.get("LSS_CLAUDE_WEIGHT", 0.5))
+# Reviews Claude made by itself (tools/claude_review.py: the user's style, read from the bars) count for this much of one
+# of the user's when the labeler learns; the user's own reviews are the truth it is scored against (evaluate). 0: left
+# out. Tried 2026-10-21 with 188 of Claude's at 0.5 beside the user's 129: no better on the user's songs (sections
+# 84.4% against 84.8% without), so the labeler learns from the user alone; Claude's sections still stand for its songs.
+CLAUDE_WEIGHT = float(os.environ.get("LSS_CLAUDE_WEIGHT", 0.0))
 
 
 def _weights(songs) -> np.ndarray:
@@ -415,7 +417,7 @@ def train(lib, log=print) -> dict:
     t0 = time.time()
     songs = load_all(lib)
     pcas = _pca(songs)
-    rev = [s for s in songs if (s["y"] >= 0).any()]
+    rev = [s for s in songs if (s["y"] >= 0).any() and (CLAUDE_WEIGHT or s.get("by") != "claude")]
     if len(rev) < 10:
         raise ValueError(f"only {len(rev)} reviewed songs with features: review a few more first")
     M = {s["tid"]: matrix(s, pcas) for s in songs}
