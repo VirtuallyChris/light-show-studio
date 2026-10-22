@@ -74,6 +74,8 @@ def _jamming() -> bool:
 
 
 def main(link: str) -> None:
+    # (a title Windows' console code page cannot spell, logged by a worker, would kill that worker and stall the run)
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     pid = playlist_id(link)
     if not pid:
         raise SystemExit("paste a Spotify playlist link")
