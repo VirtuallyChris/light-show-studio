@@ -49,9 +49,9 @@ def has_features(tid: str) -> bool:
 
 # Reviews Claude made by itself (tools/claude_review.py: the user's style, read from the bars) count for this much of one
 # of the user's when the labeler learns; the user's own reviews are the truth it is scored against (evaluate). 0: left
-# out. Tried 2026-10-21 with 188 of Claude's at 0.5 beside the user's 129: no better on the user's songs (sections
-# 84.4% against 84.8% without), so the labeler learns from the user alone; Claude's sections still stand for its songs.
-CLAUDE_WEIGHT = float(os.environ.get("LSS_CLAUDE_WEIGHT", 0.0))
+# out. Tried 2026-10-21 with 188 of Claude's at 0.5 beside the user's 129: no different on the user's songs (sections
+# 84.4% against 84.8% without, within noise); the user chose to train on all of them.
+CLAUDE_WEIGHT = float(os.environ.get("LSS_CLAUDE_WEIGHT", 0.5))
 
 
 def _weights(songs) -> np.ndarray:

@@ -1,6 +1,7 @@
 """The neural-net trial (run with .venv-songformer: PyTorch on the card). A bidirectional GRU over a song's bars, each bar
 SongFormer's 4096-number embedding (learned down to 128) plus the trees' features; 10 folds by song (the same as the
-trees'); scored against the trees and the rules, bar by bar and smoothed into sections, and blended with the trees."""
+trees'); scored against the trees and the rules, bar by bar and smoothed into sections, and blended with the trees. ADD_CLAUDE=1: Claude's reviews join
+every fold's training (never a fold's test, nor one of the same name as it); the scores are on the user's songs alone."""
 import os
 import sys
 import time
@@ -18,7 +19,7 @@ torch.manual_seed(0); np.random.seed(0)
 dev = "cuda"
 z = np.load(os.path.join(HERE, "nn_data.npz"))
 n = int(z["n"])
-S = [{k: z[f"{k}{i}"] for k in ("X", "E", "y", "r", "w", "f", "d", "T")} for i in range(n)]
+S = [{k: z[f"{k}{i}"] for k in ("X", "E", "y", "r", "w", "f", "d", "T", "c")} for i in range(n)]
 for s in S:
     s["X"] = np.nan_to_num(s["X"].astype(np.float32), nan=0.0)
     s["E"] = s["E"].astype(np.float32)
@@ -26,6 +27,7 @@ for s in S:
 D_X, D_E = S[0]["X"].shape[1], S[0]["E"].shape[1]
 EPOCHS = int(os.environ.get("EPOCHS", 60))
 HID = int(os.environ.get("HID", 128))
+ADD = bool(os.environ.get("ADD_CLAUDE"))
 
 
 class Net(nn.Module):
@@ -73,8 +75,8 @@ t0 = time.time()
 for s in S:
     s["N"] = None
 for k in range(10):
-    tr = [s for s in S if int(s["f"]) != k]
-    te = [s for s in S if int(s["f"]) == k]
+    tr = [s for s in S if int(s["f"]) != k and (ADD or not int(s["c"]))]
+    te = [s for s in S if int(s["f"]) == k and not int(s["c"])]
     net, mu, sd = train(tr)
     with torch.no_grad():
         for s in te:
@@ -82,6 +84,8 @@ for k in range(10):
             s["N"] = torch.softmax(net(X, E)[0], -1).cpu().numpy()
     print(f"fold {k} done ({time.time() - t0:.0f} s)", flush=True)
 
+C = sum(int(s["c"]) for s in S)
+S = [s for s in S if not int(s["c"])]                            # scored on the user's songs alone
 y = np.concatenate([s["y"] for s in S]); w = np.concatenate([s["w"] for s in S]); d = np.concatenate([np.full(len(s["y"]), str(s["d"])) for s in S])
 m = y >= 0
 
@@ -89,12 +93,12 @@ m = y >= 0
 def score(name, preds):
     p = np.concatenate(preds)
     out = []
-    for title, mask in (("all", m), ("2026-10-19", m & (d == "2026-10-19"))):
+    for title, mask in [("all", m)] + [(dd, m & (d == dd)) for dd in ("2026-10-19", "2026-10-21")]:
         out.append(f"{title}: {np.average((p == y)[mask], weights=w[mask]):.1%} / {np.average(((p == 3) == (y == 3))[mask], weights=w[mask]):.1%}")
     print(f"  {name:34s} " + "   ".join(out), flush=True)
 
 
-print(f"10 folds by song, {n} songs (types / drop-not-drop)")
+print(f"10 folds by song, {len(S)} of the user's songs" + (f" + {C} of Claude's in training" if ADD else "") + " (types / drop-not-drop)")
 score("the rules", [s["r"] for s in S])
 score("the trees (XGBoost), bars", [s["T"].argmax(1) for s in S])
 score("the trees, as sections", [smooth(s["T"]) for s in S])

@@ -4,7 +4,8 @@ Its transformer and heads (trained on thousands of songs) start as they are; a n
 labels starts from its own rows (drop<-chorus, verse<-verse, buildup<-pre-chorus, breakdown<-bridge, intro, outro);
 everything learns at a gentle rate (the new head faster). Input: the saved embeddings (0.48 s steps) repeated back
 to SongFormer's 25 frames a second. 10 folds by song (the trees' and the GRU's), scored per bar, smoothed into
-sections, and blended with the trees.
+sections, and blended with the trees. ADD_CLAUDE=1: Claude's reviews join every fold's training (never a fold's
+test, nor one of the same name as it); the scores are on the user's songs alone.
 """
 import copy
 import os
@@ -25,6 +26,7 @@ from lightshow.studio.labeler import smooth  # noqa: E402
 torch.manual_seed(0); np.random.seed(0)
 EPOCHS = int(os.environ.get("EPOCHS", 12))
 LR = float(os.environ.get("LR", 3e-5))
+ADD = bool(os.environ.get("ADD_CLAUDE"))
 FREEZE = os.environ.get("FREEZE", "")                 # "low": keep the input layers as they are
 model, dev = sfi.load_model("cuda")
 base = model.songformer.float()
@@ -40,7 +42,7 @@ for i in range(n):
     tid = str(z[f"id{i}"])
     e2 = np.load(os.path.join(REPO, "shows", "_jam", "features", tid + ".emb2.npy"))
     S.append({"E": e2, "y": z[f"y{i}"], "sp": z[f"sp{i}"], "r": z[f"r{i}"], "w": z[f"w{i}"], "f": int(z[f"f{i}"]),
-              "d": str(z[f"d{i}"]), "T": z[f"T{i}"]})
+              "d": str(z[f"d{i}"]), "T": z[f"T{i}"], "c": int(z[f"c{i}"])})
 
 
 def frame_labels(s, n_out):
@@ -127,15 +129,17 @@ if os.environ.get("SMOKE"):                            # one song through it: ti
     sys.exit(0)
 t0 = time.time()
 for k in range(10):
-    tr = [s for s in S if s["f"] != k]
+    tr = [s for s in S if s["f"] != k and (ADD or not s["c"])]
     m = train(tr)
     for s in S:
-        if s["f"] == k:
+        if s["f"] == k and not s["c"]:
             s["N"] = bar_probs(m, s)
     del m
     torch.cuda.empty_cache()
     print(f"fold {k} done ({time.time() - t0:.0f} s)", flush=True)
 
+C = sum(s["c"] for s in S)
+S = [s for s in S if not s["c"]]                                 # scored on the user's songs alone
 y = np.concatenate([s["y"] for s in S]); w = np.concatenate([s["w"] for s in S]); d = np.concatenate([np.full(len(s["y"]), s["d"]) for s in S])
 mask = y >= 0
 
@@ -143,12 +147,12 @@ mask = y >= 0
 def score(name, preds):
     p = np.concatenate(preds)
     out = []
-    for title, mm in (("all", mask), ("2026-10-19", mask & (d == "2026-10-19"))):
+    for title, mm in [("all", mask)] + [(dd, mask & (d == dd)) for dd in ("2026-10-19", "2026-10-21")]:
         out.append(f"{title}: {np.average((p == y)[mm], weights=w[mm]):.1%} / {np.average(((p == 3) == (y == 3))[mm], weights=w[mm]):.1%}")
     print(f"  {name:40s} " + "   ".join(out), flush=True)
 
 
-print(f"10 folds by song, {n} songs (types / drop-not-drop); epochs {EPOCHS}, lr {LR}, freeze {FREEZE or 'none'}")
+print(f"10 folds by song, {len(S)} of the user's songs" + (f" + {C} of Claude's in training" if ADD else "") + f" (types / drop-not-drop); epochs {EPOCHS}, lr {LR}, freeze {FREEZE or 'none'}")
 score("the rules", [s["r"] for s in S])
 score("the trees, as sections", [smooth(s["T"]) for s in S])
 score("SongFormer fine-tuned, bars", [s["N"].argmax(1) for s in S])
