@@ -3,6 +3,7 @@ levels, drum hits, SongFormer, the rules, the labeler, the words) and given sect
 
     .venv\Scripts\python tools\claude_review.py prep 10 batch.json batch.txt    the next 10 songs, as text to read
     .venv\Scripts\python tools\claude_review.py keep batch.json labels.json     the sections given, kept as reviews
+    .venv\Scripts\python tools\claude_review.py propose batch.json labels.json  or as suggestions the user approves (M, Done)
 
 labels.json: {"<n>": [[first bar, "type"], ...]} for each song n of the batch (a run of bars per section). The
 reviews are kept marked by="claude" (review.py): the labeler learns from them at CLAUDE_WEIGHT, never scores against
@@ -176,6 +177,27 @@ def keep(batch_path: str, labels_path: str) -> None:
     L.train(lib)
 
 
+def propose(batch_path: str, labels_path: str) -> None:
+    """The sections given, as suggestions for the user to judge in review mode (review.py proposals), not reviews."""
+    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    batch = json.load(open(batch_path, encoding="utf-8"))
+    labels = json.load(open(labels_path, encoding="utf-8"))
+    review, done = Review(lib), 0
+    for k, song in batch.items():
+        runs = labels.get(k)
+        if not runs:
+            continue
+        spans, secs = song["spans"], []
+        for (start, kind), nxt in zip(runs, runs[1:] + [[len(spans), None]]):
+            t0 = 0.0 if start == 0 else float(spans[start][0])
+            t1 = song["duration"] if nxt[0] >= len(spans) else float(spans[nxt[0]][0])
+            if t1 > t0:
+                secs.append({"type": kind, "start": t0, "end": t1})
+        review.propose(song["tid"], secs)
+        done += 1
+    print(f"suggested sections for {done} songs (review mode shows them first)")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "prep":
@@ -186,3 +208,5 @@ if __name__ == "__main__":
         score(sys.argv[2], sys.argv[3])
     elif cmd == "keep":
         keep(sys.argv[2], sys.argv[3])
+    elif cmd == "propose":
+        propose(sys.argv[2], sys.argv[3])

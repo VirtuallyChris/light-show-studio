@@ -71,6 +71,19 @@ class ReviewTest(unittest.TestCase):
         self.assertNotIn("by", r.truth()["aaa"])
         self.assertEqual(r.truth()["aaa"]["reviewed"], "right as found")
 
+    def test_a_suggestion_comes_first_and_goes_once_the_user_has_decided(self):
+        r = Review(self.lib)
+        secs = [{"type": "verse", "start": 0, "end": 10}]
+        r.propose("aaa", secs)
+        songs = r.songs()
+        self.assertEqual(songs[0]["id"], "aaa")                       # waiting for a yes or no: first
+        self.assertTrue(songs[0]["proposal"])
+        self.assertEqual(r.proposals()["aaa"]["sections"], [{"type": "verse", "start": 0.0, "end": 10.0}])
+        self.assertNotIn("aaa", r.truth())                           # a suggestion is not a review
+        r.keep("aaa", secs, ok=False)                                # Done: the user's review
+        self.assertEqual(r.proposals(), {})
+        self.assertEqual(r.truth()["aaa"]["reviewed"], "corrected")
+
     def test_a_test_copy_never_writes(self):
         r = Review(self.lib, read_only=True)
         r.keep("aaa", [{"type": "verse", "start": 0, "end": 10}], ok=True)

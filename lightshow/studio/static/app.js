@@ -348,6 +348,7 @@
   async function loadResponse(r) {
     const data = await r.json();
     if (data.error) { toast(data.error, true); return; }
+    S.reviewData = data.review || null;                                  // (a song in review: its truth, Claude's suggestion)
     if (!data.review && S.review) { await reviewSaveCustom(); await reviewKeep(false); S.review = null; reviewBar(); }   // a saved show opened: review ends
     stopPlayback();
     S.analysis = data.analysis; S.name = data.project;
@@ -421,14 +422,21 @@
       }
     } catch (e) { toast('Your show was not saved: ' + e.message, true); }
   }
+  /** A song with Claude's suggestion: its sections as suggested or as the labeler had them (R.showing), the show built on them. */
+  function showMapping() {
+    const R = S.review; if (!R || !R.proposal) return;
+    P().sections = (R.showing === 'claude' ? R.proposal : R.labelerSecs).map(x => ({ ...x }));
+    autoBuild(true, true); draw(); R.clips = clipSig();                  // (rebuilt, not hand-edited)
+  }
   async function reviewKeep(ok) {
     const R = S.review; if (!R || !R.id || !P()) return;
-    if (!ok && secKey() === R.orig) return;                             // nothing changed: nothing to keep
+    if (!ok && (secKey() === R.orig || (R.proposal && secKey() === R.found))) return;   // nothing changed (or only flipped): nothing to keep
     if (ok && secKey() !== R.found) ok = false;                         // changed: a correction, whatever was pressed
     try {
       const r = await fetch('/api/review/truth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reviewBody(ok) });
       const d = await r.json(); if (d.error) throw new Error(d.error);
-      const song = R.songs.find(x => x.id === R.id); if (song) song.reviewed = d.entry.reviewed;
+      const song = R.songs.find(x => x.id === R.id); if (song) { song.reviewed = d.entry.reviewed; song.proposal = false; }
+      R.proposal = null;
       R.orig = secKey(); R.beats = P().beats.slice();                   // (a grid move is kept once)
       toast(ok ? `${S.name}: the sections are right, kept` : `${S.name}: your sections are kept`);
     } catch (e) { toast('The review was not kept: ' + e.message, true); }
@@ -445,6 +453,14 @@
       R.id = null; await loadResponse(r);
       if (S.analysis) { autoBuild(true); draw(); }                       // (its show, to judge the sections by)
       R.id = song.id; R.orig = R.found = R.built = secKey(); R.beats = P().beats.slice(); R.clips = clipSig(); R.custom = false; R.savedAs = null;   // (the lights as built: a change to them is a hand edit)
+      // Claude suggested sections for it: they show first, M flips to the labeler's (R.found), Done keeps what shows;
+      // just looking keeps nothing (R.orig is the suggestion, and the labeler's own counts as untouched too)
+      const prop = S.reviewData && !S.reviewData.truth && S.reviewData.proposal; R.proposal = null;
+      if (prop && prop.length) {
+        R.labelerSecs = P().sections.map(x => ({ ...x })); R.proposal = tidySections(prop); R.showing = 'claude'; showMapping();
+        R.orig = R.built = secKey();
+        toast("Claude's sections: M flips to the old ones, Done keeps what is showing");
+      }
     } catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
     reviewBar();
   }
@@ -1941,7 +1957,8 @@
       Click waveform to seek, drag the ruler to scrub (snaps like clips; hold <kbd>Alt</kbd> to go anywhere)<br>Drag effects onto layers; drag edges to resize<br>Drag across empty space to box-select clips · <kbd>Shift</kbd>+click adds · <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all<br>Drag any selected clip to move the whole block<br>Drop an effect on a clip to swap the effect, same timing<br>Click a clip to pick its colors in the inspector<br>Click a layer's eye to hide it · right-click its name to insert, remove or reorder<br><kbd>Alt</kbd>+drag copies a clip<br>
       <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd> copy / cut / paste / duplicate<br><kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
       Double-click a section to cycle its type<br>Right-click anything for more<br>
-      <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays</div>`;
+      <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays<br>
+      Review, a song Claude suggested sections for: <kbd>M</kbd> flips between Claude's and the old ones, <kbd>]</kbd> Done keeps what is showing</div>`;
   function toggleMenu(btn, menu, fill) {
     const open = menu.hidden; closeMenus(); if (!open) return;
     if (fill) menu.innerHTML = fill;
@@ -3542,6 +3559,10 @@
     if (S.review && (e.key === '[' || e.key === ']')) { e.key === ']' ? reviewDone() : S.review.edit || reviewOpen(S.review.i - 1); return; }
     if (e.code === 'Space') { e.preventDefault(); if (be && S.audio.playing) { beginChange(); const t = pos(); const p = P(); const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); changed(); } else togglePlay(); }
     else if (e.key === 'Enter') { togglePlay(); }
+    else if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.metaKey && S.review && S.review.proposal) {   // Claude's sections or the old ones
+      S.review.showing = S.review.showing === 'claude' ? 'old' : 'claude'; showMapping();
+      toast(S.review.showing === 'claude' ? "Claude's sections (Done keeps them)" : 'The old sections (Done keeps them)');
+    }
     else if (e.key === 'Home') { seek(0); scrollTo(0); }
     else if (e.key === 'End') { seek(duration()); }
     else if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelection(); }
