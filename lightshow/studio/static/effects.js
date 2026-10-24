@@ -466,6 +466,155 @@ const Effects = (() => {
       }
     } });
 
+  // ===== THE HOUSE =====
+  // Effects that play across the house as one space, from where each segment is on the floor plan (the party app's
+  // house map; c.where from app.js spaceOf: an [x, y] in feet for each segment, null where one is not placed, and the
+  // house: its size, its middle, its rooms). A light not on the map gets stand-in spots along the house, so these
+  // play everywhere.
+  const spots = c => (c.where && c.where.pos) || null;
+  const houseOf = c => (c.where && c.where.house) || { w: 40, d: 14, c: [20, 7], R: 21, rooms: [] };
+  const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+  const smooth = x => x * x * (3 - 2 * x);
+  function inPoly(p, poly) { let k = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) k = !k; } return k; }
+  /** Which end of the house a spot belongs to: -1 the leftmost room, 1 the rightmost, between them the rooms in
+   *  the middle (by how far across they are); with no rooms, the left or right half. */
+  function teamOf(p, H) {
+    const rs = H.rooms || []; if (rs.length < 2) return p[0] < H.c[0] ? -1 : 1;
+    const k = rs.findIndex(r => inPoly(p, r.poly));
+    if (k === 0) return -1; if (k === rs.length - 1) return 1;
+    if (k < 0) return p[0] <= rs[0].x1 ? -1 : p[0] >= rs[rs.length - 1].x0 ? 1 : 0;
+    return clamp((p[0] - rs[0].x1) / Math.max(1, rs[rs.length - 1].x0 - rs[0].x1)) * 2 - 1;
+  }
+
+  def({ id: 'shockwave', name: 'Shockwave', cat: 'accent', desc: 'The house map: a white wave bursts out from the middle of the house (or a wall) and races out to every wall, the clip\'s color following it; for a drop\'s first beat.', swatch: ['#ffffff', '#7c3aed'],
+    params: { from: { type: 'select', def: 'middle', options: { middle: 'the middle of the house', left: 'the left wall', right: 'the right wall' }, label: 'From' },
+      speed: { type: 'range', def: 60, min: 15, max: 150, step: 5, label: 'Speed (ft/s)' }, width: { type: 'range', def: 3, min: 1, max: 10, step: 0.5, label: 'Wave (ft)' } },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c);
+      const o = c.p.from === 'left' ? [0, H.c[1]] : c.p.from === 'right' ? [H.w, H.c[1]] : H.c;
+      const r = (c.t - c.clipT0) * c.p.speed, col = c.pal[0];
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        const u = r - dist(p, o); if (u < -c.p.width * 2) continue;
+        const front = Math.exp(-((u / c.p.width) ** 2)), trail = u > 0 ? 0.85 * Math.exp(-u / c.p.speed / 0.35) : 0, v = Math.max(front, trail);
+        if (v < 0.01) continue;
+        set(c.out, i, Math.min(1, front + col[0] * trail), Math.min(1, front + col[1] * trail), Math.min(1, front + col[2] * trail), v);
+      }
+    } });
+
+  def({ id: 'closein', name: 'Closing in', cat: 'room', desc: 'The house map, for a build: every snare (every beat without drums) lights stretches near the far walls first, then closer and closer to the middle, all of it meeting there as the build ends.', swatch: ['#f59e0b', '#000000'],
+    params: { decay: { type: 'range', def: 0.3, min: 0.1, max: 1, step: 0.05, label: 'Fade (s)' }, color: P.color() },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c), m = c.music || {};
+      const snares = m.hasDrums && m.hitsBetween && m.hitsBetween('snare', c.clipT0, c.clipT1).length >= 2;
+      const hits = snares ? m.hitsBetween('snare', c.t - c.p.decay, c.t + 1e-6) : [];
+      if (!snares) for (let q = Math.floor(c.clipBeat); q >= 0 && (c.clipBeat - q) * c.beatSec <= c.p.decay; q--) hits.push(c.t - (c.clipBeat - q) * c.beatSec);
+      for (const th of hits) {
+        const age = c.t - th; if (age < 0 || age > c.p.decay) continue;
+        const k = clamp((th - c.clipT0) / Math.max(0.1, c.clipT1 - c.clipT0)), target = 1 - k, v = Math.pow(1 - age / c.p.decay, 1.5), id = Math.round(th * 1000);
+        const col = colorFor(c, k, id);
+        for (let i = 0; i < c.n; i++) {
+          const p = P[i]; if (!p) continue;
+          const dn = dist(p, H.c) / H.R; if (Math.abs(dn - target) > 0.16) continue;
+          const sector = Math.floor((Math.atan2(p[1] - H.c[1], p[0] - H.c[0]) + Math.PI) * 2.5);
+          if (hash(id * 31 + Math.floor(dn * 14) * 7 + sector * 101) > 0.7) continue;     // stretches, not the whole ring
+          add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
+        }
+      }
+    } });
+
+  def({ id: 'rollthunder', name: 'Rolling thunder', cat: 'accent', desc: 'The house map: lightning strikes somewhere in the house and the flash rolls out from there, the far end a moment later, flickering as it goes. Once a clip, or a new strike every bar.', swatch: ['#e0ecff', '#000000'],
+    params: { every: { type: 'select', def: 'once', options: { once: 'once', bar: 'every bar' }, label: 'Strikes' }, speed: { type: 'range', def: 35, min: 10, max: 120, step: 5, label: 'Rolls at (ft/s)' } },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c);
+      const bar = c.p.every === 'bar', k = bar ? Math.floor(c.clipBeat / 4) : 0, t0 = c.clipT0 + k * 4 * c.beatSec;
+      const seed = Math.round(c.clipT0 * 10) * 7 + k, o = [hash(seed) * H.w, hash(seed + 1) * H.d];
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        const a = c.t - t0 - dist(p, o) / c.p.speed; if (a < 0) continue;
+        const v = a < 0.05 ? 1 : a < 0.09 ? 0.12 : a < 0.16 ? 0.9 : Math.exp(-(a - 0.16) / 0.22); if (v < 0.01) continue;
+        set(c.out, i, 0.88 * v, 0.93 * v, v, v);
+      }
+    } });
+
+  def({ id: 'pingpong', name: 'House ping-pong', cat: 'fast', desc: 'The house map: the kick lights the left of the house in the first color, the snare the right in the second, trading across the middle.', swatch: ['#22d3ee', '#ec4899'],
+    params: { decay: { type: 'range', def: 0.22, min: 0.08, max: 0.6, step: 0.02, label: 'Fade (s)' } },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c), m = c.music || {};
+      const env = h => h && h.index >= 0 ? Math.exp(-h.age / c.p.decay) * (0.6 + 0.4 * (h.strength ?? 1)) : 0;
+      const k = env(m.kick), s = env(m.snare), a = c.pal[0], b = c.pal[1 % c.pal.length];
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        const left = p[0] < H.c[0], v = left ? k : s, col = left ? a : b; if (v < 0.01) continue;
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
+      }
+    } });
+
+  def({ id: 'roombattle', name: 'Room battle', cat: 'room', desc: 'The house map: the rooms at the two ends of the house each take a color and trade the lead phrase by phrase (the one in the lead full, the other low; the rooms between blend the two), meeting in one color for the clip\'s last beats.', swatch: ['#7c3aed', '#f59e0b'],
+    params: { phrase: P.speed(8, 'Lead changes every (beats)'), low: { type: 'range', def: 0.25, min: 0, max: 0.8, step: 0.05, label: 'The other side' },
+      merge: { type: 'range', def: 0, min: 0, max: 16, step: 1, label: 'Meet for the last (beats)' } },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c);
+      const ph = c.clipBeat / c.p.phrase, n = Math.floor(ph), lead = n % 2 === 0 ? -1 : 1;
+      const swing = n === 0 ? 1 : smooth(clamp(frac(ph) * c.p.phrase));            // (a beat's swing into the new lead)
+      const merged = c.p.merge > 0 && c.clipBeats - c.clipBeat <= c.p.merge, A = c.pal[0], B = c.pal[1 % c.pal.length];
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        if (merged) { set(c.out, i, A[0], A[1], A[2], 1); continue; }
+        const u = (teamOf(p, H) + 1) / 2, col = [lerp(A[0], B[0], u), lerp(A[1], B[1], u), lerp(A[2], B[2], u)];
+        const now = lead < 0 ? 1 - u : u, before = lead < 0 ? u : 1 - u, on = c.p.low + (1 - c.p.low) * lerp(before, now, swing);
+        set(c.out, i, col[0] * on, col[1] * on, col[2] * on, 1);
+      }
+    } });
+
+  def({ id: 'housescan', name: 'House scanner', cat: 'medium', desc: 'The house map: a band of light sweeps the house from one end to the other and back, one way each bar.', swatch: ['#ffffff', '#000000'],
+    params: { speed: P.speed(4, 'One way (beats)'), width: { type: 'range', def: 3, min: 1, max: 12, step: 0.5, label: 'Band (ft)' }, color: P.color() },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c);
+      const ph = c.clipBeat / c.p.speed, k = Math.floor(ph), u = frac(ph), x = (k % 2 ? 1 - u : u) * (H.w + 2 * c.p.width) - c.p.width, col = colorFor(c, u, k);
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        const v = Math.exp(-(((p[0] - x) / c.p.width) ** 2)); if (v < 0.01) continue;
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v);
+      }
+    } });
+
+  def({ id: 'housechase', name: 'House chase', cat: 'medium', desc: 'The house map: a comet runs round the whole house, every light one path around the middle, its tail behind it.', swatch: ['#ec4899', '#000000'],
+    params: { speed: P.speed(8, 'Once round (beats)'), tail: { type: 'range', def: 0.25, min: 0.05, max: 0.6, step: 0.01, label: 'Tail (of the way round)' }, color: P.color() },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c);
+      const head = frac(c.clipBeat / c.p.speed), col = colorFor(c, head, Math.floor(c.clipBeat / c.p.speed));
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        const a = frac(Math.atan2(p[1] - H.c[1], p[0] - H.c[0]) / (2 * Math.PI) + 1), back = frac(head - a);
+        if (back > c.p.tail) continue;
+        const v = Math.pow(1 - back / c.p.tail, 2), hot = back < 0.015 ? 1 : 0;      // the head white-hot
+        set(c.out, i, Math.min(1, col[0] * v + hot), Math.min(1, col[1] * v + hot), Math.min(1, col[2] * v + hot), v);
+      }
+    } });
+
+  def({ id: 'lighthouse', name: 'Lighthouse', cat: 'slow', desc: 'The house map: a soft beam turns slowly around the middle of the house over a low glow; for calm parts (it only ever swells).', swatch: ['#93c5fd', '#0b1020'],
+    params: { speed: P.speed(32, 'Once round (beats)'), width: { type: 'range', def: 70, min: 20, max: 180, step: 5, label: 'Beam (degrees)' }, floor: { type: 'range', def: 0.15, min: 0, max: 0.6, step: 0.05, label: 'Glow' } },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c), col = c.pal[0], beam = frac(c.beat / c.p.speed), half = c.p.width / 720;
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        const a = frac(Math.atan2(p[1] - H.c[1], p[0] - H.c[0]) / (2 * Math.PI) + 1), d = Math.abs(frac(a - beam + 0.5) - 0.5);
+        const s = d < half ? 0.5 + 0.5 * Math.cos(Math.PI * d / half) : 0, v = c.p.floor + (1 - c.p.floor) * s;
+        set(c.out, i, col[0] * v, col[1] * v, col[2] * v, 1);
+      }
+    } });
+
+  def({ id: 'housegradient', name: 'House palette', cat: 'slow', desc: 'The house map: the palette laid across the whole house end to end, drifting slowly, so every light is part of one picture.', swatch: ['#7c3aed', '#22d3ee'],
+    params: { speed: P.speed(64, 'Drifts round (beats)'), spread: { type: 'range', def: 1, min: 0.25, max: 3, step: 0.25, label: 'Colors across the house' }, intensity: P.intensity() },
+    render(c) {
+      clear(c.out); const P = spots(c); if (!P) return; const H = houseOf(c), drift = c.beat / c.p.speed, k = c.p.intensity;
+      for (let i = 0; i < c.n; i++) {
+        const p = P[i]; if (!p) continue;
+        const col = palAt(c.pal, p[0] / H.w * c.p.spread + drift); set(c.out, i, col[0] * k, col[1] * k, col[2] * k, 1);
+      }
+    } });
+
   def({ id: 'tubeform', name: 'Tube shape', cat: 'room', desc: 'For the meteor tubes (the kitchen): how each tube carries the show\'s color down its LEDs while the clip plays: the whole tube, an orb floating in the middle (fading to both ends), orbs drifting slowly up and down, or a glow from the top. Draws nothing itself.', swatch: ['#5cc8ff', '#000000'],
     params: { shape: { type: 'select', def: 'orb', options: { full: 'the whole tube', orb: 'a floating orb', drift: 'orbs drifting', top: 'a glow from the top' }, label: 'Shape' } },
     render(c) { clear(c.out); } });

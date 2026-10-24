@@ -18,10 +18,13 @@
 <div id="note">Waiting for the studio. Keep its window open; this view follows the song as it plays.</div>
 <script src="/static/lightgl.js"></script>
 <script>
-/* Room view: the party rooms' lights, simulated, from the studio's frames (app.js sendRoomView). The
-   rooms stand side by side in the order of the line across them: each light pole in its room's outer
-   corner (its segments stacked bottom to top), each string light overhead along the room. Nothing here
-   drives a light: it only draws what the studio would send them.
+/* Room view: every light in the house, simulated, from the studio's frames (app.js sendRoomView), the ones
+   switched off too, so a show can be seen before it is tried on the lights. With the house mapped (the party
+   app's map page) it is the floor plan from above, each light where it is: a string's segments along its
+   walls, a pole's segments stacked at its spot, each kitchen tube a little column of its LEDs; the lights not
+   on the map in rows beneath. Without a map, the rooms side by side as before: each light pole in its room's
+   outer corner, each string light overhead along the room. Nothing here drives a light: it only draws what
+   the studio would send them.
 
    The lights are drawn on the GPU (lightgl.js), so full screen on a 4K monitor costs next to nothing; the
    rooms and labels are a 2D layer beneath, drawn again only when the layout changes. */
@@ -31,6 +34,78 @@
   const gpu = (() => { try { return LightGL(glc); } catch (e) { console.warn('WebGL:', e); return null; } })();
   const ch = new BroadcastChannel('lss-roomview');
   let last = null, lastAt = 0, dirty = true, layout = null;
+  // the house map (shows/_space/space.json), looked at again every ten seconds so a change made on the map shows
+  let space = null;
+  const loadSpace = () => fetch('/api/space').then(r => r.json()).then(d => { if (JSON.stringify(d) !== JSON.stringify(space)) { space = d; layout = null; dirty = true; } }).catch(() => {});
+  loadSpace(); setInterval(loadSpace, 10000);
+  /** Where each of a light's segments is on the plan, in its own (physical) order: as app.js mapSpots. */
+  function mapSpots(m, n) {
+    if (!m) return null;
+    if (m.kind === 'pole') return m.x == null ? null : Array.from({ length: n }, () => [m.x, m.y]);
+    if (m.kind === 'tubes') {
+      if (!(m.tubes || []).some(Boolean)) return null;
+      const per = Math.max(1, Math.round(n / 20));
+      return Array.from({ length: n }, (_, s) => { const t = m.tubes[Math.floor(s / per)]; return t ? [t.x, t.y] : null; });
+    }
+    const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg); if (a.length < 2) return null;
+    return Array.from({ length: n }, (_, s) => { let j = 0; while (j < a.length - 2 && s > a[j + 1].seg) j++; const p = a[j], q = a[j + 1], k = (s - p.seg) / Math.max(1e-9, q.seg - p.seg); return [p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k]; });
+  }
+  const mapOf = l => { const ls = (space && space.lights) || {}; for (const k of l.keys || []) if (ls[k]) return ls[k]; return null; };
+  const plan = () => { const sh = space && space.plan && space.plan.shapes; return sh && (sh.rooms || []).length ? sh : null; };
+
+  /** The middle of the plan's room a light belongs to (by the first word of its studio room's name), else the house's. */
+  function roomMiddle(sh, room, W, D) {
+    const word = String(room || '').toLowerCase().split(/\s+/)[0], r = word && sh.rooms.find(q => q.name.toLowerCase().startsWith(word));
+    if (!r) return (space && space.center) || [W / 2, D / 2];
+    const xs = r.poly.map(q => q[0]), ys = r.poly.map(q => q[1]);
+    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+  }
+
+  /** The house from above, each light where the map has it; the lights not on it in rows beneath. */
+  function houseLayout(lights, w, h, key) {
+    const sh = plan(); let W = 0, D = 0;
+    for (const r of sh.rooms) for (const [x, y] of r.poly) { W = Math.max(W, x); D = Math.max(D, y); }
+    const off = lights.filter(l => !mapSpots(mapOf(l), l.px.length / 3)), rowH = 30;
+    // the poles: from above only a dot, so each is also drawn standing up at its side of the view, bottom to top
+    const poles = lights.filter(l => l.kind === 'short' && mapSpots(mapOf(l), l.px.length / 3));
+    const sideOf = l => mapOf(l).x < W / 2 ? 'left' : 'right', colW = 64;
+    const nL = poles.filter(l => sideOf(l) === 'left').length, nR = poles.length - nL;
+    const pad = 36, top = 70, bottom = 40 + off.length * rowH, padL = pad + nL * colW, padR = pad + nR * colW;
+    const s = Math.min((w - padL - padR) / W, (h - top - bottom) / D), x0 = padL + (w - padL - padR - W * s) / 2, y0 = top;
+    const P = (x, y) => [x0 + x * s, y0 + y * s];
+    const spots = new Map(), labels = [], side = { left: 0, right: 0 };
+    for (const l of lights) {
+      const n = l.px.length / 3, pos = mapSpots(mapOf(l), n); if (!pos) continue;
+      const name = l.name + (l.on ? '' : ' · off');
+      if (l.kind === 'short') {              // a pole: a dot where it stands (its brightest color), and the pole itself at the side
+        const [cx, cy] = P(...pos[0]), r = Math.max(4, Math.min(9, 0.3 * s)), sd = sideOf(l), k = side[sd]++;
+        const px = sd === 'left' ? x0 - 28 - k * colW : x0 + W * s + 28 + k * colW, pw = 16, ph = D * s - 24, segH = ph / n, yTop = y0 + 24;
+        spots.set(l.name, [{ x: cx, y: cy, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.8, all: true },
+          ...pos.map((_, i) => ({ x: px, y: yTop + ph - (i + 0.5) * segH, w: pw, h: segH - 1.5, shape: 'rect', radius: i === 0 || i === n - 1 ? 4 : 1, glow: pw, i }))]);
+        labels.push({ text: name, x: sd === 'left' ? px - pw / 2 : px + pw / 2, y: y0 - 12, align: sd, pole: { x: px, yTop, h: ph, pw } });
+      } else if (l.kind === 'tubes') {       // each tube a little column of its LEDs at its spot
+        const per = Math.max(1, Math.round(n / 20)), tw = Math.max(4, 0.25 * s), th = Math.max(28, 1.5 * s);
+        spots.set(l.name, pos.map((p, i) => { if (!p) return null; const [cx, cy] = P(...p); return { x: cx, y: cy - th / 2 + (i % per + 0.5) * th / per, w: tw, h: th / per - 0.5, shape: 'rect', radius: 1, glow: tw * 1.3 }; }));
+        const first = pos.find(Boolean), [lx, ly] = P(...first);
+        labels.push({ text: name, x: lx, y: ly - th / 2 - 8, align: 'center' });
+      } else {                               // a string: each segment where it is along its walls
+        const r = Math.max(2.5, Math.min(7, 0.2 * s));
+        spots.set(l.name, pos.map(p => { const [x, y] = P(...p); return { x, y, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.7 }; }));
+        // the label by its middle segment, off the wall into its own room
+        const mid = pos[Math.floor(n / 2)], [mx, my] = P(...mid), [cx, cy] = P(...roomMiddle(sh, l.room, W, D));
+        if (Math.abs(cx - mx) > Math.abs(cy - my)) labels.push({ text: name, x: mx + Math.sign(cx - mx) * 14, y: my + 4, align: cx > mx ? 'left' : 'right' });
+        else labels.push({ text: name, x: mx, y: my + (cy > my ? 22 : -14), align: 'center' });
+      }
+    }
+    let y = y0 + D * s + 46;
+    for (const l of off) {                   // not on the map: a row each beneath the house
+      const n = l.px.length / 3, a = x0 + 190, b = x0 + W * s, r = Math.max(2.5, Math.min(6, (b - a) / n / 2.6));
+      spots.set(l.name, Array.from({ length: n }, (_, i) => ({ x: a + (n > 1 ? (b - a) * i / (n - 1) : 0), y, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.6 })));
+      labels.push({ text: l.name + ' · not on the map' + (l.on ? '' : ' · off'), x: x0, y: y + 4, align: 'left' });
+      y += rowH;
+    }
+    return { key, spots, labels, boxes: [], plan: { sh, P, s }, song: last.song, drawn: false };
+  }
   const hello = () => ch.postMessage({ type: 'hello' });
   hello(); setInterval(hello, 1000);
   // The studio closing closes this too: it says goodbye as its window closes (a few seconds' grace, so the
@@ -51,8 +126,9 @@
 
   /** Where every light and its parts go, for the lights in this frame and this window size. */
   function layoutFor(lights, w, h) {
-    const key = JSON.stringify([w, h, last.song, lights.map(l => [l.name, l.room, l.kind, l.px.length, l.at])]);
+    const key = JSON.stringify([w, h, last.song, lights.map(l => [l.name, l.room, l.kind, l.px.length, l.at, l.on])]);
     if (layout && layout.key === key) return layout;
+    if (plan() && lights.some(l => mapSpots(mapOf(l), l.px.length / 3))) return (layout = houseLayout(lights, w, h, key));
     const sorted = [...lights].sort((a, b) => a.at - b.at), rooms = [];
     for (const l of sorted) { let r = rooms.find(x => x.name === l.room); if (!r) rooms.push(r = { name: l.room, lights: [] }); r.lights.push(l); }
     const pad = 24, top = 54, floor = h - 34, gap = 10, rw = (w - pad * 2 - gap * (rooms.length - 1)) / rooms.length;
@@ -96,6 +172,7 @@
     g.fillStyle = '#000000'; g.fillRect(0, 0, w, h);
     g.font = '12px system-ui';
     g.fillStyle = '#5d6577'; g.fillText(L.song ? `Room view · ${L.song}` : 'Room view', 24, 26);
+    if (L.plan) drawPlan(g, L.plan);
     for (const b of L.boxes) {
       g.fillStyle = '#000000'; g.strokeStyle = '#161a23'; g.lineWidth = 1;
       g.beginPath(); g.roundRect(b.x0, b.top, b.x1 - b.x0, b.floor - b.top, 10); g.fill(); g.stroke();
@@ -113,6 +190,30 @@
     L.drawn = true;
   }
 
+  /** The floor plan, dark: each room's floor faintly its own color, the kitchen's counters, the walls and the
+   *  drop ceilings' edges (the lights hang on them), the rooms named. */
+  const HUES = { game: 300, kitchen: 32, living: 210, dining: 265, office: 150 };
+  function drawPlan(g, { sh, P, s }) {
+    const path = (pts, close = true) => { g.beginPath(); pts.forEach(([x, y], i) => { const [sx, sy] = P(x, y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); if (close) g.closePath(); };
+    for (const r of sh.rooms) {
+      const k = Object.keys(HUES).find(t => r.name.toLowerCase().includes(t));
+      path(r.poly); g.fillStyle = k ? `hsla(${HUES[k]}, 50%, 40%, 0.08)` : 'rgba(255,255,255,0.02)'; g.fill();
+    }
+    for (const f of sh.fixtures || []) {
+      if (f.rect) { const [x, y] = P(f.rect[0], f.rect[1]); g.beginPath(); g.roundRect(x, y, f.rect[2] * s, f.rect[3] * s, Math.min(0.3 * s, 6)); } else path(f.poly);
+      g.fillStyle = 'rgba(255,255,255,0.025)'; g.fill(); g.strokeStyle = '#1c2029'; g.lineWidth = 1; g.stroke();
+    }
+    g.strokeStyle = '#262b37'; g.lineWidth = Math.max(2, 0.22 * s); g.lineJoin = 'round'; g.lineCap = 'round';
+    for (const wl of sh.walls || []) { path(wl, false); g.stroke(); }
+    for (const f of sh.soffits || []) { path(f.line, false); g.stroke(); }
+    g.fillStyle = '#2c313c'; g.font = `600 ${Math.round(Math.max(11, Math.min(20, 0.55 * s)))}px system-ui`; g.textAlign = 'center';
+    for (const r of sh.rooms) {                // each room's name in its middle, clear of the lights on its walls
+      if (/stair|coat|closet/i.test(r.name)) continue;
+      const [x, y] = P(...roomMiddle(sh, r.name, 0, 0)); g.fillText(r.name.toUpperCase(), x, y + 6);
+    }
+    g.textAlign = 'left'; g.font = '12px system-ui'; g.lineWidth = 1;
+  }
+
   function draw() {
     requestAnimationFrame(draw);
     if (!dirty) return;
@@ -128,7 +229,11 @@
     const lights = [];
     for (const l of last.lights) {
       const spots = L.spots.get(l.name); if (!spots) continue;
-      spots.forEach((s, i) => lights.push({ ...s, r: l.px[i * 3], g: l.px[i * 3 + 1], b: l.px[i * 3 + 2] }));
+      spots.forEach((s, k) => {
+        if (!s) return;
+        if (s.all) { let r = 0, g = 0, b = 0; for (let j = 0; j < l.px.length; j += 3) if (l.px[j] + l.px[j + 1] + l.px[j + 2] > r + g + b) { r = l.px[j]; g = l.px[j + 1]; b = l.px[j + 2]; } lights.push({ ...s, r, g, b }); return; }
+        const i = s.i ?? k; lights.push({ ...s, r: l.px[i * 3], g: l.px[i * 3 + 1], b: l.px[i * 3 + 2] });
+      });
     }
     if (gpu) { gpu.draw(lights, w, h); return; }
     // no WebGL: plain shapes on the 2D layer, no glow

@@ -826,8 +826,56 @@
     });
     return { of, key: roomSpaceKey(lights) };
   }
+  // ------------------------------------------------------------------ the house map
+  // Where every light's segments are on the floor plan (the party app's map page, space.py: flat, in feet), so the
+  // house effects (effects.js: a shockwave from the middle, ping-pong across the house, a room battle) play the house
+  // as one space. A light not on the map gets stand-in spots along the house from its place in the line of lights.
+  S.space = null;
+  async function loadSpace() {
+    try { const d = await (await fetch('/api/space')).json(); if (JSON.stringify(d) !== JSON.stringify(S.space)) { S.space = d; S.spaceAt = {}; S.houseOf = null; } } catch (e) { /* the next look will do */ }
+  }
+  loadSpace(); setInterval(() => { if (!document.hidden) loadSpace(); }, 15000);
+  /** The house: its size (the plan's shapes), its middle (set on the map page), its rooms left to right. */
+  function house() {
+    const sp = S.space, sh = sp && sp.plan && sp.plan.shapes;
+    if (S.houseOf) return S.houseOf;
+    let w = 0, d = 0; for (const r of (sh && sh.rooms) || []) for (const [x, y] of r.poly) { w = Math.max(w, x); d = Math.max(d, y); }
+    if (!w || !d) { w = 40; d = 14; }
+    const c = (sp && sp.center) || [w / 2, d / 2];
+    const rooms = ((sh && sh.rooms) || []).filter(r => !/coat|closet|stair/i.test(r.name)).map(r => { const xs = r.poly.map(q => q[0]); return { name: r.name, poly: r.poly, x0: Math.min(...xs), x1: Math.max(...xs), cx: (Math.min(...xs) + Math.max(...xs)) / 2 }; }).sort((a, b) => a.cx - b.cx);
+    return (S.houseOf = { w, d, c, R: Math.hypot(Math.max(c[0], w - c[0]), Math.max(c[1], d - c[1])), rooms });
+  }
+  /** Where each segment of a light is, by its own segment number (as space.py positions), or null when not mapped. */
+  function mapSpots(m, n) {
+    if (!m) return null;
+    if (m.kind === 'pole') return m.x == null ? null : Array.from({ length: n }, () => [m.x, m.y]);
+    if (m.kind === 'tubes') { const per = Math.max(1, Math.round(n / TUBE_COUNT)); return Array.from({ length: n }, (_, s) => { const t = (m.tubes || [])[Math.floor(s / per)]; return t ? [t.x, t.y] : null; }); }
+    const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg); if (a.length < 2) return null;
+    return Array.from({ length: n }, (_, s) => { let j = 0; while (j < a.length - 2 && s > a[j + 1].seg) j++; const p = a[j], q = a[j + 1], k = (s - p.seg) / Math.max(1e-9, q.seg - p.seg); return [p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k]; });
+  }
+  const mapOf = l => { const ls = (S.space && S.space.lights) || {}; return ls[l.mac] || ls[l.device_id] || ls[l.ip] || null; };
+  /** A light's spots as the show draws it ({pos: [x, y] for each of its segments in the show's order (a flipped light's
+   *  map turned round), house, mapped}); off the map, stand-ins along the house by its place in the line. */
+  function spaceOf(L, room) {
+    const n = Math.max(1, L.segments), k = [L.ip, n, L.flip ? 1 : 0, room ? room.i + '/' + room.n : ''].join('|');
+    S.spaceAt = S.spaceAt || {};
+    if (S.spaceAt[k]) return S.spaceAt[k];
+    const H = house();
+    let pos = mapSpots(mapOf(L), n);
+    const mapped = !!pos;
+    if (pos && L.flip) pos = pos.slice().reverse();
+    if (!pos) { const i = room ? room.i : 0, of = room ? room.n : 1; pos = Array.from({ length: n }, (_, j) => [H.w * (i + (j + 0.5) / n) / of, H.d / 2]); }
+    return (S.spaceAt[k] = { pos, house: H, mapped });
+  }
+  /** The same spots for a layer drawn at another size (the tubes' show plays across the tubes, one pixel each). */
+  function spotsFor(where, np) {
+    if (!where || where.pos.length === np) return where;
+    const per = where.pos.length / np;
+    return { ...where, pos: Array.from({ length: np }, (_, i) => where.pos[Math.min(where.pos.length - 1, Math.floor(i * per))]) };
+  }
+  const mappedHouse = () => !!(S.space && Object.keys(S.space.lights || {}).length);
   const roomSpaceKey = lights => JSON.stringify([lights.map(l => l.ip + (roomOff(l) ? '-' : '+')), (S.rooms || []).map(r => [r.id, r.lights])]);
-  function roomOff(l) { const r = roomOf(l); return !!(r && !r.on); }
+  function roomOff(l) { if (S.previewAll) return false; const r = roomOf(l); return !!(r && !r.on); }   // (the room view plays every room)
   async function loadRooms() {
     try {
       const d = await (await fetch('/api/rooms')).json();
@@ -1075,7 +1123,7 @@
    *  back and the meteors stop; the beds play on at full, and the pumping with the kick and bass fades. So at
    *  a quarter it is a nice background in the song's colors (the user's idea), at 100% the concert. */
   const PARTY_FLASHY = new Set(['strobe', 'drumstrobe', 'whiteflash', 'flash', 'lightning', 'glitch', 'scramble', 'hyperchase', 'chaos',
-    'dropblast', 'fillflood', 'colorslam', 'drumgate', 'dark', 'blackout', 'thunder', 'fireworks', 'strobeRiser']);
+    'dropblast', 'fillflood', 'colorslam', 'drumgate', 'dark', 'blackout', 'thunder', 'fireworks', 'strobeRiser', 'rollthunder', 'shockwave']);
   const PARTY_ONE_SHOTS = new Set(['sweepout', 'ripple', 'hookstrike', 'fillrush', 'roomsweep', 'ghostspark', 'wobble', 'deep808', 'ticks', 'heartbeat', 'spotlight']);
   const PARTY_HITS = new Set(['pulse', 'drumhits', 'basshits', 'zonehits', 'buildhits', 'bassnote', 'leadtrace', 'leadglow', 'halves', 'roomsplit', 'hitswap', 'battle', 'blocks', 'alternate', 'roomchase', 'pulsar']);
   const calmRamp = (lo, hi) => clamp(((S.partyLevel ?? 1) - lo) / (hi - lo), 0, 1);
@@ -1111,6 +1159,7 @@
     const space = S.roomSpaces[key] || (S.roomSpaces[key] = roomSpace(lights));
     for (const L of lights) {
       const room = space.of.get(L) || { i: 0, n: 1, side: 0, kinds: [lightKind(L)] };
+      const where = spaceOf(L, room);                    // (its segments on the house map)
       const kind = lightKind(L), tubes = kind === 'tubes' ? { count: TUBE_COUNT, per: Math.max(1, Math.round(L.segments / TUBE_COUNT)) } : null;
       // a light alone in its room plays no party-only clips (the Office); the kitchen's tubes are party
       const alone = !tubes && room.n === 1 && !!(S.rooms && S.rooms.length);
@@ -1132,7 +1181,7 @@
         const c = { n, out: src, t, beat: b, beatSec: Math.max(0.05, beatToTime(b + 1) - beatToTime(b)), phase: frac(b), bar: (b - p.phase) / 4, barPhase: frac((b - p.phase) / 4),
           clipT0: beatToTime(clip.start), clipT1: beatToTime(clip.start + clip.len),
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
-          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub };
+          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub, where: spotsFor(where, n) };
         e.render(c);
         let alpha = (clip.opacity ?? 1) * partyScale(clip);
         if (calm > 0 && (clip.blend === 'cut' || PARTY_FLASHY.has(clip.effect))) alpha *= 1 - calm;   // (no flashes in calm music)
@@ -1206,13 +1255,19 @@
     if (!roomViewCh || !S.roomViewAt || performance.now() - S.roomViewAt > 3000) return;
     if (performance.now() - (S.roomViewSent || 0) < 30) return;
     S.roomViewSent = performance.now();
-    // (and the kitchen's meteor tubes whenever they are ticked, their room switched on or not: the user)
-    const party = partyLights(), lights = [...party, ...S.lights.filter(l => l.on && lightKind(l) === 'tubes' && !party.includes(l))];
-    const frame = lights.length ? renderFrame(t, lights, 'room') : [];
+    // Every light, the ones ticked off and those in rooms switched off too, as if the whole house played (the user:
+    // to see a show ahead of trying it on the lights); each light's pixels in its own order (a flipped light turned
+    // back), as the house map has them, and whether it is on the map and playing now.
+    const lights = S.lights.slice();
+    let frame = [];
+    S.previewAll = true;
+    try { frame = lights.length ? renderFrame(t, lights, 'room') : []; } finally { S.previewAll = false; }
     const space = S.roomSpaces[roomSpaceKey(lights)];
+    const playing = new Set(partyLights().concat(selectedLights()));
     roomViewCh.postMessage({ type: 'frame', song: S.name || '', lights: frame.map(fr => {
-      const r = roomOf(fr.light), at = space && space.of.get(fr.light);
-      return { name: lightLabel(fr.light), room: r ? r.name : '', kind: lightKind(fr.light), px: fr.px, at: at ? at.i : 0, n: at ? at.n : 1 };
+      const L = fr.light, r = roomOf(L), at = space && space.of.get(L);
+      return { name: lightLabel(L), room: r ? r.name : '', kind: lightKind(L), px: L.flip ? flipPx(fr.px) : fr.px, at: at ? at.i : 0, n: at ? at.n : 1,
+               keys: [L.mac, L.device_id, L.ip].filter(Boolean), on: playing.has(L) };
     }) });
   }
   // (opened without a link back to the studio: a window opened from a page runs on that page's thread, so the
@@ -3211,7 +3266,43 @@
    *  - the finale: the last drop gets everything (fireworks in a song that goes all out), and the
    *    song's last hit holds in its main color and fades away slowly;
    *  - an electronic song's stutter edits (the music cut for a moment, mid-phrase): a glitch. */
-  function addFlavor(fromBeat = -Infinity) { addFlavorHere(fromBeat); strobeAlone(); }
+  function addFlavor(fromBeat = -Infinity) { addFlavorHere(fromBeat); addHouse(fromBeat); strobeAlone(); }
+  /** The house effects (effects.js, the house map), each where it belongs, once lights are on the map:
+   *  - a drop lands: a shockwave from the middle of the house out to every wall;
+   *  - a build: closing in (stretches lit near the far walls first, then nearer and nearer the middle);
+   *  - every other drop with drums: ping-pong across the house, the kick left, the snare right;
+   *  - every other verse: the rooms at the two ends battle, trading the lead phrase by phrase, meeting into the drop;
+   *  - a drum fill in a drop: the scanner sweeps the house; the hook coming back in a drop: a comet round the house;
+   *  - a long breakdown: a lighthouse turning slowly around the middle;
+   *  - a calm song's verses: its palette laid across the house, drifting;
+   *  - the darkest songs' thunder rolls across the house rather than flashing all at once.
+   *  (A calm song gets only the slow ones.) */
+  function addHouse(fromBeat = -Infinity) {
+    const p = P(), a = S.analysis || {}; if (!p || !mappedHouse()) return;
+    const style = showStyle(), chill = style === 'chill';
+    const has = (fx, b) => p.lanes.some(l => l.clips.some(c => c.effect === fx && Math.abs(c.start - b) < 0.5));
+    const put = (lane, fx, b0, len, params = {}, extra = {}) => b0 >= fromBeat - 0.01 && len > 0 && !has(fx, b0) ? clip(lane, fx, b0, len, params, extra) : null;
+    const beatOf = t => timeToBeat(t), span = s => [Math.round(beatOf(s.start)), Math.round(beatOf(s.end))];
+    const drumsIn = s => (((a.events || {}).kick) || []).filter(e => e[0] >= s.start && e[0] < s.end).length >= 4;
+    let drops = 0, verses = 0;
+    for (const s of p.sections) {
+      const [b0, b1] = span(s), len = b1 - b0; if (len < 2) continue;
+      if (s.type === 'drop') {
+        if (!chill) put(9, 'shockwave', b0, 2, {}, { blend: 'add', opacity: 1 });
+        if (!chill && drumsIn(s) && drops % 2 === 1) put(5, 'pingpong', b0, len, {}, { blend: 'add', opacity: 0.9 });
+        drops++;
+      } else if (s.type === 'buildup' && !chill && len >= 4) put(5, 'closein', b0, len, {}, { blend: 'add', opacity: 0.95 });
+      else if (s.type === 'verse') {
+        if (chill) put(1, 'housegradient', b0, len, { intensity: 0.8 }, { opacity: 0.7 });
+        else if (verses % 2 === 1) put(1, 'roombattle', b0, len, { merge: 2 }, { opacity: 0.75 });
+        verses++;
+      } else if (s.type === 'breakdown' && len >= 8) put(4, 'lighthouse', b0, len, {}, { blend: 'add', opacity: 0.55 });
+    }
+    const inDrop = t => p.sections.some(s => s.type === 'drop' && t >= s.start && t < s.end);
+    if (!chill) for (const [f0, f1] of a.fills || []) if (inDrop(f0)) { const b0 = Math.round(beatOf(f0)); put(8, 'housescan', b0, Math.max(2, Math.round(beatOf(f1)) - b0), { speed: 2 }, { blend: 'add', opacity: 0.85 }); }
+    if (!chill) for (const t of (a.hook && a.hook.times) || []) if (inDrop(t)) put(8, 'housechase', Math.round(beatOf(t)), 4, { speed: 4, tail: 0.3 }, { blend: 'add', opacity: 0.8 });
+    for (const l of p.lanes) for (const c of l.clips) if (c.effect === 'thunder' && c.start >= fromBeat - 0.01) { c.effect = 'rollthunder'; c.params = { ...Effects.defaults('rollthunder') }; }
+  }
   /** A clip that plays alone (a clear EDM build's white strobe): every other clip over its stretch is taken
    *  out of it (cut short, started after it, or split around it), the beat of black into the drop kept.
    *  Runs after the moments and the flavor, which are added on top of the sections. */
