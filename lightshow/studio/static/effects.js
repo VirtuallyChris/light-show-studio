@@ -386,7 +386,12 @@ const Effects = (() => {
 
   def({ id: 'alternate', name: 'Alternate', cat: 'medium', desc: 'Odd and even segments swap palette colors every beat.', swatch: ['#ff0000', '#0040ff'],
     params: { every: P.speed(1, 'Swap every (beats)'), size: { type: 'range', def: 1, min: 1, max: 8, step: 1, label: 'Segment width' }, intensity: P.intensity() },
-    render(c) { const k = Math.floor(c.beat / c.p.every); const a = palIdx(c.pal, k), b = palIdx(c.pal, k + 1); for (let i = 0; i < c.n; i++) { const col = (Math.floor(i / c.p.size) + k) % 2 === 0 ? a : b; set(c.out, i, col[0] * c.p.intensity, col[1] * c.p.intensity, col[2] * c.p.intensity); } } });
+    render(c) {
+      // every swap the odd and even segments trade colors; every other swap the pair moves on along the palette.
+      // (Moving the pair on every swap as well undid the swap with two colors: Walk Away's gold and purple stood still.)
+      const k = Math.floor(c.beat / c.p.every), m = Math.floor(k / 2), a = palIdx(c.pal, 2 * m), b = palIdx(c.pal, 2 * m + 1);
+      for (let i = 0; i < c.n; i++) { const col = (Math.floor(i / c.p.size) + k) % 2 === 0 ? a : b; set(c.out, i, col[0] * c.p.intensity, col[1] * c.p.intensity, col[2] * c.p.intensity); }
+    } });
 
   def({ id: 'wipe', name: 'Wipe', cat: 'medium', desc: 'Fills the strip with the next palette color every cycle.', swatch: ['#00ffd0', '#8a2be2'],
     params: { speed: P.speed(4, 'One wipe per (beats)'), direction: P.direction(), soft: { type: 'range', def: 0.05, min: 0, max: 0.5, step: 0.01, label: 'Soft edge' } },
