@@ -61,21 +61,26 @@
     return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
   }
 
-  /** The house from above, each light where the map has it; the lights not on it in rows beneath. */
+  // the kitchen's meteor tubes: twenty, each 16 inches hanging from the ceiling (drawn this tall, in pixels)
+  const TUBES = 20, TUBE_LEN = 120;
+
+  /** The house from above, each light where the map has it; the tubes hanging beneath it, and the lights not on the
+   *  map in rows under those. */
   function houseLayout(lights, w, h, key) {
     const sh = plan(); let W = 0, D = 0;
     for (const r of sh.rooms) for (const [x, y] of r.poly) { W = Math.max(W, x); D = Math.max(D, y); }
-    const off = lights.filter(l => !mapSpots(mapOf(l), l.px.length / 3)), rowH = 30;
+    const tubeLights = lights.filter(l => l.kind === 'tubes'), rowH = 30;
+    const off = lights.filter(l => l.kind !== 'tubes' && !mapSpots(mapOf(l), l.px.length / 3));
     // the poles: from above only a dot, so each is also drawn standing up at its side of the view, bottom to top
     const poles = lights.filter(l => l.kind === 'short' && mapSpots(mapOf(l), l.px.length / 3));
     const sideOf = l => mapOf(l).x < W / 2 ? 'left' : 'right', colW = 64;
     const nL = poles.filter(l => sideOf(l) === 'left').length, nR = poles.length - nL;
-    const pad = 36, top = 70, bottom = 40 + off.length * rowH, padL = pad + nL * colW, padR = pad + nR * colW;
+    const pad = 36, top = 70, bottom = 40 + off.length * rowH + tubeLights.length * (TUBE_LEN + 64), padL = pad + nL * colW, padR = pad + nR * colW;
     const s = Math.min((w - padL - padR) / W, (h - top - bottom) / D), x0 = padL + (w - padL - padR - W * s) / 2, y0 = top;
     const P = (x, y) => [x0 + x * s, y0 + y * s];
     const spots = new Map(), labels = [], side = { left: 0, right: 0 };
     for (const l of lights) {
-      const n = l.px.length / 3, pos = mapSpots(mapOf(l), n); if (!pos) continue;
+      const n = l.px.length / 3, pos = l.kind !== 'tubes' && mapSpots(mapOf(l), n); if (!pos) continue;
       const name = l.name + (l.on ? '' : ' · off');
       if (l.kind === 'short') {              // a pole: a dot where it stands (its brightest color), and the pole itself at the side
         const [cx, cy] = P(...pos[0]), r = Math.max(4, Math.min(9, 0.3 * s)), sd = sideOf(l), k = side[sd]++;
@@ -83,11 +88,6 @@
         spots.set(l.name, [{ x: cx, y: cy, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.8, all: true },
           ...pos.map((_, i) => ({ x: px, y: yTop + ph - (i + 0.5) * segH, w: pw, h: segH - 1.5, shape: 'rect', radius: i === 0 || i === n - 1 ? 4 : 1, glow: pw, i }))]);
         labels.push({ text: name, x: sd === 'left' ? px - pw / 2 : px + pw / 2, y: y0 - 12, align: sd, pole: { x: px, yTop, h: ph, pw } });
-      } else if (l.kind === 'tubes') {       // each tube a little column of its LEDs at its spot
-        const per = Math.max(1, Math.round(n / 20)), tw = Math.max(4, 0.25 * s), th = Math.max(28, 1.5 * s);
-        spots.set(l.name, pos.map((p, i) => { if (!p) return null; const [cx, cy] = P(...p); return { x: cx, y: cy - th / 2 + (i % per + 0.5) * th / per, w: tw, h: th / per - 0.5, shape: 'rect', radius: 1, glow: tw * 1.3 }; }));
-        const first = pos.find(Boolean), [lx, ly] = P(...first);
-        labels.push({ text: name, x: lx, y: ly - th / 2 - 8, align: 'center' });
       } else {                               // a string: each segment where it is along its walls
         const r = Math.max(2.5, Math.min(7, 0.2 * s));
         spots.set(l.name, pos.map(p => { const [x, y] = P(...p); return { x, y, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.7 }; }));
@@ -98,6 +98,22 @@
       }
     }
     let y = y0 + D * s + 46;
+    for (const l of tubeLights) {            // the tubes hanging from the ceiling, each its LEDs top to bottom, in a row beneath
+      const n = l.px.length / 3, per = Math.max(1, Math.round(n / TUBES)), pos = mapSpots(mapOf(l), n), at = t => pos && pos[t * per];
+      // placed ones left to right as they hang in the house (each also a dot on the plan, its brightest LED), then the rest
+      const order = [...Array(TUBES).keys()].sort((a, b) => (at(a) ? 0 : 1) - (at(b) ? 0 : 1) || (at(a) && at(b) ? at(a)[0] - at(b)[0] : a - b));
+      const a = x0, b = x0 + W * s, gap = (b - a) / TUBES, tw = Math.max(5, Math.min(12, gap * 0.32)), yC = y + 16, ledH = TUBE_LEN / per;
+      const list = [], r = Math.max(3, Math.min(7, 0.22 * s));
+      order.forEach((t, k) => {
+        const x = a + gap * (k + 0.5);
+        labels.push({ text: '', x, y: 0, wire: [x, yC, x, yC + 8] });
+        for (let j = 0; j < per && t * per + j < n; j++) list.push({ x, y: yC + 8 + (j + 0.5) * ledH, w: tw, h: ledH - 0.6, shape: 'rect', radius: j === 0 || j === per - 1 ? 3 : 1, glow: tw * 1.2, i: t * per + j });
+        const p = at(t); if (p) { const [cx, cy] = P(...p); list.push({ x: cx, y: cy, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.8, from: t * per, to: (t + 1) * per }); }
+      });
+      spots.set(l.name, list);
+      labels.push({ text: l.name + (pos ? '' : ' · not on the map yet') + (l.on ? '' : ' · off'), x: a, y: y + 4, align: 'left', wire: [a, yC, b, yC] });
+      y += TUBE_LEN + 64;
+    }
     for (const l of off) {                   // not on the map: a row each beneath the house
       const n = l.px.length / 3, a = x0 + 190, b = x0 + W * s, r = Math.max(2.5, Math.min(6, (b - a) / n / 2.6));
       spots.set(l.name, Array.from({ length: n }, (_, i) => ({ x: a + (n > 1 ? (b - a) * i / (n - 1) : 0), y, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.6 })));
@@ -231,7 +247,7 @@
       const spots = L.spots.get(l.name); if (!spots) continue;
       spots.forEach((s, k) => {
         if (!s) return;
-        if (s.all) { let r = 0, g = 0, b = 0; for (let j = 0; j < l.px.length; j += 3) if (l.px[j] + l.px[j + 1] + l.px[j + 2] > r + g + b) { r = l.px[j]; g = l.px[j + 1]; b = l.px[j + 2]; } lights.push({ ...s, r, g, b }); return; }
+        if (s.all || s.from != null) { let r = 0, g = 0, b = 0; for (let j = s.all ? 0 : s.from * 3; j < (s.all ? l.px.length : Math.min(l.px.length, s.to * 3)); j += 3) if (l.px[j] + l.px[j + 1] + l.px[j + 2] > r + g + b) { r = l.px[j]; g = l.px[j + 1]; b = l.px[j + 2]; } lights.push({ ...s, r, g, b }); return; }
         const i = s.i ?? k; lights.push({ ...s, r: l.px[i * 3], g: l.px[i * 3 + 1], b: l.px[i * 3 + 2] });
       });
     }
