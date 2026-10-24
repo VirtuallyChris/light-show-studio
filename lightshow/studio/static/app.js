@@ -1158,6 +1158,8 @@
   function renderFrame(t, lights = selectedLights(), smoothKey = null) {
     const p = P(); const b = timeToBeat(t); const f = featureAt(t); const lanePal = currentPalette(b);
     const music = musicAt(t), calm = calmAt(t);
+    // the user's own clips: every clip of a show never auto-built, and one added by hand (addClip marks it)
+    const handPlaced = c => c.mine || !p.built; let handFlash = false;
     // (in calm music the beat's pulse is a slow swell over the bar instead of a kick every beat)
     const kick = Math.exp(-frac(b) * 6) * (1 - calm) + calm * (0.5 + 0.5 * Math.cos(frac((b - p.phase) / 4) * Math.PI * 2));
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
@@ -1193,7 +1195,9 @@
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub, where: spotsFor(where, n) };
         e.render(c);
         let alpha = (clip.opacity ?? 1) * partyScale(clip);
-        if (calm > 0 && (clip.blend === 'cut' || PARTY_FLASHY.has(clip.effect))) alpha *= 1 - calm;   // (no flashes in calm music)
+        // (no flashes in calm music: the show's own; a flash the user put there plays, its frame not smoothed either:
+        // Haunted Mansion's lightning, a sound effect heard as calm, was black)
+        if (calm > 0 && (clip.blend === 'cut' || PARTY_FLASHY.has(clip.effect))) { if (handPlaced(clip)) handFlash = true; else alpha *= 1 - calm; }
         if (alpha <= 0.002) return;
         // Ducking, like sidechain compression: the layer dips on every kick and snare and swells back,
         // so the hits on top land on a dark strip and the whole show breathes with the drums.
@@ -1237,7 +1241,7 @@
       if (g && g.level > 0) for (let i = 0; i < n * 3; i++) flat[i] = Math.max(flat[i], Math.round(g.rgb[i % 3] * g.level * 255));
       out.push({ light: L, px: flat });
     }
-    return smoothKey ? calmSmooth(smoothKey, t, out, calm) : out;
+    return smoothKey ? calmSmooth(smoothKey, t, out, handFlash ? 0 : calm) : out;
   }
   /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
    *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
@@ -1893,7 +1897,7 @@
     len = len ?? (e.cat === 'accent' ? 2 : 16);
     const start = Math.max(0, startBeat);
     const li = freeLaneFor(start, len, laneIdx);
-    const clip = { id: uid(), effect: effectId, start, len, params: Effects.defaults(effectId), opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effectId) };
+    const clip = { id: uid(), effect: effectId, start, len, params: Effects.defaults(effectId), opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effectId), mine: true };
     P().lanes[li].clips.push(clip); S.view.sel = { type: 'clip', id: clip.id }; inspector(); changed();
     if (li !== laneIdx) toast(`Layer ${laneIdx + 1} was busy there, placed on layer ${li + 1}`);
     return clip;
