@@ -381,7 +381,7 @@
   }
   async function preloadCues() {
     try {
-      const d = await (await fetch('/api/cues')).json(), want = new Set((d.cues || []).map(c => c.show).filter(Boolean));
+      const d = await (await fetch('/api/cues')).json(), want = new Set((d.cues || []).flatMap(c => c.shows || [c.show]).filter(Boolean));   // (every show a cue may pick)
       for (const n of Object.keys(C.shows)) if (!want.has(n)) delete C.shows[n];
       for (const n of want) showData(n);
     } catch (e) { /* the studio is away: next time */ }

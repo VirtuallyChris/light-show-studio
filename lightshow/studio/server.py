@@ -681,14 +681,13 @@ class Studio:
         """Analyse each cue's show ahead of time (cached), and decode its song into memory, so a tapped
         cue's song and lights start at once."""
         for c in self.cues.list():
-            if not c["show"]:
-                continue
-            try:
-                _, path = self._show_song(c["show"])
-                analyze_cached(path, os.path.join(os.path.dirname(path), "cache"))
-                self._cue_pcm(c["show"])
-            except Exception:  # noqa: BLE001 - a missing show is shown on the Party Hub, not here
-                pass
+            for show in c["shows"]:                       # (every one it may pick)
+                try:
+                    _, path = self._show_song(show)
+                    analyze_cached(path, os.path.join(os.path.dirname(path), "cache"))
+                    self._cue_pcm(show)
+                except Exception:  # noqa: BLE001 - a missing show is shown on the Party Hub, not here
+                    pass
 
     CUE_PCM_MAX_S = 600                                   # a longer song is not kept in memory: it plays the old way
     CUE_SR = 44100                                        # the jam's own rate (its relay)

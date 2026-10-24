@@ -986,6 +986,26 @@
     const i = lastBefore(arr, t);
     return i < 0 ? EMPTY_HIT : { age: t - arr[i][0], strength: arr[i][1], pitch: arr[i][2], index: i };
   }
+  /** The growls and saws: each stab of the "other" stem (where the separation puts a dubstep growl or a saw,
+   *  not in the bass), found where its loudness jumps: [time, strength, 0] like an instrument's hits.
+   *  Not the swell back up 0.04-0.14 s after a kick or snare (the synths ducked under the drums and coming
+   *  back; a third of LSD's jumps). */
+  const GROWLS = new WeakMap();
+  function growlsOf(a) {
+    if (GROWLS.has(a)) return GROWLS.get(a);
+    const x = (a.curves || {}).other || [], fps = a.feature_fps || 30, ev = a.events || {}, out = [];
+    const drums = [...(ev.kick || []), ...(ev.snare || [])].map(e => e[0]).sort((p, q) => p - q);
+    const ducked = t => { const i = lastBefore(drums.map(d => [d]), t); return i >= 0 && t - drums[i] > 0.04 && t - drums[i] < 0.14; };
+    const rise = i => x[i] - Math.min(x[i - 1], x[i - 2], x[i - 3]);
+    let last = -1;
+    for (let i = 4; i < x.length - 1; i++) {
+      const r = rise(i), t = (i - 1) / fps;
+      if (r < 0.12 || x[i] < 0.3 || r < rise(i + 1) || r <= rise(i - 1) || (i - last) / fps < 0.1 || ducked(t)) continue;
+      out.push([t, Math.min(1, r / 0.4), 0]); last = i;
+    }
+    GROWLS.set(a, out);
+    return out;
+  }
   /** everything the song is doing at time t, for effects that follow the music */
   function musicAt(t) {
     const a = S.analysis;
@@ -1002,8 +1022,9 @@
     return {
       lead: hitAt('lead', t), ghost: hitAt('ghost', t), bass: hitAt('bass', t),
       kick: hitAt('kick', t), snare: hitAt('snare', t), roll: hitAt('roll', t), basshit: hitAt('basshit', t), hasDrums: (((a.events || {}).kick) || []).length > 0,
+      growl: (() => { const arr = growlsOf(a), k = lastBefore(arr, t); return k < 0 ? EMPTY_HIT : { age: t - arr[k][0], strength: arr[k][1], pitch: 0, index: k }; })(),
       hitsBetween: (stream, t0, t1) => {                          // the times of one instrument's hits in [t0, t1)
-        const arr = (a.events || {})[stream] || []; const out = [];
+        const arr = stream === 'growl' ? growlsOf(a) : (a.events || {})[stream] || []; const out = [];
         for (let i = Math.max(0, lastBefore(arr, t0)); i < arr.length && arr[i][0] < t1; i++) if (arr[i][0] >= t0) out.push(arr[i][0]);
         return out;
       },
@@ -3371,6 +3392,18 @@
       const t0 = Math.max(w0, s.start), t1 = Math.min(w1, s.end); if (t1 - t0 < 2) continue;
       const b0 = Math.round(beatOf(t0)), b1 = Math.round(beatOf(t1));
       put(5, 'wobble', b0, b1 - b0, {}, { blend: 'add', opacity: style === 'rave' ? 0.85 : hard ? 0.7 : 0.6, ...lt });
+    }
+
+    // the growls and saws of a rave or dubstep drop (the "other" stem's stabs, growlsOf), where they are busy:
+    // the strings slice on them while the lamps keep the drums (LSD's drops were all drums: the user). On a
+    // layer of their own, "Growls", so the layer's eye turns them off and on to compare.
+    if (!chill && (style === 'rave' || /dubstep|riddim|brostep|tearout|bass music/.test(g))) for (const s of drops) {
+      const n = growlsOf(a).filter(e => e[0] >= s.start && e[0] < s.end).length;
+      if (n / Math.max(1, s.end - s.start) < 1.5) continue;
+      const b0 = Math.round(beatOf(s.start)), b1 = Math.round(beatOf(s.end)); if (b0 < fromBeat - 0.01 || has('growlhits', b0)) continue;
+      let li = p.lanes.findIndex(l => l.name === 'Growls');
+      if (li < 0) { p.lanes.push({ ...newLane(), name: 'Growls' }); li = p.lanes.length - 1; }
+      clip(li, 'growlhits', b0, b1 - b0, {}, { opacity: 1, ...lt });
     }
 
     // 808s: in hip-hop and trap, where they come often enough to be the song's sound (a held bass note

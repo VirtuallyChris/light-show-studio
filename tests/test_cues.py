@@ -91,6 +91,33 @@ class TestCues(unittest.TestCase):
         c = clean([{"id": "doorbell", "name": "Doorbell", "show": "Thriller End Laugh"}])[0]
         self.assertFalse(c["fade_out"]["on"])                              # a jump cut to its show
         self.assertEqual(c["fade_in"], {"on": True, "s": 3.0})
+        self.assertEqual(c["shows"], ["Thriller End Laugh"])               # one show saved the old way: its list of one
+
+    def test_several_shows_each_once_before_any_again(self):
+        st = Store()
+        r = CueRunner(st.load, st.save, lambda name: 0)
+        shows = ["Haunted_Mansion", "Werewolf", "Psycho", "Thriller End Laugh"]
+        cue = r.replace([{"id": "doorbell", "name": "Doorbell", "shows": shows + ["Psycho", ""]}])[0]
+        self.assertEqual(cue["shows"], shows)                              # (no repeats, no blanks)
+        self.assertEqual(cue["show"], "Haunted_Mansion")
+        picks = [r.pick(cue) for _ in range(40)]
+        for k in range(0, 40, 4):
+            self.assertEqual(sorted(picks[k:k + 4]), sorted(shows))        # every round: each one once
+        self.assertTrue(all(a != b for a, b in zip(picks, picks[1:])))     # never the same twice running
+        self.assertEqual(r.pick({"id": "one", "shows": ["Ding"], "show": "Ding"}), "Ding")
+
+    def test_a_ring_plays_one_of_its_shows(self):
+        st = Store()
+        r = CueRunner(st.load, st.save, lambda name: 0.05)
+        r.replace([{"id": "door", "name": "Doorbell", "shows": ["A", "B"], "fade_out": {"on": False, "s": 0}, "fade_in": {"on": False, "s": 0}}])
+        played = []
+        for _ in range(4):
+            h = Watch(0.05)
+            r.run("door", hooks=h)
+            r.thread.join(5)
+            played += [c[1] for c in h.calls if isinstance(c, tuple) and c[0] == "show"]
+        self.assertEqual(sorted(played[:2]), ["A", "B"])
+        self.assertEqual(sorted(played[2:]), ["A", "B"])
 
 
 

@@ -772,6 +772,24 @@ const Effects = (() => {
       fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, 1);
     } });
 
+  def({ id: 'growlhits', name: 'Growl hits', cat: 'fast', desc: 'For a dubstep or rave drop: every growl and saw stab (not the drums) slices a stretch or two of the strips in its color, somewhere new each time, held long enough for the lights to show it and then gone. Made for the overhead strings while the lamps keep the drums.', swatch: ['#ff2fa0', '#000000'],
+    params: { slices: { type: 'range', def: 2, min: 1, max: 4, step: 1, label: 'Stretches per stab' }, width: { type: 'range', def: 0.18, min: 0.06, max: 0.5, step: 0.01, label: 'Stretch size' },
+      decay: P.decay(0.16), color: { ...P.color(), def: 'second' } },
+    render(c) {
+      clear(c.out); const h = (c.music || {}).growl; if (!h || h.index < 0) return;
+      // full for 0.07 s (a frame or so of a light updating 15 times a second), then gone quickly
+      const v = (h.age < 0.07 ? 1 : Math.exp(-(h.age - 0.07) / Math.max(0.03, c.p.decay))) * (0.75 + 0.25 * h.strength);
+      if (v < 0.01) return;
+      const col = colorFor(c, hash(h.index * 13 + 1), h.index), hot = Math.max(0, 1 - h.age / 0.05) * 0.5;   // (a white-hot start)
+      const rgb = [0, 1, 2].map(k => col[k] + (1 - col[k]) * hot), room = c.room ? c.room.i : 0;
+      const lit = (i, j) => { const a = hash(h.index * 7919 + j * 104729 + room * 31 + 3), x = (i + 0.5) / c.n; return Math.abs(x - a) <= c.p.width / 2; };
+      for (let i = 0; i < c.n; i++) {
+        let on = c.n <= 12;                                                      // (a lamp: the whole of it)
+        for (let j = 0; !on && j < Math.round(c.p.slices); j++) on = lit(i, j);
+        if (on) set(c.out, i, rgb[0], rgb[1], rgb[2], v);
+      }
+    } });
+
   def({ id: 'blackout', name: 'Blackout strobe', cat: 'fast', desc: 'Cuts whatever is below to black in a rhythm. Put it on top of a base effect.', swatch: ['#000000', '#444444'],
     params: { every: { type: 'beats', def: 0.5, label: 'Cut every (beats)' }, duty: { type: 'range', def: 0.5, min: 0.05, max: 0.95, step: 0.01, label: 'Dark length' } },
     render(c) { clear(c.out); const u = c.beat / c.p.every; if (frac(u) > 1 - c.p.duty) fillAll(c.out, c.n, 0, 0, 0, 1); } });
@@ -780,22 +798,28 @@ const Effects = (() => {
     params: { speed: { type: 'beats', def: 0.25, label: 'Beats per block' }, size: P.size(0.08, 'Block size'), direction: P.direction() },
     render(c) { const blocks = Math.max(2, Math.round(1 / c.p.size)); const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / c.n); const u = x * blocks - s; const k = Math.floor(u); const on = frac(u) > 0.7; const col = palIdx(c.pal, k); set(c.out, i, on ? col[0] : 0, on ? col[1] : 0, on ? col[2] : 0); } } });
 
-  def({ id: 'lightning', name: 'Lightning', cat: 'fast', desc: 'Lightning strikes: every light at once, full bright for a moment long enough for the lights to show (0.12 to 0.2 s, often a double flicker), over a wide stretch of each strip. Timed in seconds, not beats, so it works on a sound effect too.', swatch: ['#ffffff', '#8ad8ff'],
+  def({ id: 'lightning', name: 'Lightning', cat: 'fast', desc: 'Lightning bouncing all over the room: strike after strike, each somewhere else in the house (the lights near it flash, the house map), now and then one that lights the whole house. Every flash held long enough for the lights to show it. Timed in seconds, not beats, so it works on a sound effect too.', swatch: ['#ffffff', '#8ad8ff'],
     params: { rate: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.01, label: 'How often' }, color: P.color() },
     render(c) {
-      // A strike may start every 0.4 s (rate: the chance it does). It holds 0.12-0.2 s, and half of them
-      // flicker: 0.1 s on, a 0.07 s gap, on again. (Flashes under a frame were never seen: the lights update
-      // as few as 15 times a second; the user: at least 0.1 to 0.2 s.) Every light strikes together; each its own stretch.
-      clear(c.out); const SLOT = 0.4;
-      for (const k of [Math.floor(c.t / SLOT), Math.floor(c.t / SLOT) - 1]) {   // (a strike can run into the next slot)
-        if (k < 0 || hash(k * 31) > c.p.rate) continue;
-        const t0 = k * SLOT + hash(k * 31 + 3) * 0.15, hold = 0.12 + 0.08 * hash(k * 31 + 5), u = c.t - t0;
-        const flicker = hash(k * 31 + 7) < 0.5, on = flicker ? (u >= 0 && u < 0.1) || (u >= 0.17 && u < 0.17 + hold) : u >= 0 && u < hold;
-        if (!on) continue;
-        const room = c.room ? c.room.i : 0, a = hash(k * 7 + 1 + room * 13), w = c.n <= 12 ? 2 : 0.45 + 0.55 * hash(k * 7 + 2 + room * 13);
-        const col = colorFor(c, a, k);
-        for (let i = 0; i < c.n; i++) { const x = (i + 0.5) / c.n; if (Math.abs(x - a) <= w / 2 || w >= 1) set(c.out, i, col[0], col[1], col[2], 1); }
-        return;
+      // A strike may start every 0.1 s (rate: the chance it does; 0.5 is about four a second, 1 eight), each
+      // at a random spot of the house, lighting what is within 4-7 ft of it; one in seven the whole house.
+      // Each holds 0.1-0.14 s: flashes under a frame were never seen (the lights update as few as 15 times a
+      // second; the user: at least 0.1 to 0.2 s). The clip opens with one that lights the whole house (a short
+      // "thunder" moment always gets its strike). Off the map: a stretch of each strip, or a whole lamp.
+      clear(c.out); const SLOT = 0.1, P = spots(c), H = houseOf(c);
+      if (c.t - c.clipT0 < 0.12) { const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], 1); return; }
+      const now = Math.floor(c.t / SLOT);
+      for (let k = now; k >= now - 2; k--) {                                  // (strikes still holding from the slots before)
+        if (k < 0 || hash(k * 31) > c.p.rate * 0.8) continue;
+        const hold = 0.1 + 0.04 * hash(k * 31 + 5), u = c.t - k * SLOT; if (u < 0 || u >= hold) continue;
+        const big = hash(k * 31 + 9) < 1 / 7, col = colorFor(c, hash(k * 7 + 3), k);
+        const o = [hash(k * 7 + 1) * H.w, hash(k * 7 + 2) * H.d], r = 4 + 3 * hash(k * 7 + 4);
+        const room = c.room ? c.room.i : 0, a = hash(k * 7 + 1 + room * 13), w = 0.25 + 0.35 * hash(k * 7 + 2 + room * 13);
+        for (let i = 0; i < c.n; i++) {
+          const p = P && P[i];
+          const hit = big || (p ? Math.hypot(p[0] - o[0], p[1] - o[1]) <= r : c.n <= 12 ? hash(k * 7 + 5 + room * 13) < 0.4 : Math.abs((i + 0.5) / c.n - a) <= w / 2);
+          if (hit) set(c.out, i, col[0], col[1], col[2], 1);
+        }
       }
     } });
 

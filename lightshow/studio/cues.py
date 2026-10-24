@@ -31,6 +31,7 @@ timing and the Party Hub follows along, but no speaker, light or Spotify is touc
 
 from __future__ import annotations
 
+import random
 import re
 import threading
 import time
@@ -67,8 +68,17 @@ def clean(cues) -> list[dict]:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", cid) or cid in ids:
             cid = uuid.uuid4().hex[:10]
         ids.add(cid)
+        # its shows: one picked at random each time it runs (a doorbell's spooky ones); "show" is the first,
+        # for a cue saved with one show and for whatever reads only that
+        shows = []
+        for s in (c.get("shows") if isinstance(c.get("shows"), list) else [c.get("show")]):
+            s = str(s or "").strip()[:120]
+            if s and s not in shows:
+                shows.append(s)
+        shows = shows[:20]
         out.append({"id": cid, "name": str(c.get("name") or "").strip()[:30] or f"Cue {len(out) + 1}",
-                    "show": str(c.get("show") or "")[:120], "fade_out": _fade(c.get("fade_out"), _fade_default(cid, "fade_out")),
+                    "show": shows[0] if shows else "", "shows": shows,
+                    "fade_out": _fade(c.get("fade_out"), _fade_default(cid, "fade_out")),
                     "fade_in": _fade(c.get("fade_in"), _fade_default(cid, "fade_in"))})
     return out[:12]
 
@@ -201,6 +211,24 @@ class CueRunner:
         self.stop_flag = threading.Event()
         self.state: dict = {}
         self.hooks = None
+        self.bags: dict[str, list[str]] = {}             # cue id -> its shows still to come this round
+        self.last_show: dict[str, str] = {}
+
+    def pick(self, cue: dict) -> str:
+        """One of the cue's shows at random, none again until every one has played (a shuffled bag, refilled
+        when empty), and a new round never starting with the one just played."""
+        shows = cue.get("shows") or ([cue["show"]] if cue.get("show") else [])
+        if len(shows) <= 1:
+            return shows[0] if shows else ""
+        cid = cue["id"]
+        bag = [s for s in self.bags.get(cid, []) if s in shows]
+        if not bag:
+            bag = random.sample(shows, len(shows))
+            if bag[0] == self.last_show.get(cid):
+                bag.append(bag.pop(0))
+        show = bag.pop(0)
+        self.bags[cid], self.last_show[cid] = bag, show
+        return show
 
     # -- the cues -------------------------------------------------------------------------------
     def list(self) -> list[dict]:
@@ -232,6 +260,7 @@ class CueRunner:
             raise ValueError(f"{cue['name']} has no show yet: pick one in Settings")
         if self.busy():
             raise RuntimeError(f"{self.state.get('name', 'A cue')} is still running")
+        cue = {**cue, "show": self.pick(cue)}
         self.hooks = hooks or (self.live() if self.live else Rehearsal(self.show_length))
         self.stop_flag.clear()
         self.state = {"id": cue["id"], "name": cue["name"], "phase": "starting", "rehearsal": isinstance(self.hooks, Rehearsal), "steps": [],
