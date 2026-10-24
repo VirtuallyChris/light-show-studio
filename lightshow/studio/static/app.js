@@ -142,6 +142,15 @@
   /** older projects had a palette lane: bake it into the clips, then drop it */
   function migrateProject(p) {
     for (const lane of p.lanes) lane.hidden = !!lane.hidden;
+    // a lamps clip and a tubes clip once shared a layer's lower half, one drawn over the other: the later one up
+    // to the first layer with room (as freeLaneFor; new layers at the top)
+    const lower = c => c.target && c.target !== 'long', clash = (lane, c) => lane.clips.some(k => k !== c && (!k.target || !c.target || (k.target === 'long') === (c.target === 'long')) && c.start < k.start + k.len && k.start < c.start + c.len);
+    for (let li = 0; li < p.lanes.length; li++) for (const c of p.lanes[li].clips.filter(lower)) {
+      if (!clash(p.lanes[li], c)) continue;
+      p.lanes[li].clips = p.lanes[li].clips.filter(k => k !== c);
+      let to = li + 1; for (; ; to++) { while (to >= p.lanes.length) p.lanes.push({ ...newLane(), hidden: false }); if (!clash(p.lanes[to], c)) break; }
+      p.lanes[to].clips.push(c);
+    }
     // Lead trace and Bass note used to color by note by default, ignoring the clip's colors: once, switch that off
     p.settings = p.settings || {};
     if (!p.settings.byNoteOff) {
@@ -1456,7 +1465,7 @@
         g.beginPath(); g.roundRect(vx, cy, vw, ch, 5); g.stroke(); g.lineWidth = 1;
         g.save(); g.beginPath(); g.rect(vx, cy, Math.max(0, vw - 4), ch); g.clip();
         const compact = ch < 34;
-        g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText((e ? e.name : c.effect) + (c.target && compact ? (c.target === 'long' ? ' \u00b7 strips' : ' \u00b7 lamps') : ''), Math.max(HEADER, x0) + 6, cy + (compact ? Math.min(12, ch - 4) : 15));
+        g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText((e ? e.name : c.effect) + (c.target && compact ? ' \u00b7 ' + targetName(c.target) : ''), Math.max(HEADER, x0) + 6, cy + (compact ? Math.min(12, ch - 4) : 15));
         if (!compact) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '10px system-ui'; g.fillText(clipSummary(c), Math.max(HEADER, x0) + 6, cy + 27); }
         g.restore();
         // the clip's own colors, as a bar along its bottom edge
@@ -1495,7 +1504,8 @@
     const h = ROW.lane / 2 - 3;
     return c.target === 'long' ? [y + 3, h] : [y + ROW.lane / 2, h];
   }
-  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : 'lamps'); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${+(+v).toFixed(2)}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
+  const targetName = t => t === 'long' ? 'strips' : t === 'tubes' ? 'tubes' : 'lamps';
+  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : targetName(c.target)); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${+(+v).toFixed(2)}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
   function compose() {
     if (!S.analysis || !off.width || !off.height) return;   // nothing rendered yet (or a zero-size canvas)
     const w = TW(), h = TH(); const g = tctx;
@@ -1858,8 +1868,10 @@
   // ------------------------------------------------------------------ editing helpers
   // Clips never overlap inside a layer. A clip that would collide goes to the next
   // layer up that has room (new layers are created as needed), so effects stack.
-  /** Clips for different lights (long strips, short lamps) never collide: they share a layer, one half each. */
-  const sameLights = (a, b) => !a || !b || a === b;
+  /** Clips for different lights never collide: they share a layer, one half each (long strips on top; the short
+   *  lamps and the tubes beneath, so those two do collide, or one was drawn over the other). */
+  const halfOf = t => t === 'long' ? 'top' : 'bottom';
+  const sameLights = (a, b) => !a || !b || halfOf(a) === halfOf(b);
   const overlaps = (lane, start, len, ignore, target) => lane.clips.some(c => c !== ignore && sameLights(c.target, target) && start < c.start + c.len && c.start < start + len);
   function freeLaneFor(start, len, from = 0, ignore = null, target = undefined) {
     const p = P();
