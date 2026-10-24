@@ -3315,8 +3315,9 @@
         for (const c of lane.clips) {
           const c1 = c.start + c.len;
           if (c === solo || c.alone || c.effect === 'dark' || c1 <= s0 || c.start >= s1) { keep.push(c); continue; }
-          if (c.start < s0) keep.push({ ...c, len: s0 - c.start });                       // the part before it
-          if (c1 > s1) keep.push({ ...c, id: c.start < s0 ? uid() : c.id, start: s1, len: c1 - s1 });   // and after it
+          // the part before it and after it, a scrap under two beats left out (after it, that is the beat of black)
+          if (s0 - c.start >= 2) keep.push({ ...c, len: s0 - c.start });
+          if (c1 - s1 >= 2) keep.push({ ...c, id: c.start < s0 ? uid() : c.id, start: s1, len: c1 - s1 });
         }
         lane.clips = keep;
       }
