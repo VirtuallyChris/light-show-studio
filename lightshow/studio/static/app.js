@@ -3029,7 +3029,7 @@
         if (normal) clip(3, 'buildhits', b0, nlen, chill ? { follow, most: 2, decay: 0.6, zones: 5 } : { follow, most: style === 'rave' ? 4 : 3, decay: 0.22, darkFor: zoneBuild || bk === 'dark' ? 0.5 : 0 }, { opacity: 1 });
         S.buildKind = normal ? bk : 'strobe';
         // A clear EDM snare build (a steady snare that doubles and doubles again: quarters, eighths, sixteenths)
-        // in a dance, rave or electronic song: the whole room strobes white on every snare, faint at first, full
+        // in a dance, rave or electronic song: the whole room strobes white on every snare, half bright at first, full
         // into the drop, and nothing else: black between the snares, or the flashes are lost (strobeAlone).
         // Gold Skies' two builds (1, 1, 2, 3-5 snares a beat by quarter); 3 of 55 learned builds.
         if (strobeBuild) clip(4, 'drumstrobe', normal ? nb : b0, (normal ? sLen : len) - 1, { follow: 'snare', white: true, grows: true, length: 0.12 }, { blend: 'add', opacity: 1, alone: true });

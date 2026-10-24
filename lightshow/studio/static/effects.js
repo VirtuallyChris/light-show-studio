@@ -746,7 +746,7 @@ const Effects = (() => {
       fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);
     } });
 
-  def({ id: 'drumstrobe', name: 'Drum strobe', cat: 'fast', desc: 'A hard flash on every real kick (or snare) hit and nothing in between, so it is exactly as busy as the drummer. With Grows on it starts faint and is full on the drop.', swatch: ['#ffffff', '#000000'],
+  def({ id: 'drumstrobe', name: 'Drum strobe', cat: 'fast', desc: 'A hard flash on every real kick (or snare) hit and nothing in between, so it is exactly as busy as the drummer. With Grows on it starts at half brightness and is full on the drop.', swatch: ['#ffffff', '#000000'],
     params: { follow: { type: 'select', def: 'kick', options: { kick: 'the kick', snare: 'the snare', both: 'kick and snare' }, label: 'Flashes on' },
       length: { type: 'range', def: 0.05, min: 0.02, max: 0.25, step: 0.01, label: 'Flash length (s)' }, grows: P.bool('Grows toward the end', false), white: P.bool('White', false), color: P.color() },
     render(c) {
@@ -765,9 +765,11 @@ const Effects = (() => {
         if (next < Infinity) len = Math.min(len, Math.max(0.04, 0.6 * (next - at)));
       }
       if (h.age > len) return;
-      const v = (c.p.grows ? 0.2 + 0.8 * c.clipT * c.clipT : 1) * (0.6 + 0.4 * h.strength);
+      // growing: from half brightness, steadily to full on the drop (from faint, the first flashes were lost)
+      const v = c.p.grows ? (0.5 + 0.5 * c.clipT) * (0.85 + 0.15 * h.strength) : 0.6 + 0.4 * h.strength;
       const col = c.p.white ? [1, 1, 1] : colorFor(c, 0.5, h.index);
-      fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, v);
+      // (fully opaque: its brightness as its alpha too was squared on the lights, a half-bright flash a quarter)
+      fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, 1);
     } });
 
   def({ id: 'blackout', name: 'Blackout strobe', cat: 'fast', desc: 'Cuts whatever is below to black in a rhythm. Put it on top of a base effect.', swatch: ['#000000', '#444444'],
