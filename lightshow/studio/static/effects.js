@@ -869,6 +869,9 @@ const Effects = (() => {
       if (c.p.follow === 'beat') h = { index: Math.floor(c.beat), age: frac(c.beat) * c.beatSec, strength: 1 };
       else if (c.p.follow === 'build') { const sub = k < 0.5 ? 1 : k < 0.75 ? 2 : 4, u = c.clipBeat * sub; h = { index: sub * 10007 + Math.floor(u), age: frac(u) * c.beatSec / sub, strength: 1 }; }
       else if (m.hasDrums) for (const x of [c.p.follow === 'drums' ? m.kick : null, m.snare, m.roll]) if (x && x.index >= 0 && (!h || x.age < h.age)) h = x;
+      // the snare gone quiet for a beat and a half (or none found in this build): the beat keeps it going (I'm
+      // Good's dark build sat 2.4 s in total black; hYperSAD's last build, no snare in it, only its dim wash)
+      if (c.p.follow !== 'beat' && c.p.follow !== 'build' && (!h || h.index < 0 || h.age > 1.5 * c.beatSec)) h ={ index: 50021 + Math.floor(c.beat), age: frac(c.beat) * c.beatSec, strength: 0.8 };
       if (!h || h.index < 0) return;
       const decay = c.p.decay * (1 - 0.55 * k), v = Math.exp(-h.age / Math.max(0.03, decay)) * (0.45 + 0.55 * Math.pow(k, 1.3)) * (0.7 + 0.3 * (h.strength ?? 1));
       if (v < 0.01) return;
@@ -888,7 +891,9 @@ const Effects = (() => {
       for (const g of lit) {
         const z = g - off; if (z < 0 || z >= zn) continue;
         const i0 = Math.floor(z * c.n / zn), i1 = Math.max(i0 + 1, Math.floor((z + 1) * c.n / zn)), col = colorFor(c, (z + 0.5) / zn, h.index + g);
-        for (let i = i0; i < i1 && i < c.n; i++) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, dark ? 1 : v);
+        // its brightness counted once: over the dark, the color that bright; over the rest, the full color laid on
+        // that much (as both, a build's first hits came out at a fifth, not half)
+        for (let i = i0; i < i1 && i < c.n; i++) if (dark) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, 1); else set(c.out, i, col[0], col[1], col[2], v);
       }
     } });
 
