@@ -71,8 +71,16 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     import librosa
 
     duration = float(len(y) / sr)
-    if duration < 5:
+    if duration < 0.5:
         raise ValueError("song is too short to analyse")
+    if duration < 5:
+        # a sound effect (a 4 s werewolf howl for a doorbell show): heard with silence after it up to 5 s, the
+        # least the beat and section finders take; the stems from that padded audio, not the short file
+        pad = int(5 * sr) - len(y)
+        y = np.pad(y, (0, pad))
+        if stereo is not None:
+            stereo = np.pad(stereo, ((0, 0), (0, pad)))
+        path, duration = None, 5.0
     global LAPS
     LAPS = lap = Laps()
 

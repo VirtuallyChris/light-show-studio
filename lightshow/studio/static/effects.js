@@ -780,9 +780,24 @@ const Effects = (() => {
     params: { speed: { type: 'beats', def: 0.25, label: 'Beats per block' }, size: P.size(0.08, 'Block size'), direction: P.direction() },
     render(c) { const blocks = Math.max(2, Math.round(1 / c.p.size)); const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / c.n); const u = x * blocks - s; const k = Math.floor(u); const on = frac(u) > 0.7; const col = palIdx(c.pal, k); set(c.out, i, on ? col[0] : 0, on ? col[1] : 0, on ? col[2] : 0); } } });
 
-  def({ id: 'lightning', name: 'Lightning', cat: 'fast', desc: 'Random bright flashes across random stretches of the strip.', swatch: ['#ffffff', '#8ad8ff'],
-    params: { rate: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.01, label: 'Rate' }, color: P.color() },
-    render(c) { clear(c.out); const slot = Math.floor(c.beat * 8); if (hash(slot * 31) > c.p.rate) return; const a = hash(slot * 7 + 1), w = 0.1 + 0.5 * hash(slot * 7 + 2); const ph = frac(c.beat * 8); const v = Math.exp(-ph * 4); const col = colorFor(c, a, slot); for (let i = 0; i < c.n; i++) { const x = i / c.n; if (x >= a - w / 2 && x <= a + w / 2) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
+  def({ id: 'lightning', name: 'Lightning', cat: 'fast', desc: 'Lightning strikes: every light at once, full bright for a moment long enough for the lights to show (0.12 to 0.2 s, often a double flicker), over a wide stretch of each strip. Timed in seconds, not beats, so it works on a sound effect too.', swatch: ['#ffffff', '#8ad8ff'],
+    params: { rate: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.01, label: 'How often' }, color: P.color() },
+    render(c) {
+      // A strike may start every 0.4 s (rate: the chance it does). It holds 0.12-0.2 s, and half of them
+      // flicker: 0.1 s on, a 0.07 s gap, on again. (Flashes under a frame were never seen: the lights update
+      // as few as 15 times a second; the user: at least 0.1 to 0.2 s.) Every light strikes together; each its own stretch.
+      clear(c.out); const SLOT = 0.4;
+      for (const k of [Math.floor(c.t / SLOT), Math.floor(c.t / SLOT) - 1]) {   // (a strike can run into the next slot)
+        if (k < 0 || hash(k * 31) > c.p.rate) continue;
+        const t0 = k * SLOT + hash(k * 31 + 3) * 0.15, hold = 0.12 + 0.08 * hash(k * 31 + 5), u = c.t - t0;
+        const flicker = hash(k * 31 + 7) < 0.5, on = flicker ? (u >= 0 && u < 0.1) || (u >= 0.17 && u < 0.17 + hold) : u >= 0 && u < hold;
+        if (!on) continue;
+        const room = c.room ? c.room.i : 0, a = hash(k * 7 + 1 + room * 13), w = c.n <= 12 ? 2 : 0.45 + 0.55 * hash(k * 7 + 2 + room * 13);
+        const col = colorFor(c, a, k);
+        for (let i = 0; i < c.n; i++) { const x = (i + 0.5) / c.n; if (Math.abs(x - a) <= w / 2 || w >= 1) set(c.out, i, col[0], col[1], col[2], 1); }
+        return;
+      }
+    } });
 
   def({ id: 'chaos', name: 'Chaos', cat: 'fast', desc: 'The clip\u2019s colors race along the strip, dense and fast, jumping direction on every beat. Starts out as a rainbow.', swatch: ['#ff0000', '#00ff00'], palette: 'Rainbow',
     params: { speed: P.speed(4, 'Cycle (beats)'), stretch: { type: 'range', def: 2, min: 0.5, max: 6, step: 0.25, label: 'Repeats' } },

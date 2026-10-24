@@ -1416,6 +1416,34 @@ def give_window_identity(wait: bool = False) -> None:
         threading.Thread(target=adopt_studio_windows, args=(APP_PROFILE,), daemon=True).start()
 
 
+def _start_maximized(profile: str) -> None:
+    """The studio opens filling the screen (the user: not in a small window). The app window remembers where
+    it was in its profile, and that wins over --start-maximized: so the remembered placement is marked
+    maximized before it opens."""
+    path = os.path.join(profile, "Default", "Preferences")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            prefs = json.load(fh)
+    except (OSError, ValueError):
+        return
+
+    def mark(node) -> bool:
+        changed = False
+        if isinstance(node, dict):
+            if node.get("maximized") is False:
+                node["maximized"], changed = True, True
+            for v in node.values():
+                changed = mark(v) or changed
+        return changed
+
+    if mark(prefs.get("browser", {}).get("app_window_placement")):
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(prefs, fh)
+        except OSError:
+            pass
+
+
 def open_app_window(url: str) -> subprocess.Popen | None:
     """Open the studio in a borderless Chromium app window (no tabs or address bar).
 
@@ -1427,9 +1455,10 @@ def open_app_window(url: str) -> subprocess.Popen | None:
         return None
     profile = APP_PROFILE
     os.makedirs(profile, exist_ok=True)
+    _start_maximized(profile)
     args = [exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
             "--no-default-browser-check", "--disable-features=Translate,TranslateUI",
-            "--autoplay-policy=no-user-gesture-required", "--window-size=1680,980"]
+            "--autoplay-policy=no-user-gesture-required", "--start-maximized"]
     try:
         return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
