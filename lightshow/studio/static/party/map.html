@@ -338,11 +338,26 @@
 
   // -- tapping the plan -------------------------------------------------------------------------
   const HINTS = { pin: 'Tap the plan where this segment is', place: 'Tap the plan where it is', center: 'Tap the middle of the house', near: 'Tap a spot: the lights within 3 ft of it light up', ripple: 'Tap where the ripple starts' };
+  /** A strip pin onto the wall or drop-ceiling edge it was tapped beside (within about half a foot), into the corner
+   *  when two meet there: strips are mounted on them. (Poles and tubes stay where they are tapped: they stand out.) */
+  function snapToWall(x, y, near = 0.6) {
+    const sh = S.doc.plan.shapes || {}, lines = [];
+    for (const w of sh.walls || []) for (let i = 1; i < w.length; i++) lines.push([w[i - 1], w[i]]);
+    for (const f of sh.soffits || []) for (let i = 1; i < f.line.length; i++) lines.push([f.line[i - 1], f.line[i]]);
+    const proj = ([ax, ay], [bx, by]) => { const dx = bx - ax, dy = by - ay, k = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1))), q = [ax + dx * k, ay + dy * k]; return { q, d: Math.hypot(x - q[0], y - q[1]) }; };
+    const c = lines.map(l => ({ l, ...proj(...l) })).filter(r => r.d <= near).sort((r, s) => r.d - s.d);
+    if (!c.length) return [x, y];
+    for (const r of c.slice(1)) {                     // two lines this close: where they meet
+      const [a, b] = c[0].l, [e, f] = r.l, den = (b[0] - a[0]) * (f[1] - e[1]) - (b[1] - a[1]) * (f[0] - e[0]);
+      if (Math.abs(den) > 1e-9) { const t = ((e[0] - a[0]) * (f[1] - e[1]) - (e[1] - a[1]) * (f[0] - e[0])) / den; return [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]; }
+    }
+    return c[0].q;
+  }
   function setTool(t) { S.tool = t; $('#hint').hidden = !t; $('#hint').textContent = HINTS[t] || ''; }
   function tap(fx, fy) {
     const tool = S.tool, l = S.sel;
     if (tool === 'center') { S.doc.center = [+fx.toFixed(2), +fy.toFixed(2)]; save(); }
-    else if (tool === 'pin' && l) { const m = ensureMap(l); m.anchors = (m.anchors || []).filter(a => a.seg !== S.seg); m.anchors.push({ seg: S.seg, x: +fx.toFixed(2), y: +fy.toFixed(2) }); save(); renderEditor(); renderChips(); }
+    else if (tool === 'pin' && l) { const m = ensureMap(l), [px, py] = snapToWall(fx, fy); m.anchors = (m.anchors || []).filter(a => a.seg !== S.seg); m.anchors.push({ seg: S.seg, x: +px.toFixed(2), y: +py.toFixed(2) }); save(); renderEditor(); renderChips(); }
     else if (tool === 'place' && l) { const m = ensureMap(l);
       if (l.kind === 'pole') { m.x = +fx.toFixed(2); m.y = +fy.toFixed(2); }
       else { m.tubes[S.tube] = { x: +fx.toFixed(2), y: +fy.toFixed(2) };
