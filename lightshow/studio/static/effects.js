@@ -105,6 +105,13 @@ const Effects = (() => {
   }
   const palIdx = (pal, i) => pal[((Math.floor(i) % pal.length) + pal.length) % pal.length];
   function hash(k) { k = (k ^ 0x9e3779b9) >>> 0; k = Math.imul(k ^ (k >>> 16), 0x85ebca6b) >>> 0; k = Math.imul(k ^ (k >>> 13), 0xc2b2ae35) >>> 0; return ((k ^ (k >>> 16)) >>> 0) / 4294967296; }
+  /** How many hits so far in this clip, of these instruments together, hits within 40 ms of each other one hit (a
+   *  kick and a bass note landing together are one moment: counted as two, a two-color swap stood still). */
+  function hitMoments(c, streams) {
+    const m = c.music || {}; if (!m.hitsBetween) return 0;
+    const ts = streams.flatMap(st => m.hitsBetween(st, c.clipT0 - 0.02, c.t + 1e-6)).sort((x, y) => x - y);
+    let k = 0, last = -1e9; for (const t of ts) { if (t - last > 0.04) k++; last = t; } return k;
+  }
   function set(out, i, r, g, b, a = 1) { const j = i * 4; out[j] = r; out[j + 1] = g; out[j + 2] = b; out[j + 3] = a; }
   function add(out, i, r, g, b, a = 1) { const j = i * 4; out[j] += r; out[j + 1] += g; out[j + 2] += b; out[j + 3] = Math.max(out[j + 3], a); }
   function fillAll(out, n, r, g, b, a = 1) { for (let i = 0; i < n; i++) set(out, i, r, g, b, a); }
@@ -856,7 +863,9 @@ const Effects = (() => {
       // song with the kick on every beat this is the beat, on one without it lands where the drums do
       const m = c.music || {}, age = h => (h && h.index >= 0 ? h.age : 99);   // (a stretch with no drums for 1.5 s: the beat)
       const drums = c.p.follow !== 'beat' && m.hasDrums && Math.min(age(m.kick), age(m.snare)) < 1.5;
-      const k = drums ? Math.floor(((m.kick ? m.kick.index : -1) + (m.snare ? m.snare.index : -1) + 2) / Math.max(1, Math.round(c.p.every))) : Math.floor(c.beat / c.p.every); const a = palIdx(c.pal, k), b = palIdx(c.pal, k + 1); for (let i = 0; i < c.n; i++) { const left = i < c.n / 2; const on = left === (k % 2 === 0); const col = left ? a : b; const v = on ? 1 : c.p.dim; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
+      // (each side its own color of the pair, the pair moving on every other swap: moving it on with every swap,
+      // with two colors only the first ever lit)
+      const k = drums ? Math.floor(hitMoments(c, ['kick', 'snare']) / Math.max(1, Math.round(c.p.every))) : Math.floor(c.beat / c.p.every), pr = Math.floor(k / 2), a = palIdx(c.pal, 2 * pr), b = palIdx(c.pal, 2 * pr + 1); for (let i = 0; i < c.n; i++) { const left = i < c.n / 2; const on = left === (k % 2 === 0); const col = left ? a : b; const v = on ? 1 : c.p.dim; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   // ===== AROUND THE ROOM =====
   // These see the whole room: c.room is this light's place in it ({ i, n, side }), the ticked lights
@@ -1096,8 +1105,7 @@ const Effects = (() => {
       const m = c.music || {}, age = h => (h && h.index >= 0 ? h.age : 99), withBass = c.p.follow === 'hits';
       const last = Math.min(age(m.kick), age(m.snare), withBass ? age(m.basshit) : 99);
       const drums = c.p.follow !== 'beat' && m.hasDrums && last < 1.5;
-      const idx = h => (h && h.index >= 0 ? h.index + 1 : 0);
-      const k = drums ? idx(m.kick) + idx(m.snare) + (withBass ? idx(m.basshit) : 0) : Math.floor(c.beat);
+      const k = drums ? hitMoments(c, withBass ? ['kick', 'snare', 'basshit'] : ['kick', 'snare']) : Math.floor(c.beat);
       const col = palIdx(c.pal, k), v = (1 - c.p.punch) + c.p.punch * (drums ? Math.exp(-last / 0.12) : 0);
       fillAll(c.out, c.n, col[0] * v, col[1] * v, col[2] * v, 1);
     } });
