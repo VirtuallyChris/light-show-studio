@@ -339,12 +339,14 @@
 
   // ------------------------------------------------------------------ loading songs
   async function openFile(file) {
+    await modelsReady('the analysis');
     busy(`Analysing ${file.name}…`);
     const fd = new FormData(); fd.append('file', file);
     try { const r = await fetch('/api/song', { method: 'POST', body: fd }); await loadResponse(r); }
     catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
   }
   async function openPath(path) {
+    await modelsReady('the analysis');
     busy(`Analysing ${path}…`);
     try { const r = await fetch('/api/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }) }); await loadResponse(r); }
     catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
@@ -609,6 +611,7 @@
   }
   async function castStart() {
     const name = $('#castDevice').value; if (!name) return toast('Pick a Cast speaker or group first', true);
+    await modelsReady('casting');
     if (S.audio.playing && !S.cast.active) pause();
     const startPos = pos();
     busy(`Connecting to ${name}…`);
@@ -3734,6 +3737,7 @@
     // a fresh analysis from scratch: the server throws away everything it saved for this song and
     // runs the newest analysis (so nothing old, cached or half-done, can come back)
     if (S.name) {
+      await modelsReady('the analysis');
       busy('Analysing from scratch…');
       try { const d = await (await fetch(`/api/projects/${encodeURIComponent(S.name)}?fresh=1`)).json(); if (d.analysis) S.analysis = d.analysis; }
       catch (e) { /* keep what was loaded */ } finally { busy(null); }
@@ -3797,29 +3801,36 @@
     S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   bootModels();
-  /** As the studio opens, the models load (and warm up) in the model host: a card over the app shows them
-   *  coming up, and goes when all are ready (or one fails: the analysis carries on without it). Nothing to
-   *  wait for (no models installed, learn ahead off, a test copy): no card. */
+  /** As the studio opens, the models load (and warm up) in the model host, out of sight: the studio is
+   *  usable at once (a card over it while they came up made it feel slow: the user). Only what needs them,
+   *  analysing a song, casting, a jam, waits for them first (modelsReady). Done: all ready, or one failed
+   *  (the analysis carries on without it), or nothing to wait for (none installed, a test copy), or two minutes. */
   async function bootModels() {
-    const NAMES = { songformer_infer: 'Sections', stems_infer: 'Stems', genre_infer: 'Genre', beats_infer: 'Beats', drums_infer: 'Drums' };
-    const WORDS = { waiting: 'waiting', loading: 'loading…', warming: 'warming up…', ready: 'ready', failed: 'could not load' };
-    const card = $('#bootModels'), t0 = performance.now();
-    for (;;) {
-      let d = null;
-      try { d = await (await fetch('/api/models')).json(); } catch (e) { /* the server is starting */ }
-      if (d && !d.expected) break;                                      // no models to wait for
-      const m = (d && d.models) || null, names = Object.keys(NAMES);
-      const done = m && names.every(n => m[n] === 'ready' || m[n] === 'failed');
-      if (done || performance.now() - t0 > 120000) break;               // (never longer than two minutes)
-      card.hidden = false;
-      const score = { waiting: 0, loading: 0.25, warming: 0.7, ready: 1, failed: 1 };
-      $('#bootBar').style.width = `${Math.round(100 * names.reduce((k, n) => k + (score[(m || {})[n]] || 0), 0) / names.length)}%`;
-      $('#bootList').innerHTML = names.map(n => { const st = (m || {})[n] || 'waiting';
-        return `<span>${NAMES[n]}</span><span class="${st === 'ready' ? 'ok' : st === 'failed' ? 'bad' : ''}">${WORDS[st] || st}</span>`; }).join('');
-      await new Promise(r => setTimeout(r, 400));
+    const MODEL_NAMES = { songformer_infer: 'sections', stems_infer: 'stems', genre_infer: 'genre', beats_infer: 'beats', drums_infer: 'drums' };
+    const t0 = performance.now();
+    S.modelsDone = false; S.modelsLeft = Object.values(MODEL_NAMES);
+    try {
+      for (;;) {
+        let d = null;
+        try { d = await (await fetch('/api/models')).json(); } catch (e) { /* the server is starting */ }
+        if (d && !d.expected) break;                                    // no models to wait for
+        const m = (d && d.models) || null, names = Object.keys(MODEL_NAMES);
+        S.modelsLeft = names.filter(n => !m || (m[n] !== 'ready' && m[n] !== 'failed')).map(n => MODEL_NAMES[n]);
+        if (m && !S.modelsLeft.length) break;
+        if (performance.now() - t0 > 120000) break;                     // (never longer than two minutes)
+        await new Promise(r => setTimeout(r, 400));
+      }
+    } finally { S.modelsDone = true; S.modelsLeft = []; }               // (whatever happens, nothing waits forever)
+  }
+  /** Wait (if still loading) for the models before something that needs them; the busy card says so meanwhile. */
+  async function modelsReady(what) {
+    if (S.modelsDone !== false) return;                                 // (done, or never started: nothing to wait for)
+    while (!S.modelsDone) {
+      busy(`Getting ready for ${what}: loading the ${S.modelsLeft.join(', ') || 'models'}…`);
+      await new Promise(r => setTimeout(r, 300));
     }
-    card.hidden = true;
+    busy(null);
   }
   window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
-    sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels };
+    sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();
