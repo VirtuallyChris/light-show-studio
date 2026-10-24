@@ -1,15 +1,16 @@
-"""The house in space: where every light's segments are, so a show can play across the rooms as one space
-(thunder rolling from wall to wall, spirals around the middle, one room against another).
+"""The house as a map: where every light's segments are on the floor plan, so a show can play across the rooms
+as one space (thunder rolling from wall to wall, spirals around the middle, one room against another).
 
-Mapped on the party app's map page (static/party/map.html) over a floor plan the user uploads, in feet:
-x across the plan from its left edge, y down it from its top edge, z up from the floor. The map lives in
-shows/_space/space.json (the plan image beside it), never in the repository:
+Mapped on the party app's map page (static/party/map.html) over the floor plan drawn as shapes, flat (2D), in
+feet: x across the plan from its left wall, y down it from its top wall. The map lives in shows/_space/space.json,
+never in the repository:
 
-    {"version": 1, "plan": {"image": "plan.png", "width_ft": 41}, "ceiling_ft": 8, "center": [x, y],
+    {"version": 1, "plan": {"width_ft": 41, "depth_ft": 14.2, "shapes": {rooms, walls, soffits, fixtures}},
+     "center": [x, y],
      "lights": {
-       "<light key>": {"kind": "strip", "anchors": [{"seg": 0, "x": .., "y": .., "z": ..}, ...]},
-       "<light key>": {"kind": "pole", "x": .., "y": .., "z0": 0.5, "z1": 6, "top_first": false},
-       "<light key>": {"kind": "tubes", "tubes": [{"x": .., "y": .., "z": 8, "len": 1.5}, ...]}}}
+       "<light key>": {"kind": "strip", "anchors": [{"seg": 0, "x": .., "y": ..}, ...]},
+       "<light key>": {"kind": "pole", "x": .., "y": ..},
+       "<light key>": {"kind": "tubes", "tubes": [{"x": .., "y": ..}, ...]}}}
 
 A strip's segments run between its anchors (each pinned to the segment found there with the locator), so it
 can turn corners, cross several walls or hang in the middle of a room. Segment numbers are the light's own
@@ -41,8 +42,8 @@ def _num(v, lo=-1000.0, hi=1000.0) -> float:
 
 
 def _shapes(sh: dict) -> dict:
-    """The floor plan drawn as shapes, in feet: rooms (named outlines), walls (lines through points) and fixtures
-    (an island, a couch: a rectangle [x, y, width, depth] or an outline), checked."""
+    """The floor plan drawn as shapes, in feet: rooms (named outlines), walls (lines through points), drop-ceiling
+    edges (soffits) and fixtures (an island, a couch: a rectangle [x, y, width, depth] or an outline), checked."""
     pt = lambda q: [_num(q[0]), _num(q[1])]
     rooms = [{"name": str(r.get("name") or "")[:40], "poly": [pt(q) for q in r["poly"]], **({"label": pt(r["label"])} if r.get("label") else {})}
              for r in sh.get("rooms") or []]
@@ -53,7 +54,9 @@ def _shapes(sh: dict) -> dict:
         else:
             fixtures.append({"name": str(f.get("name") or "")[:40], "poly": [pt(q) for q in f["poly"]]})
     walls = [[pt(q) for q in w] for w in sh.get("walls") or []]       # the real walls (an open plan has few between rooms)
-    return {"rooms": rooms, "fixtures": fixtures, "walls": walls}
+    # drop-ceiling edges: drawn solid like walls (open below, but lights are mounted on their face)
+    soffits = [{"line": [pt(q) for q in f["line"]]} for f in sh.get("soffits") or []]
+    return {"rooms": rooms, "fixtures": fixtures, "walls": walls, "soffits": soffits}
 
 
 def clean(doc: dict) -> dict:
@@ -62,7 +65,7 @@ def clean(doc: dict) -> dict:
     out = {"version": 1, "plan": {"image": str(plan.get("image") or ""), "width_ft": _num(plan.get("width_ft") or 41, 1, 1000),
                                   **({"depth_ft": _num(plan["depth_ft"], 1, 1000)} if plan.get("depth_ft") else {}),
                                   **({"shapes": _shapes(plan["shapes"])} if plan.get("shapes") else {})},
-           "ceiling_ft": _num(doc.get("ceiling_ft") or 8, 1, 100), "lights": {}}
+           "lights": {}}
     if doc.get("center") is not None:
         c = doc["center"]
         out["center"] = [_num(c[0]), _num(c[1])]
@@ -71,48 +74,40 @@ def clean(doc: dict) -> dict:
         if kind not in KINDS:
             raise ValueError(f"unknown kind {kind!r}")
         if kind == "strip":
-            anchors = sorted(({"seg": int(a["seg"]), "x": _num(a["x"]), "y": _num(a["y"]), "z": _num(a["z"])}
+            anchors = sorted(({"seg": int(a["seg"]), "x": _num(a["x"]), "y": _num(a["y"])}
                               for a in m.get("anchors") or []), key=lambda a: a["seg"])
             out["lights"][str(key)] = {"kind": kind, "anchors": anchors}
         elif kind == "pole":
-            out["lights"][str(key)] = {"kind": kind, "x": _num(m["x"]), "y": _num(m["y"]), "z0": _num(m.get("z0", 0.5)),
-                                       "z1": _num(m.get("z1", 6)), "top_first": bool(m.get("top_first"))}
+            out["lights"][str(key)] = {"kind": kind, "x": _num(m["x"]), "y": _num(m["y"])}
         else:
             out["lights"][str(key)] = {"kind": kind, "tubes": [
-                None if t is None else {"x": _num(t["x"]), "y": _num(t["y"]), "z": _num(t.get("z", 8)), "len": _num(t.get("len", 1.5), 0, 20)}
+                None if t is None else {"x": _num(t["x"]), "y": _num(t["y"])}
                 for t in m.get("tubes") or []]}
     return out
 
 
 def positions(m: dict, segments: int, tube_count: int = 20) -> list | None:
-    """Where each of a light's segments is ([x, y, z] in feet, by the light's own segment number), from its
-    map; None where it cannot be worked out (a strip with fewer than two anchors, a tube not placed)."""
+    """Where each of a light's segments is on the plan ([x, y] in feet, by the light's own segment number), from its
+    map; None where it cannot be worked out (a strip with fewer than two pins, a tube not placed). A pole is one spot
+    (all its segments there); a tube's LEDs are all at its spot."""
     n = max(1, int(segments))
     if m.get("kind") == "pole":
-        z0, z1 = m["z0"], m["z1"]
-        out = []
-        for s in range(n):
-            k = (s + 0.5) / n
-            out.append([m["x"], m["y"], round(z1 + (z0 - z1) * k if m.get("top_first") else z0 + (z1 - z0) * k, 3)])
-        return out
+        return None if m.get("x") is None else [[m["x"], m["y"]] for _ in range(n)]
     if m.get("kind") == "tubes":
         per = max(1, round(n / tube_count))
-        out = []
-        for s in range(n):
-            t = (m.get("tubes") or [])[s // per] if s // per < len(m.get("tubes") or []) else None
-            out.append(None if t is None else [t["x"], t["y"], round(t["z"] - t["len"] * ((s % per) + 0.5) / per, 3)])
-        return out
+        tubes = m.get("tubes") or []
+        return [None if s // per >= len(tubes) or tubes[s // per] is None else [tubes[s // per]["x"], tubes[s // per]["y"]] for s in range(n)]
     a = m.get("anchors") or []
     if len(a) < 2:
         return None
     out = []
     for s in range(n):
-        j = 0                                            # the pair of anchors around it (the end pair beyond them)
+        j = 0                                            # the pair of pins around it (the end pair beyond them)
         while j < len(a) - 2 and s > a[j + 1]["seg"]:
             j += 1
         p, q = a[j], a[j + 1]
         k = (s - p["seg"]) / max(1e-9, q["seg"] - p["seg"])
-        out.append([round(p[c] + (q[c] - p[c]) * k, 3) for c in ("x", "y", "z")])
+        out.append([round(p[c] + (q[c] - p[c]) * k, 3) for c in ("x", "y")])
     return out
 
 
@@ -186,7 +181,7 @@ def blink_frame(t: float, first: int, count: int, n: int) -> list:
 
 
 def pattern_level(kind: str, p: list, t: float, doc: dict, point: list | None) -> float:
-    """How lit a segment at p ([x, y, z] feet) is at t seconds into a test pattern, 0..1."""
+    """How lit a segment at p ([x, y] feet) is at t seconds into a test pattern, 0..1."""
     import math
     w = float((doc.get("plan") or {}).get("width_ft") or 41)
     d = float((doc.get("plan") or {}).get("depth_ft") or w / 2.5)
@@ -277,7 +272,7 @@ class Space:
                 return json.load(fh)
         except (OSError, ValueError):
             plan = next((f for f in ("plan.png", "plan.jpg", "plan.webp") if os.path.exists(os.path.join(self.dir, f))), "")
-            return {"version": 1, "plan": {"image": plan, "width_ft": 41}, "ceiling_ft": 8, "lights": {}}
+            return {"version": 1, "plan": {"image": plan, "width_ft": 41}, "lights": {}}
 
     def save(self, doc: dict) -> dict:
         doc = clean(doc)
