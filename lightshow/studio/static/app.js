@@ -855,7 +855,28 @@
     if (!w || !d) { w = 40; d = 14; }
     const c = (sp && sp.center) || [w / 2, d / 2];
     const rooms = ((sh && sh.rooms) || []).filter(r => !/coat|closet|stair/i.test(r.name)).map(r => { const xs = r.poly.map(q => q[0]); return { name: r.name, poly: r.poly, x0: Math.min(...xs), x1: Math.max(...xs), cx: (Math.min(...xs) + Math.max(...xs)) / 2 }; }).sort((a, b) => a.cx - b.cx);
-    return (S.houseOf = { w, d, c, R: Math.hypot(Math.max(c[0], w - c[0]), Math.max(c[1], d - c[1])), rooms });
+    // the sides: every straight run of a strip between its corners (the game room's string turns two corners:
+    // three sides), numbered round the middle of the house, so neighboring walls take neighboring colors
+    const sides = [];
+    for (const [key, m] of Object.entries((sp && sp.lights) || {})) for (const r of runsOf(m) || []) sides.push({ key, ...r, a: Math.atan2((r.y0 + r.y1) / 2 - c[1], (r.x0 + r.x1) / 2 - c[0]) });
+    sides.sort((p, q) => p.a - q.a).forEach((r, k) => { r.k = k; });
+    const sidesOf = new Map(); for (const r of sides) { if (!sidesOf.has(r.key)) sidesOf.set(r.key, []); sidesOf.get(r.key).push(r); }
+    for (const rs of sidesOf.values()) rs.sort((p, q) => p.s0 - q.s0);
+    return (S.houseOf = { w, d, c, R: Math.hypot(Math.max(c[0], w - c[0]), Math.max(c[1], d - c[1])), rooms, sidesOf, sideCount: sides.length });
+  }
+  /** A strip's straight runs, corner to corner, by its pins ({s0, s1: the segments where it starts and ends, the
+   *  run's two ends in feet}); pins in a straight line make one run. A pole or the tubes: none. */
+  function runsOf(m) {
+    if (!m || m.kind === 'pole' || m.kind === 'tubes') return null;
+    const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg); if (a.length < 2) return null;
+    const runs = [];
+    for (let j = 0; j + 1 < a.length; j++) {
+      const p = a[j], q = a[j + 1], ang = Math.atan2(q.y - p.y, q.x - p.x), last = runs[runs.length - 1];
+      const turn = last ? Math.abs(Math.atan2(Math.sin(ang - last.ang), Math.cos(ang - last.ang))) : 9;
+      if (turn < 0.3) { last.s1 = q.seg; last.x1 = q.x; last.y1 = q.y; }        // (the same wall: one side)
+      else runs.push({ s0: p.seg, s1: q.seg, x0: p.x, y0: p.y, x1: q.x, y1: q.y, ang });
+    }
+    return runs;
   }
   /** Where each segment of a light is, by its own segment number (as space.py positions), or null when not mapped. */
   function mapSpots(m, n) {
@@ -877,7 +898,58 @@
     const mapped = !!pos;
     if (pos && L.flip) pos = pos.slice().reverse();
     if (!pos) { const i = room ? room.i : 0, of = room ? room.n : 1; pos = Array.from({ length: n }, (_, j) => [H.w * (i + (j + 0.5) / n) / of, H.d / 2]); }
-    return (S.spaceAt[k] = { pos, house: H, mapped });
+    // which side each segment is on (its run of the strip, numbered round the house), and the runs in the show's
+    // order: [{i0, i1, k}]; a light with no runs (off the map) is one side of its own
+    const key = [L.mac, L.device_id, L.ip].find(x => x && H.sidesOf.has(x)), rs = key ? H.sidesOf.get(key) : null;
+    let side = Array.from({ length: n }, (_, s) => { if (!rs) return H.sideCount + (room ? room.i : 0); const r = rs.find(q => s <= q.s1) || rs[rs.length - 1]; return r.k; });
+    if (L.flip) side = side.reverse();
+    const runs = []; side.forEach((k2, i) => { const r = runs[runs.length - 1]; if (r && r.k === k2) r.i1 = i + 1; else runs.push({ i0: i, i1: i + 1, k: k2 }); });
+    return (S.spaceAt[k] = { pos, house: H, mapped, runs });
+  }
+  /** An effect played on the house instead of on each light (its "space": effects.js P.space), or false to draw it
+   *  as ever. Across the house, round the middle, from the middle out: the effect is drawn once on a strip laid
+   *  across the house that way (HOUSE_PX long), and every light takes the color at each segment's place on it, so
+   *  any effect moves through the room as one (a scanner one bar over all the walls). Each wall its own: every
+   *  side of a strip (corner to corner) draws it as a light of its own, the palette turned one color per side
+   *  round the house (a cube of colors). The poles and the tubes' own LEDs never: their bottom-to-top motion stays
+   *  (the user). Off with H (S.houseOff), to compare. */
+  const HOUSE_PX = 120;
+  function houseDraw(c, e, clip, kind, sub, cache) {
+    const mode = c.p.space;
+    if (!mode || mode === 'strip' || !e.params.space || S.houseOff || !mappedHouse() || kind === 'short' || sub) return false;
+    const W = c.where, P = W && W.pos; if (!P || !P.length || !W.mapped) return false;   // (not on the map yet: on its own, as ever)
+    if (mode === 'sides') {
+      const runs = W.runs && W.runs.length && W.runs[W.runs.length - 1].i1 === c.n ? W.runs : [{ i0: 0, i1: c.n, k: (W.runs && W.runs[0] ? W.runs[0].k : 0) }];
+      for (const r of runs) {
+        const m = r.i1 - r.i0, out = new Float32Array(m * 4); for (let i = 0; i < m; i++) out[i * 4 + 3] = 1;
+        e.render({ ...c, n: m, out, pal: c.pal.map((_, j) => c.pal[(j + r.k) % c.pal.length]), where: null });
+        c.out.set(out, r.i0 * 4);
+      }
+      return true;
+    }
+    const first = P.find(Boolean); if (!first || P.every(q => !q || (q[0] === first[0] && q[1] === first[1]))) return false;   // (one spot: nothing to spread)
+    const H = W.house, origin = 'origin' in e.params;
+    let v = cache.get(clip.id + mode);
+    if (!v) {
+      v = new Float32Array(HOUSE_PX * 4); for (let i = 0; i < HOUSE_PX; i++) v[i * 4 + 3] = 1;
+      e.render({ ...c, n: HOUSE_PX, out: v, room: { i: 0, n: 1, side: 0, kinds: ['long'] }, where: null, p: mode === 'out' && origin ? { ...c.p, origin: 0 } : c.p });
+      cache.set(clip.id + mode, v);
+    }
+    // across: how far along its direction (0 left to right, 90 front to back, 45 a diagonal), the house's corners
+    // the two ends; round the middle: from its direction, turning the way of its spin
+    const th = (c.p.angle || 0) * Math.PI / 180, dx = Math.cos(th), dy = Math.sin(th);
+    const ends = [[0, 0], [H.w, 0], [0, H.d], [H.w, H.d]].map(([x, y]) => x * dx + y * dy), lo = Math.min(...ends), span = Math.max(1e-6, Math.max(...ends) - lo);
+    for (let i = 0; i < c.n; i++) {
+      const q = P[i]; if (!q) { c.out[i * 4 + 3] = 0; continue; }
+      const r = Math.hypot(q[0] - H.c[0], q[1] - H.c[1]) / H.R;
+      let u;
+      if (mode === 'across') u = (q[0] * dx + q[1] * dy - lo) / span;
+      else if (mode === 'around') { u = frac(Math.atan2(q[1] - H.c[1], q[0] - H.c[0]) / (2 * Math.PI) - (c.p.angle || 0) / 360); if (c.p.spin === 'ccw') u = 1 - u; }
+      else u = origin ? r : 0.5 + 0.5 * r;
+      const x = clamp(u, 0, 1) * (HOUSE_PX - 1), j0 = Math.floor(x), j1 = Math.min(HOUSE_PX - 1, j0 + 1), f = x - j0;
+      for (let ch = 0; ch < 4; ch++) c.out[i * 4 + ch] = v[j0 * 4 + ch] * (1 - f) + v[j1 * 4 + ch] * f;
+    }
+    return true;
   }
   /** The same spots for a layer drawn at another size (the tubes' show plays across the tubes, one pixel each). */
   function spotsFor(where, np) {
@@ -1184,6 +1256,7 @@
     const music = musicAt(t), calm = calmAt(t);
     // the user's own clips: every clip of a show never auto-built, and one added by hand (addClip marks it)
     const handPlaced = c => c.mine || !p.built; let handFlash = false;
+    const hcache = new Map();                        // (an effect played on the house: drawn once a frame, houseDraw)
     // (in calm music the beat's pulse is a slow swell over the bar instead of a kick every beat)
     const kick = Math.exp(-frac(b) * 6) * (1 - calm) + calm * (0.5 + 0.5 * Math.cos(frac((b - p.phase) / 4) * Math.PI * 2));
     const master = loudnessGain(t);                 // always full brightness; only the music's loudness dims it
@@ -1217,7 +1290,7 @@
           clipT0: beatToTime(clip.start), clipT1: beatToTime(clip.start + clip.len),
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub, where: spotsFor(where, n) };
-        e.render(c);
+        if (!houseDraw(c, e, clip, kind, sub, hcache)) e.render(c);
         let alpha = (clip.opacity ?? 1) * partyScale(clip);
         // (no flashes in calm music: the show's own; a flash the user put there plays, its frame not smoothed either:
         // Haunted Mansion's lightning, a sound effect heard as calm, was black)
@@ -2053,6 +2126,7 @@
       <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd> copy / cut / paste / duplicate<br><kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
       Double-click a section to cycle its type<br>Right-click anything for more<br>
       <b>Beat edit</b> on: click adds a beat, <kbd>Space</kbd> taps while playing, <kbd>Enter</kbd> plays<br>
+      <kbd>H</kbd> effects across the house, or each light on its own, to compare (once the house is mapped)<br>
       Review, a song Claude suggested sections for: <kbd>M</kbd> flips between Claude's and the old ones, <kbd>]</kbd> Done keeps what is showing</div>`;
   function toggleMenu(btn, menu, fill) {
     const open = menu.hidden; closeMenus(); if (!open) return;
@@ -2908,7 +2982,26 @@
     let acc = 0; for (const [k, w] of pick) { acc += w; if (h < acc) return { ease: k }; }
     return { ease: 'linear' };
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...easeFor(effect, start), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
+  /** Where an auto-built clip plays (effects.js P.space): its effect's own best way most of the time, now and then
+   *  another of its ways (round the middle, each wall its own...), so no two shows play the house alike. */
+  function spaceFor(effect, start, lane) {
+    const e = Effects.byId[effect] || { params: {} }, sp = e.params.space; if (!sp) return {};
+    const seed = songSeed() + Math.round(start * 7) * 131 + lane * 977 + effect.length * 17, pick = k => Effects.hash(seed + k);
+    const ways = Object.keys(sp.options).filter(k => k !== 'strip');
+    const out = { space: pick(1) < 0.6 || !ways.length ? sp.def : ways[Math.floor(pick(2) * ways.length)] };
+    // its direction: mostly along the house (it is long), now and then front to back or a diagonal; either way round
+    if (e.params.angle) out.angle = [0, 180, 0, 180, 90, 270, 45, 135, 225, 315][Math.floor(pick(3) * 10)];
+    if (e.params.spin) out.spin = pick(4) < 0.5 ? 'cw' : 'ccw';
+    return out;
+  }
+  /** The song's own fingerprint, a number: its key, how bright and driven it sounds, its tempo and length (what
+   *  the analysis hears, not its name), so a show rebuilds the same and two songs differ. */
+  function songSeed() {
+    const a = S.analysis || {}, m = a.mood || {}, s = [m.key, m.brightness, m.drive, Math.round(a.duration || 0), Math.round((P() && P().bpm) || a.bpm || 0)].join('|');
+    let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0) % 1000003;
+  }
+  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...easeFor(effect, start), ...spaceFor(effect, start, lane), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
       if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, S.buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : whiteMotion(start) ? ['#ffffff'] : [punchColor(start)]; }
     if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
@@ -3706,6 +3799,10 @@
     else if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.metaKey && S.review && S.review.proposal) {   // Claude's sections or the old ones
       S.review.showing = S.review.showing === 'claude' ? 'old' : 'claude'; showMapping();
       toast(S.review.showing === 'claude' ? "Claude's sections (Done keeps them)" : 'The old sections (Done keeps them)');
+    }
+    else if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey) {   // the house effects off and on, to compare (houseDraw)
+      S.houseOff = !S.houseOff; S.forceSend = true; if (!S.audio.playing) pushFrameIfIdle();
+      toast(S.houseOff ? 'Each light on its own (H: across the house again)' : 'Across the house (H: each light on its own)');
     }
     else if (e.key === 'Home') { seek(0); scrollTo(0); }
     else if (e.key === 'End') { seek(duration()); }

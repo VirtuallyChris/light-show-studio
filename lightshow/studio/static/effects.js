@@ -144,7 +144,15 @@ const Effects = (() => {
   }
 
   // common param definitions
+  // Where an effect plays, once the house is mapped (app.js houseDraw): on each light as ever, or on the house as
+  // one, across it, round its middle, from its middle out, or each wall its own side of a cube of colors.
+  // Across the house goes the way of its Direction (0 left to right, 90 front to back, 45 a diagonal...); round the
+  // middle starts there and turns the way of its Spin. Auto-build picks them from the song's own fingerprint.
+  const SPACES = { strip: 'each light on its own', across: 'across the house', around: 'round the middle', out: 'from the middle out', sides: 'each wall its own (a cube)' };
   const P = {
+    space: (def, ...ways) => ({ type: 'select', def, options: Object.fromEntries(['strip', ...ways].map(k => [k, SPACES[k]])), label: 'Plays' }),
+    angle: () => ({ type: 'range', def: 0, min: 0, max: 345, step: 15, label: 'Direction (degrees: 0 left to right, 90 front to back)' }),
+    spin: () => ({ type: 'select', def: 'cw', options: { cw: 'clockwise', ccw: 'counter-clockwise' }, label: 'Spin' }),
     speed: (def = 4, label = 'Cycle (beats)') => ({ type: 'beats', def, label }),
     intensity: (def = 1) => ({ type: 'range', def, min: 0, max: 1, step: 0.01, label: 'Intensity' }),
     size: (def = 0.3, label = 'Size') => ({ type: 'range', def, min: 0.02, max: 1, step: 0.01, label }),
@@ -178,15 +186,15 @@ const Effects = (() => {
 
   // ===== SLOW =====
   def({ id: 'solid', name: 'Solid color', cat: 'slow', desc: 'One palette color, optionally cycling per N beats.', swatch: ['#ff2fa0', '#ff2fa0'],
-    params: { speed: P.speed(16, 'Change every (beats)'), color: P.color(), intensity: P.intensity() },
+    params: { space: P.space('strip', 'sides'), speed: P.speed(16, 'Change every (beats)'), color: P.color(), intensity: P.intensity() },
     render(c) { const k = Math.floor(c.beat / c.p.speed); const col = colorFor(c, 0.5, k); fillAll(c.out, c.n, col[0] * c.p.intensity, col[1] * c.p.intensity, col[2] * c.p.intensity); } });
 
   def({ id: 'gradient', name: 'Gradient sweep', cat: 'slow', desc: 'The palette gradient scrolls slowly along the strip.', swatch: ['#ff4e00', '#7a1fa2'],
-    params: { speed: P.speed(16, 'One length per (beats)'), direction: P.direction(), stretch: { type: 'range', def: 1, min: 0.25, max: 4, step: 0.05, label: 'Stretch' }, intensity: P.intensity() },
+    params: { space: P.space('across', 'across', 'around', 'out', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(16, 'One length per (beats)'), direction: P.direction(), stretch: { type: 'range', def: 1, min: 0.25, max: 4, step: 0.05, label: 'Stretch' }, intensity: P.intensity() },
     render(c) { const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const col = palAt(c.pal, x / c.p.stretch - s); set(c.out, i, col[0] * c.p.intensity, col[1] * c.p.intensity, col[2] * c.p.intensity); } } });
 
   def({ id: 'aurora', name: 'Aurora', cat: 'slow', desc: 'Slow drifting ribbons of palette color, like northern lights.', swatch: ['#00ffa0', '#3c00c8'],
-    params: { speed: P.speed(16), intensity: P.intensity(0.9), depth: { type: 'range', def: 0.5, min: 0, max: 1, step: 0.01, label: 'Depth' } },
+    params: { space: P.space('across', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(16), intensity: P.intensity(0.9), depth: { type: 'range', def: 0.5, min: 0, max: 1, step: 0.01, label: 'Depth' } },
     render(c) { const ph = c.beat / c.p.speed * 2 * Math.PI; for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const w = 0.5 + 0.5 * Math.sin(x * 6.3 + ph) * Math.sin(x * 2.1 - ph * 0.7); const col = palAt(c.pal, x * 0.6 + 0.15 * Math.sin(ph * 0.5 + x * 3)); const v = c.p.intensity * (1 - c.p.depth + c.p.depth * w); set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'breathe', name: 'Breathe', cat: 'slow', desc: 'The whole strip swells and fades once per cycle.', swatch: ['#3d8bff', '#0a1a40'],
@@ -194,11 +202,11 @@ const Effects = (() => {
     render(c) { const ph = frac(c.beat / c.p.speed); const v = c.p.floor + (1 - c.p.floor) * (0.5 - 0.5 * Math.cos(ph * 2 * Math.PI)); const col = colorFor(c, ph, Math.floor(c.beat / c.p.speed)); fillAll(c.out, c.n, col[0] * v * c.p.intensity, col[1] * v * c.p.intensity, col[2] * v * c.p.intensity); } });
 
   def({ id: 'colorwash', name: 'Color wash', cat: 'slow', desc: 'Crossfades smoothly from palette color to color.', swatch: ['#ff6ec7', '#06d6a0'],
-    params: { speed: P.speed(8, 'Per color (beats)'), intensity: P.intensity() },
+    params: { space: P.space('strip', 'sides'), speed: P.speed(8, 'Per color (beats)'), intensity: P.intensity() },
     render(c) { const x = c.beat / c.p.speed; const col = palAt(c.pal, x / c.pal.length); fillAll(c.out, c.n, col[0] * c.p.intensity, col[1] * c.p.intensity, col[2] * c.p.intensity); } });
 
   def({ id: 'wave', name: 'Wave', cat: 'slow', desc: 'A brightness wave rolls along the strip in the palette gradient.', swatch: ['#0028ff', '#00c8ff'],
-    params: { speed: P.speed(4), direction: P.direction(), waves: { type: 'range', def: 1.5, min: 0.25, max: 6, step: 0.25, label: 'Waves' }, floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    params: { space: P.space('across', 'across', 'around', 'out', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(4), direction: P.direction(), waves: { type: 'range', def: 1.5, min: 0.25, max: 6, step: 0.25, label: 'Waves' }, floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
     render(c) { const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const v = c.p.floor + (1 - c.p.floor) * (0.5 + 0.5 * Math.sin((x * c.p.waves - s) * 2 * Math.PI)); const col = palAt(c.pal, x * 0.5 - s * 0.25); set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   // Single lights coming on and going out, slowly, here and there along the strip: white stars over
@@ -226,7 +234,7 @@ const Effects = (() => {
 
   // ---- Effects that belong to one kind of song or one kind of moment, placed only where they fit ----
   def({ id: 'spotlight', name: 'Vocal spotlight', cat: 'slow', desc: 'A soft, steady warm glow in the middle of every strip, like a spotlight on a singer alone on stage. Shows place it where the voice is nearly alone; it holds still rather than following the voice.', swatch: ['#ffd9a0', '#000000'],
-    params: { width: P.size(0.35, 'Width'), tint: { type: 'select', def: 'warm', options: { warm: 'warm white', white: 'white', palette: 'the palette' }, label: 'Color' } },
+    params: { space: P.space('out', 'out'), width: P.size(0.35, 'Width'), tint: { type: 'select', def: 'warm', options: { warm: 'warm white', white: 'white', palette: 'the palette' }, label: 'Color' } },
     render(c) {
       clear(c.out);                                                   // (steady: a spotlight does not pulse with the voice)
       const w = Math.max(0.08, c.p.width), col = c.p.tint === 'palette' ? c.pal[0] : c.p.tint === 'white' ? [1, 1, 1] : [1, 0.78, 0.5];
@@ -252,7 +260,7 @@ const Effects = (() => {
     } });
 
   def({ id: 'ticks', name: 'Hat ticks', cat: 'fast', desc: 'Tiny white ticks racing along the strip through a trap hi-hat roll, as fast as the roll.', swatch: ['#ffffff', '#000000'],
-    params: { rate: { type: 'range', def: 6, min: 2, max: 12, step: 1, label: 'Ticks a beat (when not found)' }, travel: { type: 'range', def: 0.5, min: 0.1, max: 2, step: 0.05, label: 'Crossing (beats)' } },
+    params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), rate: { type: 'range', def: 6, min: 2, max: 12, step: 1, label: 'Ticks a beat (when not found)' }, travel: { type: 'range', def: 0.5, min: 0.1, max: 2, step: 0.05, label: 'Crossing (beats)' } },
     render(c) {
       clear(c.out); const m = c.music || {}, rate = (m.hatroll && m.hatroll.rate) || c.p.rate;
       const u = c.beat * rate, k0 = Math.floor(u), back = Math.ceil(c.p.travel * rate) + 1;
@@ -324,7 +332,7 @@ const Effects = (() => {
 
   // ===== MEDIUM =====
   def({ id: 'pulse', name: 'Beat pulse', cat: 'medium', desc: 'Blooms on the real drums: the kick from the center, the snare from the ends. On a song whose drums are not known yet it pulses on the beat.', swatch: ['#ffffff', '#ff2fa0'],
-    params: { follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only', beat: 'every beat' }, label: 'Follows' },
+    params: { space: P.space('out', 'out', 'across', 'sides'), angle: P.angle(), follow: { type: 'select', def: 'drums', options: { drums: 'kick and snare', kick: 'kick only', beat: 'every beat' }, label: 'Follows' },
       every: P.speed(1, 'Every (beats)'), direction: P.direction('out'), size: P.size(0.7), decay: P.decay(0.4), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
     render(c) {
       const m = c.music || {};
@@ -343,7 +351,7 @@ const Effects = (() => {
       } const k = Math.floor(c.beat / c.p.every); const ph = frac(c.beat / c.p.every) * c.p.every; const env = Math.exp(-ph / (c.p.decay * 0.5 + 0.02)); const col = colorFor(c, 0.5, k); for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const g = Math.exp(-1 * ((x) / (c.p.size + 0.01)) ** 2); const v = c.p.floor + env * g; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'chase', name: 'Chase', cat: 'medium', desc: 'Blocks of palette color run along the strip, one block per beat.', swatch: ['#ff2fa0', '#00ffd0'],
-    params: { speed: P.speed(1, 'Beats per block'), size: P.size(0.12, 'Block size'), direction: P.direction(), gap: { type: 'range', def: 0.6, min: 0, max: 0.9, step: 0.01, label: 'Gap' } },
+    params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(1, 'Beats per block'), size: P.size(0.12, 'Block size'), direction: P.direction(), gap: { type: 'range', def: 0.6, min: 0, max: 0.9, step: 0.01, label: 'Gap' } },
     render(c) { const blocks = Math.max(1, Math.round(1 / c.p.size)); const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / c.n); const u = x * blocks - s; const k = Math.floor(u); const on = frac(u) > c.p.gap; const col = palIdx(c.pal, k); set(c.out, i, on ? col[0] : 0, on ? col[1] : 0, on ? col[2] : 0); } } });
 
   def({ id: 'steps', name: 'Stage steps', cat: 'medium', desc: 'The strip in parts (eighths by default): every beat the next part flashes in a palette color and fades, like stage lights firing in turn. Run goes along the strip, Bounce back and forth, Random anywhere (never the same part twice in a row).', swatch: ['#ffb000', '#000000'],
@@ -373,7 +381,7 @@ const Effects = (() => {
     render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const alive = Math.ceil(c.p.travel / c.p.every) + 1; const cur = Math.floor(c.beat / c.p.every); for (let k = cur; k > cur - alive && k >= 0; k--) { const age = (c.beat - k * c.p.every) / c.p.travel; if (age < 0 || age > 1.2) continue; const head = age * 1.1; const col = colorFor(c, head, k); for (let i = 0; i < c.n; i++) { const x = dirX(c, i / Math.max(1, c.n - 1)); const behind = head - x; let v = 0; if (behind >= 0) v = Math.exp(-behind / (c.p.tail * 0.5)); v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
   def({ id: 'bounce', name: 'Bounce', cat: 'medium', desc: 'A single comet ping-pongs end to end, one length per N beats.', swatch: ['#ffe600', '#ff4e00'],
-    params: { speed: P.speed(2, 'One length per (beats)'), tail: P.size(0.3, 'Tail length'), color: P.color(), overlay: P.bool('Transparent background', true), ease: P.ease() },
+    params: { space: P.space('across', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(2, 'One length per (beats)'), tail: P.size(0.3, 'Tail length'), color: P.color(), overlay: P.bool('Transparent background', true), ease: P.ease() },
     render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const u = c.beat / c.p.speed; const leg = Math.floor(u); const ph = ease(c, frac(u)); const fwd = leg % 2 === 0; const head = fwd ? ph : 1 - ph; const col = colorFor(c, head, leg); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const behind = fwd ? head - x : x - head; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   def({ id: 'alternate', name: 'Alternate', cat: 'medium', desc: 'Odd and even segments swap palette colors every beat.', swatch: ['#ff0000', '#0040ff'],
@@ -394,7 +402,7 @@ const Effects = (() => {
     render(c) { const nb = c.bands.length; for (let i = 0; i < c.n; i++) { const x = dirX(c, (i + 0.5) / c.n); const fb = x * (nb - 1); const j = Math.floor(fb); const e = lerp(c.bands[j], c.bands[Math.min(nb - 1, j + 1)], fb - j); const col = c.p.color === 'cycle' ? palAt(c.pal, x) : colorFor(c, x, 0); const v = c.p.floor + (1 - c.p.floor) * e * e; set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'scanner', name: 'Scanner', cat: 'medium', desc: 'A bright bar sweeps back and forth with a soft tail.', swatch: ['#ff0000', '#300000'],
-    params: { speed: P.speed(2, 'Sweep (beats)'), size: P.size(0.12, 'Width'), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' }, ease: P.ease('smooth') },
+    params: { space: P.space('across', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(2, 'Sweep (beats)'), size: P.size(0.12, 'Width'), color: P.color(), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' }, ease: P.ease('smooth') },
     render(c) { const u = c.beat / c.p.speed, e = ease(c, frac(u)); const pos = Math.floor(u) % 2 === 0 ? e : 1 - e; const col = colorFor(c, pos, Math.floor(u / 2)); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const v = c.p.floor + Math.exp(-1 * ((x - pos) / (c.p.size * 0.5)) ** 2); set(c.out, i, col[0] * v, col[1] * v, col[2] * v); } } });
 
   def({ id: 'blocks', name: 'Random blocks', cat: 'medium', desc: 'Every beat, random segments jump to random palette colors.', swatch: ['#ffd166', '#118ab2'],
@@ -402,11 +410,11 @@ const Effects = (() => {
     render(c) { const k = Math.floor(c.beat / c.p.every); for (let i = 0; i < c.n; i++) { const b = Math.floor(i / c.p.size); const on = hash(k * 131 + b * 17) < c.p.density; const col = palIdx(c.pal, Math.floor(hash(k * 977 + b * 31) * c.pal.length)); set(c.out, i, on ? col[0] : 0, on ? col[1] : 0, on ? col[2] : 0); } } });
 
   def({ id: 'battle', name: 'Color battle', cat: 'medium', desc: 'Two colors push against each other from both ends; the front line surges on every beat.', swatch: ['#ff0000', '#0040ff'],
-    params: { speed: P.speed(8, 'Battle length (beats)'), surge: { type: 'range', def: 0.15, min: 0, max: 0.5, step: 0.01, label: 'Beat surge' }, soft: { type: 'range', def: 0.08, min: 0, max: 0.5, step: 0.01, label: 'Front softness' } },
+    params: { space: P.space('across', 'across', 'sides'), angle: P.angle(), speed: P.speed(8, 'Battle length (beats)'), surge: { type: 'range', def: 0.15, min: 0, max: 0.5, step: 0.01, label: 'Beat surge' }, soft: { type: 'range', def: 0.08, min: 0, max: 0.5, step: 0.01, label: 'Front softness' } },
     render(c) { const a = c.pal[0], b = c.pal[1 % c.pal.length]; const u = c.beat / c.p.speed; const base = 0.5 + 0.35 * Math.sin(u * 2 * Math.PI); const side = Math.floor(c.beat) % 2 === 0 ? 1 : -1; const front = clamp(base + side * c.p.surge * c.kick, 0.02, 0.98); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const m = clamp((x - front) / (c.p.soft + 0.001) + 0.5); const glow = 1 + 0.6 * Math.exp(-1 * ((x - front) / 0.05) ** 2); set(c.out, i, lerp(a[0], b[0], m) * glow, lerp(a[1], b[1], m) * glow, lerp(a[2], b[2], m) * glow); } } });
 
   def({ id: 'ripple', name: 'Ripples', cat: 'medium', desc: 'Rings expand from their starting point (the middle unless set) on every beat over a transparent background.', swatch: ['#ffffff', '#00c8ff'],
-    params: { every: P.speed(1, 'Every (beats)'), travel: P.speed(1, 'Travel time (beats)'), width: P.size(0.1, 'Ring width'), color: P.color() },
+    params: { space: P.space('out', 'out', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), every: P.speed(1, 'Every (beats)'), travel: P.speed(1, 'Travel time (beats)'), width: P.size(0.1, 'Ring width'), color: P.color() },
     render(c) { clear(c.out); const cur = Math.floor(c.beat / c.p.every); const alive = Math.ceil(c.p.travel / c.p.every) + 1; for (let k = cur; k > cur - alive && k >= 0; k--) { const age = (c.beat - k * c.p.every) / c.p.travel; if (age < 0 || age > 1) continue; const r = age; const col = colorFor(c, age, k); const fade = 1 - 0.55 * age; for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - r) / (c.p.width)) ** 2) * fade; if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
   def({ id: 'sparkle', name: 'Sparkles', cat: 'medium', desc: 'Sharp sparkles over a transparent background, denser when the music is louder.', swatch: ['#ffffff', '#000000'],
@@ -414,12 +422,12 @@ const Effects = (() => {
     render(c) { clear(c.out); const d = c.p.density * (c.p.reactive ? 0.3 + c.energy : 1); const slot = Math.floor(c.beat / c.p.life); for (let i = 0; i < c.n; i++) { for (let s = slot; s > slot - 2; s--) { if (hash(s * 7919 + i * 131) < d) { const ph = (c.beat - s * c.p.life) / c.p.life; const v = clamp(1 - ph * 0.5); const col = colorFor(c, i / c.n, s + i); add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } } });
 
   def({ id: 'dualcomet', name: 'Dual comets', cat: 'medium', desc: 'Two comets in two colors launched from opposite ends, crossing in the middle.', swatch: ['#ff0000', '#0040ff'],
-    params: { speed: P.speed(2, 'Crossing time (beats)'), tail: P.size(0.35, 'Tail length'), overlay: P.bool('Transparent background', true), ease: P.ease() },
+    params: { space: P.space('across', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(2, 'Crossing time (beats)'), tail: P.size(0.35, 'Tail length'), overlay: P.bool('Transparent background', true), ease: P.ease() },
     render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const u = c.beat / c.p.speed; const leg = Math.floor(u), ph = ease(c, frac(u)); const a = c.pal[0], b = c.pal[1 % c.pal.length]; const headA = leg % 2 === 0 ? ph : 1 - ph; const dirA = leg % 2 === 0 ? 1 : -1; for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); for (const [head, dir, col] of [[headA, dirA, a], [1 - headA, -dirA, b]]) { const behind = (head - x) * dir; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.03) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
   // ===== SPARSE (mostly dark) =====
   def({ id: 'meteors', name: 'Meteors', cat: 'medium', desc: 'Mostly dark. Now and then a meteor streaks in from a random spot with a fading tail.', swatch: ['#ffffff', '#101020'],
-    params: { every: P.speed(1, 'Chance every (beats)'), chance: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.05, label: 'Chance' }, travel: P.speed(2, 'Travel time (beats)'), tail: P.size(0.25, 'Tail length'), color: P.color() },
+    params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), every: P.speed(1, 'Chance every (beats)'), chance: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.05, label: 'Chance' }, travel: P.speed(2, 'Travel time (beats)'), tail: P.size(0.25, 'Tail length'), color: P.color() },
     render(c) { clear(c.out); const cur = Math.floor(c.beat / c.p.every); const alive = Math.ceil(c.p.travel / c.p.every) + 1;
       for (let k = cur; k > cur - alive && k >= 0; k--) { if (hash(k * 7919) > c.p.chance) continue; const age = (c.beat - k * c.p.every) / c.p.travel; if (age < 0 || age > 1) continue;
         // travel the whole strip, entering from one edge and leaving by the other: a head
@@ -625,7 +633,7 @@ const Effects = (() => {
       for (let m = 0; m < c.p.count; m++) { const x0 = 0.05 + 0.9 * hash(k * 101 + m * 17); const col = colorFor(c, x0, k + m); for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const v = Math.exp(-1 * ((x - x0) / c.p.size) ** 2) * env; if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
   def({ id: 'orbit', name: 'Orbit', cat: 'medium', desc: 'Two or three bright points bounce end to end at different speeds over darkness, crossing and separating.', swatch: ['#ff2fa0', '#000000'],
-    params: { speed: P.speed(4, 'Slowest lap (beats)'), count: P.count(2, 4), tail: P.size(0.12, 'Tail length'), color: P.color() },
+    params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(4, 'Slowest lap (beats)'), count: P.count(2, 4), tail: P.size(0.12, 'Tail length'), color: P.color() },
     render(c) { clear(c.out); for (let m = 0; m < c.p.count; m++) { const lap = c.p.speed / (1 + 0.5 * m); const u = c.beat / lap + m * 0.37; const ph = frac(u); const fwd = Math.floor(u) % 2 === 0; const head = fwd ? ph : 1 - ph; const col = colorFor(c, head, m);
         for (let i = 0; i < c.n; i++) { const x = i / Math.max(1, c.n - 1); const behind = fwd ? head - x : x - head; let v = behind >= 0 ? Math.exp(-behind / (c.p.tail * 0.5)) : 0; v = Math.max(v, Math.exp(-1 * ((x - head) / 0.02) ** 2)); if (v > 0.01) add(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } } });
 
@@ -653,7 +661,7 @@ const Effects = (() => {
       } } });
 
   def({ id: 'leadtrace', name: 'Lead trace', cat: 'signature', desc: 'A streak for every note of the wide lead instrument \u2014 a saw synth, horn line or riff. Its place on the strip follows the note played; its color is the clip\u2019s (or the note\u2019s, with Color by note).', swatch: ['#00ffd0', '#8a2be2'],
-    params: { tail: P.size(0.25, 'Tail length'), decay: P.decay(0.4), byNote: P.bool('Color by note', false), spread: { type: 'range', def: 0.8, min: 0, max: 1, step: 0.05, label: 'Spread by pitch' } },
+    params: { space: P.space('across', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), tail: P.size(0.25, 'Tail length'), decay: P.decay(0.4), byNote: P.bool('Color by note', false), spread: { type: 'range', def: 0.8, min: 0, max: 1, step: 0.05, label: 'Spread by pitch' } },
     render(c) { clear(c.out); const L = c.music.lead; if (L.index < 0) return;
       const life = 0.2 + c.p.decay * 1.2; if (L.age > life) return;
       const env = Math.pow(1 - L.age / life, 1.4) * (0.35 + 0.65 * L.strength);
@@ -668,7 +676,7 @@ const Effects = (() => {
       } } });
 
   def({ id: 'leadglow', name: 'Lead glow', cat: 'signature', desc: 'Lit only while the wide lead instrument is sounding, and dark the moment it stops. Good as a base under Lead trace.', swatch: ['#3d8bff', '#000010'],
-    params: { color: P.color(), gain: { type: 'range', def: 1.2, min: 0.4, max: 3, step: 0.1, label: 'Sensitivity' }, floor: { type: 'range', def: 0, min: 0, max: 0.4, step: 0.01, label: 'Floor' }, direction: P.direction('out') },
+    params: { space: P.space('out', 'out', 'across', 'sides'), angle: P.angle(), color: P.color(), gain: { type: 'range', def: 1.2, min: 0.4, max: 3, step: 0.1, label: 'Sensitivity' }, floor: { type: 'range', def: 0, min: 0, max: 0.4, step: 0.01, label: 'Floor' }, direction: P.direction('out') },
     render(c) { const lvl = clamp(c.music.leadLevel * c.p.gain);
       for (let i = 0; i < c.n; i++) {
         const x = dirX(c, i / Math.max(1, c.n - 1));
@@ -704,7 +712,7 @@ const Effects = (() => {
       } } });
 
   def({ id: 'bassnote', name: 'Bass note', cat: 'signature', desc: 'The strip swells on every new bass note, so the lights move with the bassline rather than the kick. In the clip\u2019s colors, or one per note with Color by note.', swatch: ['#7a00ff', '#ff9a00'],
-    params: { byNote: P.bool('Color by note', false), decay: P.decay(0.5), floor: { type: 'range', def: 0.06, min: 0, max: 0.5, step: 0.01, label: 'Floor' }, direction: P.direction('out') },
+    params: { space: P.space('out', 'out', 'across', 'sides'), angle: P.angle(), byNote: P.bool('Color by note', false), decay: P.decay(0.5), floor: { type: 'range', def: 0.06, min: 0, max: 0.5, step: 0.01, label: 'Floor' }, direction: P.direction('out') },
     render(c) { const b = c.music.bass;
       const env = b.index < 0 ? 0 : Math.exp(-b.age / (0.1 + c.p.decay * 0.7)) * (0.4 + 0.6 * b.strength);
       const col = c.p.byNote ? hsv(noteHue(b.pitch), 0.95, 1) : palIdx(c.pal, Math.max(0, b.index));
@@ -795,7 +803,7 @@ const Effects = (() => {
     render(c) { clear(c.out); const u = c.beat / c.p.every; if (frac(u) > 1 - c.p.duty) fillAll(c.out, c.n, 0, 0, 0, 1); } });
 
   def({ id: 'hyperchase', name: 'Hyper chase', cat: 'fast', desc: 'Tiny blocks race along the strip, several per beat.', swatch: ['#00ffd0', '#ff2fa0'],
-    params: { speed: { type: 'beats', def: 0.25, label: 'Beats per block' }, size: P.size(0.08, 'Block size'), direction: P.direction() },
+    params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: { type: 'beats', def: 0.25, label: 'Beats per block' }, size: P.size(0.08, 'Block size'), direction: P.direction() },
     render(c) { const blocks = Math.max(2, Math.round(1 / c.p.size)); const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / c.n); const u = x * blocks - s; const k = Math.floor(u); const on = frac(u) > 0.7; const col = palIdx(c.pal, k); set(c.out, i, on ? col[0] : 0, on ? col[1] : 0, on ? col[2] : 0); } } });
 
   def({ id: 'lightning', name: 'Lightning', cat: 'fast', desc: 'Lightning bouncing all over the room: strike after strike, each somewhere else in the house (the lights near it flash, the house map), now and then one that lights the whole house. Every flash held long enough for the lights to show it. Timed in seconds, not beats, so it works on a sound effect too.', swatch: ['#ffffff', '#8ad8ff'],
@@ -836,7 +844,7 @@ const Effects = (() => {
     render(c) { clear(c.out); if (!c.p.overlay) fillAll(c.out, c.n, 0, 0, 0, 1); const slot = Math.floor(c.beat * c.p.rate); const nseg = 6; for (let s = 0; s < nseg; s++) { if (hash(slot * 101 + s * 7) > c.p.density) continue; const a = Math.floor(hash(slot * 53 + s) * c.n), len = 1 + Math.floor(hash(slot * 59 + s) * c.n / 4); const col = palIdx(c.pal, Math.floor(hash(slot * 61 + s) * c.pal.length)); for (let i = a; i < Math.min(c.n, a + len); i++) set(c.out, i, col[0], col[1], col[2], 1); } } });
 
   def({ id: 'halves', name: 'Halves', cat: 'fast', desc: 'Left and right halves alternate in two palette colors, swapping on every real drum hit (kick or snare), so it lands with the drummer however the beat goes; on the beat when the drums are not known.', swatch: ['#ff0000', '#0040ff'],
-    params: { follow: { type: 'select', def: 'drums', options: { drums: 'the drums (kick and snare)', beat: 'the beat' }, label: 'Swaps on' },
+    params: { space: P.space('across', 'across', 'sides'), angle: P.angle(), follow: { type: 'select', def: 'drums', options: { drums: 'the drums (kick and snare)', beat: 'the beat' }, label: 'Swaps on' },
       every: P.speed(1, 'Swap every (beats, or hits)'), dim: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Off-side level' } },
     render(c) {
       // on the drums: the hits so far (kicks and snares both count), so each one swaps the sides; on a
@@ -937,7 +945,7 @@ const Effects = (() => {
     } });
 
   def({ id: 'roomsplit', name: 'Room split', cat: 'room', desc: 'One side of the room in one color, the other side in the other, swapping on the beat. With one light, its two halves.', swatch: ['#8000ff', '#00ff00'],
-    params: { every: P.speed(1, 'Swap every (beats)'), pump: { type: 'range', def: 0.35, min: 0, max: 1, step: 0.01, label: 'Beat pump' } },
+    params: { space: P.space('across', 'across', 'sides'), angle: P.angle(), every: P.speed(1, 'Swap every (beats)'), pump: { type: 'range', def: 0.35, min: 0, max: 1, step: 0.01, label: 'Beat pump' } },
     render(c) {
       // the two sides take colors from opposite ends of the palette (with two colors, one each)
       const k = Math.floor(c.beat / c.p.every), a = palIdx(c.pal, k), b = palIdx(c.pal, k + Math.max(1, Math.floor(c.pal.length / 2)));
@@ -948,7 +956,7 @@ const Effects = (() => {
       }
     } });
   def({ id: 'roomchase', name: 'Room chase', cat: 'room', desc: 'The light runs around the room, one lamp after the next, on the beat. With one light, a block runs along it.', swatch: ['#00ff00', '#000000'],
-    params: { every: P.speed(1, 'Next light every (beats)'), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), every: P.speed(1, 'Next light every (beats)'), floor: { type: 'range', def: 0.0, min: 0, max: 1, step: 0.01, label: 'Floor' } },
     render(c) {
       const t = c.beat / c.p.every, step = Math.floor(t), env = Math.exp(-(t - step) * 2.5), col = palIdx(c.pal, step);
       for (let i = 0; i < c.n; i++) {
@@ -958,7 +966,7 @@ const Effects = (() => {
       }
     } });
   def({ id: 'roomsweep', name: 'Room sweep', cat: 'room', desc: 'A bright band crosses the room: the left light pole, then along the overhead strips, then the right pole (the small lamps split into left and right by the light order, the long strips between). With one light, it crosses the strip.', swatch: ['#ffffff', '#000000'],
-    params: { every: P.speed(2, 'One crossing every (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Band width (lights)' }, color: P.color(), ease: P.ease() },
+    params: { space: P.space('across', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), every: P.speed(2, 'One crossing every (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Band width (lights)' }, color: P.color(), ease: P.ease() },
     render(c) {
       clear(c.out);
       const u = ease(c, frac(c.clipBeat / c.p.every));                   // how far across the room this crossing is
@@ -971,7 +979,7 @@ const Effects = (() => {
       }
     } });
   def({ id: 'roomscan', name: 'Room scanner', cat: 'room', desc: 'One slow bar scans back and forth across both rooms: the left light pole, along the overhead strips, the right pole, and back. With one light, across its strip.', swatch: ['#ff0000', '#300000'],
-    params: { speed: P.speed(16, 'One crossing (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Bar width (lights)' }, color: P.color(),
+    params: { space: P.space('across', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(16, 'One crossing (beats)'), width: { type: 'range', def: 0.6, min: 0.1, max: 2, step: 0.05, label: 'Bar width (lights)' }, color: P.color(),
       floor: { type: 'range', def: 0, min: 0, max: 1, step: 0.01, label: 'Floor' }, ease: P.ease('smooth') },
     render(c) {
       const { slot, m, small } = roomLine(c);
@@ -992,7 +1000,7 @@ const Effects = (() => {
     return { slot: Math.max(0, line.indexOf(c.room.i)), m: line.length, small: k[c.room.i] === 'short' };
   }
   def({ id: 'roomwave', name: 'Room wave', cat: 'room', desc: 'A slow swell rolls around the room from lamp to lamp, each half of the room in its own color. With one light, along its strip.', swatch: ['#8000ff', '#00ff00'],
-    params: { speed: P.speed(8, 'Once round (beats)'), floor: { type: 'range', def: 0.1, min: 0, max: 1, step: 0.01, label: 'Floor' } },
+    params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: P.speed(8, 'Once round (beats)'), floor: { type: 'range', def: 0.1, min: 0, max: 1, step: 0.01, label: 'Floor' } },
     render(c) {
       const t = c.beat / c.p.speed;
       for (let i = 0; i < c.n; i++) {
@@ -1005,7 +1013,7 @@ const Effects = (() => {
 
   // ===== ACCENTS (one-shots shaped by the clip length) =====
   def({ id: 'dropblast', name: 'Drop blast', cat: 'accent', desc: 'White blast then a shockwave racing out from its starting point (the middle unless set). Place it right on the drop.', swatch: ['#ffffff', '#ff2fa0'],
-    params: { flash: { type: 'range', def: 0.15, min: 0.02, max: 0.5, step: 0.01, label: 'Flash (beats)' }, ring: P.size(0.12, 'Ring width'), color: P.color() },
+    params: { space: P.space('out', 'out', 'across', 'sides'), angle: P.angle(), flash: { type: 'range', def: 0.15, min: 0.02, max: 0.5, step: 0.01, label: 'Flash (beats)' }, ring: P.size(0.12, 'Ring width'), color: P.color() },
     render(c) { clear(c.out); const b = c.clipBeat; if (b < c.p.flash) { fillAll(c.out, c.n, 1, 1, 1, 1); return; } const age = (b - c.p.flash) / Math.max(0.5, c.clipBeats - c.p.flash); if (age > 1) return; const col = colorFor(c, age, 0); for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - age * 1.1) / c.p.ring) ** 2) * (1 - age); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   // ----- risers: everything moves in note values, counted back from the drop ------------------
@@ -1075,7 +1083,7 @@ const Effects = (() => {
       fillAll(c.out, c.n, 0, 0, 0, 1 - open);
     } });
   def({ id: 'hitswap', name: 'Hit swap', cat: 'fast', desc: 'The whole light in one pure, solid color that flips to the next palette color on every drum hit (kick or snare), a little brighter on the hit itself; on the beat when the drums are not known. Every light the same color: the room flips with the drums. Made for a hardcore drop.', swatch: ['#ff0000', '#0000ff'],
-    params: { follow: { type: 'select', def: 'hits', options: { hits: 'the drums and the bass', drums: 'the drums (kick and snare)', beat: 'the beat' }, label: 'Flips on' },
+    params: { space: P.space('strip', 'sides'), follow: { type: 'select', def: 'hits', options: { hits: 'the drums and the bass', drums: 'the drums (kick and snare)', beat: 'the beat' }, label: 'Flips on' },
       punch: { type: 'range', def: 0.15, min: 0, max: 0.5, step: 0.01, label: 'Brighter on the hit' } },
     render(c) {
       // (with the bass too: a half-time dubstep drop has only two or three drum hits a second, and its bass
@@ -1097,7 +1105,7 @@ const Effects = (() => {
       fillAll(c.out, c.n, col[0] + (1 - col[0]) * w, col[1] + (1 - col[1]) * w, col[2] + (1 - col[2]) * w, 1);
     } });
   def({ id: 'sweepout', name: 'Sweep out', cat: 'accent', desc: 'A bright bar sweeps out from its starting point (the middle unless set) to the ends once, over the clip.', swatch: ['#ffffff', '#00c8ff'],
-    params: { size: P.size(0.15, 'Width'), color: P.color(), ease: P.ease() },
+    params: { space: P.space('out', 'out', 'across', 'sides'), angle: P.angle(), size: P.size(0.15, 'Width'), color: P.color(), ease: P.ease() },
     render(c) { clear(c.out); const at = ease(c, c.clipT), col = colorFor(c, c.clipT, 0); for (let i = 0; i < c.n; i++) { const x = away(c, i / Math.max(1, c.n - 1)); const v = Math.exp(-1 * ((x - at) / c.p.size) ** 2); if (v > 0.01) set(c.out, i, col[0] * v, col[1] * v, col[2] * v, v); } } });
 
   const byId = Object.fromEntries(E.map(e => [e.id, e]));
