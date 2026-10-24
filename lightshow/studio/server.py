@@ -557,6 +557,11 @@ class Studio:
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
         self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
         self.review = Review(self.jam.library, read_only=self.read_only)   # learned songs' sections, set right by ear
+        # the house mapped in space (the party app's map page): where every segment of every light is
+        from .space import Space
+        self.space = Space(SHOWS_DIR, make_output=lambda: LightOutput(enabled=lights),
+                           show_running=lambda: self.output.active, known=lambda: self.known,
+                           segments_of=self._light_segments, read_only=self.read_only)
         self.jam.player_enabled = player
         if lights:                                       # the real studio (a test copy loads no models of its own)
             self.jam.warm_ahead()
@@ -604,6 +609,7 @@ class Studio:
             web.post("/api/cast/synccheck", self.cast_sync_check),
             *self.jam.routes(),
             *self.review.routes(),
+            *self.space.routes(),
             web.static("/static", STATIC),
         ])
         if self.quit_when_closed:

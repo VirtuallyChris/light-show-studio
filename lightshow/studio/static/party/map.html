@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>House Map</title>
+<meta name="description" content="Where every light stands in the house: pin each segment, pole and tube on the floor plan, then try the map on the lights.">
+<meta name="theme-color" content="#f4f4f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e0f14" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/static/party/icon-192.png">
+<script>
+(() => { let t = 'auto'; try { t = localStorage.getItem('party-look') || 'auto'; } catch (e) { /* no storage: Auto */ }
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
+</script>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f4f8; --card: #ffffff; --card2: #f2f2f7; --line: rgb(20 16 40 / 0.09);
+    --text: #14141c; --text-2: #4a4d5c; --muted: #767a8c; --accent: #7c3aed; --accent2: #db2777; --ok: #16a34a; --warn: #d97706;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0e0f14; --card: #181a22; --card2: #20232d; --line: rgb(255 255 255 / 0.08);
+      --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80; --warn: #fbbf24;
+      --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px rgb(0 0 0 / 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0e0f14; --card: #181a22; --card2: #20232d; --line: rgb(255 255 255 / 0.08);
+    --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80; --warn: #fbbf24;
+    --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px rgb(0 0 0 / 0.35);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif; }
+  .main { max-width: 1100px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 10px) 16px calc(env(safe-area-inset-bottom) + 24px); display: grid; gap: 12px; }
+  .main > * { min-width: 0; }                          /* (the row of lights scrolls, never widens the page) */
+  .top { display: flex; align-items: center; gap: 10px; }
+  .top h1 { font-size: 24px; margin: 0; flex: 1; }
+  a.back { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px; }
+  .planwrap { position: relative; overflow: hidden; border-radius: 12px; background: var(--card2); touch-action: none; height: min(48vh, 460px); }
+  #plan { width: 100%; height: 100%; display: block; }
+  .zoom { position: absolute; right: 8px; top: 8px; display: grid; gap: 6px; }
+  .zoom button { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 18px; }
+  .hint { position: absolute; left: 8px; bottom: 8px; right: 52px; background: color-mix(in srgb, var(--accent) 90%, transparent); color: #fff; border-radius: 10px; padding: 6px 10px; font-size: 13px; font-weight: 600; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+  .chip { flex: none; border: 1px solid var(--line); background: var(--card2); color: var(--text); border-radius: 999px; padding: 7px 12px; font-size: 14px; white-space: nowrap; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); vertical-align: 1px; }
+  .chip .dot.done { background: var(--ok); }
+  .btn { border: 1px solid var(--line); background: var(--card2); color: var(--text); border-radius: 10px; padding: 8px 12px; font-size: 14px; font-weight: 600; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.active { outline: 2px solid var(--accent2); }
+  label { font-size: 13px; color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
+  input[type=number] { width: 70px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card2); color: var(--text); font-size: 14px; }
+  input[type=range] { flex: 1; min-width: 160px; accent-color: var(--accent); }
+  .muted { color: var(--muted); font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  td { padding: 4px 6px; border-top: 1px solid var(--line); }
+  td button { border: 0; background: none; color: var(--muted); font-size: 16px; }
+  h2 { font-size: 15px; margin: 0 0 8px; }
+  .err { color: var(--accent2); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="main">
+  <div class="top"><a class="back" href="/party">&lsaquo; Hub</a><h1>House map</h1><span id="saved" class="muted"></span></div>
+
+  <div class="card">
+    <div class="planwrap" id="wrap">
+      <canvas id="plan"></canvas>
+      <div class="zoom"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zfit" title="Fit">&#9634;</button></div>
+      <div class="hint" id="hint" hidden></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label title="Where the lights hang unless set otherwise">Ceiling <input id="ceiling" type="number" min="1" step="0.25"> ft</label>
+      <button class="btn" id="setCenter" title="The middle of the house: spins and spirals turn around it">Set middle</button>
+      <span class="muted" id="size"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Lights</h2>
+    <div class="chips" id="lights"></div>
+    <div id="editor" style="margin-top:10px"></div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card">
+    <h2>Try it on the lights</h2>
+    <div class="row">
+      <button class="btn" data-p="near" title="Tap a spot on the plan: every segment mapped within 3 ft of it lights up">Point check</button>
+      <button class="btn" data-p="sweep_x" title="A band crossing the house, left wall to right">Sweep &harr;</button>
+      <button class="btn" data-p="sweep_y" title="A band crossing the house, front to back">Sweep &varr;</button>
+      <button class="btn" data-p="spin" title="A beam turning around the middle">Spin</button>
+      <button class="btn" data-p="ripple" title="Tap a spot: a ring spreads out from it">Ripple</button>
+      <button class="btn primary" id="stop">Stop</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const TUBE_SKUS = new Set(['H6821']), TUBE_COUNT = 20;
+  const S = { doc: null, img: null, lights: [], rooms: [], sel: null, tool: null, view: { s: 1, x: 0, y: 0 }, preview: null, seg: 0, tube: 0, blinking: false };
+  const kindOf = l => TUBE_SKUS.has(l.sku) ? 'tubes' : (l.segments || 10) <= 12 ? 'pole' : 'strip';
+  const keyOf = l => l.mac || l.device_id || l.ip;
+  const err = m => { $('#err').textContent = m || ''; };
+
+  // -- loading ----------------------------------------------------------------------------------
+  async function load() {
+    const [doc, devs, rooms] = await Promise.all([fetch('/api/space').then(r => r.json()), fetch('/api/devices').then(r => r.json()).catch(() => ({})),
+      fetch('/api/rooms').then(r => r.json()).catch(() => ({}))]);
+    S.doc = doc; S.doc.lights = S.doc.lights || {};
+    S.rooms = rooms.rooms || [];
+    const all = devs.devices || devs.lights || (Array.isArray(devs) ? devs : []);
+    const roomOf = l => S.rooms.find(r => (r.lights || []).some(k => [l.mac, l.device_id, l.ip].includes(k)));
+    S.lights = all.filter(l => roomOf(l) && (roomOf(l).name || '').toLowerCase() !== 'office').map(l => ({ ...l, key: keyOf(l), room: roomOf(l).name, kind: kindOf(l) }));
+    $('#ceiling').value = S.doc.ceiling_ft;
+    const [w, d] = bounds(); $('#size').textContent = `${w} × ${d} ft`;
+    renderChips(); fit(); draw();
+  }
+  // the house in feet (the plan's shapes: x across from its left wall, y down from its top wall) <-> screen
+  const bounds = () => { const sh = S.doc.plan.shapes; let w = 0, d = 0;
+    if (sh) for (const r of sh.rooms) for (const [x, y] of r.poly) { w = Math.max(w, x); d = Math.max(d, y); }
+    return w && d ? [w, d] : [S.doc.plan.width_ft, S.doc.plan.depth_ft || S.doc.plan.width_ft / 2.5]; };
+  const depthFt = () => bounds()[1];
+  const toScreen = (x, y) => [S.view.x + x * S.view.s, S.view.y + y * S.view.s];     // (S.view.s: screen pixels a foot)
+  const toFeet = (sx, sy) => [(sx - S.view.x) / S.view.s, (sy - S.view.y) / S.view.s];
+
+  // -- saving -----------------------------------------------------------------------------------
+  let saveTimer = null;
+  function save() {
+    [S.doc.plan.width_ft, S.doc.plan.depth_ft] = bounds();
+    clearTimeout(saveTimer); $('#saved').textContent = '…';
+    saveTimer = setTimeout(async () => {
+      try {
+        const r = await (await fetch('/api/space', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S.doc) })).json();
+        if (r.error) throw new Error(r.error);
+        $('#saved').textContent = r.read_only ? 'test copy: not saved' : 'saved'; err('');
+      } catch (e) { $('#saved').textContent = ''; err(e.message); }
+    }, 400);
+  }
+
+  // -- where each segment is (the same as space.py positions) -----------------------------------
+  function positions(m, n) {
+    if (!m) return null;
+    if (m.kind === 'pole') return Array.from({ length: n }, (_, s) => { const k = (s + 0.5) / n; return [m.x, m.y, m.top_first ? m.z1 + (m.z0 - m.z1) * k : m.z0 + (m.z1 - m.z0) * k]; });
+    if (m.kind === 'tubes') { const per = Math.max(1, Math.round(n / TUBE_COUNT)); return Array.from({ length: n }, (_, s) => { const t = (m.tubes || [])[Math.floor(s / per)]; return t ? [t.x, t.y, t.z - t.len * ((s % per) + 0.5) / per] : null; }); }
+    const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg); if (a.length < 2) return null;
+    return Array.from({ length: n }, (_, s) => { let j = 0; while (j < a.length - 2 && s > a[j + 1].seg) j++; const p = a[j], q = a[j + 1], k = (s - p.seg) / Math.max(1e-9, q.seg - p.seg); return ['x', 'y', 'z'].map(c => p[c] + (q[c] - p[c]) * k); });
+  }
+  const mapOf = l => S.doc.lights[l.key];
+  const mapped = l => { const m = mapOf(l); if (!m) return false; return m.kind === 'strip' ? (m.anchors || []).length >= 2 : m.kind === 'pole' ? m.x != null : (m.tubes || []).some(Boolean); };
+
+  // -- drawing ----------------------------------------------------------------------------------
+  const cv = $('#plan'), g = cv.getContext('2d');
+  /** The plan on the screen: whole, or (all false, a long house on a narrow phone) filling the height to be tapped
+   *  precisely, dragged sideways to reach the rest. */
+  function fit(all = false) {
+    const r = $('#wrap').getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
+    const [w, h] = bounds(), narrow = cv.width / cv.height < (w / h) * 0.6;
+    S.view.s = all || !narrow ? Math.min(cv.width / w, cv.height / h) * 0.94 : cv.height / h * 0.88;
+    S.view.x = (cv.width - w * S.view.s) / 2; S.view.y = (cv.height - h * S.view.s) / 2;
+  }
+  function level(kind, p, t, pt) {           // the same as space.py pattern_level
+    const w = S.doc.plan.width_ft, d = depthFt(), c = S.doc.center || [w / 2, d / 2];
+    if (kind === 'near') return pt && Math.hypot(p[0] - pt[0], p[1] - pt[1]) <= 3 ? 1 : 0;
+    if (kind === 'sweep_x') { const x = (t % 4) / 4 * (w + 6) - 3; return Math.exp(-(((p[0] - x) / 1.5) ** 2)); }
+    if (kind === 'sweep_y') { const y = (t % 3) / 3 * (d + 6) - 3; return Math.exp(-(((p[1] - y) / 1.5) ** 2)); }
+    if (kind === 'spin') { const a = Math.atan2(p[1] - c[1], p[0] - c[0]), beam = t / 3 * 2 * Math.PI, diff = Math.abs(((a - beam + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI); return Math.max(0, 1 - diff / (25 * Math.PI / 180)); }
+    if (kind === 'ripple') { const o = pt || c, r = (t % 2.5) / 2.5 * Math.max(w, d); return Math.exp(-(((Math.hypot(p[0] - o[0], p[1] - o[1]) - r) / 1.5) ** 2)); }
+    return 0;
+  }
+  // the floor plan as a drawing: floors, fixtures and furniture faint, the real walls solid, the rooms named
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const TINTS = { dining: 265, kitchen: 32, living: 210, game: 300, office: 150 };   // a soft hue for each room's floor
+  const tintOf = name => { const k = Object.keys(TINTS).find(t => name.toLowerCase().includes(t)); return k == null ? null : TINTS[k]; };
+  function drawPlan() {
+    const sh = S.doc.plan.shapes; if (!sh) return;
+    const dpr = devicePixelRatio, dark = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light' || document.documentElement.dataset.theme === 'dark';
+    const ink = dark ? '238,240,246' : '20,20,28';
+    const path = (pts, close = true) => { g.beginPath(); pts.forEach(([x, y], i) => { const [sx, sy] = toScreen(x, y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); if (close) g.closePath(); };
+    const round = (r, rad) => { const [x, y] = toScreen(r[0], r[1]), w = r[2] * S.view.s, h = r[3] * S.view.s, k = Math.min(rad * S.view.s, w / 2, h / 2); g.beginPath(); g.roundRect(x, y, w, h, k); };
+    // floors, each room its own soft tint
+    for (const r of sh.rooms) {
+      const h = tintOf(r.name); path(r.poly);
+      g.fillStyle = h == null ? `rgba(${ink},${dark ? 0.035 : 0.03})` : `hsla(${h}, 70%, ${dark ? 60 : 50}%, ${dark ? 0.10 : 0.09})`; g.fill();
+    }
+    // where one room opens into the next
+    g.setLineDash([3 * dpr, 5 * dpr]); g.strokeStyle = `rgba(${ink},0.16)`; g.lineWidth = 1 * dpr;
+    for (const r of sh.rooms) { path(r.poly); g.stroke(); }
+    g.setLineDash([]);
+    // the stairs: their steps
+    for (const r of sh.rooms.filter(r => /stair/i.test(r.name))) {
+      const xs = r.poly.map(q => q[0]), ys = r.poly.map(q => q[1]), x0 = Math.min(...xs), x1 = Math.max(...xs);
+      g.strokeStyle = `rgba(${ink},0.22)`; g.lineWidth = 1 * dpr;
+      for (let y = Math.min(...ys) + 0.7; y < Math.max(...ys); y += 0.7) { path([[x0 + 0.2, y], [x1 - 0.2, y]], false); g.stroke(); }
+    }
+    // fixtures and furniture, rounded, named when there is room for it
+    for (const f of sh.fixtures) {
+      if (f.rect) round(f.rect, 0.3); else { path(f.poly); }
+      g.fillStyle = `rgba(${ink},${dark ? 0.07 : 0.06})`; g.fill(); g.strokeStyle = `rgba(${ink},0.28)`; g.lineWidth = 1.2 * dpr; g.lineJoin = 'round'; g.stroke();
+      if (/range/i.test(f.name) && f.rect) {                      // four burners
+        const [x, y, w, h] = f.rect; g.strokeStyle = `rgba(${ink},0.35)`;
+        for (const [u, v] of [[0.28, 0.3], [0.72, 0.3], [0.28, 0.72], [0.72, 0.72]]) { const [sx, sy] = toScreen(x + w * u, y + h * v); g.beginPath(); g.arc(sx, sy, Math.min(w, h) * 0.17 * S.view.s, 0, 7); g.stroke(); }
+      }
+      const xs = f.rect ? [f.rect[0], f.rect[0] + f.rect[2]] : f.poly.map(q => q[0]), ys = f.rect ? [f.rect[1], f.rect[1] + f.rect[3]] : f.poly.map(q => q[1]);
+      const wpx = (Math.max(...xs) - Math.min(...xs)) * S.view.s, hpx = (Math.max(...ys) - Math.min(...ys)) * S.view.s, fs = 9 * dpr;
+      if (f.name && !/range/i.test(f.name) && wpx > f.name.length * fs * 0.62 && hpx > fs * 1.6) {
+        const [sx, sy] = toScreen(f.rect ? f.rect[0] + f.rect[2] / 2 : (Math.min(...xs) + Math.max(...xs)) / 2, f.rect ? f.rect[1] + f.rect[3] / 2 : Math.min(...ys) + 1.5);
+        g.fillStyle = `rgba(${ink},0.42)`; g.font = `500 ${fs}px system-ui`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(f.name, sx, sy);
+      }
+    }
+    // the walls
+    g.strokeStyle = `rgba(${ink},${dark ? 0.82 : 0.78})`; g.lineWidth = Math.max(2.5 * dpr, 0.32 * S.view.s); g.lineJoin = 'round'; g.lineCap = 'round';
+    for (const w of sh.walls || []) { path(w, false); g.stroke(); }
+    // the rooms' names, in their own color
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `700 ${11 * dpr}px system-ui`;
+    for (const r of sh.rooms) {
+      if (/stair|coat/i.test(r.name)) continue;
+      const xs = r.poly.map(q => q[0]), ys = r.poly.map(q => q[1]), h = tintOf(r.name);
+      const at = r.label || [(Math.min(...xs) + Math.max(...xs)) / 2, Math.max(...ys) - 1.2], [sx, sy] = toScreen(at[0], at[1]);
+      g.textAlign = r.label ? 'left' : 'center';                // (a room's own label spot: its top corner, clear of the furniture)
+      g.fillStyle = h == null ? `rgba(${ink},0.5)` : `hsla(${h}, 75%, ${dark ? 72 : 42}%, 0.9)`;
+      if ('letterSpacing' in g) g.letterSpacing = `${2 * dpr}px`;
+      g.fillText(r.name.toUpperCase(), sx, sy);
+      if ('letterSpacing' in g) g.letterSpacing = '0px';
+    }
+    g.textBaseline = 'alphabetic';
+    // a scale: 5 feet
+    const [x0, y0] = [cv.width - 14 * dpr - 5 * S.view.s, cv.height - 14 * dpr];   // (bottom right: clear of the house) g.strokeStyle = `rgba(${ink},0.45)`; g.lineWidth = 2 * dpr; g.lineCap = 'butt';
+    g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + 5 * S.view.s, y0); g.moveTo(x0, y0 - 4 * dpr); g.lineTo(x0, y0 + 4 * dpr); g.moveTo(x0 + 5 * S.view.s, y0 - 4 * dpr); g.lineTo(x0 + 5 * S.view.s, y0 + 4 * dpr); g.stroke();
+    g.fillStyle = `rgba(${ink},0.55)`; g.font = `600 ${10 * dpr}px system-ui`; g.textAlign = 'left'; g.fillText('5 ft', x0, y0 - 8 * dpr);
+  }
+  function draw() {
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
+    if (!S.doc) return;                                  // (not loaded yet)
+    drawPlan();
+    const dpr = devicePixelRatio, t = S.preview ? (performance.now() - S.preview.t0) / 1000 : 0;
+    for (const l of S.lights) {
+      const m = mapOf(l), pos = positions(m, l.segments); if (!m) continue;
+      const sel = S.sel === l;
+      if (m.kind === 'strip') {
+        const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg);
+        if (a.length >= 2) { g.strokeStyle = sel ? '#ec4899' : 'rgba(124,58,237,.55)'; g.lineWidth = (sel ? 3 : 2) * dpr; g.beginPath(); a.forEach((p, i) => { const [sx, sy] = toScreen(p.x, p.y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.stroke(); }
+        for (const p of a) { const [sx, sy] = toScreen(p.x, p.y); g.fillStyle = sel ? '#ec4899' : '#7c3aed'; g.beginPath(); g.arc(sx, sy, 6 * dpr, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = `${10 * dpr}px system-ui`; g.textAlign = 'center'; g.fillText(p.seg + 1, sx, sy + 3.5 * dpr); }
+      }
+      if (pos) pos.forEach((p, i) => {
+        if (!p) return; const [sx, sy] = toScreen(p[0], p[1]);
+        let v = S.preview ? level(S.preview.kind, p, t, S.preview.point) : 0;
+        const hot = !S.preview && sel && ((m.kind === 'strip' || m.kind === 'pole') ? i === S.seg : Math.floor(i / Math.max(1, Math.round(l.segments / TUBE_COUNT))) === S.tube);
+        if (hot) v = 1;
+        g.fillStyle = v > 0.05 ? `rgba(255,${Math.round(220 - 120 * v)},${Math.round(60 + 180 * v)},${0.35 + 0.65 * v})` : (sel ? 'rgba(236,72,153,.55)' : 'rgba(124,58,237,.45)');
+        g.beginPath(); g.arc(sx, sy, (m.kind === 'tubes' ? 2.5 : 3.5) * dpr * (1 + v), 0, 7); g.fill();
+      });
+      if (m.kind === 'pole' && m.x != null) { const [sx, sy] = toScreen(m.x, m.y); g.strokeStyle = sel ? '#ec4899' : '#7c3aed'; g.lineWidth = 2 * dpr; g.strokeRect(sx - 7 * dpr, sy - 7 * dpr, 14 * dpr, 14 * dpr); }
+    }
+    if (S.doc.center) { const [sx, sy] = toScreen(...S.doc.center); g.strokeStyle = '#16a34a'; g.lineWidth = 2 * dpr; g.beginPath(); g.moveTo(sx - 10 * dpr, sy); g.lineTo(sx + 10 * dpr, sy); g.moveTo(sx, sy - 10 * dpr); g.lineTo(sx, sy + 10 * dpr); g.stroke(); }
+    if (S.preview && S.preview.point) { const [sx, sy] = toScreen(...S.preview.point); g.strokeStyle = '#db2777'; g.lineWidth = 2 * dpr; g.beginPath(); g.arc(sx, sy, (S.preview.kind === 'near' ? 3 * S.view.s : 8 * dpr), 0, 7); g.stroke(); }
+    if (S.preview) requestAnimationFrame(draw);
+  }
+
+  // -- the lights -------------------------------------------------------------------------------
+  function renderChips() {
+    const el = $('#lights'); el.innerHTML = '';
+    for (const l of S.lights) {
+      const b = document.createElement('button'); b.className = 'chip' + (S.sel === l ? ' on' : '');
+      b.innerHTML = `<span class="dot ${mapped(l) ? 'done' : ''}"></span>${esc(l.name || l.sku)} <span style="opacity:.7">· ${esc(l.room)}</span>`;
+      b.onclick = () => { S.sel = l; S.seg = 0; S.tube = 0; setTool(null); stopLights(); renderChips(); renderEditor(); draw(); };
+      el.appendChild(b);
+    }
+    if (!S.lights.length) el.innerHTML = '<span class="muted">No lights in the party rooms (set the rooms on the hub first).</span>';
+  }
+  const esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  function ensureMap(l) {
+    if (S.doc.lights[l.key]) return S.doc.lights[l.key];
+    const c = +S.doc.ceiling_ft;
+    return (S.doc.lights[l.key] = l.kind === 'strip' ? { kind: 'strip', anchors: [] } : l.kind === 'pole' ? { kind: 'pole', x: null, y: null, z0: 0.5, z1: 6, top_first: false } : { kind: 'tubes', tubes: Array(TUBE_COUNT).fill(null) });
+  }
+  function renderEditor() {
+    const l = S.sel, el = $('#editor'); if (!l) { el.innerHTML = '<span class="muted">Pick a light to map it.</span>'; return; }
+    const m = ensureMap(l), n = l.segments;
+    if (l.kind === 'strip') {
+      el.innerHTML = `<div class="row"><label>Segment <b id="segv">${S.seg + 1}</b> of ${n}</label><input id="seg" type="range" min="0" max="${n - 1}" value="${S.seg}">
+        <button class="btn" id="blink" title="Blink this segment on the real light">Blink</button><button class="btn primary" id="pin" title="Then tap the plan where this segment is">Pin here</button></div>
+        <p class="muted" style="margin:6px 0">Pin the first and last segments, and every corner between: the segments between pins are spread evenly along the path.</p>
+        <table>${(m.anchors || []).slice().sort((p, q) => p.seg - q.seg).map(a => `<tr><td>Segment ${a.seg + 1}</td><td>${a.x.toFixed(1)}, ${a.y.toFixed(1)} ft</td><td><label>height <input type="number" step="0.25" data-h="${a.seg}" value="${a.z}"></label></td><td><button data-del="${a.seg}" title="Remove">&times;</button></td></tr>`).join('')}</table>`;
+      $('#seg').oninput = e => { S.seg = +e.target.value; $('#segv').textContent = S.seg + 1; if (S.blinking) blinkNow(); draw(); };
+      $('#pin').onclick = () => setTool('pin');
+      el.querySelectorAll('[data-h]').forEach(i => i.onchange = () => { const a = m.anchors.find(x => x.seg === +i.dataset.h); a.z = +i.value; save(); draw(); });
+      el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { m.anchors = m.anchors.filter(x => x.seg !== +b.dataset.del); save(); renderEditor(); renderChips(); draw(); });
+    } else if (l.kind === 'pole') {
+      el.innerHTML = `<div class="row"><button class="btn primary" id="place">Place it</button><span class="muted">${m.x != null ? m.x.toFixed(1) + ', ' + m.y.toFixed(1) + ' ft' : 'not placed'}</span></div>
+        <div class="row" style="margin-top:8px"><label>bottom <input id="z0" type="number" step="0.25" value="${m.z0}"> ft</label><label>top <input id="z1" type="number" step="0.25" value="${m.z1}"> ft</label>
+        <label><input id="tf" type="checkbox" ${m.top_first ? 'checked' : ''}> segment 1 at the top</label></div>
+        <div class="row" style="margin-top:8px"><label>Segment <b id="segv">${S.seg + 1}</b> of ${n}</label><input id="seg" type="range" min="0" max="${n - 1}" value="${S.seg}"><button class="btn" id="blink">Blink</button></div>`;
+      $('#place').onclick = () => setTool('place');
+      $('#z0').onchange = e => { m.z0 = +e.target.value; save(); }; $('#z1').onchange = e => { m.z1 = +e.target.value; save(); };
+      $('#tf').onchange = e => { m.top_first = e.target.checked; save(); };
+      $('#seg').oninput = e => { S.seg = +e.target.value; $('#segv').textContent = S.seg + 1; if (S.blinking) blinkNow(); draw(); };
+    } else {
+      const t = m.tubes[S.tube];
+      el.innerHTML = `<div class="row"><label>Tube <b id="tv">${S.tube + 1}</b> of ${TUBE_COUNT}</label><input id="tube" type="range" min="0" max="${TUBE_COUNT - 1}" value="${S.tube}">
+        <button class="btn" id="blink" title="Blink this tube on the real light">Blink</button><button class="btn primary" id="place" title="Then tap where this tube hangs">Place it</button></div>
+        <div class="row" style="margin-top:8px"><span class="muted">${t ? t.x.toFixed(1) + ', ' + t.y.toFixed(1) + ' ft' : 'not placed'}</span>
+        <label>top <input id="tz" type="number" step="0.25" value="${t ? t.z : S.doc.ceiling_ft}"> ft</label><label>length <input id="tl" type="number" step="0.25" value="${t ? t.len : 1.5}"> ft</label>
+        ${t ? '<button class="btn" id="unplace">Remove</button>' : ''}<span class="muted">${m.tubes.filter(Boolean).length} of ${TUBE_COUNT} placed</span></div>`;
+      $('#tube').oninput = e => { S.tube = +e.target.value; renderEditor(); if (S.blinking) blinkNow(); draw(); };
+      $('#place').onclick = () => setTool('place');
+      $('#tz').onchange = e => { if (m.tubes[S.tube]) { m.tubes[S.tube].z = +e.target.value; save(); } };
+      $('#tl').onchange = e => { if (m.tubes[S.tube]) { m.tubes[S.tube].len = +e.target.value; save(); } };
+      if ($('#unplace')) $('#unplace').onclick = () => { m.tubes[S.tube] = null; save(); renderEditor(); renderChips(); draw(); };
+    }
+    const bl = $('#blink'); if (bl) { bl.classList.toggle('active', S.blinking); bl.onclick = () => { if (S.blinking) stopLights(); else { S.blinking = true; blinkNow(); } renderEditor(); }; }
+  }
+
+  // -- the real lights ---------------------------------------------------------------------------
+  let blinkTimer = null;
+  function blinkNow() {
+    clearTimeout(blinkTimer);
+    blinkTimer = setTimeout(async () => {
+      const l = S.sel; if (!l) return;
+      const per = Math.max(1, Math.round(l.segments / TUBE_COUNT));
+      const body = l.kind === 'tubes' ? { key: l.key, first: S.tube * per, count: per } : { key: l.key, first: S.seg, count: 1 };
+      const r = await (await fetch('/api/space/locate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json().catch(() => ({ error: 'no answer' }));
+      err(r.error || '');
+    }, 120);
+  }
+  async function preview(kind, point) {
+    S.blinking = false; if (S.sel) renderEditor();
+    S.preview = { kind, point, t0: performance.now() }; draw();
+    document.querySelectorAll('[data-p]').forEach(b => b.classList.toggle('active', b.dataset.p === kind));
+    const r = await (await fetch('/api/space/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pattern: kind, point, space: S.doc }) })).json().catch(() => ({ error: 'no answer' }));
+    err(r.error || '');
+  }
+  async function stopLights() {
+    S.blinking = false; S.preview = null; setTool(null);
+    document.querySelectorAll('[data-p]').forEach(b => b.classList.remove('active'));
+    await fetch('/api/space/stop', { method: 'POST' }).catch(() => {}); draw();
+  }
+  addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/space/stop'); } catch (e) { /* closing */ } });
+
+  // -- tapping the plan -------------------------------------------------------------------------
+  const HINTS = { pin: 'Tap the plan where this segment is', place: 'Tap the plan where it is', center: 'Tap the middle of the house', near: 'Tap a spot: the lights within 3 ft of it light up', ripple: 'Tap where the ripple starts' };
+  function setTool(t) { S.tool = t; $('#hint').hidden = !t; $('#hint').textContent = HINTS[t] || ''; }
+  function tap(fx, fy) {
+    const tool = S.tool, l = S.sel;
+    if (tool === 'center') { S.doc.center = [+fx.toFixed(2), +fy.toFixed(2)]; save(); }
+    else if (tool === 'pin' && l) { const m = ensureMap(l); m.anchors = (m.anchors || []).filter(a => a.seg !== S.seg); m.anchors.push({ seg: S.seg, x: +fx.toFixed(2), y: +fy.toFixed(2), z: +S.doc.ceiling_ft }); save(); renderEditor(); renderChips(); }
+    else if (tool === 'place' && l) { const m = ensureMap(l);
+      if (l.kind === 'pole') { m.x = +fx.toFixed(2); m.y = +fy.toFixed(2); }
+      else { const old = m.tubes[S.tube]; m.tubes[S.tube] = { x: +fx.toFixed(2), y: +fy.toFixed(2), z: old ? old.z : +($('#tz') ? $('#tz').value : S.doc.ceiling_ft), len: old ? old.len : +($('#tl') ? $('#tl').value : 1.5) };
+        if (S.tube < TUBE_COUNT - 1) S.tube++; }       // (on to the next tube)
+      save(); renderEditor(); renderChips(); if (S.blinking) blinkNow(); }
+    else if (tool === 'near' || tool === 'ripple') { preview(tool, [+fx.toFixed(2), +fy.toFixed(2)]); return; }
+    else return;
+    if (tool !== 'place' || l.kind !== 'tubes') setTool(null);
+    draw();
+  }
+  // drag to pan, pinch or buttons to zoom, a tap (little movement) places
+  const pts = new Map(); let downAt = null, moved = 0, pinch = null;
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 1) { downAt = [e.clientX, e.clientY]; moved = 0; } else pinch = null; });
+  cv.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return; const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+    const dpr = devicePixelRatio;
+    if (pts.size === 1) { S.view.x += (e.clientX - prev[0]) * dpr; S.view.y += (e.clientY - prev[1]) * dpr; moved += Math.abs(e.clientX - prev[0]) + Math.abs(e.clientY - prev[1]); draw(); }
+    else if (pts.size === 2) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch) zoomAt(d / pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); pinch = d; moved = 99; }
+  });
+  cv.addEventListener('pointerup', e => {
+    pts.delete(e.pointerId); if (pts.size) return; pinch = null;
+    if (moved < 8 && S.tool) { const r = cv.getBoundingClientRect(), [fx, fy] = toFeet((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); tap(fx, fy); }
+  });
+  cv.addEventListener('pointercancel', e => { pts.delete(e.pointerId); pinch = null; });
+  cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY, r); }, { passive: false });
+  function zoomAt(k, cx, cy) { const r = cv.getBoundingClientRect(), x = (cx - r.left) * devicePixelRatio, y = (cy - r.top) * devicePixelRatio; S.view.x = x - (x - S.view.x) * k; S.view.y = y - (y - S.view.y) * k; S.view.s *= k; draw(); }
+  $('#zin').onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(1.3, r.left + r.width / 2, r.top + r.height / 2); };
+  $('#zout').onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(1 / 1.3, r.left + r.width / 2, r.top + r.height / 2); };
+  $('#zfit').onclick = () => { fit(true); draw(); };
+  addEventListener('resize', () => { fit(); draw(); });
+
+  // -- settings and the preview buttons ---------------------------------------------------------
+  $('#ceiling').onchange = e => { S.doc.ceiling_ft = +e.target.value || 8; save(); };
+  $('#setCenter').onclick = () => setTool('center');
+  document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { const k = b.dataset.p; if (k === 'near' || k === 'ripple') { setTool(k); S.preview = null; draw(); } else preview(k, null); });
+  $('#stop').onclick = stopLights;
+
+  load().then(() => renderEditor()).catch(e => err('The map could not load: ' + e.message));
+})();
+</script>
+</body>
+</html>
