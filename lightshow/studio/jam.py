@@ -952,6 +952,10 @@ class JamEngine:
         self.held_at: float | None = None
         self.cue_hold = False             # while a cue runs, nothing but the cue lets the room go
         self.cue_in_stream = False        # the cue's song is played inside the stream: the speakers are never paused
+        # After a cue the music is back in the speakers' stream at once, while Spotify (resumed) is still paused
+        # until the next poll sees it: the room plays meanwhile (it said paused, and the lights fading back in
+        # were held at 5 frames a second with their clock stopped)
+        self.music_back = False
         self.on_queue = None              # (tracks, now) -> None: the song playing and what is queued, as they change (learn ahead);
                                           # now: the id of the song playing unlearned (all effort goes to it), or None
         self.on_context = None            # (tracks) -> None: the rest of the playlist or album playing, behind the queue
@@ -978,6 +982,9 @@ class JamEngine:
         if not self.streaming or not self.output.stream:
             return None
         return self.output.stream.capture_time_at(self.output.position() - self.output.offset)
+
+    def _room_playing(self) -> bool:
+        return not self.gate.paused or (self.music_back and self.held_at is None and self.streaming and self.output.stream is not None)
 
     def delay(self) -> float:
         rc = self.room_capture_time()
@@ -1044,7 +1051,7 @@ class JamEngine:
                         self.output.pause()
                 return
             if self.gate.paused and not self.cue_hold:
-                self.gate.paused = False
+                self.gate.paused, self.music_back = False, False
                 self.say("resumed")
                 if self.streaming and not self.cue_in_stream:
                     self._resume_output()
@@ -1429,7 +1436,7 @@ class JamEngine:
                 self.gate.paused = True
                 if self.streaming:
                     self.output.pause()
-            self.held_at, self.cue_hold = rc, True
+            self.held_at, self.cue_hold, self.music_back = rc, True, False
             self.say(why)
         try:
             self.spotify.pause()
@@ -1457,7 +1464,7 @@ class JamEngine:
             fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
             fresh.insert(pcm, int(fade_in_s * sr))
             self.gate.paused = True                       # Spotify's pause is not the room's: nothing to pause
-            self.cue_hold, self.cue_in_stream = True, True
+            self.cue_hold, self.cue_in_stream, self.music_back = True, True, False
             self.held_at = at                            # where the music picks up after the song
             self.output.start_stream(fresh)
             self._streamed_at = self.clock()             # (keep_delay leaves a fresh stream alone while it settles)
@@ -1481,6 +1488,7 @@ class JamEngine:
         again, and Spotify resumes behind it."""
         with self.lock:
             self.held_at, self.cue_hold = None, False
+            self.music_back = self.streaming and self.output.stream is not None
             self.say("the cue is over: the music fades back in")
         try:
             self.spotify.resume()
@@ -1505,6 +1513,7 @@ class JamEngine:
                 self._streamed_at = self.clock()          # (keep_delay leaves it to settle)
                 self._resume_watch = None
                 self._quiet_start()
+                self.music_back = True
             self.say("the cue is over: the room carries on")
         try:
             self.spotify.resume()
@@ -1866,7 +1875,7 @@ class JamEngine:
             rt = self.track_at(rc) if rc is not None else None
             room = None
             if rt is not None:
-                room = {**rt.to_json(), "position": round(rc - rt.start, 3), "playing": not self.gate.paused, "at": self.clock()}
+                room = {**rt.to_json(), "position": round(rc - rt.start, 3), "playing": self._room_playing(), "at": self.clock()}
             ahead = self.current
             return {
                 "streaming": self.streaming, "delay": round(self.delay(), 2), "target_delay": self.cfg.target_delay,

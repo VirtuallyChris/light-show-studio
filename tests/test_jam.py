@@ -1305,6 +1305,29 @@ class TestCueInTheStream(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_the_room_plays_as_soon_as_the_music_is_back_not_when_spotify_is_seen(self):
+        """Spotify's resume is seen a poll or two later: the room said paused meanwhile, and the lights fading back
+        in after a doorbell went at 5 frames a second, their clock stopped."""
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=10.0)
+            sim.play(a, ta)
+            sim.run(14.0, analyse=False)
+            e = sim.engine
+            e.cue_insert(np.zeros((SR * 2, 2), dtype=np.int16), 2.0)
+            self.assertFalse(e.state()["room"]["playing"])               # the song alone: the room holds
+            sim.run(2.5, analyse=False)
+            e.cue_over()
+            self.assertTrue(e.gate.paused)                               # Spotify not seen playing yet...
+            self.assertTrue(e.state()["room"]["playing"])                # ...but the room hears the music
+            sim.run(3.0, analyse=False)
+            self.assertFalse(e.gate.paused)
+            self.assertFalse(e.music_back)
+            self.assertTrue(e.state()["room"]["playing"])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_a_cue_rung_while_the_speakers_start_a_fresh_stream_still_plays_in_it(self):
         """Rung 2 s after keep_delay gave the speakers a fresh stream: the room's place was not known yet, so the
         cue was played the old way (loaded on the speakers: a pause, the music back late, glitches)."""

@@ -1487,7 +1487,9 @@
   function flipPx(px) { const n = px.length / 3, o = new Array(px.length); for (let i = 0; i < n; i++) { const j = (n - 1 - i) * 3; o[i * 3] = px[j]; o[i * 3 + 1] = px[j + 1]; o[i * 3 + 2] = px[j + 2]; } return o; }
   function outputTick() {
     if (!S.analysis || !S.outputActive) return;
-    if (!S.audio.playing && !S.forceSend && performance.now() - S.lastLightSend < 200) return;   // paused: ~5 fps hold
+    // paused: ~5 fps hold, but never while the lights cross-fade (a doorbell handing back: it stepped at 5 fps)
+    const fading = S.lightBlend && performance.now() - S.lightBlend.t0 < S.lightBlend.dur;
+    if (!S.audio.playing && !S.forceSend && !fading && performance.now() - S.lastLightSend < 200) return;
     const t = pos();
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
     const lf = renderFrame(lt, undefined, 'lights');
