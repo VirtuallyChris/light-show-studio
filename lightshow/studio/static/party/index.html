@@ -194,14 +194,6 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .cue .phase { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .cue .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
   .cue:disabled { opacity: .45; }
-  .cue-live { color: #fff; border-color: transparent; background: linear-gradient(120deg, var(--accent), var(--accent2)); }
-  .cue-live .eyebrow { color: rgb(255 255 255 / .75); }
-  .cue-live .cl-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
-  .cue-live .cl-name { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
-  .cue-live .cl-phase { font-size: 14px; font-weight: 600; white-space: nowrap; padding-bottom: 4px; }
-  .cue-live .cl-show { font-size: 14px; opacity: .85; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cue-live .cl-bar { height: 5px; border-radius: 3px; background: rgb(255 255 255 / .25); margin-top: 12px; overflow: hidden; }
-  .cue-live .prog { height: 100%; width: 0; background: #fff; }
   .cue-edit { padding: 12px 0; border-top: 1px solid var(--line); }
   .cue-edit:first-of-type { border-top: none; }
   .cue-edit .top { display: flex; align-items: center; gap: 10px; }
@@ -303,7 +295,6 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
 
 <!-- ======================================================== NOW PLAYING -->
 <section class="tab" id="tab-now">
-  <section class="card cue-live" id="cueLive" hidden></section>
   <section class="card hero" id="nowCard">
     <div id="now"></div>
   </section>
@@ -600,7 +591,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
 
   // ---- cues: tap one and a saved show plays at once, to its end, then the music fades back in (cues.py)
   const PHASE = { starting: 'Starting…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…', fade_in: 'Music back…' };
-  let cuesShown = '', liveShown = '', cueTick = null;
+  let cuesShown = '', cueTick = null;
   function renderCues(st) {
     const cues = st.cues || [], run = st.cue || {}, live = run.phase && run.phase !== 'done';
     $('#cuesCard').hidden = !cues.length;
@@ -620,17 +611,12 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
         poll();
       };
     }
-    // the running cue, big at the top of Now Playing
-    const lc = live ? `<div class="cl-top"><div style="min-width:0"><div class="eyebrow">Cue${run.rehearsal ? ' · rehearsal' : ''}</div><div class="cl-name">${esc(run.name)}</div></div>
-        <div class="cl-phase">${esc(PHASE[run.phase] || '')}</div></div>${run.show ? `<div class="cl-show">${esc(run.show)}</div>` : ''}
-        ${run.dur ? '<div class="cl-bar"><div class="prog"></div></div>' : ''}` : '';
-    if (lc !== liveShown) { liveShown = lc; $('#cueLive').innerHTML = lc; }
-    $('#cueLive').hidden = !live;
-    // a running cue: its progress moves smoothly between polls
+    // a running cue shows on its own button only (the user: a card at the top too pushed the page down), its progress
+    // moving smoothly between polls
     clearInterval(cueTick);
     if (live && run.dur) {
       const at = performance.now(), p0 = run.progress || 0, bar = () => { const w = Math.min(100, 100 * (p0 + (performance.now() - at) / 1000 / run.dur)) + '%';
-        for (const el of document.querySelectorAll('#cues .prog, #cueLive .prog')) el.style.width = w; };
+        for (const el of document.querySelectorAll('#cues .prog')) el.style.width = w; };
       bar(); cueTick = setInterval(bar, 100);
     }
   }
