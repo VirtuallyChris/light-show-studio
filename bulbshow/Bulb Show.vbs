@@ -1,6 +1,6 @@
 ' Bulb Show launcher: starts the app with no console window.
-' Shows keep looping after the window is closed; the app quits by itself once
-' the window is gone and nothing is running. Messages go to bulbshow.log here.
+' Closing the window stops every show, puts the bulbs back as they were and
+' quits, like Light Show Studio. Messages go to bulbshow.log here.
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 here = fso.GetParentFolderName(WScript.ScriptFullName)

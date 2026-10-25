@@ -2,8 +2,8 @@
 
 A show lives in bulbshow/shows/<id>/ as show.json and sound.wav (both kept out of git). Any number of
 shows can run at once, each looping on its own speaker and bulb, as long as no two share either.
-The server keeps them running when the window is closed; it quits by itself once the window is
-gone and nothing is running.
+Like the studio, closing the window ends it all: every show stops, every bulb is put back as it
+was, and the server quits.
 """
 
 from __future__ import annotations
@@ -81,7 +81,10 @@ class App:
         self._reset_client()
         self.runners: dict[str, ShowRunner] = {}
         self.sounds: dict[str, tuple[float, Sound]] = {}
-        self.last_seen = time.monotonic()
+        self.ws_clients: set = set()
+        self.started_at = time.monotonic()
+        self.CLOSE_GRACE_S = 8.0           # a reload drops the window's socket for a moment: not a close
+        self.exit = lambda: os._exit(0)
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[self.seen])
         self.app.add_routes([
             web.get("/", self.index),
@@ -105,6 +108,7 @@ class App:
             web.post("/api/stop-all", self.stop_all),
             web.get("/api/running", self.running),
             web.get("/api/loop/{sid}.wav", self.loop_stream),
+            web.get("/ws", self.websocket),
         ])
         self.app.on_shutdown.append(self._shutdown)
 
@@ -165,7 +169,6 @@ class App:
     # -- requests ------------------------------------------------------------------------
     @web.middleware
     async def seen(self, request, handler):
-        self.last_seen = time.monotonic()
         resp = await handler(request)
         if request.path.startswith("/static") or request.path == "/":
             resp.headers["Cache-Control"] = "no-store"
@@ -401,20 +404,45 @@ class App:
     def any_running(self) -> bool:
         return any(r.active for r in self.runners.values())
 
+    async def websocket(self, request):
+        """The window keeps this open for as long as it is open. Polling can't tell: Chrome slows the
+        timers of a minimized window to once a minute, which would look like a closed one."""
+        ws = web.WebSocketResponse(heartbeat=20)
+        await ws.prepare(request)
+        self.ws_clients.add(ws)
+        try:
+            async for _ in ws:
+                pass
+        finally:
+            self.ws_clients.discard(ws)
+            if not self.ws_clients:
+                asyncio.create_task(self._window_gone())
+        return ws
+
+    async def _window_gone(self) -> None:
+        await asyncio.sleep(self.CLOSE_GRACE_S)
+        if self.quit_when_closed and not self.ws_clients:
+            await self.quit("the window was closed")
+
+    async def quit(self, why: str) -> None:
+        """Stop every show (each bulb put back as it was, each speaker let go), then end."""
+        print(f"Quitting: {why}.")
+        await self._shutdown(None)
+        self.exit()
+
     async def watch_window(self) -> None:
-        """Quit once the window has been gone a while and no show is running."""
+        """Saves the cloud count now and then, and quits if no window ever turned up (it failed to open)."""
         while True:
             await asyncio.sleep(5)
             self.usage.save()
-            if self.quit_when_closed and time.monotonic() - self.last_seen > 20 and not self.any_running():
-                print("Window closed and nothing running: quitting.")
-                os._exit(0)
+            if self.quit_when_closed and not self.ws_clients and time.monotonic() - self.started_at > 90 and not self.any_running():
+                await self.quit("no window")
 
     async def _shutdown(self, app) -> None:
         for r in self.runners.values():
             r.stop()
-        for r in self.runners.values():
-            await asyncio.get_running_loop().run_in_executor(None, r.stop, True)
+        loop = asyncio.get_running_loop()
+        await asyncio.gather(*(loop.run_in_executor(None, r.stop, True) for r in self.runners.values()))
         self.usage.save()
 
 

@@ -407,6 +407,35 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.get_running_loop().run_in_executor(None, r.stop, True)
         self.assertFalse(self.app.any_running())
 
+    async def test_closing_the_window_stops_every_show_and_quits(self):
+        sid = await self.make("Witch", "Office Home 2")
+        self.app.quit_when_closed, self.app.CLOSE_GRACE_S = True, 0.2
+        quit = asyncio.Event()
+        self.app.exit = quit.set
+        ws = await self.client.ws_connect("/ws")
+        self.assertTrue((await (await self.client.post(f"/api/run/{sid}", json={})).json())["ok"])
+        runner = self.app.runners[sid]
+        for _ in range(200):
+            if runner.state == "playing":
+                break
+            await asyncio.sleep(0.02)
+        self.assertEqual(runner.bulb.color, (255, 0, 0))
+        await ws.close()
+        await asyncio.wait_for(quit.wait(), 10)
+        self.assertFalse(runner.active)
+        self.assertEqual(runner.bulb.color, (0, 0, 0))             # put back (a virtual bulb's "before")
+
+    async def test_a_reload_is_not_a_close(self):
+        self.app.quit_when_closed, self.app.CLOSE_GRACE_S = True, 0.3
+        quit = asyncio.Event()
+        self.app.exit = quit.set
+        ws = await self.client.ws_connect("/ws")
+        await ws.close()
+        ws = await self.client.ws_connect("/ws")                   # back within the grace period
+        await asyncio.sleep(0.6)
+        self.assertFalse(quit.is_set())
+        await ws.close()
+
     async def test_scenes_of_a_virtual_bulb(self):
         res = await (await self.client.get("/api/scenes?via=virtual&id=virtual-1")).json()
         self.assertEqual(res["scenes"][0]["name"], "Breathe")

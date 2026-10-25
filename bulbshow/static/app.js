@@ -729,5 +729,11 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
+// the window's lifeline: the server stops every show and quits when this closes (like the studio)
+(function lifeline() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onclose = () => setTimeout(lifeline, 2000);
+})();
+
 route();
 poll();
