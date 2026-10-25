@@ -53,5 +53,31 @@ class TestGroupVolume(unittest.TestCase):
         self.assertEqual(self.calls, [])                             # no change: no chime
 
 
+
+class TestStaleStatus(unittest.TestCase):
+    """A late word about the jam's previous stream must not put its position over the new one's (a doorbell looked
+    long over at once and its lights were skipped)."""
+
+    def test_a_status_from_the_stream_before_is_ignored(self):
+        cm = CastManager(None)
+        cm.media_url, cm.last_time, cm.state = "http://pc/jam/stream?sid=8", 0.0, "BUFFERING"
+        old = SimpleNamespace(player_state="PLAYING", current_time=312.4, content_id="http://pc/jam/stream?sid=7", duration=None)
+        cm.new_media_status(old)
+        self.assertEqual(cm.last_time, 0.0)
+        new = SimpleNamespace(player_state="PLAYING", current_time=1.2, content_id="http://pc/jam/stream?sid=8", duration=None)
+        cm.new_media_status(new)
+        self.assertEqual((cm.last_time, cm.state), (1.2, "PLAYING"))
+
+    def test_the_same_stream_written_another_way_is_taken_after_a_while(self):
+        cm = CastManager(None)
+        cm.media_url = "http://pc/jam/stream?sid=8"
+        odd = SimpleNamespace(player_state="PLAYING", current_time=3.0, content_id="http://192.168.1.5/jam/stream?sid=8", duration=None)
+        cm.new_media_status(odd)
+        self.assertEqual(cm.last_time, 0.0)
+        cm._other_since -= 6.0
+        cm.new_media_status(odd)
+        self.assertEqual(cm.last_time, 3.0)
+
+
 if __name__ == "__main__":
     unittest.main()

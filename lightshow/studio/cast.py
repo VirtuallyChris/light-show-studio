@@ -125,6 +125,14 @@ class CastManager:
     def new_media_status(self, status) -> None:
         # Times reported by the device count from the start of the stream it was
         # given, which begins at self.base seconds into the song.
+        # A late word about the stream before this one (each jam stream has its own address): its position, minutes in,
+        # put back over the new one's 0 made a doorbell look long over at once, and its lights were skipped (the user)
+        cid = getattr(status, "content_id", None)
+        if cid and self.media_url and cid != self.media_url:
+            since = self.__dict__.setdefault("_other_since", time.monotonic())
+            if time.monotonic() - since < 5.0:          # (5 s of nothing else: the speaker's own way of writing ours)
+                return
+        self.__dict__.pop("_other_since", None)
         state = status.player_state or "IDLE"
         when = float(status.current_time or 0.0)
         if state in ("IDLE", "UNKNOWN") and when <= 0.01:
