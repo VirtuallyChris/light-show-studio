@@ -1353,7 +1353,30 @@
       if (g && g.level > 0) for (let i = 0; i < n * 3; i++) flat[i] = Math.max(flat[i], Math.round(g.rgb[i % 3] * g.level * 255));
       out.push({ light: L, px: flat });
     }
-    return smoothKey ? calmSmooth(smoothKey, t, out, handFlash ? 0 : calm) : out;
+    return smoothKey ? blendIn(smoothKey, calmSmooth(smoothKey, t, out, handFlash ? 0 : calm)) : out;
+  }
+  /** A cross-fade of the lights from what they last showed into the show now (crossfadeLights): a doorbell's show
+   *  handing back to the jam's as the music comes back, instead of a jump (the user). Every light's last frame is
+   *  kept, for the lights and for the room view, to fade from. */
+  const LAST = {};
+  function blendIn(key, frame) {
+    const b = S.lightBlend, from = b && b.from[key];
+    if (from) {
+      const k = (performance.now() - b.t0) / b.dur;
+      if (k >= 1) delete b.from[key];
+      else {
+        const e = k * k * (3 - 2 * k);                     // (eased: no snap at either end)
+        for (const f of frame) {
+          const old = from.get(f.light.ip); if (!old || old.length !== f.px.length) continue;
+          f.px = f.px.map((v, i) => Math.round(old[i] + (v - old[i]) * e));
+        }
+      }
+    }
+    LAST[key] = new Map(frame.map(f => [f.light.ip, f.px.slice()]));
+    return frame;
+  }
+  function crossfadeLights(seconds) {
+    S.lightBlend = { t0: performance.now(), dur: Math.max(0.2, seconds) * 1000, from: Object.fromEntries(Object.entries(LAST).map(([k, m]) => [k, new Map(m)])) };
   }
   /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
    *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
@@ -1573,6 +1596,8 @@
       if (be) g.fillRect(x, wy, 1, wh);
     }
     if (be) { g.fillStyle = 'rgba(255,209,102,0.9)'; g.font = 'bold 10px system-ui'; g.fillText('BEAT EDIT: click adds a beat, Space taps while playing, drag moves, Delete removes', HEADER + 8, wy + wh - 6); }
+    S.view.lyricDrawn = null;
+    if (!be && a.lyrics && (a.lyrics.words || []).length) drawLyrics(g, a.lyrics, wy + wh - LYRIC_BAND, t0, t1, w);
 
     // lanes (scrollable region under the fixed rows)
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
@@ -1637,6 +1662,30 @@
   }
   const targetName = t => t === 'long' ? 'strips' : t === 'tubes' ? 'tubes' : 'lamps';
   function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : targetName(c.target)); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${+(+v).toFixed(2)}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
+  /** The song's words (lyrics.py) along the foot of the waveform, each where it is sung (a backing vocal
+   *  dimmer); zoomed out, where the words would run into each other, a line at a time, as many as fit. What
+   *  is drawn is kept for compose, which lights up the word (or line) being sung. */
+  const LYRIC_BAND = 15;
+  function drawLyrics(g, ly, y, t0, t1, w) {
+    g.save(); g.fillStyle = 'rgba(8,9,12,0.72)'; g.fillRect(HEADER, y, w - HEADER, LYRIC_BAND);
+    g.beginPath(); g.rect(HEADER, y, w - HEADER, LYRIC_BAND); g.clip(); g.font = '10px system-ui'; g.textBaseline = 'middle';
+    const words = ly.words.filter(x => x.end >= t0 && x.t <= t1);
+    let fits = true, edge = -1e9;
+    for (const x of words) { const px = xOf(x.t); if (px < edge + 3) { fits = false; break; } edge = px + g.measureText(x.w).width; }
+    const drawn = [];
+    if (fits) for (const x of words) drawn.push({ t: x.t, end: x.end, text: x.w, x: xOf(x.t), bg: !!x.bg });
+    else {
+      edge = -1e9;
+      for (const ln of ly.lines || []) {
+        if (ln.end < t0 || ln.t > t1 || !ln.text) continue;
+        const px = Math.max(HEADER + 2, xOf(ln.t)); if (px < edge + 8) continue;
+        drawn.push({ t: ln.t, end: ln.end, text: ln.text, x: px }); edge = px + g.measureText(ln.text).width;
+      }
+    }
+    for (const d of drawn) { g.fillStyle = d.bg ? 'rgba(200,205,220,0.45)' : 'rgba(225,229,238,0.85)'; g.fillText(d.text, d.x, y + LYRIC_BAND / 2 + 0.5); }
+    g.restore();
+    S.view.lyricDrawn = { y, items: drawn };
+  }
   function compose() {
     if (!S.analysis || !off.width || !off.height) return;   // nothing rendered yet (or a zero-size canvas)
     const w = TW(), h = TH(); const g = tctx;
@@ -1645,6 +1694,11 @@
     if (S.view.hoverDrop) { const d = S.view.hoverDrop; g.fillStyle = d.replace ? 'rgba(255,94,168,0.35)' : 'rgba(108,140,255,0.35)'; g.fillRect(d.x, d.y, d.w, d.h); if (d.replace) { g.strokeStyle = '#ff5ea8'; g.lineWidth = 2; g.strokeRect(d.x, d.y, d.w, d.h); g.lineWidth = 1; g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText('replace', d.x + 6, d.y + d.h - 6); } }
     const x = xOf(pos());
     const bottom = Math.min(h, laneTop(P().lanes.length) + ADD_ROW);
+    const ld = S.view.lyricDrawn, now = pos();                 // the word (or line) being sung, lit up
+    if (ld) { const it = ld.items.find(d => now >= d.t && now < d.end + 0.15); if (it) {
+      g.save(); g.beginPath(); g.rect(HEADER, ld.y, w - HEADER, LYRIC_BAND); g.clip(); g.font = 'bold 10px system-ui'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(8,9,12,0.9)'; g.fillRect(it.x - 2, ld.y + 1, g.measureText(it.text).width + 4, LYRIC_BAND - 2);
+      g.fillStyle = '#ffd166'; g.fillText(it.text, it.x, ld.y + LYRIC_BAND / 2 + 0.5); g.restore(); } }
     if (x >= HEADER && x <= w) { g.fillStyle = '#fff'; g.fillRect(x - 0.5, 0, 1.5, bottom); g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 8); g.fill(); }
     const m = S.view.drag && S.view.drag.type === 'marquee' ? S.view.drag : null;
     if (m) { const rx = Math.min(m.x0, m.x), ry = Math.min(m.y0, m.y), rw = Math.abs(m.x - m.x0), rh = Math.abs(m.y - m.y0);
@@ -3961,6 +4015,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

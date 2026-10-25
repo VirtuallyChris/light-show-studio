@@ -388,11 +388,17 @@
   }
   preloadCues(); setInterval(preloadCues, 60000);
   async function cueTick(cue) {
-    // its lights play on through the crossfade back into the music (the song is still heard), then the jam's show
-    const active = !!(cue && cue.phase && cue.phase !== 'done' && cue.show), showing = active && (cue.phase === 'show' || (cue.phase === 'fade_in' && cue.stream));
+    // As the music comes back (fade_in) the lights cross-fade from the cue's show into the jam's over that very
+    // fade: what is left of it as this page sees it begin, so both end together (the user: the same cross-fade as
+    // that doorbell's). A doorbell with no fade back: the lights change over at once, as the music does.
+    const active = !!(cue && cue.phase && cue.phase !== 'done' && cue.show), showing = active && cue.phase === 'show';
     if (active) showData(cue.show);
     if (showing && C.run !== cue.run && C.ended !== cue.run) await cueStart(cue);   // (a slower answer may still say it shows)
-    else if (!showing && C.run) cueEnd();
+    else if (!showing && C.run) {
+      const left = cue && cue.phase === 'fade_in' ? (cue.dur || 0) * (1 - (cue.progress || 0)) : 0;
+      if (left > 0.05) St.crossfadeLights(left);
+      cueEnd();
+    }
   }
   setInterval(async () => {
     if (C.asking || !J.state || !J.state.running) return;
