@@ -85,6 +85,16 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .pill.live { color: #fff; border-color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
   /* cards */
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 16px; box-shadow: var(--shadow); min-width: 0; }
+  /* the room view (roomview.html?remote): the house and its lights as they play; the corner button fills the screen */
+  .rv-card { padding: 0; overflow: hidden; background: #000; }
+  .rv-wrap { position: relative; aspect-ratio: 1536 / 1010; background: #000; }
+  .rv-wrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+  .rv-btn { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; border-radius: 10px; border: none; background: rgb(255 255 255 / 0.14); color: #fff; display: grid; place-items: center; padding: 0; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  .rv-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .rv-wrap.full { position: fixed; inset: 0; z-index: 60; aspect-ratio: auto; box-sizing: border-box;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .rv-wrap.full iframe { position: static; width: 100%; height: 100%; }   /* (an iframe does not stretch between left and right) */
+  .rv-wrap.full .rv-btn { top: calc(env(safe-area-inset-top) + 10px); right: calc(env(safe-area-inset-right) + 10px); }
   .label { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin-bottom: 10px; }
   .eyebrow { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
   .hint { font-size: 13px; color: var(--muted); }
@@ -309,6 +319,13 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
 
 <!-- ======================================================== LIGHTS -->
 <section class="tab" id="tab-lights" hidden>
+  <section class="card rv-card">
+    <div class="rv-wrap" id="rvWrap">
+      <iframe id="rvFrame" title="Room view"></iframe>
+      <button class="rv-btn" id="rvFull" type="button" aria-label="Full screen"></button>
+    </div>
+  </section>
+
   <section class="card">
     <div class="party-row"><div class="label">Party level</div><div class="party-val" id="partyVal">100%</div></div>
     <input id="party" type="range" min="0" max="100" step="1" value="100" aria-label="Party level" title="How intense the lights are: 100% is the full concert; lower, the strobes, flashes and one-shots fade out and the show calms into a background in the song's colors.">
@@ -873,6 +890,31 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   setInterval(() => { if (lightsOpen && !document.hidden) loadBulbShows(); }, 4000);
   loadBulbShows();
 
+  // ---- the room view at the top of Lights: the house and every light as it plays (roomview.html, its frames passed
+  // on by the studio). Loaded only while Lights is open and the app in front: nothing streams otherwise. Pinch to
+  // zoom, drag to look around, double tap for all of it; the corner button fills the screen (an iPhone has no full
+  // screen for a page: there it covers the app instead).
+  const RV_OPEN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+  const RV_CLOSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  function setRvFull(on) {
+    $('#rvWrap').classList.toggle('full', on);
+    $('#rvFull').innerHTML = on ? RV_CLOSE : RV_OPEN; $('#rvFull').setAttribute('aria-label', on ? 'Close full screen' : 'Full screen');
+  }
+  function roomView(on) {
+    const f = $('#rvFrame'), want = on ? '/static/roomview.html?remote=1' : 'about:blank';
+    if (f.getAttribute('src') !== want) f.setAttribute('src', want);
+    if (!on && $('#rvWrap').classList.contains('full')) { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); setRvFull(false); }
+  }
+  setRvFull(false);
+  $('#rvFull').onclick = async () => {
+    const w = $('#rvWrap');
+    if (w.classList.contains('full')) { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); setRvFull(false); return; }
+    setRvFull(true);
+    if (w.requestFullscreen) w.requestFullscreen().catch(() => { /* covers the app instead */ });
+  };
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) setRvFull(false); });
+  document.addEventListener('visibilitychange', () => roomView(lightsOpen && !document.hidden));
+
   // settings: which lights and speakers stand in each room
   let roomsDoc = null;
   async function saveRooms(rooms) {
@@ -1010,6 +1052,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     settingsOpen = tab === 'settings';
     if (tab === 'lights' && !lightsOpen) loadBulbShows();
     lightsOpen = tab === 'lights';
+    roomView(lightsOpen && !document.hidden);
     if (settingsOpen && !was) { loadCueEdit(); loadBell(); loadRoomEdit(); loadVolumes(); if (state) showPre(state.prelisten); }
   }
   function goTab(t) { const h = t === 'now' ? '' : t; if (location.hash.slice(1) === h) showTab(); else location.hash = h; }

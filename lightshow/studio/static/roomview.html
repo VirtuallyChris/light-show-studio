@@ -8,7 +8,8 @@
 <style>
   :root { --bg: #000000; --text: #8b93a7; --dim: #4b5263; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
-  canvas { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; }
+  canvas { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; touch-action: none; }   /* (pinch and drag are the view's own) */
+  body { touch-action: none; -webkit-user-select: none; user-select: none; }
   #note { position: fixed; left: 0; right: 0; top: 46%; text-align: center; color: var(--dim); pointer-events: none; }
 </style>
 </head>
@@ -32,7 +33,10 @@
   const bg = document.getElementById('bg'), bctx = bg.getContext('2d'), glc = document.getElementById('gl');
   const note = document.getElementById('note');
   const gpu = (() => { try { return LightGL(glc); } catch (e) { console.warn('WebGL:', e); return null; } })();
-  const ch = new BroadcastChannel('lss-roomview');
+  // ?remote: on the Party Hub (a phone), its frames passed on by the studio (server.py roomview_ws), not this
+  // computer's BroadcastChannel; and it is never closed with the studio
+  const remote = new URLSearchParams(location.search).has('remote');
+  const ch = remote ? null : new BroadcastChannel('lss-roomview');
   let last = null, lastAt = 0, dirty = true, layout = null;
   // the house map (shows/_space/space.json), looked at again every ten seconds so a change made on the map shows
   let space = null;
@@ -133,22 +137,60 @@
     }
     return { key, spots, labels, boxes: [], plan: { sh, P, s }, song: last.song, drawn: false };
   }
-  const hello = () => ch.postMessage({ type: 'hello' });
-  hello(); setInterval(hello, 1000);
-  // The studio closing closes this too: it says goodbye as its window closes (a few seconds' grace, so the
-  // studio reloading does not), and it answers every hello: six seconds without an answer, it is gone.
-  let aliveAt = performance.now(), byeAt = 0;
-  ch.onmessage = e => {
-    const m = e.data || {};
-    if (m.type === 'frame') { last = m; lastAt = aliveAt = performance.now(); dirty = true; byeAt = 0; }
-    else if (m.type === 'alive') { aliveAt = performance.now(); byeAt = 0; }
-    else if (m.type === 'bye') byeAt = performance.now();
-  };
-  setInterval(() => {
-    const now = performance.now();
-    if ((byeAt && now - byeAt > 4000 && now - aliveAt > 3000) || now - aliveAt > 6000) window.close();
-  }, 500);
-  addEventListener('resize', () => { dirty = true; layout = null; });
+  if (remote) {
+    const connect = () => {
+      const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/roomview`);
+      ws.onmessage = e => { try { const m = JSON.parse(e.data); if (m.frame) { last = m.frame; lastAt = performance.now(); dirty = true; } } catch (err) { /* the next one */ } };
+      ws.onclose = () => setTimeout(connect, 2000);
+    };
+    connect();
+  } else {
+    const hello = () => ch.postMessage({ type: 'hello' });
+    hello(); setInterval(hello, 1000);
+    // The studio closing closes this too: it says goodbye as its window closes (a few seconds' grace, so the
+    // studio reloading does not), and it answers every hello: six seconds without an answer, it is gone.
+    let aliveAt = performance.now(), byeAt = 0;
+    ch.onmessage = e => {
+      const m = e.data || {};
+      if (m.type === 'frame') { last = m; lastAt = aliveAt = performance.now(); dirty = true; byeAt = 0; }
+      else if (m.type === 'alive') { aliveAt = performance.now(); byeAt = 0; }
+      else if (m.type === 'bye') byeAt = performance.now();
+    };
+    setInterval(() => {
+      const now = performance.now();
+      if ((byeAt && now - byeAt > 4000 && now - aliveAt > 3000) || now - aliveAt > 6000) window.close();
+    }, 500);
+  }
+  // Zoom and look around: pinch or the mouse wheel zooms where it is, a drag moves the view once zoomed in, a
+  // double tap (or double click) shows it all again.
+  const V = { z: 1, x: 0, y: 0 };
+  const viewChanged = () => { if (layout) layout.drawn = false; dirty = true; };
+  function clampView() {
+    V.z = Math.max(1, Math.min(8, V.z));
+    V.x = Math.min(0, Math.max(innerWidth * (1 - V.z), V.x)); V.y = Math.min(0, Math.max(innerHeight * (1 - V.z), V.y));
+  }
+  function zoomAt(cx, cy, z) { const z0 = V.z; V.z = z; clampView(); V.x = cx - (cx - V.x) * V.z / z0; V.y = cy - (cy - V.y) * V.z / z0; clampView(); viewChanged(); }
+  const resetView = () => { V.z = 1; V.x = V.y = 0; viewChanged(); };
+  const pts = new Map(); let gest = null, tapAt = 0;
+  const mid = p => [p.reduce((a, q) => a + q[0], 0) / p.length, p.reduce((a, q) => a + q[1], 0) / p.length];
+  const apart = p => p.length > 1 ? Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]) : 0;
+  const begin = () => { const p = [...pts.values()]; gest = p.length ? { n: p.length, c: mid(p), d: apart(p), V: { ...V } } : null; };
+  addEventListener('pointerdown', e => {
+    pts.set(e.pointerId, [e.clientX, e.clientY]); begin();
+    if (pts.size === 1) { const now = performance.now(); if (now - tapAt < 300) resetView(); tapAt = now; }
+  });
+  addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, [e.clientX, e.clientY]);
+    const p = [...pts.values()]; if (!gest || p.length !== gest.n) return begin();
+    const c = mid(p), z = gest.d > 0 ? gest.V.z * apart(p) / gest.d : gest.V.z;
+    V.z = Math.max(1, Math.min(8, z));
+    V.x = c[0] - (gest.c[0] - gest.V.x) * V.z / gest.V.z; V.y = c[1] - (gest.c[1] - gest.V.y) * V.z / gest.V.z;
+    clampView(); viewChanged();
+  });
+  for (const t of ['pointerup', 'pointercancel']) addEventListener(t, e => { pts.delete(e.pointerId); begin(); });
+  addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, V.z * Math.exp(-e.deltaY * 0.002)); }, { passive: false });
+  addEventListener('resize', () => { dirty = true; layout = null; clampView(); });
   setInterval(() => { dirty = true; }, 1000);                        // (so "waiting" shows when the frames stop)
 
   /** Where every light and its parts go, for the lights in this frame and this window size. */
@@ -196,12 +238,15 @@
   const REF_W = 1536, REF_H = 1010;
   const zoom = (w, h) => Math.min(w / REF_W, h / REF_H);
 
+  // where the view sits in the window: scaled by k and centered (a phone held upright: the house across its middle)
+  const fit = () => { const k = zoom(innerWidth, innerHeight); return { k, bx: (innerWidth - REF_W * k) / 2, by: (innerHeight - REF_H * k) / 2 }; };
+
   function drawBackground(L, w, h, k) {
-    const dpr = devicePixelRatio || 1, W = Math.floor(w * dpr * k), H = Math.floor(h * dpr * k);
+    const dpr = devicePixelRatio || 1, W = Math.floor(innerWidth * dpr), H = Math.floor(innerHeight * dpr), { bx, by } = fit();
     if (bg.width !== W || bg.height !== H) { bg.width = W; bg.height = H; }
     const g = bctx;
-    g.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
-    g.fillStyle = '#000000'; g.fillRect(0, 0, w, h);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#000000'; g.fillRect(0, 0, W, H);
+    g.setTransform(dpr * k * V.z, 0, 0, dpr * k * V.z, dpr * (V.x + V.z * bx), dpr * (V.y + V.z * by));   // (zoomed and moved: see V)
     g.font = '12px system-ui';
     g.fillStyle = '#5d6577'; g.fillText(L.song ? `Room view · ${L.song}` : 'Room view', 24, 26);
     if (L.plan) drawPlan(g, L.plan);
@@ -250,11 +295,11 @@
     requestAnimationFrame(draw);
     if (!dirty) return;
     dirty = false;
-    const k = zoom(innerWidth, innerHeight), w = innerWidth / k, h = innerHeight / k;   // (w, h: the view's own size)
+    const { k, bx, by } = fit(), w = REF_W, h = REF_H;                  // (w, h: the view's own size, always)
     const live = last && performance.now() - lastAt < 2000;
     note.style.display = live && last.lights.length ? 'none' : 'block';
     if (live && !last.lights.length) note.textContent = 'No party rooms set up: give the living room and game room their lights in the studio’s Rooms.';
-    if (!live) note.textContent = 'Waiting for the studio. Keep its window open; this view follows the song as it plays.';
+    if (!live) note.textContent = remote ? 'Waiting for the studio: the room view shows while it is open on the computer.' : 'Waiting for the studio. Keep its window open; this view follows the song as it plays.';
     if (!last || !last.lights.length) { bctx.clearRect(0, 0, bg.width, bg.height); if (gpu) gpu.draw([], innerWidth, innerHeight); return; }
     const L = layoutFor(last.lights, w, h);
     if (!L.drawn) drawBackground(L, w, h, k);
@@ -268,7 +313,8 @@
       });
     }
     if (gpu) {
-      gpu.draw(lights.map(s => ({ ...s, x: s.x * k, y: s.y * k, w: s.w * k, h: s.h * k, glow: s.glow == null ? s.glow : s.glow * k, radius: s.radius == null ? s.radius : s.radius * k })), innerWidth, innerHeight);
+      const f = k * V.z, ox = V.x + V.z * bx, oy = V.y + V.z * by;
+      gpu.draw(lights.map(s => ({ ...s, x: s.x * f + ox, y: s.y * f + oy, w: s.w * f, h: s.h * f, glow: s.glow == null ? s.glow : s.glow * f, radius: s.radius == null ? s.radius : s.radius * f })), innerWidth, innerHeight);
       return;
     }
     // no WebGL: plain shapes on the 2D layer, no glow

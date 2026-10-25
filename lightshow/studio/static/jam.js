@@ -675,8 +675,9 @@
     S.analysis = a; J.lastFeat = performance.now(); applyGenre(J.doc && J.doc.track);
     if (doc.light) { J.version = doc.version; buildLight(); return; }   // the beat, a little further along
     if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); St.draw(); return; }
-    p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
+    p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice();
     p.sections = St.withBuildups(St.tidySections(a.sections));      // a drop with none still gets its buildup
+    p.drops = St.dropsOf(p);
     J.secsSeen = { key: room.key, sig: St.sectionsSig() };
     $('#bpm').value = p.bpm.toFixed(2);
     // the genre arrived, or the drums did (the beat pulse goes only where there are drums): rebuild

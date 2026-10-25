@@ -524,6 +524,10 @@ class Studio:
         self.port = port
         self.quit_when_closed = quit_when_closed
         self.ws_clients = 0
+        # the room view on the Party Hub (a phone): the studio page's room view frames, passed on while one watches
+        self.studio_sockets: set = set()                 # the studio pages (their /ws): told how many watch
+        self.room_watchers: dict = {}                    # each phone's socket -> sending a frame now (one at a time)
+        self.room_last: str | None = None                # the latest frame, for a phone that just opened it
         self._watch_task = None
         self.last_client = 0.0
         self.known: list[govee_lan.GoveeDevice] = []
@@ -597,6 +601,7 @@ class Studio:
             web.post("/api/projects/{name}", self.save_project),
             web.delete("/api/projects/{name}", self.delete_project),
             web.get("/ws", self.websocket),
+            web.get("/ws/roomview", self.roomview_ws),
             web.post("/api/closing", self.closing),
             web.get("/api/settings", self.settings),
             web.get("/api/models", self.models_status),
@@ -1324,8 +1329,11 @@ class Studio:
         ws = web.WebSocketResponse(max_msg_size=4 * 1024 * 1024)
         await ws.prepare(request)
         self.ws_clients += 1
+        self.studio_sockets.add(ws)
         loop = asyncio.get_running_loop()
         try:
+            if self.room_watchers:
+                await ws.send_json({"type": "roomview_watchers", "n": len(self.room_watchers)})
             async for msg in ws:
                 if msg.type != web.WSMsgType.TEXT:
                     continue
@@ -1356,12 +1364,65 @@ class Studio:
                     await ws.send_json({"type": "stopped"})
                 elif kind == "frame":
                     self.output.frame(data.get("frames", []), data.get("ips"))
+                elif kind == "roomview":
+                    self._room_out(msg.data)
         finally:
+            self.studio_sockets.discard(ws)
             self.ws_clients -= 1
             self.last_client = time.monotonic()
         if self.output.active:                          # (off the event loop: restoring the lights takes 3-4 s, and a
             async with self.scan_lock:                  # page reloaded mid-jam froze everything, the speakers' stream too)
                 await loop.run_in_executor(None, self.output.stop)
+        return ws
+
+    # -- the room view on the Party Hub -------------------------------------------------
+    def _room_out(self, text: str) -> None:
+        """A room view frame from the studio page, to every phone watching. One still busy with the last gets
+        none (a slow phone skips frames rather than falling behind)."""
+        self.room_last = text
+        for w, busy in list(self.room_watchers.items()):
+            if not busy and not w.closed:
+                self.room_watchers[w] = True
+                asyncio.ensure_future(self._room_send(w, text))
+
+    async def _room_send(self, w, text: str) -> None:
+        try:
+            await w.send_str(text)
+        except Exception:  # noqa: BLE001 - gone: its own handler cleans up
+            pass
+        if w in self.room_watchers:
+            self.room_watchers[w] = False
+
+    async def _room_count(self) -> None:
+        for s in list(self.studio_sockets):
+            try:
+                await s.send_json({"type": "roomview_watchers", "n": len(self.room_watchers)})
+            except Exception:  # noqa: BLE001
+                pass
+
+    async def roomview_ws(self, request):
+        """A phone's room view (roomview.html?remote=1 on the Party Hub): the frames the studio page draws for its
+        own room view window, passed on while it is open. Its own socket, never /ws: a /ws closing hands the
+        lights back."""
+        import ipaddress
+        try:
+            ip = ipaddress.ip_address((request.remote or "").split("%")[0])
+        except ValueError:
+            raise web.HTTPForbidden()
+        if not (ip.is_private or ip.is_loopback):
+            raise web.HTTPForbidden()
+        ws = web.WebSocketResponse(heartbeat=20)
+        await ws.prepare(request)
+        self.room_watchers[ws] = False
+        await self._room_count()
+        try:
+            if self.room_last:
+                await ws.send_str(self.room_last)
+            async for _ in ws:
+                pass
+        finally:
+            self.room_watchers.pop(ws, None)
+            await self._room_count()
         return ws
 
 

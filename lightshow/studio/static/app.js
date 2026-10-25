@@ -87,11 +87,15 @@
     return out;
   }
 
+  /** A song's drops: where each drop section begins (one straight after another is the same drop going on), as
+   *  analysis.py has them. The drop sections are the only say: there are no markers of their own to move (the
+   *  user: they moved, but did nothing). */
+  const dropsOf = p => p.sections.filter((x, i) => x.type === 'drop' && !(i > 0 && p.sections[i - 1].type === 'drop' && Math.abs(p.sections[i - 1].end - x.start) < 0.01)).map(x => x.start);
   function newProject(a, name) {
     return {
       version: 1, name, bpm: a.bpm, phase: a.downbeat_phase, beats: a.beats.slice(),
       sections: tidySections(a.sections),
-      drops: a.drops.slice(), palettes: JSON.parse(JSON.stringify(Effects.PALETTES)), defaultPalette: 'Neon',
+      drops: dropsOf({ sections: tidySections(a.sections) }), palettes: JSON.parse(JSON.stringify(Effects.PALETTES)), defaultPalette: 'Neon',
       paletteClips: [], lanes: Array.from({ length: DEFAULT_LANES }, newLane),
       settings: { latency: 30 },
     };
@@ -141,6 +145,7 @@
   }
   /** older projects had a palette lane: bake it into the clips, then drop it */
   function migrateProject(p) {
+    p.drops = dropsOf(p);
     for (const lane of p.lanes) lane.hidden = !!lane.hidden;
     // a lamps clip and a tubes clip once shared a layer's lower half, one drawn over the other: the later one up
     // to the first layer with room (as freeLaneFor; new layers at the top)
@@ -303,7 +308,7 @@
     autoBuild(true);
     return 'rebuilt';
   }
-  function changed() { reviewRebuild(true); reviewCustom(); scheduleSave(); draw(); }
+  function changed() { if (P()) P().drops = dropsOf(P()); reviewRebuild(true); reviewCustom(); scheduleSave(); draw(); }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); S.project = JSON.parse(S.undo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); S.project = JSON.parse(S.redo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function scheduleSave() { clearTimeout(S.saveTimer); S.saveTimer = setTimeout(save, 1500); }
@@ -819,6 +824,7 @@
       const rm = roomOf(l);
       if (!lightDriven(l)) row.classList.add('room-off');
       row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="255" value="${l.segments}" title="Segments (LED zones)">`;
+      if (mapFlip(l) !== null) row.querySelector('.flip').hidden = true;   // the house map says which way it runs
       const nm = row.querySelector('.light-name'); nm.value = l.name || '';
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
       nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
@@ -900,7 +906,7 @@
   // as one space. A light not on the map gets stand-in spots along the house from its place in the line of lights.
   S.space = null;
   async function loadSpace() {
-    try { const d = await (await fetch('/api/space')).json(); if (JSON.stringify(d) !== JSON.stringify(S.space)) { S.space = d; S.spaceAt = {}; S.houseOf = null; } } catch (e) { /* the next look will do */ }
+    try { const d = await (await fetch('/api/space')).json(); if (JSON.stringify(d) !== JSON.stringify(S.space)) { S.space = d; S.spaceAt = {}; S.houseOf = null; if (!$('#lightList').contains(document.activeElement)) renderLights(); } } catch (e) { /* the next look will do */ }
   }
   loadSpace(); setInterval(() => { if (!document.hidden) loadSpace(); }, 15000);
   /** The house: its size (the plan's shapes), its middle (set on the map page), its rooms left to right. */
@@ -950,22 +956,37 @@
     return Array.from({ length: n }, (_, s) => { let j = 0; while (j < a.length - 2 && s > a[j + 1].seg) j++; const p = a[j], q = a[j + 1], k = (s - p.seg) / Math.max(1e-9, q.seg - p.seg); return [p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k]; });
   }
   const mapOf = l => { const ls = (S.space && S.space.lights) || {}; return ls[l.mac] || ls[l.device_id] || ls[l.ip] || null; };
+  /** Which way a light's shows run. A strip or the tubes on the house map: the map says, every one running the same
+   *  way round the house as its walls are numbered (house().sides), so a chase goes round the house one way (the
+   *  user: no button for what the map knows). A pole (one spot from above) or a light off the map: its own ⇄. */
+  function mapFlip(L) {
+    const m = mapOf(L); if (!m || m.kind === 'pole') return null;
+    const pos = mapSpots(m, Math.max(1, L.segments)); if (!pos) return null;
+    const c = house().c, pts = pos.filter(Boolean); if (pts.length < 2) return null;
+    let sweep = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const a0 = Math.atan2(pts[i - 1][1] - c[1], pts[i - 1][0] - c[0]), a1 = Math.atan2(pts[i][1] - c[1], pts[i][0] - c[0]);
+      sweep += Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0));
+    }
+    return Math.abs(sweep) < 1e-6 ? null : sweep < 0;
+  }
+  const flipOf = L => { const f = mapFlip(L); return f === null ? !!L.flip : f; };
   /** A light's spots as the show draws it ({pos: [x, y] for each of its segments in the show's order (a flipped light's
    *  map turned round), house, mapped}); off the map, stand-ins along the house by its place in the line. */
   function spaceOf(L, room) {
-    const n = Math.max(1, L.segments), k = [L.ip, n, L.flip ? 1 : 0, room ? room.i + '/' + room.n : ''].join('|');
+    const n = Math.max(1, L.segments), k = [L.ip, n, flipOf(L) ? 1 : 0, room ? room.i + '/' + room.n : ''].join('|');
     S.spaceAt = S.spaceAt || {};
     if (S.spaceAt[k]) return S.spaceAt[k];
     const H = house();
     let pos = mapSpots(mapOf(L), n);
     const mapped = !!pos;
-    if (pos && L.flip) pos = pos.slice().reverse();
+    if (pos && flipOf(L)) pos = pos.slice().reverse();
     if (!pos) { const i = room ? room.i : 0, of = room ? room.n : 1; pos = Array.from({ length: n }, (_, j) => [H.w * (i + (j + 0.5) / n) / of, H.d / 2]); }
     // which side each segment is on (its run of the strip, numbered round the house), and the runs in the show's
     // order: [{i0, i1, k}]; a light with no runs (off the map) is one side of its own
     const key = [L.mac, L.device_id, L.ip].find(x => x && H.sidesOf.has(x)), rs = key ? H.sidesOf.get(key) : null;
     let side = Array.from({ length: n }, (_, s) => { if (!rs) return H.sideCount + (room ? room.i : 0); const r = rs.find(q => s <= q.s1) || rs[rs.length - 1]; return r.k; });
-    if (L.flip) side = side.reverse();
+    if (flipOf(L)) side = side.reverse();
     const runs = []; side.forEach((k2, i) => { const r = runs[runs.length - 1]; if (r && r.k === k2) r.i1 = i + 1; else runs.push({ i0: i, i1: i + 1, k: k2 }); });
     return (S.spaceAt[k] = { pos, house: H, mapped, runs });
   }
@@ -1095,7 +1116,9 @@
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
     ws.onopen = () => { S.wsOpen = true; sendSelect(); autoLights(); if ($('#outputOn').checked) pushFrameIfIdle(); };
     ws.onclose = () => { S.wsOpen = false; S.outputActive = false; setTimeout(connectWs, 2000); };
-    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'started') S.outputActive = true; if (m.type === 'stopped') S.outputActive = false; };
+    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'started') S.outputActive = true; if (m.type === 'stopped') S.outputActive = false;
+      if (m.type === 'roomview_watchers') S.roomViewRemote = m.n > 0; };   // (a phone has the room view open: sendRoomView)
+    ws.addEventListener('close', () => { S.roomViewRemote = false; });
     S.ws = ws;
   }
   const wsSend = o => { if (S.wsOpen) S.ws.send(JSON.stringify(o)); };
@@ -1456,10 +1479,14 @@
     roomViewCh.onmessage = e => { if (e.data && e.data.type === 'hello') { S.roomViewAt = performance.now(); roomViewCh.postMessage({ type: 'alive' }); } };
     addEventListener('pagehide', () => { try { roomViewCh.postMessage({ type: 'bye' }); } catch (e) { /* closing anyway */ } });
   }
+  // A phone's room view (the Party Hub's Lights tab) gets the same frames through the studio, 20 a second.
   function sendRoomView(t) {
-    if (!roomViewCh || !S.roomViewAt || performance.now() - S.roomViewAt > 3000) return;
-    if (performance.now() - (S.roomViewSent || 0) < 30) return;
-    S.roomViewSent = performance.now();
+    const now = performance.now();
+    const local = !!(roomViewCh && S.roomViewAt && now - S.roomViewAt <= 3000) && now - (S.roomViewSent || 0) >= 30;
+    const remote = !!(S.roomViewRemote && S.wsOpen) && now - (S.roomViewRemoteSent || 0) >= 50;
+    if (!local && !remote) return;
+    if (local) S.roomViewSent = now;
+    if (remote) S.roomViewRemoteSent = now;
     // Every light, the ones ticked off and those in rooms switched off too, as if the whole house played (the user:
     // to see a show ahead of trying it on the lights); each light's pixels in its own order (a flipped light turned
     // back), as the house map has them, and whether it is on the map and playing now.
@@ -1469,11 +1496,13 @@
     try { frame = lights.length ? renderFrame(t, lights, 'room') : []; } finally { S.previewAll = false; }
     const space = S.roomSpaces[roomSpaceKey(lights)];
     const playing = new Set(partyLights().concat(selectedLights()));
-    roomViewCh.postMessage({ type: 'frame', song: S.name || '', lights: frame.map(fr => {
+    const msg = { type: 'frame', song: S.name || '', lights: frame.map(fr => {
       const L = fr.light, r = roomOf(L), at = space && space.of.get(L);
-      return { name: lightLabel(L), room: r ? r.name : '', kind: lightKind(L), px: L.flip ? flipPx(fr.px) : fr.px, at: at ? at.i : 0, n: at ? at.n : 1,
+      return { name: lightLabel(L), room: r ? r.name : '', kind: lightKind(L), px: flipOf(L) ? flipPx(fr.px) : fr.px, at: at ? at.i : 0, n: at ? at.n : 1,
                keys: [L.mac, L.device_id, L.ip].filter(Boolean), on: playing.has(L) };
-    }) });
+    }) };
+    if (local) roomViewCh.postMessage(msg);
+    if (remote) wsSend({ type: 'roomview', frame: msg });
   }
   // (opened without a link back to the studio: a window opened from a page runs on that page's thread, so the
   // room view's drawing and the studio's own took turns and both stuttered, full screen on a 4K monitor most
@@ -1549,7 +1578,7 @@
     const t = pos();
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
     const lf = renderFrame(lt, undefined, 'lights');
-    wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => { const px = f.light.flip ? flipPx(f.px) : f.px; return lightKind(f.light) === 'tubes' ? tubeOut(px) : px; }) });
+    wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => { const px = flipOf(f.light) ? flipPx(f.px) : f.px; return lightKind(f.light) === 'tubes' ? tubeOut(px) : px; }) });
     S.forceSend = false; S.framesSent = (S.framesSent || 0) + 1; S.lastLightSend = performance.now();
   }
   // (the room view's frames go on this clock too: it keeps ticking with the studio minimized or behind)
@@ -1623,7 +1652,6 @@
     const secStep = S.view.pps > 80 ? 1 : S.view.pps > 25 ? 5 : S.view.pps > 8 ? 10 : 30;
     for (let s = Math.floor(t0 / secStep) * secStep; s < t1; s += secStep) { const x = xOf(s); g.fillStyle = '#3a3f4b'; g.fillRect(x, ROW.ruler - 6, 1, 6); g.fillStyle = '#8b92a3'; g.fillText(fmtTime(s).slice(0, -4), x + 2, ROW.ruler - 8); }
     // drops
-    for (const d of p.drops) { const x = xOf(d); g.fillStyle = '#ef4444'; g.beginPath(); g.moveTo(x - 6, 0); g.lineTo(x + 6, 0); g.lineTo(x, 9); g.fill(); g.fillRect(x, 0, 1, h); }
 
     // sections
     const sy = ROW.ruler;
@@ -1800,7 +1828,6 @@
       const ph = m * amp;
       if (ph > 0) g.fillRect(x, mid - ph, 1, ph * 2);
     }
-    for (const d of p.drops) { const x = ovX(d); g.fillStyle = '#ef4444'; g.fillRect(x - 0.5, 0, 1.5, h); g.beginPath(); g.moveTo(x - 4, 0); g.lineTo(x + 4, 0); g.lineTo(x, 6); g.fill(); }
   }
 
   function drawOverview() {
@@ -1874,7 +1901,7 @@
     }
     if (y >= lanesTop() && Math.floor((y - laneTop(0)) / ROW.lane) === p.lanes.length) return { type: 'addLane' };
     const t = tOf(x), b = timeToBeat(t);
-    if (y < ROW.ruler) { for (let i = 0; i < p.drops.length; i++) if (Math.abs(xOf(p.drops[i]) - x) < 6) return { type: 'drop', index: i }; return { type: 'ruler', t }; }
+    if (y < ROW.ruler) return { type: 'ruler', t };
     if (y < ROW.ruler + ROW.sections) {
       for (let i = 1; i < p.sections.length; i++) if (Math.abs(xOf(p.sections[i].start) - x) < 5) return { type: 'section-edge', index: i };
       const i = p.sections.findIndex(s => t >= s.start && t < s.end); return i >= 0 ? { type: 'section', index: i } : { type: 'ruler', t };
@@ -1945,15 +1972,10 @@
       const st = snapTime(h.t, e); seek(st); S.view.sel = null; inspector(); S.view.drag = { type: 'scrub', last: st }; draw(); return;
     }
     if (h.type === 'beat') { S.view.sel = { type: 'beat', index: h.index }; inspector(); if ($('#beatEdit').checked) { beginChange(); S.view.drag = { type: 'beat', index: h.index }; } draw(); return; }
-    if (h.type === 'drop') { S.view.sel = { type: 'drop', index: h.index }; inspector(); beginChange(); S.view.drag = { type: 'drop', index: h.index }; draw(); return; }
     if (h.type === 'section') { S.view.sel = { type: 'section', index: h.index }; inspector(); draw(); return; }
     if (h.type === 'section-edge') {
       beginChange();
-      // a drop marker on this edge belongs to it: dragging the edge takes the marker along,
-      // so a drop section and its blast can never drift apart
-      const edge = p.sections[h.index].start;
-      const mk = p.drops.findIndex(t => Math.abs(t - edge) < 0.35);
-      S.view.drag = { type: 'section-edge', index: h.index, marker: mk >= 0 ? mk : null }; return;
+      S.view.drag = { type: 'section-edge', index: h.index }; return;
     }
     if (h.type === 'clip') {
       const { clip } = findClip(h.id);
@@ -2016,8 +2038,7 @@
       return;
     }
     if (d.type === 'beat') { p.beats[d.index] = t; p.beats.sort((a, b) => a - b); d.index = p.beats.indexOf(t); S.view.sel = { type: 'beat', index: d.index }; draw(); return; }
-    if (d.type === 'drop') { p.drops[d.index] = beatToTime(snapBeat(b)); draw(); return; }
-    if (d.type === 'section-edge') { const s = p.sections[d.index], prev = p.sections[d.index - 1]; const nt = beatToTime(snapBeat(b)); if (nt > prev.start + 0.5 && nt < s.end - 0.5) { s.start = nt; prev.end = nt; if (d.marker !== null && d.marker !== undefined) p.drops[d.marker] = nt; reviewRebuild(false); draw(); } return; }
+    if (d.type === 'section-edge') { const s = p.sections[d.index], prev = p.sections[d.index - 1]; const nt = beatToTime(snapBeat(b)); if (nt > prev.start + 0.5 && nt < s.end - 0.5) { s.start = nt; prev.end = nt; reviewRebuild(false); draw(); } return; }
     if (d.type === 'clip') {
       const c = d.clip; d.moved = true;
       const laneOf = p.lanes[d.lane];
@@ -2050,7 +2071,7 @@
     if (d.type === 'group') {
       if (!d.moved) { S.undo.pop(); if (!d.tried) setSelection([d.id]); return; }   // a plain click on a member picks just that clip
       inspector(); changed(); return;
-    } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'section-edge' && d.marker !== null) P().drops.sort((a, b) => a - b); if (d.type === 'clip') inspector(); changed(); });
+    } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'clip') inspector(); changed(); });
   tl.addEventListener('dblclick', e => { const r = tl.getBoundingClientRect(); const h = hitTest((e.clientX - r.left) / UI, (e.clientY - r.top) / UI); if (!h) return; if (h.type === 'section') { beginChange(); const s = P().sections[h.index]; s.type = SECTION_TYPES[(SECTION_TYPES.indexOf(s.type) + 1) % SECTION_TYPES.length]; inspector(); changed(); } });
   tl.addEventListener('wheel', e => {
     e.preventDefault(); const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI;
@@ -2090,11 +2111,7 @@
       hr();
       item('Split at playhead', () => { const t = pos(); if (t <= s.start + 0.5 || t >= s.end - 0.5) return; beginChange(); const nt = beatToTime(snapBeat(timeToBeat(t))); p.sections.splice(i + 1, 0, { start: nt, end: s.end, type: s.type }); s.end = nt; changed(); });
       if (i > 0) item('Merge with previous', () => { beginChange(); p.sections[i - 1].end = s.end; p.sections.splice(i, 1); changed(); });
-      item('Add drop marker at start', () => { beginChange(); p.drops.push(s.start); p.drops.sort((a, b) => a - b); changed(); });
-    } else if (h.type === 'drop') {
-      item('Delete drop marker', () => { beginChange(); p.drops.splice(h.index, 1); changed(); });
     } else if (h.type === 'ruler' || h.type === 'wave') {
-      item('Add drop marker here', () => { beginChange(); p.drops.push(beatToTime(snapBeat(b))); p.drops.sort((a, b) => a - b); changed(); });
       item('Split section here', () => { const t = beatToTime(snapBeat(b)); const i = p.sections.findIndex(s => t > s.start + 0.5 && t < s.end - 0.5); if (i < 0) return; beginChange(); const s = p.sections[i]; p.sections.splice(i + 1, 0, { start: t, end: s.end, type: s.type }); s.end = t; changed(); });
       item('Set downbeat to nearest beat', () => { beginChange(); const k = Math.round(b); p.phase = ((k % 4) + 4) % 4; changed(); });
     } else if (h.type === 'lane' || h.type === 'laneHeader') {
@@ -2153,7 +2170,6 @@
     if (!sel) return; const p = P(); beginChange();
     if (sel.type === 'clip') { const ids = sel === S.view.sel && S.view.multi.length ? S.view.multi : [sel.id]; for (const lane of p.lanes) lane.clips = lane.clips.filter(c => !ids.includes(c.id)); S.view.multi = []; }
     if (sel.type === 'beat') p.beats.splice(sel.index, 1);
-    if (sel.type === 'drop') p.drops.splice(sel.index, 1);
     if (sel.type === 'section' && p.sections.length > 1) { const i = sel.index; if (i > 0) { p.sections[i - 1].end = p.sections[i].end; } else { p.sections[1].start = p.sections[0].start; } p.sections.splice(i, 1); }
     S.view.sel = null; inspector(); changed();
   }
@@ -2416,7 +2432,6 @@
       return;
     }
     if (sel.type === 'beat') { el.innerHTML = `<div class="panel"><div class="title">Beat ${sel.index + 1}</div><div class="row"><label>Time</label><span>${fmtTime(p.beats[sel.index])}</span></div><div class="btns"><button id="bDel" class="small">Delete beat</button></div></div>`; $('#bDel').onclick = () => deleteSelection(); return; }
-    if (sel.type === 'drop') { el.innerHTML = `<div class="panel"><div class="title">Drop marker</div><div class="row"><label>Time</label><span>${fmtTime(p.drops[sel.index])}</span></div><div class="btns"><button id="dDel" class="small">Delete marker</button></div></div>`; $('#dDel').onclick = () => deleteSelection(); return; }
   }
 
   // ------------------------------------------------------------------ auto-build
@@ -3997,7 +4012,7 @@
     const all = confirm('Re-detect.' + String.fromCharCode(10, 10) + 'OK = replace the beat grid AND your sections and drop markers with the fresh analysis.' + String.fromCharCode(10) + 'Cancel = replace only the beat grid (BPM, beats, downbeat) and keep your sections and drops.');
     beginChange();
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); $('#bpm').value = p.bpm.toFixed(2);
-    if (all) { p.sections = a.sections.map(s => ({ start: s.start, end: s.end, type: s.type })); p.drops = a.drops.slice(); }
+    if (all) { p.sections = a.sections.map(s => ({ start: s.start, end: s.end, type: s.type })); p.drops = dropsOf(p); }
     S.view.sel = null; inspector(); changed(); toast(all ? `Re-detected: ${p.sections.length} sections, ${p.drops.length} drops` : 'Beat grid refreshed; sections and drops kept');
   };
   $('#btnAuto').onclick = () => { if (!P()) return toast('Open a song first'); if (P().lanes.some(l => l.clips.length) && !confirm('Replace all clips with an auto-built show?')) return; autoBuild(); };
@@ -4081,6 +4096,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, sectionsSig, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, sectionsSig, dropsOf, flipOf, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();
