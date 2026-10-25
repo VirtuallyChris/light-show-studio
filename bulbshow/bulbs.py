@@ -307,7 +307,13 @@ class CloudBulb(VirtualBulb):
             return
         b = self.before
         try:
-            if b.get("colorRgb") is not None:
+            # White comes back as white. A color only if Govee reported one: a bulb that was running one of its
+            # own scenes reports color 0 and no white (and never which scene), and putting back "color 0" would
+            # leave it on but dark, so then its color is left as the show left it.
+            if int(b.get("colorTemperatureK") or 0) > 0:
+                self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorTemperatureK",
+                                    int(b["colorTemperatureK"]))
+            elif int(b.get("colorRgb") or 0) > 0:
                 self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorRgb", int(b["colorRgb"]))
             if b.get("brightness") is not None:
                 self.client.control(self.sku, self.device, "devices.capabilities.range", "brightness", int(b["brightness"]))

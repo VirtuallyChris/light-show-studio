@@ -239,8 +239,9 @@ class RunnerTest(unittest.TestCase):
 
 
 class FakeClient:
-    def __init__(self, usage=None, fail=None):
+    def __init__(self, usage=None, fail=None, before=None):
         self.calls, self.usage, self.fail = [], usage or CloudUsage(), fail
+        self.before = before or {"powerSwitch": 1, "brightness": 40, "colorRgb": 0x00ff00, "colorTemperatureK": 0}
 
     def control(self, sku, device, ctype, instance, value):
         if self.fail:
@@ -248,7 +249,7 @@ class FakeClient:
         self.calls.append((instance, value))
 
     def state(self, sku, device):
-        return {"powerSwitch": 1, "brightness": 40, "colorRgb": 0x00ff00}
+        return dict(self.before)
 
 
 class CloudBulbTest(unittest.TestCase):
@@ -265,6 +266,27 @@ class CloudBulbTest(unittest.TestCase):
         self.assertEqual(colors[-1], rgb_int((49, 0, 0)))
         b.end()
         self.assertEqual(client.calls[-2:], [("colorRgb", 0x00ff00), ("brightness", 40)])
+
+    def put_back(self, before):
+        client = FakeClient(before=before)
+        b = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        b.begin()
+        n = len(client.calls)
+        b.end()
+        return client.calls[n:]
+
+    def test_white_comes_back_as_white(self):
+        self.assertEqual(self.put_back({"powerSwitch": 1, "brightness": 55, "colorRgb": 0, "colorTemperatureK": 4000}),
+                         [("colorTemperatureK", 4000), ("brightness", 55)])
+
+    def test_a_bulb_that_was_running_a_scene_is_not_left_dark(self):
+        # Govee reports a scene as color 0 and no white: only brightness (and power) are put back
+        self.assertEqual(self.put_back({"powerSwitch": 1, "brightness": 80, "colorRgb": 0, "colorTemperatureK": 0, "lightScene": ""}),
+                         [("brightness", 80)])
+
+    def test_a_bulb_that_was_off_goes_off_again(self):
+        self.assertEqual(self.put_back({"powerSwitch": 0, "brightness": 70, "colorRgb": 0, "colorTemperatureK": 0}),
+                         [("brightness", 70), ("powerSwitch", 0)])
 
     def test_a_scene_goes_out_as_govee_gave_it(self):
         client = FakeClient()
