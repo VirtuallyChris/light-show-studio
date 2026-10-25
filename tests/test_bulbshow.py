@@ -179,6 +179,11 @@ class RunnerTest(unittest.TestCase):
         r = self.runner(cast_offset_s=0.0, light_ms=250)
         self.assertAlmostEqual(r.moment(1.0), 1.25)
 
+    def test_a_cloud_bulb_is_sent_early_by_its_own_delay(self):
+        r = self.runner(cast_offset_s=0.0)
+        r.bulb.lead = 0.2
+        self.assertAlmostEqual(r.moment(1.0), 1.2)
+
     def test_runs_and_lights_the_bulb(self):
         r = self.runner(start_at=0.0)
         r.start()
@@ -286,6 +291,17 @@ class CloudBulbTest(unittest.TestCase):
         c._request = lambda method, path, body=None: answers[path]
         self.assertEqual(c.scenes("H6008", "AA"), [{"name": "Breathe", "instance": "lightScene", "value": {"id": 1, "paramId": 2}},
                                                    {"name": "Witch", "instance": "diyScene", "value": 77}])
+
+    def test_only_bulbs_are_offered(self):
+        from unittest import mock
+        from bulbshow import bulbs
+        cloud = [{"id": "1", "sku": "H6008", "name": "Bedroom Bulb Right"}, {"id": "2", "sku": "H608D", "name": "Office Downlights"},
+                 {"id": "3", "sku": "H6076", "name": "Floor Lamp Left"}, {"id": "4", "sku": "H6821", "name": "Meteor Shower Lights"},
+                 {"id": "5", "sku": "H70B1", "name": "Smart Curtain Lights"}, {"id": "6", "sku": "H6003", "name": "Hall"}]
+        client = mock.Mock(key="k", devices=lambda: cloud)
+        with mock.patch.object(bulbs.govee_lan, "discover", lambda t: []):
+            found, problem = bulbs.find_bulbs(client)
+        self.assertEqual([b["name"] for b in found], ["Bedroom Bulb Right", "Hall"])
 
     def test_daily_limit_stops_sending(self):
         usage = CloudUsage()

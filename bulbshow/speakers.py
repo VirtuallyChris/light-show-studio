@@ -42,17 +42,47 @@ class Speakers:
             return out
 
     def open(self, name: str) -> CastManager:
+        """A connected CastManager for the speaker. Its discovery keeps running for as long as the show
+        does: the connection finds (and refinds) the speaker through it, and with discovery stopped
+        connecting times out."""
         import pychromecast
         with self.lock:
             casts, browser = pychromecast.get_listed_chromecasts(friendly_names=[name], discovery_timeout=8,
                                                                   zeroconf_instance=self._zeroconf())
-            browser.stop_discovery()
         if not casts:
+            browser.stop_discovery()
             raise LookupError(f"{name} is not on the network right now")
-        mgr = CastManager(self.ip)
+        mgr = ShowCast(self.ip, browser)
         mgr.casts = list(casts)
-        mgr.connect(name)
+        try:
+            mgr.connect(name)
+        except Exception:
+            mgr.disconnect()
+            mgr.stop_browser()
+            raise
         return mgr
+
+
+class ShowCast(CastManager):
+    """The studio's CastManager, holding on to the discovery that found its speaker until it lets go."""
+
+    def __init__(self, interface_ip, browser):
+        super().__init__(interface_ip)
+        self.show_browser = browser
+
+    def disconnect(self) -> None:
+        was = self.cast is not None              # (connect() calls this first, before there is a speaker: keep looking then)
+        super().disconnect()
+        if was:
+            self.stop_browser()
+
+    def stop_browser(self) -> None:
+        browser, self.show_browser = self.show_browser, None
+        if browser is not None:
+            try:
+                browser.stop_discovery()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class FakeCast:

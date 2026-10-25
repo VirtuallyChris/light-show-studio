@@ -115,7 +115,8 @@ class ShowRunner:
         heard = position - self.cast_offset
         if heard < 0:
             return None
-        return (self.base + heard + self.light_lead) % self.sound.duration
+        lead = self.light_lead + float(getattr(self.bulb, "lead", 0.0))      # (a cloud bulb's own delay too)
+        return (self.base + heard + lead) % self.sound.duration
 
     def _run(self) -> None:
         idle_since, played = None, False

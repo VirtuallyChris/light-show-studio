@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import re
 import ssl
 import threading
 import time
@@ -238,6 +239,9 @@ class CloudBulb(VirtualBulb):
         self.stopping = False
         self.before = {}
         self.thread = None
+        # How long a command takes to get through Govee's cloud (a running average; about 0.15 s measured on
+        # an H6008, Oct 2026). The show sends each change this much early so it lands on time.
+        self.lead = 0.15
 
     def _send(self, st) -> None:
         if is_scene(st):
@@ -280,7 +284,9 @@ class CloudBulb(VirtualBulb):
                 if rgb is None or rgb == self.color or not self.bucket.take(self.clock()):
                     continue
             try:
+                t = time.monotonic()
                 self._send(rgb)
+                self.lead += (min(1.0, time.monotonic() - t) - self.lead) * 0.2
                 self.color, self.error = rgb, ""
                 self.sent += 1
             except CloudError as e:
@@ -311,9 +317,18 @@ class CloudBulb(VirtualBulb):
             pass
 
 
+# Govee's bulbs are the H600x and H601x models (the H6008 among them). Every other light on the account
+# (strips, downlights, lamps, curtain and meteor lights) is left out: the shows here are made for a bulb.
+BULB_SKU = re.compile(r"^H60[01][0-9A-Z]$", re.I)
+
+
+def is_bulb(sku: str) -> bool:
+    return bool(BULB_SKU.match(sku or ""))
+
+
 def find_bulbs(client: CloudClient | None, lan_timeout: float = 2.5) -> tuple[list[dict], str]:
-    """Every Govee light this app could drive: on the LAN first, then the account's cloud lights
-    (a light found both ways is taken over the LAN). Returns (bulbs, a problem with the cloud or "")."""
+    """Every Govee bulb this app could drive: on the LAN first, then the account's cloud lights
+    (a bulb found both ways is taken over the LAN). Returns (bulbs, a problem with the cloud or "")."""
     out, problem = [], ""
     seen = set()
     for d in govee_lan.discover(lan_timeout):
@@ -330,7 +345,7 @@ def find_bulbs(client: CloudClient | None, lan_timeout: float = 2.5) -> tuple[li
                 out.append({**d, "via": "cloud"})
         except CloudError as e:
             problem = str(e)
-    return out, problem
+    return [b for b in out if is_bulb(b["sku"])], problem
 
 
 def make_bulb(spec: dict, client: CloudClient | None, virtual: bool = False):

@@ -50,4 +50,9 @@ flashes stay lit at least 0.3 s. The editor shows what a show costs per hour (â‰
 show list counts what today has used. A steady color costs nothing while it loops; every flash
 costs two. Past the daily limit the cloud bulbs wait until the next day and the sound plays on.
 
+Only bulbs are offered (Govee's H600x/H601x models, the H6008 among them); the account's strips,
+downlights and lamps are left out. Tested on a real H6008 and Office Home 2 (October 2026): a cloud
+command takes about 0.15 s, so cloud changes are sent that much early; black (color 0) is accepted;
+the H6008 lists 63 scenes of its own (Halloween, Thunderstorm, Fire, Candlelight...).
+
 Shows, sounds and the API key stay on this computer (`shows/` and `config.json` here are not in git).
