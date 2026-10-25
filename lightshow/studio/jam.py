@@ -1425,6 +1425,7 @@ class JamEngine:
             self.cue_hold, self.cue_in_stream = True, True
             self.held_at = at + min(lead_s, len(pcm) / sr / 2)    # where the music picks up after the song
             self.output.start_stream(fresh)
+            self._streamed_at = self.clock()             # (keep_delay leaves a fresh stream alone while it settles)
             self.say("a cue: its song plays in the room's stream, the music holds where it is")
         try:
             self.spotify.pause()

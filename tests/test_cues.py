@@ -224,10 +224,17 @@ class TestLiveCues(unittest.TestCase):
         from lightshow.studio.cues import LiveHooks
         hooks = LiveHooks(cast, jam, lambda name: ("u", "p"), lambda n: 0.5, pcm=lambda name: (np.zeros((500, 2), dtype=np.int16), 1000))
         first, last = self.run_cue(hooks)
-        self.assertEqual(jam.calls, [("insert", 500, 0.2, 0.2), "over"])   # no pause, no hold: the song was in the stream
+        self.assertEqual(jam.calls, [("insert", 500, 0.2, 0.15), "over"])  # no pause, no hold: the song was in the stream
+        # (crossfading back over its last 30% at most: 0.15 s of a 0.5 s song, not its 0.2 s fade)
         self.assertEqual(cast.calls, [])                                   # the speakers never loaded the show's song
         self.assertTrue(last["stream"])
         self.assertEqual(last["steps"], ["show", "fade_in", "done"])
+
+    def test_a_short_sound_effect_comes_back_to_the_music_only_at_its_end(self):
+        from lightshow.studio.cues import cue_tail
+        self.assertAlmostEqual(cue_tail(3.0, 4.76), 1.428)                 # the werewolf howl: its last 1.4 s, not 3
+        self.assertEqual(cue_tail(3.0, 12.4), 3.0)                         # a longer one: its whole fade
+        self.assertEqual(cue_tail(0.0, 5.0), 0.0)
 
     def test_a_song_not_ready_plays_the_old_way(self):
         cast, jam = FakeCast(), FakeJam("cast")

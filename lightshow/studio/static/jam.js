@@ -388,7 +388,8 @@
   }
   preloadCues(); setInterval(preloadCues, 60000);
   async function cueTick(cue) {
-    const active = !!(cue && cue.phase && cue.phase !== 'done' && cue.show), showing = active && cue.phase === 'show';
+    // its lights play on through the crossfade back into the music (the song is still heard), then the jam's show
+    const active = !!(cue && cue.phase && cue.phase !== 'done' && cue.show), showing = active && (cue.phase === 'show' || (cue.phase === 'fade_in' && cue.stream));
     if (active) showData(cue.show);
     if (showing && C.run !== cue.run && C.ended !== cue.run) await cueStart(cue);   // (a slower answer may still say it shows)
     else if (!showing && C.run) cueEnd();

@@ -53,6 +53,16 @@ def _fade(v, default: dict) -> dict:
     return {"on": bool(v.get("on", default["on"])), "s": round(max(0.0, min(30.0, s)), 2)}
 
 
+CUE_TAIL_SHARE = 0.3       # a cue's song crossfades back into the music over at most this share of it
+
+
+def cue_tail(tail: float, dur: float) -> float:
+    """How long a cue's song crossfades back into the music: its fade in, but over no more than its last 30%. A
+    4.8 s werewolf howl with a 3 s fade had the music back from 1.8 s in, over the howl, and its lights handed
+    back to the jam's show before they had played (the user: they played no light show, and came back weird)."""
+    return max(0.0, min(float(tail), CUE_TAIL_SHARE * float(dur)))
+
+
 def _fade_default(cid: str, key: str) -> dict:
     """A cue saved without its fades takes the starting cue's (the doorbell's cut, then fade in), else 2 s each."""
     start = next((c for c in DEFAULT_CUES if c["id"] == cid), None)
@@ -130,6 +140,7 @@ class LiveHooks:
 
     # -- a cue played inside the jam's stream ---------------------------------------------------
     def stream_cue(self, name: str, lead: float, tail: float) -> float | None:
+        """(tail: as long as cue_tail allows for this song)"""
         """Put the show's song into the jam's stream, crossfading in over lead and out over tail.
         Returns its length, or None when it cannot be (no jam on speakers, or the song is not ready)."""
         if self.engine is None or self.via not in ("cast", "pc") or not getattr(self.engine, "streaming", False) or self.pcm is None:
@@ -138,7 +149,7 @@ class LiveHooks:
         if got is None:
             return None
         frames, rate = got
-        if not self.engine.cue_insert(frames, lead, tail):
+        if not self.engine.cue_insert(frames, lead, cue_tail(tail, len(frames) / float(rate))):
             return None
         return len(frames) / float(rate)
 
@@ -322,6 +333,7 @@ class CueRunner:
     def _run_in_stream(self, h, dur: float, tail: float) -> None:
         """The song is in the jam's stream already: follow it by the speakers' own position (they take a
         moment to start a fresh stream), and hand the room back as it crossfades into the music."""
+        tail = cue_tail(tail, dur)                       # (the crossfade the stream was given)
         self.state["stream"] = True                      # the page plays only its lights, never its sound
         self._phase("show", dur)
         t0, stopped = self.clock(), False
