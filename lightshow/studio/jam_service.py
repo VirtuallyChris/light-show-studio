@@ -649,6 +649,8 @@ class JamService:
         if not isinstance(out, CastOutput) or getattr(self, "_auto_sync_off", False) or getattr(self, "_syncing", False):
             return
         started = getattr(out, "started_at", 0.0)
+        if getattr(e, "cue_hold", False) or (started and started == getattr(e, "no_sync_start", None)):
+            return                                       # a doorbell, the music back after it, a catch-up: no new delay
         retry = getattr(self, "_sync_retry_at", 0.0)
         if not started or e.gate.paused or (started == getattr(self, "_synced_start", None) and not (retry and time.monotonic() >= retry)):
             return

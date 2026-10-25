@@ -1218,10 +1218,18 @@ class JamEngine:
             self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, nxt.start),
                                                             pace=not isinstance(self.output, VirtualOutput)))
             self._streamed_at, self._catch_up_said = self.clock(), False
+            self._quiet_start()
             left = max(0.0, nxt.start - rc)
             self.say(f"caught up between songs: the last {left:.0f}s of {here.track.label if here else 'the song'} left out, "
                      f"{nxt.track.label} from its start ({d:.0f}s behind -> {d - left:.0f}s)")
             return f"delay {d:.0f}s -> {d - left:.0f}s"
+
+    def _quiet_start(self) -> None:
+        """The stream just started is the room carrying on (a doorbell's song, the music back after it, a catch-up
+        between songs): the speaker's delay has not changed, so no sync check follows it (jam_service
+        _maybe_auto_sync). One ran 8 s into a doorbell, listening to its song, and again as the music came
+        back, crunching the microphone's recording while the lights faded: they stuttered, the studio lagged."""
+        self.no_sync_start = getattr(self.output, "started_at", None)
 
     SPEAKER_LIVE = ("PLAYING", "PAUSED", "BUFFERING")
 
@@ -1453,6 +1461,7 @@ class JamEngine:
             self.held_at = at + min(lead_s, len(pcm) / sr / 2)    # where the music picks up after the song
             self.output.start_stream(fresh)
             self._streamed_at = self.clock()             # (keep_delay leaves a fresh stream alone while it settles)
+            self._quiet_start()
             self.say("a cue: its song plays in the room's stream, the music holds where it is")
         try:
             self.spotify.pause()
@@ -1520,6 +1529,7 @@ class JamEngine:
                 self.output.start_stream(fresh)
                 self._streamed_at = self.clock()          # (keep_delay leaves it to settle)
                 self._resume_watch = None
+                self._quiet_start()
             self.say("the cue is over: the room carries on")
         try:
             self.spotify.resume()

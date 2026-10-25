@@ -418,6 +418,7 @@ class TestAutoSync(unittest.TestCase):
         _t.sleep(0.1)
         self.assertEqual(runs, [1])                                   # once for this start, not on every poll
         self.assertTrue(any("250 ms" in m for m in e.log))
+
         e.output.started_at = _t.monotonic() - 10                     # restarted (a reconnect): checked again
         svc._maybe_auto_sync(e)
         for _ in range(50):
@@ -447,6 +448,45 @@ class TestAutoSync(unittest.TestCase):
         self.assertEqual(len(runs), 4)
         self.assertEqual(sum("heard nothing" in m for m in e.log), 1)
 
+
+
+    def test_a_doorbell_or_a_catch_up_stream_gets_none(self):
+        """A sync check ran 8 s into a doorbell (listening to its song) and again as the music came back, crunching the
+        microphone's recording while the lights faded: they stuttered and the studio lagged (the user)."""
+        import threading
+        import time as _t
+        from lightshow.studio.jam import CastOutput
+
+        class Studio:
+            port = 0
+            class cast:            # noqa: N801
+                cast, name, media_path = object(), "Everywhere", ""
+                @staticmethod
+                def status(): return {"state": "PLAYING"}
+
+        class Cast:
+            def play_stream(self, *a): pass
+            def status(self): return {"position": 12.0}
+
+        class Engine:
+            cue_hold = False
+            def __init__(self):
+                self.lock, self.streaming, self.log = threading.RLock(), True, []
+                self.gate = type("G", (), {"paused": False})()
+                self.output = CastOutput(Cast(), lambda sid: f"http://x/{sid}")
+                self.output.started_at = _t.monotonic() - 10
+                self.no_sync_start = self.output.started_at            # (JamEngine._quiet_start)
+            def say(self, m): self.log.append(m)
+
+        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        e = svc.engine = Engine()
+        runs = []
+        svc._run_sync = lambda: runs.append(1) or {}
+        svc._maybe_auto_sync(e)
+        e.no_sync_start, e.cue_hold = None, True                      # a doorbell holding the room: none either
+        svc._maybe_auto_sync(e)
+        _t.sleep(0.1)
+        self.assertEqual(runs, [])
 
 class TestTaskbarIdentity(unittest.TestCase):
     def test_a_pinned_studio_starts_the_studio_with_its_own_icon(self):
