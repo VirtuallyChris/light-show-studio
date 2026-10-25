@@ -84,6 +84,11 @@ class Relay:
         if n > self.capacity:
             frames, n = frames[-self.capacity:], self.capacity
         with self.cond:
+            # Held, before Spotify is heard again, silence is not kept: Spotify says it plays a moment before it does,
+            # and the capture let through what it heard meanwhile, so the seam was made on silence and the room heard
+            # the music stop for a split second, a few seconds after a doorbell (the user)
+            if self.held_from is not None and self.seam is None and int(np.abs(frames).max()) <= self.SEAM_QUIET:
+                return
             i = self.written % self.capacity
             first = min(n, self.capacity - i)
             self.buf[i:i + first] = frames[:first]
@@ -175,6 +180,7 @@ class Relay:
     # again is in, the start of that is looked for in what came before the seam, and what would be heard twice is
     # left out.
     SEAM_GAP_S = 0.3          # no capture for this long: Spotify is paused (silence never reaches the relay)
+    SEAM_QUIET = 60           # (as loopback.Gate: below this a block is silence)
     SEAM_POST_S = 0.6         # how much of the music back is looked through
     HOLD_MAX_S = 3.0          # captured past the hold without a pause: it is let go
     SEAM_MAX_S = 1.0          # the most a mend leaves out

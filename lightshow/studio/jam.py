@@ -927,7 +927,7 @@ class JamEngine:
         self.cache_dir = cache_dir
         self.features = FeatureTrack(relay)
         # each mended pause seam is said in the log, and the audio either side of the last few kept to listen to
-        self.seam_dir = os.path.join(library.dir, "seams") if cache_dir else None
+        self.seam_dir = os.path.join(library.dir, "seams")
         relay.on_seam = self._seam
         self.tracks: list[JamTrack] = []
         self.queue: list[dict] = []       # what is queued, each with its kind, worked out when fetched
@@ -1490,6 +1490,7 @@ class JamEngine:
             self.say(f"Spotify's pause mended: {info['cut_s']:.2f}s it played twice left out (match {info['match']:.2f})")
         else:
             self.say(f"Spotify's pause: nothing played twice found (best match {info['match']:.2f}), joined with a short fade")
+        print(f"[jam] {self.log[-1][9:]}")                # (in studio.log too: the jam's own log goes with the studio)
         if self.seam_dir is None or around is None:
             return
         sr, d = self.relay.sr, self.seam_dir

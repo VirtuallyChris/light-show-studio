@@ -66,6 +66,23 @@ class TestSeam(unittest.TestCase):
         np.testing.assert_array_equal(heard, song[:len(heard)])    # every moment once, in order
         self.assertGreater(len(heard), int(4.5 * SR))
 
+    def test_silence_before_spotify_is_heard_again_is_not_the_seam(self):
+        """Spotify says it plays a moment before it does: the gate let the silence through and the seam was made on
+        it (the room heard the music stop for a split second, a few seconds after a doorbell)."""
+        r, song = self.relay, self.song
+        feed(r, self.clock, song[:3 * SR])
+        s = r.open_stream(0.0, pace=False)
+        read_all(s)
+        r.hold()
+        feed(r, self.clock, song[3 * SR:int(3.5 * SR)])
+        self.clock.t += 8.0                                        # paused
+        feed(r, self.clock, np.zeros((int(0.4 * SR), 2), dtype=np.int16))   # "playing", not yet heard
+        feed(r, self.clock, song[int(3.2 * SR):5 * SR])            # heard again, from 0.3 s back
+        got = read_all(s)
+        self.assertEqual(self.said[0]["cut_s"], 0.3)
+        heard = np.concatenate([song[:3 * SR], got])
+        np.testing.assert_array_equal(heard, song[:len(heard)])    # no silence, nothing twice
+
     def test_a_clean_restart_loses_nothing(self):
         r, song = self.relay, self.song
         feed(r, self.clock, song[:3 * SR])
