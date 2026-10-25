@@ -9,13 +9,14 @@
 <meta name="theme-color" content="#0e0f14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Party Hub">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="/party/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/static/party/apple-touch-icon.png">
 <link rel="icon" href="/static/party/icon-192.png">
 <script>
+if (navigator.standalone) document.documentElement.classList.add('standalone');   // (on iOS's home screen: the full height)
 // appearance: Auto (the phone's), Light or Dark, kept on this phone; set before the page draws
 (() => { let t = 'auto'; try { t = localStorage.getItem('party-look') || 'auto'; } catch (e) { /* no storage: Auto */ }
   if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
@@ -49,11 +50,17 @@
   html { -webkit-text-size-adjust: 100%; }
   /* A full-screen column: only the content scrolls, and the tab bar is its last row, not pinned with position: fixed
      (on iOS a fixed bottom bar rose up the screen as the page scrolled, the page showing beneath it: the user) */
-  /* (the column fills the screen as a fixed box, not 100vh/100dvh: in an iOS home-screen app those come out short
-     by the status bar, and the tab bar sat that far above the bottom: the user) */
-  html { height: 100%; }
+  /* The screen's height as the user's other home-screen apps have it (social-scheduler): the large viewport in the
+     app on the home screen (iOS says so to CSS, or navigator.standalone: html.standalone), the dynamic one in a
+     browser; the status bar see-through, a strip of the page's color behind it. (100vh, or a fixed box, left the
+     tab bar standing a status bar's height above the bottom: the user.) */
+  :root { --app-h: 100dvh; }
+  @media (display-mode: standalone), (display-mode: fullscreen) { :root { --app-h: 100lvh; } }
+  html.standalone { --app-h: 100lvh; }
+  html { height: var(--app-h); overflow: hidden; overscroll-behavior: none; }
+  body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: var(--bg); z-index: 40; pointer-events: none; }
   body {
-    margin: 0; position: fixed; inset: 0; overflow: hidden; display: flex; flex-direction: column; color: var(--text);
+    margin: 0; height: var(--app-h); overflow: hidden; display: flex; flex-direction: column; color: var(--text);
     background: radial-gradient(900px 480px at 15% -10%, var(--bg-glow), transparent 70%), radial-gradient(700px 420px at 100% 0%, var(--bg-glow), transparent 65%), var(--bg);
     background-attachment: fixed;
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
@@ -67,7 +74,7 @@
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { .tab { animation: none; } }
   /* the tab bar */
-  .nav { order: 2; flex: none; position: relative; z-index: 20; display: flex; justify-content: center;
+  .nav { order: 2; flex: none; position: relative; z-index: 20; display: flex; justify-content: center; transform: translateZ(0);
     padding: 6px max(8px, env(safe-area-inset-left)) calc(env(safe-area-inset-bottom) + 6px) max(8px, env(safe-area-inset-right));
     background: var(--nav-bg); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-top: 1px solid var(--line); }
   .nav-btn { flex: 1; max-width: 140px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 50px; padding: 4px 0;
