@@ -924,6 +924,9 @@
   function houseDraw(c, e, clip, kind, sub, cache) {
     const mode = c.p.space;
     if (!mode || mode === 'strip' || !e.params.space || S.houseOff || !mappedHouse() || kind === 'short' || sub) return false;
+    // a one-shot on the tubes plays along their own string, 1 to 20, whole: they are the middle of the party, and a
+    // sweep across the house only grazed them in passing (the user: every one-shot on the strips, on the tubes too)
+    if (kind === 'tubes' && (e.cat === 'accent' || PARTY_ONE_SHOTS.has(clip.effect))) return false;
     const W = c.where, P = W && W.pos; if (!P || !P.length || !W.mapped) return false;   // (not on the map yet: on its own, as ever)
     if (mode === 'sides') {
       const runs = W.runs && W.runs.length && W.runs[W.runs.length - 1].i1 === c.n ? W.runs : [{ i0: 0, i1: c.n, k: (W.runs && W.runs[0] ? W.runs[0].k : 0) }];
@@ -1297,6 +1300,8 @@
           clipT0: beatToTime(clip.start), clipT1: beatToTime(clip.start + clip.len),
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub, where: spotsFor(where, n) };
+        // a one-shot across the tubes plays on them alone, all of it (not one stop of a sweep round the room)
+        if (tubes && !sub && (e.cat === 'accent' || PARTY_ONE_SHOTS.has(clip.effect))) c.room = { i: 0, n: 1, side: 0, kinds: ['long'] };
         if (!houseDraw(c, e, clip, kind, sub, hcache)) e.render(c);
         let alpha = (clip.opacity ?? 1) * partyScale(clip) * gain;
         // (no flashes in calm music: the show's own; a flash the user put there plays, its frame not smoothed either:
