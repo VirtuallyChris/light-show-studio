@@ -191,11 +191,16 @@
     return layout;
   }
 
-  function drawBackground(L, w, h) {
-    const dpr = devicePixelRatio || 1, W = Math.floor(w * dpr), H = Math.floor(h * dpr);
+  // The view is laid out at this size and scaled as a whole to the window, lights, text and all (the user: a
+  // bigger window made the house bigger but left the lights their size, tiny in it)
+  const REF_W = 1536, REF_H = 1010;
+  const zoom = (w, h) => Math.min(w / REF_W, h / REF_H);
+
+  function drawBackground(L, w, h, k) {
+    const dpr = devicePixelRatio || 1, W = Math.floor(w * dpr * k), H = Math.floor(h * dpr * k);
     if (bg.width !== W || bg.height !== H) { bg.width = W; bg.height = H; }
     const g = bctx;
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.setTransform(dpr * k, 0, 0, dpr * k, 0, 0);
     g.fillStyle = '#000000'; g.fillRect(0, 0, w, h);
     g.font = '12px system-ui';
     g.fillStyle = '#5d6577'; g.fillText(L.song ? `Room view · ${L.song}` : 'Room view', 24, 26);
@@ -245,14 +250,14 @@
     requestAnimationFrame(draw);
     if (!dirty) return;
     dirty = false;
-    const w = innerWidth, h = innerHeight;
+    const k = zoom(innerWidth, innerHeight), w = innerWidth / k, h = innerHeight / k;   // (w, h: the view's own size)
     const live = last && performance.now() - lastAt < 2000;
     note.style.display = live && last.lights.length ? 'none' : 'block';
     if (live && !last.lights.length) note.textContent = 'No party rooms set up: give the living room and game room their lights in the studio’s Rooms.';
     if (!live) note.textContent = 'Waiting for the studio. Keep its window open; this view follows the song as it plays.';
-    if (!last || !last.lights.length) { bctx.clearRect(0, 0, bg.width, bg.height); if (gpu) gpu.draw([], w, h); return; }
+    if (!last || !last.lights.length) { bctx.clearRect(0, 0, bg.width, bg.height); if (gpu) gpu.draw([], innerWidth, innerHeight); return; }
     const L = layoutFor(last.lights, w, h);
-    if (!L.drawn) drawBackground(L, w, h);
+    if (!L.drawn) drawBackground(L, w, h, k);
     const lights = [];
     for (const l of last.lights) {
       const spots = L.spots.get(l.name); if (!spots) continue;
@@ -262,9 +267,12 @@
         const i = s.i ?? k; lights.push({ ...s, r: l.px[i * 3], g: l.px[i * 3 + 1], b: l.px[i * 3 + 2] });
       });
     }
-    if (gpu) { gpu.draw(lights, w, h); return; }
+    if (gpu) {
+      gpu.draw(lights.map(s => ({ ...s, x: s.x * k, y: s.y * k, w: s.w * k, h: s.h * k, glow: s.glow == null ? s.glow : s.glow * k, radius: s.radius == null ? s.radius : s.radius * k })), innerWidth, innerHeight);
+      return;
+    }
     // no WebGL: plain shapes on the 2D layer, no glow
-    drawBackground(L, w, h);
+    drawBackground(L, w, h, k);
     for (const s of lights) { bctx.fillStyle = `rgb(${s.r},${s.g},${s.b})`; bctx.beginPath(); bctx.roundRect(s.x - s.w / 2, s.y - s.h / 2, s.w, s.h, s.shape === 'dot' ? s.w / 2 : 2); bctx.fill(); }
   }
   draw();

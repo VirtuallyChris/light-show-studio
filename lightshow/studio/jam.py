@@ -926,6 +926,9 @@ class JamEngine:
         self.clock = clock
         self.cache_dir = cache_dir
         self.features = FeatureTrack(relay)
+        # each mended pause seam is said in the log, and the audio either side of the last few kept to listen to
+        self.seam_dir = os.path.join(library.dir, "seams") if cache_dir else None
+        relay.on_seam = self._seam
         self.tracks: list[JamTrack] = []
         self.queue: list[dict] = []       # what is queued, each with its kind, worked out when fetched
         self.now: NowPlaying | None = None
@@ -1044,6 +1047,7 @@ class JamEngine:
                     self.gate.paused = True
                     keep = self.output.stream.cursor if (self.streaming and self.output.stream) else None
                     cut = self.relay.trim_tail_silence(keep_after=keep)
+                    self.relay.hold()                    # (the seam as it plays again is mended: Relay.hold)
                     self.say(f"paused on the phone: holding the buffer (trimmed {cut:.1f}s of silence)")
                     if self.streaming:
                         self._paused_room, self._speaker_dropped = self.room_capture_time(), False
@@ -1438,6 +1442,7 @@ class JamEngine:
                     self.output.pause()
             self.held_at, self.cue_hold, self.music_back = rc, True, False
             self.say(why)
+        self.relay.hold()                                # (what Spotify plays as it pauses: see Relay.hold)
         try:
             self.spotify.pause()
         except Exception:  # noqa: BLE001 - nothing playing, or not Premium: the room is held regardless
@@ -1470,11 +1475,35 @@ class JamEngine:
             self._streamed_at = self.clock()             # (keep_delay leaves a fresh stream alone while it settles)
             self._quiet_start()
             self.say("a cue: its song plays in the room's stream, the music holds where it is")
+        self.relay.hold()                                # (what Spotify plays as it pauses: see Relay.hold)
         try:
             self.spotify.pause()
         except Exception:  # noqa: BLE001 - nothing playing, or not Premium: the buffer is held regardless
             pass
         return True
+
+    SEAMS_KEPT = 6
+
+    def _seam(self, info: dict, around) -> None:
+        """Spotify played again after a pause (Relay._mend): said in the log; the audio around it kept."""
+        if info["cut_s"]:
+            self.say(f"Spotify's pause mended: {info['cut_s']:.2f}s it played twice left out (match {info['match']:.2f})")
+        else:
+            self.say(f"Spotify's pause: nothing played twice found (best match {info['match']:.2f}), joined with a short fade")
+        if self.seam_dir is None or around is None:
+            return
+        sr, d = self.relay.sr, self.seam_dir
+
+        def keep():
+            try:
+                import soundfile as sf
+                os.makedirs(d, exist_ok=True)
+                sf.write(os.path.join(d, time.strftime("%Y%m%d-%H%M%S") + f"-cut{info['cut_s']:.2f}.wav"), around, sr)
+                for old in sorted(os.listdir(d))[:-self.SEAMS_KEPT]:
+                    os.remove(os.path.join(d, old))
+            except Exception:  # noqa: BLE001 - only kept to listen to
+                pass
+        threading.Thread(target=keep, daemon=True, name="seam-keep").start()
 
     def cue_position(self) -> float | None:
         """How far the room is into a cue's song played in the stream (the speakers' own position)."""

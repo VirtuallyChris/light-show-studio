@@ -49,6 +49,11 @@ class Relay:
         # Each song's volume (loudness.py): [capture frame, gain] from where each song begins, every stream
         # applying it as it reads, so a song is evened out on Cast, on this PC, and after any restart alike.
         self.levels: list[list] = []
+        # Spotify paused and played again (a doorbell): what it played after the pause was asked for (its last
+        # moment, its fade) is kept from the streams until the seam is mended (see hold)
+        self.held_from: int | None = None
+        self.seam: int | None = None
+        self.on_seam = None                    # (what was done, the audio either side of the seam) -> None
 
     # -- song levels ------------------------------------------------------------------
     def set_level(self, at_capture_time: float, gain: float) -> None:
@@ -84,8 +89,16 @@ class Relay:
             self.buf[i:i + first] = frames[:first]
             if first < n:
                 self.buf[:n - first] = frames[first:]
+            if self.held_from is not None:
+                if self.seam is None and self.clock() - self.last_write_at > self.SEAM_GAP_S:
+                    self.seam = self.written                  # Spotify plays again: the first of it
             self.written += n
             self.last_write_at = self.clock()
+            if self.held_from is not None:
+                if self.seam is not None and self.written - self.seam >= int(self.SEAM_POST_S * self.sr):
+                    self._mend()
+                elif self.seam is None and self.written - self.held_from > int(self.HOLD_MAX_S * self.sr):
+                    self.held_from = None                     # it never paused (or never went quiet): let it all go
             self.cond.notify_all()
 
     @property
@@ -152,6 +165,95 @@ class Relay:
             g = gcd(sr_out, self.sr)
             x = resample_poly(x, sr_out // g, self.sr // g, axis=-1).astype(np.float32)
         return np.ascontiguousarray(x)
+
+    # -- a pause's seam ------------------------------------------------------------------
+    # Pausing Spotify and playing it again leaves a seam in the capture. Spotify goes on for a moment after the
+    # pause is asked for, then starts again from where it says it stopped, which can be a little before what it
+    # last played: heard twice, a split-second jitter (the user, a few seconds after a doorbell, as the room
+    # reached the seam). The speakers read right up to the newest audio, so the mending is done before they get
+    # it: from hold() on, the streams are kept short of what Spotify plays last; once SEAM_POST_S of it playing
+    # again is in, the start of that is looked for in what came before the seam, and what would be heard twice is
+    # left out.
+    SEAM_GAP_S = 0.3          # no capture for this long: Spotify is paused (silence never reaches the relay)
+    SEAM_POST_S = 0.6         # how much of the music back is looked through
+    HOLD_MAX_S = 3.0          # captured past the hold without a pause: it is let go
+    SEAM_MAX_S = 1.0          # the most a mend leaves out
+    MATCH_W_S = 0.2           # the start of the music back, looked for in what came before the seam...
+    MATCH_SKIP_S = 0.05       # ...clear of any fade as it starts again
+    MATCH_BEFORE_S = 0.15     # what Spotify played this close to the seam may be fading as it paused
+    MATCH_MIN = 0.97          # the same audio again; found in two places (a loop, the same bar) it is left alone
+
+    def hold(self) -> None:
+        """Spotify is being paused: what is captured from here on is kept from the streams until the seam is
+        mended (or let go, if Spotify never paused)."""
+        with self.cond:
+            if self.held_from is None:
+                self.held_from, self.seam = self.written, None
+
+    def readable(self) -> int:
+        """How far the streams may read (caller holds the lock)."""
+        return self.written if self.held_from is None else min(self.written, self.held_from)
+
+    def _mono(self, f0: int, f1: int) -> np.ndarray:
+        return self._slice(f0, f1).astype(np.float64).mean(axis=1)
+
+    def _mend(self) -> None:
+        """Leave out what Spotify played twice either side of the seam; nothing found, the seam is joined with
+        a few milliseconds' fade each way (no click). Caller holds the lock."""
+        from scipy.signal import correlate
+
+        sr, s, h = self.sr, self.seam, self.held_from
+        self.held_from = self.seam = None
+        w, a, before = int(self.MATCH_W_S * sr), int(self.MATCH_SKIP_S * sr), int(self.MATCH_BEFORE_S * sr)
+        p0, end = s - int(self.SEAM_MAX_S * sr) - w, self.written
+        info = {"cut_s": 0.0, "match": 0.0}
+        around = None
+        if p0 >= max(0, self.written - self.capacity) and end - s >= a + w:
+            around = self._slice(p0, end).copy()
+            tmpl, pre = self._mono(s + a, s + a + w), self._mono(p0, s)  # the music back, looked for before the seam
+            tmpl = tmpl - tmpl.mean()
+            tn = float(np.sqrt((tmpl ** 2).sum()))
+            if tn > 1e-3 * 32768 * np.sqrt(w) and len(pre) > w:
+                c = correlate(pre, tmpl, mode="valid", method="fft")
+                cs, cs2 = np.concatenate([[0.0], np.cumsum(pre)]), np.concatenate([[0.0], np.cumsum(pre ** 2)])
+                seg_sum, seg_sq = cs[w:] - cs[:-w], cs2[w:] - cs2[:-w]
+                ncc = c / (tn * np.sqrt(np.maximum(seg_sq - seg_sum ** 2 / w, 1e-9)))
+                m = int(np.argmax(ncc))
+                info["match"] = round(float(ncc[m]), 3)
+                others = ncc.copy()
+                others[max(0, m - int(0.02 * sr)):m + int(0.02 * sr)] = -1.0
+                k = p0 + m                                   # post frame s + a is pre frame k: d frames heard twice
+                d = s + a - k
+                # kept from before the seam: up to just short of Spotify's fade as it paused, and no further than
+                # what it played twice (from there the music back carries on)
+                cut = max(h, min(s - before, k), k - a)
+                if ncc[m] >= self.MATCH_MIN and others.max() < self.MATCH_MIN and cut + d < end:
+                    tail = self._slice(cut + d, end).copy()
+                    self.written = cut
+                    self._put(tail)
+                    info["cut_s"] = round(d / sr, 3)
+        if not info["cut_s"]:
+            f = max(1, int(0.005 * sr))
+            for f0, ramp in ((s - f, np.linspace(1.0, 0.0, f)), (s, np.linspace(0.0, 1.0, f))):
+                if f0 >= max(h, self.written - self.capacity) and f0 + f <= self.written:
+                    for k in range(f):
+                        i = (f0 + k) % self.capacity
+                        self.buf[i] = (self.buf[i] * ramp[k]).astype(np.int16)
+        if self.on_seam is not None:
+            try:
+                self.on_seam(info, around)
+            except Exception:  # noqa: BLE001 - a report only
+                pass
+
+    def _put(self, frames: np.ndarray) -> None:
+        """Write frames at the head (caller holds the lock)."""
+        n = len(frames)
+        i = self.written % self.capacity
+        first = min(n, self.capacity - i)
+        self.buf[i:i + first] = frames[:first]
+        if first < n:
+            self.buf[:n - first] = frames[first:]
+        self.written += n
 
     def open_stream(self, start_time: float, pace: bool = True) -> "RelayStream":
         return RelayStream(self, start_time, pace)
@@ -279,10 +381,10 @@ class RelayStream:
                 return self._silence(n)
             if self.cursor < r.written - r.capacity:          # fell out of the buffer: jump to what is left
                 self.cursor = r.written - r.capacity
-            avail = r.written - self.cursor
+            avail = r.readable() - self.cursor
             if avail <= 0:
                 r.cond.wait(timeout)
-                avail = r.written - self.cursor
+                avail = r.readable() - self.cursor
                 if avail <= 0 and self.pace and self.sent > (r.clock() - self.started_at) * r.sr:
                     return None                                 # ahead of real time: the speaker has plenty, wait
                 if avail <= 0:                                  # nothing new and the speaker is due: keep it fed
