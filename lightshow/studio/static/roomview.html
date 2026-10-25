@@ -38,14 +38,21 @@
   let space = null;
   const loadSpace = () => fetch('/api/space').then(r => r.json()).then(d => { if (JSON.stringify(d) !== JSON.stringify(space)) { space = d; layout = null; dirty = true; } }).catch(() => {});
   loadSpace(); setInterval(loadSpace, 10000);
+  function fillTubes(tubes, count) {          // (as space.py fill_tubes: the tubes strung like a strip)
+    const t = (tubes || []).slice(0, count); while (t.length < count) t.push(null);
+    const at = t.map((v, i) => v ? i : -1).filter(i => i >= 0); if (at.length < 2) return t;
+    return t.map((v, i) => { if (v) return v; const bf = at.filter(j => j < i), af = at.filter(j => j > i);
+      const [a, b] = bf.length && af.length ? [bf[bf.length - 1], af[0]] : af.length ? [at[0], at[1]] : [at[at.length - 2], at[at.length - 1]], k = (i - a) / (b - a);
+      return { x: t[a].x + (t[b].x - t[a].x) * k, y: t[a].y + (t[b].y - t[a].y) * k, filled: true }; });
+  }
   /** Where each of a light's segments is on the plan, in its own (physical) order: as app.js mapSpots. */
   function mapSpots(m, n) {
     if (!m) return null;
     if (m.kind === 'pole') return m.x == null ? null : Array.from({ length: n }, () => [m.x, m.y]);
     if (m.kind === 'tubes') {
       if (!(m.tubes || []).some(Boolean)) return null;
-      const per = Math.max(1, Math.round(n / 20));
-      return Array.from({ length: n }, (_, s) => { const t = m.tubes[Math.floor(s / per)]; return t ? [t.x, t.y] : null; });
+      const per = Math.max(1, Math.round(n / 20)), tubes = fillTubes(m.tubes, 20);
+      return Array.from({ length: n }, (_, s) => { const t = tubes[Math.floor(s / per)]; return t ? [t.x, t.y] : null; });
     }
     const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg); if (a.length < 2) return null;
     return Array.from({ length: n }, (_, s) => { let j = 0; while (j < a.length - 2 && s > a[j + 1].seg) j++; const p = a[j], q = a[j + 1], k = (s - p.seg) / Math.max(1e-9, q.seg - p.seg); return [p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k]; });
@@ -76,7 +83,11 @@
     const sideOf = l => mapOf(l).x < W / 2 ? 'left' : 'right', colW = 64;
     const nL = poles.filter(l => sideOf(l) === 'left').length, nR = poles.length - nL;
     const pad = 36, top = 70, bottom = 40 + off.length * rowH + tubeLights.length * (TUBE_LEN + 64), padL = pad + nL * colW, padR = pad + nR * colW;
-    const s = Math.min((w - padL - padR) / W, (h - top - bottom) / D), x0 = padL + (w - padL - padR - W * s) / 2, y0 = top;
+    // the plan, and any light placed beyond it (the kitchen tubes running off down the hall)
+    let ex0 = 0, ey0 = 0, ex1 = W, ey1 = D;
+    for (const l of lights) for (const q of mapSpots(mapOf(l), l.px.length / 3) || []) if (q) { ex0 = Math.min(ex0, q[0]); ey0 = Math.min(ey0, q[1]); ex1 = Math.max(ex1, q[0]); ey1 = Math.max(ey1, q[1]); }
+    const s = Math.min((w - padL - padR) / (ex1 - ex0), (h - top - bottom) / (ey1 - ey0));
+    const x0 = padL + (w - padL - padR - (ex1 - ex0) * s) / 2 - ex0 * s, y0 = top - ey0 * s;
     const P = (x, y) => [x0 + x * s, y0 + y * s];
     const spots = new Map(), labels = [], side = { left: 0, right: 0 };
     for (const l of lights) {
@@ -84,7 +95,7 @@
       const name = l.name + (l.on ? '' : ' · off');
       if (l.kind === 'short') {              // a pole: a dot where it stands (its brightest color), and the pole itself at the side
         const [cx, cy] = P(...pos[0]), r = Math.max(4, Math.min(9, 0.3 * s)), sd = sideOf(l), k = side[sd]++;
-        const px = sd === 'left' ? x0 - 28 - k * colW : x0 + W * s + 28 + k * colW, pw = 16, ph = D * s - 24, segH = ph / n, yTop = y0 + 24;
+        const px = sd === 'left' ? x0 + ex0 * s - 28 - k * colW : x0 + ex1 * s + 28 + k * colW, pw = 16, ph = D * s - 24, segH = ph / n, yTop = y0 + 24;
         spots.set(l.name, [{ x: cx, y: cy, w: r * 2, h: r * 2, shape: 'dot', glow: r * 1.8, all: true },
           ...pos.map((_, i) => ({ x: px, y: yTop + ph - (i + 0.5) * segH, w: pw, h: segH - 1.5, shape: 'rect', radius: i === 0 || i === n - 1 ? 4 : 1, glow: pw, i }))]);
         labels.push({ text: name, x: sd === 'left' ? px - pw / 2 : px + pw / 2, y: y0 - 12, align: sd, pole: { x: px, yTop, h: ph, pw } });
@@ -97,11 +108,11 @@
         else labels.push({ text: name, x: mx, y: my + (cy > my ? 22 : -14), align: 'center' });
       }
     }
-    let y = y0 + D * s + 46;
+    let y = y0 + ey1 * s + 46;
     for (const l of tubeLights) {            // the tubes hanging from the ceiling, each its LEDs top to bottom, in a row beneath
       const n = l.px.length / 3, per = Math.max(1, Math.round(n / TUBES)), pos = mapSpots(mapOf(l), n), at = t => pos && pos[t * per];
-      // placed ones left to right as they hang in the house (each also a dot on the plan, its brightest LED), then the rest
-      const order = [...Array(TUBES).keys()].sort((a, b) => (at(a) ? 0 : 1) - (at(b) ? 0 : 1) || (at(a) && at(b) ? at(a)[0] - at(b)[0] : a - b));
+      // in their order along the string, 1 to 20 (each placed or strung one also a dot on the plan, its brightest LED)
+      const order = [...Array(TUBES).keys()];
       const a = x0, b = x0 + W * s, gap = (b - a) / TUBES, tw = Math.max(5, Math.min(12, gap * 0.32)), yC = y + 16, ledH = TUBE_LEN / per;
       const list = [], r = Math.max(3, Math.min(7, 0.22 * s));
       order.forEach((t, k) => {

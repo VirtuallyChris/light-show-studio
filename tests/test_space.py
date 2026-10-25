@@ -24,7 +24,27 @@ class PositionsTest(unittest.TestCase):
         pos = positions({"kind": "tubes", "tubes": tubes}, 240)
         self.assertEqual(pos[0], [5, 5])
         self.assertEqual(pos[11], [5, 5])                           # all its LEDs
-        self.assertIsNone(pos[12])                                  # the second tube: not placed
+        self.assertIsNone(pos[12])                                  # one placed: the others nowhere yet
+
+    def test_the_tubes_string_like_a_strip_between_the_placed_ones(self):
+        """The user placed tubes 1, 5, 6, 11 and 20 (the last off down the hall, past the plan's top wall)."""
+        from lightshow.studio.space import fill_tubes
+        placed = {1: (15.38, 0.63), 5: (16.41, 8.0), 6: (17.73, 9.08), 11: (25.78, 10.15), 20: (26.75, -9.39)}
+        tubes = [{"x": placed[i][0], "y": placed[i][1]} if i in placed else None for i in range(1, 21)]
+        t = fill_tubes(tubes)
+        self.assertEqual((t[0]["x"], t[0]["y"]), (15.38, 0.63))     # the placed ones stay put
+        self.assertNotIn("filled", t[4])
+        self.assertAlmostEqual(t[2]["y"], 0.63 + (8.0 - 0.63) * 2 / 4, places=2)   # tube 3: halfway from 1 to 5
+        self.assertAlmostEqual(t[15]["y"], 10.15 + (-9.39 - 10.15) * 5 / 9, places=2)   # tube 16: on to the hall
+        self.assertTrue(t[15]["filled"])
+        self.assertTrue(all(t))
+        pos = positions({"kind": "tubes", "tubes": tubes}, 240)
+        self.assertTrue(all(pos))                                   # every LED somewhere now
+
+    def test_tubes_past_the_last_placed_carry_on_in_its_line(self):
+        from lightshow.studio.space import fill_tubes
+        t = fill_tubes([{"x": 0, "y": 0}, {"x": 1, "y": 0}] + [None] * 18)
+        self.assertAlmostEqual(t[19]["x"], 19.0)
 
 
 class CleanTest(unittest.TestCase):

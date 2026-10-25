@@ -86,6 +86,26 @@ def clean(doc: dict) -> dict:
     return out
 
 
+def fill_tubes(tubes: list, count: int = 20) -> list:
+    """The tubes strung like a strip: one not placed is on the line between the placed ones either side of it (by
+    its number), or beyond the end ones in their line; with fewer than two placed, the others are nowhere yet.
+    (The user places a few, 1, 5, 6, 11, 20, along the kitchen and off down the hall.)"""
+    t = list(tubes[:count]) + [None] * max(0, count - len(tubes))
+    at = [i for i, v in enumerate(t) if v]
+    if len(at) < 2:
+        return t
+    out = []
+    for i, v in enumerate(t):
+        if v:
+            out.append(v)
+            continue
+        before, after = [j for j in at if j < i], [j for j in at if j > i]
+        a, b = (before[-1], after[0]) if before and after else (at[0], at[1]) if after else (at[-2], at[-1])
+        k = (i - a) / (b - a)
+        out.append({"x": round(t[a]["x"] + (t[b]["x"] - t[a]["x"]) * k, 2), "y": round(t[a]["y"] + (t[b]["y"] - t[a]["y"]) * k, 2), "filled": True})
+    return out
+
+
 def positions(m: dict, segments: int, tube_count: int = 20) -> list | None:
     """Where each of a light's segments is on the plan ([x, y] in feet, by the light's own segment number), from its
     map; None where it cannot be worked out (a strip with fewer than two pins, a tube not placed). A pole is one spot
@@ -95,7 +115,7 @@ def positions(m: dict, segments: int, tube_count: int = 20) -> list | None:
         return None if m.get("x") is None else [[m["x"], m["y"]] for _ in range(n)]
     if m.get("kind") == "tubes":
         per = max(1, round(n / tube_count))
-        tubes = m.get("tubes") or []
+        tubes = fill_tubes(m.get("tubes") or [], tube_count)
         return [None if s // per >= len(tubes) or tubes[s // per] is None else [tubes[s // per]["x"], tubes[s // per]["y"]] for s in range(n)]
     a = m.get("anchors") or []
     if len(a) < 2:

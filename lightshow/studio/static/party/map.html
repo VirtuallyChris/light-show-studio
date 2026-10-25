@@ -147,10 +147,17 @@
   }
 
   // -- where each segment is (the same as space.py positions) -----------------------------------
+  function fillTubes(tubes, count) {          // (as space.py fill_tubes: the tubes strung like a strip)
+    const t = (tubes || []).slice(0, count); while (t.length < count) t.push(null);
+    const at = t.map((v, i) => v ? i : -1).filter(i => i >= 0); if (at.length < 2) return t;
+    return t.map((v, i) => { if (v) return v; const bf = at.filter(j => j < i), af = at.filter(j => j > i);
+      const [a, b] = bf.length && af.length ? [bf[bf.length - 1], af[0]] : af.length ? [at[0], at[1]] : [at[at.length - 2], at[at.length - 1]], k = (i - a) / (b - a);
+      return { x: t[a].x + (t[b].x - t[a].x) * k, y: t[a].y + (t[b].y - t[a].y) * k, filled: true }; });
+  }
   function positions(m, n) {                 // (the same as space.py positions: flat, [x, y] feet)
     if (!m) return null;
     if (m.kind === 'pole') return m.x == null ? null : Array.from({ length: n }, () => [m.x, m.y]);
-    if (m.kind === 'tubes') { const per = Math.max(1, Math.round(n / TUBE_COUNT)); return Array.from({ length: n }, (_, s) => { const t = (m.tubes || [])[Math.floor(s / per)]; return t ? [t.x, t.y] : null; }); }
+    if (m.kind === 'tubes') { const per = Math.max(1, Math.round(n / TUBE_COUNT)), tubes = fillTubes(m.tubes, TUBE_COUNT); return Array.from({ length: n }, (_, s) => { const t = tubes[Math.floor(s / per)]; return t ? [t.x, t.y] : null; }); }
     const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg); if (a.length < 2) return null;
     return Array.from({ length: n }, (_, s) => { let j = 0; while (j < a.length - 2 && s > a[j + 1].seg) j++; const p = a[j], q = a[j + 1], k = (s - p.seg) / Math.max(1e-9, q.seg - p.seg); return ['x', 'y'].map(c => p[c] + (q[c] - p[c]) * k); });
   }
@@ -163,9 +170,12 @@
    *  precisely, dragged sideways to reach the rest. */
   function fit(all = false) {
     const r = $('#wrap').getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
-    const [w, h] = bounds(), narrow = cv.width / cv.height < (w / h) * 0.6;
+    // the plan, and any light placed beyond it (the tubes running off down the hall)
+    const [pw, ph] = bounds(); let x0 = 0, y0 = 0, x1 = pw, y1 = ph;
+    for (const l of S.lights) for (const p of positions(mapOf(l), l.segments) || []) if (p) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
+    const w = x1 - x0, h = y1 - y0, narrow = cv.width / cv.height < (w / h) * 0.6;
     S.view.s = all || !narrow ? Math.min(cv.width / w, cv.height / h) * 0.94 : cv.height / h * 0.88;
-    S.view.x = (cv.width - w * S.view.s) / 2; S.view.y = (cv.height - h * S.view.s) / 2;
+    S.view.x = (cv.width - w * S.view.s) / 2 - x0 * S.view.s; S.view.y = (cv.height - h * S.view.s) / 2 - y0 * S.view.s;
   }
   function level(kind, p, t, pt) {           // the same as space.py pattern_level
     const w = S.doc.plan.width_ft, d = depthFt(), c = S.doc.center || [w / 2, d / 2];
@@ -250,6 +260,11 @@
         const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg);
         if (a.length >= 2) { g.strokeStyle = sel ? '#ec4899' : 'rgba(124,58,237,.55)'; g.lineWidth = (sel ? 3 : 2) * dpr; g.beginPath(); a.forEach((p, i) => { const [sx, sy] = toScreen(p.x, p.y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.stroke(); }
         for (const p of a) { const [sx, sy] = toScreen(p.x, p.y); g.fillStyle = sel ? '#ec4899' : '#7c3aed'; g.beginPath(); g.arc(sx, sy, 6 * dpr, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = `${10 * dpr}px system-ui`; g.textAlign = 'center'; g.fillText(p.seg + 1, sx, sy + 3.5 * dpr); }
+      }
+      if (m.kind === 'tubes') {                   // strung like a strip: a line through them, the placed ones numbered
+        const tt = fillTubes(m.tubes, TUBE_COUNT), pts = tt.filter(Boolean);
+        if (pts.length >= 2) { g.strokeStyle = sel ? 'rgba(236,72,153,.5)' : 'rgba(124,58,237,.35)'; g.lineWidth = 1.5 * dpr; g.beginPath(); pts.forEach((p, i) => { const [sx, sy] = toScreen(p.x, p.y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.stroke(); }
+        tt.forEach((p, i) => { if (!p || p.filled) return; const [sx, sy] = toScreen(p.x, p.y); g.fillStyle = sel ? '#ec4899' : '#7c3aed'; g.beginPath(); g.arc(sx, sy, 6 * dpr, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = `${10 * dpr}px system-ui`; g.textAlign = 'center'; g.fillText(i + 1, sx, sy + 3.5 * dpr); });
       }
       if (pos) pos.forEach((p, i) => {
         if (!p) return; const [sx, sy] = toScreen(p[0], p[1]);

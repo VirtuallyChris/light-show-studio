@@ -878,11 +878,18 @@
     }
     return runs;
   }
+  function fillTubes(tubes, count) {          // (as space.py fill_tubes: the tubes strung like a strip)
+    const t = (tubes || []).slice(0, count); while (t.length < count) t.push(null);
+    const at = t.map((v, i) => v ? i : -1).filter(i => i >= 0); if (at.length < 2) return t;
+    return t.map((v, i) => { if (v) return v; const bf = at.filter(j => j < i), af = at.filter(j => j > i);
+      const [a, b] = bf.length && af.length ? [bf[bf.length - 1], af[0]] : af.length ? [at[0], at[1]] : [at[at.length - 2], at[at.length - 1]], k = (i - a) / (b - a);
+      return { x: t[a].x + (t[b].x - t[a].x) * k, y: t[a].y + (t[b].y - t[a].y) * k, filled: true }; });
+  }
   /** Where each segment of a light is, by its own segment number (as space.py positions), or null when not mapped. */
   function mapSpots(m, n) {
     if (!m) return null;
     if (m.kind === 'pole') return m.x == null ? null : Array.from({ length: n }, () => [m.x, m.y]);
-    if (m.kind === 'tubes') { const per = Math.max(1, Math.round(n / TUBE_COUNT)); return Array.from({ length: n }, (_, s) => { const t = (m.tubes || [])[Math.floor(s / per)]; return t ? [t.x, t.y] : null; }); }
+    if (m.kind === 'tubes') { const per = Math.max(1, Math.round(n / TUBE_COUNT)), tubes = fillTubes(m.tubes, TUBE_COUNT); return Array.from({ length: n }, (_, s) => { const t = tubes[Math.floor(s / per)]; return t ? [t.x, t.y] : null; }); }
     const a = (m.anchors || []).slice().sort((p, q) => p.seg - q.seg); if (a.length < 2) return null;
     return Array.from({ length: n }, (_, s) => { let j = 0; while (j < a.length - 2 && s > a[j + 1].seg) j++; const p = a[j], q = a[j + 1], k = (s - p.seg) / Math.max(1e-9, q.seg - p.seg); return [p.x + (q.x - p.x) * k, p.y + (q.y - p.y) * k]; });
   }
