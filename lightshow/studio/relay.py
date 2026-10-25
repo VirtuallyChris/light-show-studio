@@ -211,11 +211,29 @@ class Relay:
         sr, s, h = self.sr, self.seam, self.held_from
         self.held_from = self.seam = None
         w, a, before = int(self.MATCH_W_S * sr), int(self.MATCH_SKIP_S * sr), int(self.MATCH_BEFORE_S * sr)
-        p0, end = s - int(self.SEAM_MAX_S * sr) - w, self.written
-        info = {"cut_s": 0.0, "match": 0.0}
-        around = None
-        if p0 >= max(0, self.written - self.capacity) and end - s >= a + w:
-            around = self._slice(p0, end).copy()
+        p0 = s - int(self.SEAM_MAX_S * sr) - w
+        info = {"cut_s": 0.0, "match": 0.0, "gap_ms": 0.0}
+        oldest = max(0, self.written - self.capacity)
+        around = self._slice(p0, self.written).copy() if p0 >= oldest else None     # (as captured, to listen to)
+        # The silence either side: the end of Spotify's last block as it stopped, the start of its first as it
+        # played again (17 to 36 ms at three doorbells: the music dropped out for that long, the jitter the user still
+        # heard). Left out, so the music before meets the music back; before the seam only what no stream has had.
+        lo = max(h, s - int(0.1 * sr), oldest)
+        quiet_end = s
+        if lo < s:
+            loud = np.nonzero(np.abs(self._slice(lo, s)).max(axis=1) > self.SEAM_QUIET)[0]
+            quiet_end = lo + (int(loud[-1]) + 1 if len(loud) else 0)
+        head = np.abs(self._slice(s, min(self.written, s + int(0.1 * sr)))).max(axis=1)
+        loud = np.nonzero(head > self.SEAM_QUIET)[0]
+        quiet_start = s + (int(loud[0]) if len(loud) else 0)
+        if quiet_start > quiet_end:
+            tail = self._slice(quiet_start, self.written).copy()
+            self.written = quiet_end
+            self._put(tail)
+            info["gap_ms"] = round((quiet_start - quiet_end) / sr * 1000, 1)
+            s = quiet_end
+        end = self.written
+        if p0 >= oldest and end - s >= a + w:
             tmpl, pre = self._mono(s + a, s + a + w), self._mono(p0, s)  # the music back, looked for before the seam
             tmpl = tmpl - tmpl.mean()
             tn = float(np.sqrt((tmpl ** 2).sum()))
@@ -239,7 +257,7 @@ class Relay:
                     self._put(tail)
                     info["cut_s"] = round(d / sr, 3)
         if not info["cut_s"]:
-            f = max(1, int(0.005 * sr))
+            f = max(1, int(0.002 * sr))                      # (no click, and no dip to hear)
             for f0, ramp in ((s - f, np.linspace(1.0, 0.0, f)), (s, np.linspace(0.0, 1.0, f))):
                 if f0 >= max(h, self.written - self.capacity) and f0 + f <= self.written:
                     for k in range(f):

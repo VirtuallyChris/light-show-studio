@@ -83,6 +83,26 @@ class TestSeam(unittest.TestCase):
         heard = np.concatenate([song[:3 * SR], got])
         np.testing.assert_array_equal(heard, song[:len(heard)])    # no silence, nothing twice
 
+    def test_the_silence_in_spotify_s_last_and_first_blocks_is_left_out(self):
+        """At three doorbells 17 to 36 ms of silence sat at the seam: the end of the last block captured as Spotify
+        stopped, the start of the first as it played again. The music dropped out for that long (the jitter)."""
+        r, song = self.relay, self.song
+        z = lambda ms: np.zeros((int(ms / 1000 * SR), 2), dtype=np.int16)
+        feed(r, self.clock, song[:3 * SR])
+        s = r.open_stream(0.0, pace=False)
+        read_all(s)
+        r.hold()
+        r.write(np.concatenate([song[3 * SR:int(3.5 * SR)], z(15)]))   # its last block: music, then silence
+        self.clock.t += 8.0
+        r.write(np.concatenate([z(20), song[int(3.5 * SR):5 * SR]]))   # its first: silence, then the music
+        got = read_all(s)
+        self.assertEqual(self.said[0]["gap_ms"], 35.0)
+        heard = np.concatenate([song[:3 * SR], got])
+        self.assertEqual(len(heard), 5 * SR)                       # nothing missing, no silence
+        j, f = int(3.5 * SR), int(0.002 * SR) + 1
+        np.testing.assert_array_equal(heard[:j - f], song[:j - f])  # the same either side of the join's 2 ms fades
+        np.testing.assert_array_equal(heard[j + f:], song[j + f:5 * SR])
+
     def test_a_clean_restart_loses_nothing(self):
         r, song = self.relay, self.song
         feed(r, self.clock, song[:3 * SR])

@@ -1486,10 +1486,11 @@ class JamEngine:
 
     def _seam(self, info: dict, around) -> None:
         """Spotify played again after a pause (Relay._mend): said in the log; the audio around it kept."""
+        gap = f", {info.get('gap_ms', 0):.0f} ms of silence between left out" if info.get("gap_ms") else ""
         if info["cut_s"]:
-            self.say(f"Spotify's pause mended: {info['cut_s']:.2f}s it played twice left out (match {info['match']:.2f})")
+            self.say(f"Spotify's pause mended: {info['cut_s']:.2f}s it played twice left out (match {info['match']:.2f}){gap}")
         else:
-            self.say(f"Spotify's pause: nothing played twice found (best match {info['match']:.2f}), joined with a short fade")
+            self.say(f"Spotify's pause: nothing played twice found (best match {info['match']:.2f}), joined{gap}")
         print(f"[jam] {self.log[-1][9:]}")                # (in studio.log too: the jam's own log goes with the studio)
         if self.seam_dir is None or around is None:
             return
