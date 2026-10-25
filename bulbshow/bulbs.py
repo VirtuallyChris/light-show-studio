@@ -6,6 +6,8 @@
   VirtualBulb  drives nothing; it only remembers its color (tests, and a copy run with --no-lights).
 
 Every bulb takes the whole picture as one color: brightness is folded into it, and black is dark.
+A cloud bulb can also be told to run one of its own scenes (effects.scene_state); a LAN bulb has no
+way to be asked for one and stays dark instead.
 Each one notes what the bulb was showing before the show and puts that back when the show stops.
 """
 
@@ -20,7 +22,7 @@ import uuid
 
 from lightshow import govee_lan
 
-from .effects import Bucket, CLOUD_DAILY
+from .effects import Bucket, CLOUD_DAILY, is_scene
 
 CLOUD_HOST = "openapi.api.govee.com"
 
@@ -75,7 +77,7 @@ class LanBulb(VirtualBulb):
     def apply(self, rgb) -> None:
         """Called every tick with the color of the moment, so a change held back by the gap goes out
         on a later tick."""
-        rgb = tuple(rgb)
+        rgb = (0, 0, 0) if is_scene(rgb) else tuple(rgb)
         now = time.monotonic()
         if rgb == self.color or now - self.last_at < self.MIN_GAP:
             return
@@ -189,6 +191,23 @@ class CloudClient:
             "requestId": str(uuid.uuid4()),
             "payload": {"sku": sku, "device": device, "capability": {"type": ctype, "instance": instance, "value": value}}})
 
+    def scenes(self, sku: str, device: str) -> list[dict]:
+        """The bulb's own scenes, as {name, instance, value}: Govee's built-in ones, then any DIY scenes
+        made in the Govee app. The value goes back to Govee exactly as it came."""
+        out = []
+        for path, inst in (("/router/api/v1/device/scenes", "lightScene"), ("/router/api/v1/device/diy-scenes", "diyScene")):
+            try:
+                doc = self._request("POST", path, {"requestId": str(uuid.uuid4()), "payload": {"sku": sku, "device": device}})
+            except CloudError:
+                if inst == "lightScene":
+                    raise
+                continue                                  # (no DIY scenes is not a problem)
+            for cap in ((doc.get("payload") or {}).get("capabilities") or []):
+                for o in ((cap.get("parameters") or {}).get("options") or []):
+                    if o.get("value") is not None:
+                        out.append({"name": o.get("name") or "?", "instance": cap.get("instance") or inst, "value": o["value"]})
+        return out
+
     def state(self, sku: str, device: str) -> dict:
         doc = self._request("POST", "/router/api/v1/device/state", {
             "requestId": str(uuid.uuid4()), "payload": {"sku": sku, "device": device}})
@@ -220,8 +239,11 @@ class CloudBulb(VirtualBulb):
         self.before = {}
         self.thread = None
 
-    def _send(self, rgb) -> None:
-        self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorRgb", rgb_int(rgb))
+    def _send(self, st) -> None:
+        if is_scene(st):
+            self.client.control(self.sku, self.device, "devices.capabilities.dynamic_scene", st[1], json.loads(st[2]))
+        else:
+            self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorRgb", rgb_int(st))
 
     def begin(self) -> None:
         try:

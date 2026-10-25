@@ -90,6 +90,32 @@ class EffectsTest(unittest.TestCase):
         self.assertLessEqual(n, 10 * effects.CLOUD_RATE + effects.CLOUD_BURST)   # never more than the allowance
         self.assertEqual(effects.per_hour(blink), 720)
 
+    SCENE = {"name": "Breathe", "instance": "lightScene", "value": {"id": 3853, "paramId": 4280}}
+
+    def test_a_scene_with_red_now_and_then(self):
+        scene = {"id": "s", "effect": "scene", "start": 0, "end": 20, "scene": self.SCENE}
+        red = {"id": "r", "effect": "color", "start": 8, "end": 9, "color": "#ff0000", "level": 1}
+        s = show_of([scene], [red], duration=20.0)
+        st = effects.state(s, 1.0, cloud=True)
+        self.assertTrue(effects.is_scene(st))
+        self.assertEqual(effects.code(st), "s:Breathe")
+        self.assertEqual(effects.state(s, 8.5, cloud=True), (255, 0, 0))
+        self.assertEqual(effects.state(s, 9.5, cloud=True), st)       # back to the scene
+        self.assertEqual(effects.cloud_requests(s), 2)                 # red, then the scene again: once a loop
+        self.assertEqual(effects.per_hour(s), 360)
+
+    def test_lightning_over_a_scene_comes_back_to_it(self):
+        scene = {"id": "s", "effect": "scene", "start": 0, "end": 10, "scene": self.SCENE}
+        bolt = {"id": "b", "effect": "lightning", "start": 2, "end": 3, "color": "#ffffff", "level": 1, "flashes": 1}
+        s = show_of([scene], [bolt])
+        self.assertEqual(effects.state(s, 2.1, cloud=True), (255, 255, 255))
+        self.assertTrue(effects.is_scene(effects.state(s, 2.9, cloud=True)))
+        self.assertEqual(effects.state(s, 2.05), (255, 255, 255))      # a fading LAN flash replaces it outright
+
+    def test_a_scene_not_picked_yet_is_dark(self):
+        s = show_of([{"id": "s", "effect": "scene", "start": 0, "end": 10}])
+        self.assertEqual(effects.state(s, 1.0), (0, 0, 0))
+
     def test_bucket(self):
         b = effects.Bucket(rate=2, burst=6, now=0)
         self.assertEqual(sum(b.take(0) for _ in range(10)), 6)
@@ -235,6 +261,32 @@ class CloudBulbTest(unittest.TestCase):
         b.end()
         self.assertEqual(client.calls[-2:], [("colorRgb", 0x00ff00), ("brightness", 40)])
 
+    def test_a_scene_goes_out_as_govee_gave_it(self):
+        client = FakeClient()
+        b = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        b.begin()
+        time.sleep(0.6)                                # a token for the next command
+        b.apply(effects.scene_state(EffectsTest.SCENE))
+        for _ in range(100):
+            if b.sent:
+                break
+            time.sleep(0.02)
+        b.end()
+        self.assertIn(("lightScene", {"id": 3853, "paramId": 4280}), client.calls)
+
+    def test_scene_list(self):
+        from bulbshow.bulbs import CloudClient
+        c = CloudClient("key")
+        answers = {
+            "/router/api/v1/device/scenes": {"payload": {"capabilities": [{"type": "devices.capabilities.dynamic_scene", "instance": "lightScene",
+                "parameters": {"dataType": "ENUM", "options": [{"name": "Breathe", "value": {"id": 1, "paramId": 2}}]}}]}},
+            "/router/api/v1/device/diy-scenes": {"payload": {"capabilities": [{"instance": "diyScene",
+                "parameters": {"options": [{"name": "Witch", "value": 77}]}}]}},
+        }
+        c._request = lambda method, path, body=None: answers[path]
+        self.assertEqual(c.scenes("H6008", "AA"), [{"name": "Breathe", "instance": "lightScene", "value": {"id": 1, "paramId": 2}},
+                                                   {"name": "Witch", "instance": "diyScene", "value": 77}])
+
     def test_daily_limit_stops_sending(self):
         usage = CloudUsage()
         client = FakeClient(usage)
@@ -338,6 +390,10 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         for r in self.app.runners.values():
             await asyncio.get_running_loop().run_in_executor(None, r.stop, True)
         self.assertFalse(self.app.any_running())
+
+    async def test_scenes_of_a_virtual_bulb(self):
+        res = await (await self.client.get("/api/scenes?via=virtual&id=virtual-1")).json()
+        self.assertEqual(res["scenes"][0]["name"], "Breathe")
 
     async def test_a_show_without_a_sound_cannot_run(self):
         s = await (await self.client.post("/api/shows", json={"name": "Empty"})).json()

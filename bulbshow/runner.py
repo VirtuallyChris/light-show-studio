@@ -168,4 +168,4 @@ class ShowRunner:
         color = getattr(self.bulb, "color", None)
         return {"id": self.id, "state": self.state, "error": self.error, "position": self.loop_t,
                 "speaker": self.speaker, "via": getattr(self.bulb, "via", ""),
-                "color": effects.rgb_hex(color) if color else None, "sent": getattr(self.bulb, "sent", 0)}
+                "color": effects.code(color) if color else None, "sent": getattr(self.bulb, "sent", 0)}

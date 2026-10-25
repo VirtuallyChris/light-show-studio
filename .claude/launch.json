@@ -26,6 +26,12 @@
       "port": 8799
     },
     {
+      "name": "bulbshow",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "bulbshow", "--no-browser", "--stay", "--port", "8770"],
+      "port": 8770
+    },
+    {
       "name": "bulbshow-test",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "bulbshow", "--no-browser", "--stay", "--port", "8798", "--no-lights", "--no-cast"],

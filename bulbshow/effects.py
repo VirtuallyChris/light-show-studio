@@ -10,6 +10,13 @@ Layers stack bottom to top. Color and pulse cover what is below them; lightning
 covers it only while a flash is lit, so lightning over a dim color clip flashes
 out of a glow instead of out of the dark. Where no clip plays, the bulb is dark.
 
+  scene      one of the bulb's own effects (a scene from the Govee app), run by the bulb itself
+
+A scene is not drawn here at all: the bulb is told once to start it and plays it on its own,
+however long the clip lasts, which costs a single cloud command. A color or flash on a higher
+layer interrupts it, and the scene is started again when that ends: one way to keep a bulb
+pulsing all evening and send it red now and then for two commands each time.
+
 There are two ways of drawing the same show. A bulb on the LAN takes a new color
 twenty times a second, so it gets the smooth version. A bulb driven through
 Govee's cloud takes at most two commands a second (a burst of six) and ten
@@ -21,6 +28,7 @@ will get, and counts what the cloud version costs.
 
 from __future__ import annotations
 
+import json
 import math
 import random
 import zlib
@@ -37,7 +45,25 @@ EFFECTS = {
     "color": {"name": "Color", "defaults": {"color": "#7a2cff", "level": 0.8, "fade": 0.0}},
     "pulse": {"name": "Pulse", "defaults": {"color": "#ff6a00", "level": 1.0, "low": 0.1, "period": 2.0}},
     "lightning": {"name": "Lightning", "defaults": {"color": "#dfe8ff", "level": 1.0, "flashes": 3}},
+    "scene": {"name": "Scene", "defaults": {"scene": None}},
 }
+
+
+def scene_state(scene: dict | None):
+    """What the bulb is asked for during a scene clip: ("scene", instance, value as JSON, name). A clip
+    with no scene picked yet is dark."""
+    if not scene or scene.get("value") is None:
+        return (0, 0, 0)
+    return ("scene", scene.get("instance") or "lightScene", json.dumps(scene["value"], sort_keys=True), scene.get("name") or "")
+
+
+def is_scene(st) -> bool:
+    return len(st) == 4 and st[0] == "scene"
+
+
+def code(st) -> str:
+    """A state as the page gets it: #rrggbb, or s:<scene name>."""
+    return f"s:{st[3]}" if is_scene(st) else rgb_hex(st)
 
 
 def hex_rgb(h: str) -> tuple[int, int, int]:
@@ -122,24 +148,32 @@ def clip_light(clip: dict, tl: float, cloud: bool = False) -> tuple[tuple[int, i
     return rgb, level, 1.0
 
 
-def state(show: dict, t: float, cloud: bool = False) -> tuple[int, int, int]:
-    """The bulb's color at `t` seconds into the show (brightness folded into the color)."""
+def state(show: dict, t: float, cloud: bool = False) -> tuple:
+    """What the bulb shows at `t` seconds into the show: a color (brightness folded into it), or a
+    scene (see scene_state) where a scene clip is on top."""
     out = (0.0, 0.0, 0.0)
     for layer in show.get("layers") or []:
         for clip in layer:
             s, e = float(clip["start"]), float(clip["end"])
             if s <= t < e:
+                if clip.get("effect") == "scene":
+                    out = scene_state(param(clip, "scene"))
+                    break
                 rgb, level, cover = clip_light(clip, t - s, cloud)
-                if cover > 0:
+                if cover >= 1 or (cover > 0 and is_scene(out)):   # a color can't be mixed into a scene: it replaces it
+                    out = tuple(c * level * cover for c in rgb)
+                elif cover > 0:
                     out = tuple(c * level * cover + o * (1 - cover) for c, o in zip(rgb, out))
                 break                              # clips never overlap within a layer
+    if is_scene(out):
+        return out
     return tuple(max(0, min(255, int(round(c)))) for c in out)
 
 
 def render(show: dict, cloud: bool = False, fps: int = FPS) -> list[str]:
     """One loop of the show as colors, `fps` a second (the editor's preview)."""
     n = max(1, int(math.ceil(float(show.get("duration") or 0) * fps)))
-    return [rgb_hex(state(show, i / fps, cloud)) for i in range(n)]
+    return [code(state(show, i / fps, cloud)) for i in range(n)]
 
 
 class Bucket:

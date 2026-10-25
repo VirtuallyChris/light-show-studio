@@ -15,6 +15,11 @@ project folder. It opens on http://127.0.0.1:8770.
    brightness, fade, breath speed or number of flashes. Drag a clip to move it; drag its ends to
    resize it. Delete removes it; Ctrl+Z undoes.
 3. Layers stack: lightning on layer 2 over a dim color on layer 1 flashes out of that glow.
+   **Scene** plays one of the bulb's own effects from the Govee app (a cloud bulb only). The bulb
+   runs it by itself, so it costs one command however long it plays. A color on a higher layer
+   interrupts it and the scene starts again afterwards: a pulsing scene with red every 20 seconds
+   costs about 360 commands an hour. On screen a scene shows as a rainbow, since only the bulb knows
+   what it looks like.
 4. Pick the speaker and the bulb at the top. The volume slider sets the show's own volume, inside
    its stream, so the speaker's volume is never changed (Google speakers chime on every change).
 5. ▶ plays it on the speaker and bulb, looping, from the playhead. 🎧 switches ▶ to preview on

@@ -11,6 +11,7 @@ const EFFECTS = {
   color: { name: 'Color', len: 4, defaults: { color: '#7a2cff', level: 0.8, fade: 0 } },
   pulse: { name: 'Pulse', len: 4, defaults: { color: '#ff6a00', level: 1, low: 0.1, period: 2 } },
   lightning: { name: 'Lightning', len: 1.5, defaults: { color: '#dfe8ff', level: 1, flashes: 3 } },
+  scene: { name: 'Scene', len: 10, defaults: { scene: null } },
 };
 const RULER = 22, WAVE = 72, RIBBON = 16, GAP = 8, LANE = 46, ADDROW = 24, HEAD = 64;
 const LANES_TOP = RULER + WAVE + RIBBON + GAP;
@@ -21,7 +22,7 @@ const S = {
   play: null,                 // {mode: 'here'|'room', ...}
   here: false,                // preview on this PC instead of the speaker and bulb
   audio: null, wave: null, ctx: null, src: null, gain: null,
-  speakers: [], bulbs: [], running: {}, usage: null, shows: [],
+  speakers: [], bulbs: [], scenes: {}, running: {}, usage: null, shows: [],
   undo: [], redo: [], drag: null,
 };
 
@@ -37,6 +38,10 @@ const uid = () => 'c' + Math.random().toString(36).slice(2, 9);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function setBulb(el, hex) {
   hex = hex || '#000000';
+  const scene = hex.startsWith('s:');
+  el.classList.toggle('scene', scene);
+  el.title = scene ? `Scene: ${hex.slice(2)} (played by the bulb itself)` : '';
+  if (scene) return;
   const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
   const lum = Math.max(r, g, b) / 255;
   el.style.backgroundColor = lum < 0.02 ? '#111318' : hex;
@@ -389,8 +394,9 @@ function draw() {
   const ry = RULER + WAVE;
   if (S.frames.length) {
     for (let x = HEAD; x < Math.min(W, end); x++) {
-      const f = S.frames[Math.min(S.frames.length - 1, Math.floor(xt(x) * S.fps))];
-      g.fillStyle = f || '#000'; g.fillRect(x, ry + 2, 1, RIBBON - 4);
+      const f = S.frames[Math.min(S.frames.length - 1, Math.floor(xt(x) * S.fps))] || '#000';
+      g.fillStyle = f.startsWith('s:') ? `hsl(${(x * 3) % 360},55%,42%)` : f;    // a scene: the bulb's own, shown as a rainbow
+      g.fillRect(x, ry + 2, 1, RIBBON - 4);
     }
   }
   // lanes
@@ -415,7 +421,7 @@ function draw() {
 function drawClip(c, y) {
   const x0 = tx(c.start), x1 = tx(c.end), sel = c.id === S.sel;
   if (x1 < HEAD || x0 > W) return;
-  const col = c.color || EFFECTS[c.effect].defaults.color;
+  const col = c.effect === 'scene' ? '#b58cff' : c.color || EFFECTS[c.effect].defaults.color;
   g.save();
   g.beginPath(); g.rect(HEAD, y, W - HEAD, LANE); g.clip();
   g.fillStyle = '#20232c'; roundRect(x0 + 1, y + 4, x1 - x0 - 2, LANE - 8, 5); g.fill();
@@ -432,7 +438,8 @@ function drawClip(c, y) {
   }
   if (sel) { g.strokeStyle = '#ffffff'; g.lineWidth = 1.5; roundRect(x0 + 1, y + 4, x1 - x0 - 2, LANE - 8, 5); g.stroke(); g.lineWidth = 1; }
   g.fillStyle = '#e8eaf0'; g.font = '12px Segoe UI, system-ui';
-  if (x1 - x0 > 40) g.fillText(EFFECTS[c.effect].name, Math.max(x0, HEAD) + 7, y + 25);
+  const label = c.effect === 'scene' ? (c.scene ? c.scene.name : 'Scene (pick one)') : EFFECTS[c.effect].name;
+  if (x1 - x0 > 40) g.fillText(label, Math.max(x0, HEAD) + 7, y + 25);
   g.restore();
 }
 function roundRect(x, y, w, h, r) {
@@ -608,11 +615,14 @@ function drawInspector() {
     i.oninput = () => { c[key] = +i.value; v.textContent = SHOW[show](c[key]); save(); rerender(); draw(); };
     row(label, i, v, tip);
   };
-  const color = document.createElement('input'); color.type = 'color'; color.dataset.key = 'color';
-  color.addEventListener('click', () => beginChange());
-  color.oninput = () => { c.color = color.value; save(); rerender(); draw(); };
-  row('Color', color);
-  slider('level', 'Brightness', 0, 1, 0.01, 'pct');
+  if (c.effect === 'scene') sceneRow(c, row);
+  else {
+    const color = document.createElement('input'); color.type = 'color'; color.dataset.key = 'color';
+    color.addEventListener('click', () => beginChange());
+    color.oninput = () => { c.color = color.value; save(); rerender(); draw(); };
+    row('Color', color);
+    slider('level', 'Brightness', 0, 1, 0.01, 'pct');
+  }
   if (c.effect === 'color') slider('fade', 'Fade', 0, 10, 0.1, 'sec', 'Fades in at the start and out at the end over this long');
   if (c.effect === 'pulse') {
     slider('low', 'Low', 0, 1, 0.01, 'pct', 'How dim each breath gets');
@@ -628,6 +638,32 @@ function drawInspector() {
   const del = document.createElement('button'); del.className = 'small danger'; del.textContent = 'Delete'; del.onclick = deleteSel;
   box.append(del);
   syncInspector(c);
+}
+// the bulb's own scenes, asked of Govee once per bulb
+function sceneRow(c, row) {
+  const sel = document.createElement('select');
+  sel.style.maxWidth = '10rem';
+  const b = S.show.bulb;
+  const fill = list => {
+    sel.innerHTML = '<option value="">Pick a scene…</option>' + list.map((o, i) => `<option value="${i}">${String(o.name).replace(/</g, '&lt;')}</option>`).join('');
+    const at = c.scene ? list.findIndex(o => o.name === c.scene.name && o.instance === c.scene.instance) : -1;
+    sel.value = at >= 0 ? String(at) : '';
+    if (c.scene && at < 0) { sel.insertAdjacentHTML('afterbegin', `<option value="keep">${String(c.scene.name).replace(/</g, '&lt;')}</option>`); sel.value = 'keep'; }
+  };
+  sel.onchange = () => {
+    const list = S.scenes[b && b.id] || [], o = list[+sel.value];
+    if (!o) return;
+    beginChange(); c.scene = { name: o.name, instance: o.instance, value: o.value }; changed();
+  };
+  row('Scene', sel, null, 'The bulb plays it by itself; what it looks like is set in the Govee app');
+  if (!b || !b.id) { fill([]); sel.disabled = true; return; }
+  if (S.scenes[b.id]) { fill(S.scenes[b.id]); return; }
+  fill([]);
+  api(`/api/scenes?sku=${encodeURIComponent(b.sku || '')}&id=${encodeURIComponent(b.id)}&via=${encodeURIComponent(b.via || '')}`).then(res => {
+    if (res.problem) toast(res.problem, true);
+    if (res.scenes && res.scenes.length) S.scenes[b.id] = res.scenes;
+    fill(res.scenes || []);
+  });
 }
 const SHOW = { pct: v => `${Math.round(v * 100)}%`, sec: v => `${(+v).toFixed(1)} s`, int: v => `${Math.round(v)}` };
 function syncInspector(c) {

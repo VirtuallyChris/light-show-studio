@@ -96,6 +96,7 @@ class App:
             web.post("/api/render", self.render),
             web.get("/api/speakers", self.list_speakers),
             web.get("/api/bulbs", self.list_bulbs),
+            web.get("/api/scenes", self.list_scenes),
             web.get("/api/settings", self.get_settings),
             web.post("/api/settings", self.set_settings),
             web.post("/api/run/{id}", self.run_show),
@@ -281,6 +282,26 @@ class App:
         loop = asyncio.get_running_loop()
         bulbs, problem = await loop.run_in_executor(None, find_bulbs, self.client)
         return web.json_response({"bulbs": bulbs, "problem": problem})
+
+    VIRTUAL_SCENES = [{"name": n, "instance": "lightScene", "value": {"id": i, "paramId": i}}
+                      for i, n in enumerate(["Breathe", "Candlelight", "Flicker", "Rainbow"], 1)]
+
+    async def list_scenes(self, request):
+        """The bulb's own scenes (asked of Govee once per bulb while the app runs)."""
+        sku, dev, via = request.query.get("sku", ""), request.query.get("id", ""), request.query.get("via", "")
+        if not self.lights or via == "virtual":
+            return web.json_response({"scenes": self.VIRTUAL_SCENES})
+        if via != "cloud":
+            return web.json_response({"scenes": [], "problem": "only a bulb driven through Govee's cloud can run its own scenes"})
+        if self.client is None:
+            return web.json_response({"scenes": [], "problem": "no Govee API key yet (⚙ settings)"})
+        cache = self.__dict__.setdefault("_scenes", {})
+        if dev not in cache or request.query.get("fresh") == "1":
+            try:
+                cache[dev] = await asyncio.get_running_loop().run_in_executor(None, self.client.scenes, sku, dev)
+            except CloudError as e:
+                return web.json_response({"scenes": [], "problem": str(e)})
+        return web.json_response({"scenes": cache[dev]})
 
     async def get_settings(self, request):
         key = self.config().get("govee_api_key") or ""
