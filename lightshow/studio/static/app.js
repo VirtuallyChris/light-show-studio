@@ -1378,7 +1378,9 @@
         const c = { n, out: src, t, beat: b, beatSec: Math.max(0.05, beatToTime(b + 1) - beatToTime(b)), phase: frac(b), bar: (b - p.phase) / 4, barPhase: frac((b - p.phase) / 4),
           clipT0: beatToTime(clip.start), clipT1: beatToTime(clip.start + clip.len),
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
-          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub, where: spotsFor(where, n) };
+          pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub, where: spotsFor(where, n),
+          // what this light is, the kinds of every light in the line, and which pole it is (lightning strikes poles and tubes)
+          kind: tubes ? 'tubes' : kind, kinds: room.kinds || [kind], pole: (room.kinds || []).slice(0, room.i).filter(k => k === 'short').length };
         // a one-shot across the tubes plays on them alone, all of it (not one stop of a sweep round the room)
         if (tubes && !sub && (e.cat === 'accent' || PARTY_ONE_SHOTS.has(clip.effect))) c.room = { i: 0, n: 1, side: 0, kinds: ['long'] };
         if (!houseDraw(c, e, clip, kind, sub, hcache)) e.render(c);

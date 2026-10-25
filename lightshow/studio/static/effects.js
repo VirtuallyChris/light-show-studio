@@ -820,28 +820,42 @@ const Effects = (() => {
     params: { space: P.space('around', 'across', 'around', 'sides'), angle: P.angle(), spin: P.spin(), speed: { type: 'beats', def: 0.25, label: 'Beats per block' }, size: P.size(0.08, 'Block size'), direction: P.direction() },
     render(c) { const blocks = Math.max(2, Math.round(1 / c.p.size)); const s = c.beat / c.p.speed; for (let i = 0; i < c.n; i++) { const x = dirX(c, i / c.n); const u = x * blocks - s; const k = Math.floor(u); const on = frac(u) > 0.7; const col = palIdx(c.pal, k); set(c.out, i, on ? col[0] : 0, on ? col[1] : 0, on ? col[2] : 0); } } });
 
-  def({ id: 'lightning', name: 'Lightning', cat: 'fast', desc: 'Lightning bouncing all over the room: strike after strike, each somewhere else in the house (the lights near it flash, the house map), now and then one that lights the whole house. Every flash held long enough for the lights to show it. Timed in seconds, not beats, so it works on a sound effect too.', swatch: ['#ffffff', '#8ad8ff'],
+  def({ id: 'lightning', name: 'Lightning', cat: 'fast', desc: 'Lightning striking the poles and the hanging tubes, which already look like bolts: strike after strike, 2 to 5 of them at a time, picked at random, now and then one that lights the whole house. Every flash held long enough for the lights to show it. Timed in seconds, not beats, so it works on a sound effect too.', swatch: ['#ffffff', '#8ad8ff'],
     params: { rate: { type: 'range', def: 0.5, min: 0.05, max: 1, step: 0.01, label: 'How often' }, color: P.color() },
     render(c) {
-      // A strike may start every 0.1 s (rate: the chance it does; 0.5 is about four a second, 1 eight), each
-      // at a random spot of the house, lighting what is within 4-7 ft of it; one in seven the whole house.
-      // Each holds 0.1-0.14 s: flashes under a frame were never seen (the lights update as few as 15 times a
-      // second; the user: at least 0.1 to 0.2 s). The clip opens with one that lights the whole house (a short
-      // "thunder" moment always gets its strike). Off the map: a stretch of each strip, or a whole lamp.
+      // A strike may start every 0.1 s (rate: the chance it does; 0.5 is about four a second, 1 eight). The poles and
+      // the 20 tubes are what it strikes (the user: they look like lightning already): each strike 2 to 5 of them, picked
+      // at random, the whole pole or tube; one in seven lights the whole house, the strings too. Each holds 0.1-0.14 s:
+      // flashes under a frame were never seen (the lights update as few as 15 times a second; the user: at least 0.1 to
+      // 0.2 s). The clip opens with one that lights the whole house (a short "thunder" moment always gets its strike).
+      // With no pole or tube playing (testing on one strip), strikes land on a spot of the house instead, as before.
       clear(c.out); const SLOT = 0.1, P = spots(c), H = houseOf(c);
       if (c.t - c.clipT0 < 0.12) { const col = colorFor(c, 0.5, 0); fillAll(c.out, c.n, col[0], col[1], col[2], 1); return; }
+      const kinds = c.kinds || [], T = kinds.includes('tubes') ? 20 : 0, U = T + kinds.filter(k => k === 'short').length;
       const now = Math.floor(c.t / SLOT);
-      for (let k = now; k >= now - 2; k--) {                                  // (strikes still holding from the slots before)
+      for (let k = now; k >= now - 2; k--) {                                  // (a strike still holding from the slots before)
         if (k < 0 || hash(k * 31) > c.p.rate * 0.8) continue;
         const hold = 0.1 + 0.04 * hash(k * 31 + 5), u = c.t - k * SLOT; if (u < 0 || u >= hold) continue;
+        // only the newest strike shows (2 to 5 at a time, the user): the loop stops at the first still holding; the
+        // one before it has had its 0.1 s by then
         const big = hash(k * 31 + 9) < 1 / 7, col = colorFor(c, hash(k * 7 + 3), k);
+        if (big) { fillAll(c.out, c.n, col[0], col[1], col[2], 1); break; }
+        if (U >= 2) {
+          // the poles and tubes struck: 2-5 of them (tubes 0-19, then the poles in the order the lights stand)
+          const m = Math.min(U, 2 + Math.floor(hash(k * 31 + 11) * 4)), hit = new Set();
+          for (let j = 0; hit.size < m; j++) { let x = Math.floor(hash(k * 97 + j * 13) * U); while (hit.has(x)) x = (x + 1) % U; hit.add(x); }
+          if (c.kind === 'tubes') { for (let i = 0; i < c.n; i++) if (hit.has(Math.min(19, Math.floor(i * 20 / c.n)))) set(c.out, i, col[0], col[1], col[2], 1); }
+          else if (c.kind === 'short' && hit.has(T + (c.pole || 0))) fillAll(c.out, c.n, col[0], col[1], col[2], 1);
+          break;
+        }
         const o = [hash(k * 7 + 1) * H.w, hash(k * 7 + 2) * H.d], r = 4 + 3 * hash(k * 7 + 4);
         const room = c.room ? c.room.i : 0, a = hash(k * 7 + 1 + room * 13), w = 0.25 + 0.35 * hash(k * 7 + 2 + room * 13);
         for (let i = 0; i < c.n; i++) {
           const p = P && P[i];
-          const hit = big || (p ? Math.hypot(p[0] - o[0], p[1] - o[1]) <= r : c.n <= 12 ? hash(k * 7 + 5 + room * 13) < 0.4 : Math.abs((i + 0.5) / c.n - a) <= w / 2);
+          const hit = p ? Math.hypot(p[0] - o[0], p[1] - o[1]) <= r : c.n <= 12 ? hash(k * 7 + 5 + room * 13) < 0.4 : Math.abs((i + 0.5) / c.n - a) <= w / 2;
           if (hit) set(c.out, i, col[0], col[1], col[2], 1);
         }
+        break;
       }
     } });
 
