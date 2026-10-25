@@ -988,6 +988,54 @@ class TestClosingHush(unittest.TestCase):
         self.assertFalse(svc.hush())                                       # no jam: nothing to stop
 
 
+class TestPausedSpeakerAsksAgain(unittest.TestCase):
+    """The party paused: a paused speaker's connection idles out and it asks for the stream again, every ten minutes or
+    so. Restarting it there was a cast (the speaker's sound) each time, all night (the user)."""
+
+    def request(self, svc, out):
+        import asyncio
+        from aiohttp import web
+        from types import SimpleNamespace
+        req = SimpleNamespace(query={"sid": out.sid})
+        try:
+            asyncio.run(svc.stream(req))
+        except web.HTTPGone:
+            return "gone"
+        return "served"
+
+    def service(self, paused):
+        import threading
+        from types import SimpleNamespace
+        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.jam_service import JamService
+        out = CastOutput.__new__(CastOutput)
+        out.sid, out.stream, out.position = "s1", object(), lambda: 30.0
+        eng = SimpleNamespace(output=out, gate=SimpleNamespace(paused=paused), cue_hold=False, _speaker_dropped=False, log=[],
+                              lock=threading.RLock())
+        eng.say = eng.log.append
+        svc = JamService.__new__(JamService)
+        svc.engine, svc._served = eng, {"s1": 30.0}
+        svc._restart_cast = lambda o: eng.log.append("RESTARTED")
+        return svc, eng, out
+
+    def test_paused_it_is_left_be_and_restarts_with_the_music(self):
+        import time
+        svc, eng, out = self.service(paused=True)
+        self.assertEqual(self.request(svc, out), "gone")
+        time.sleep(0.1)
+        self.assertNotIn("RESTARTED", eng.log)                             # no cast: no sound
+        self.assertTrue(eng._speaker_dropped)                              # a fresh stream when the music plays (_resume_output)
+        self.request(svc, out)
+        self.assertEqual(len([l for l in eng.log if "let go" in l]), 1)    # said once
+
+    def test_playing_it_is_restarted_where_the_room_was(self):
+        import time
+        svc, eng, out = self.service(paused=False)
+        self.assertEqual(self.request(svc, out), "gone")
+        time.sleep(0.2)
+        self.assertIn("RESTARTED", eng.log)
+
+
 class TestHandover(unittest.TestCase):
     def test_opening_song_hands_over_with_the_buffer_full(self):
         d = tempfile.mkdtemp()

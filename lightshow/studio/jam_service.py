@@ -715,6 +715,14 @@ class JamService:
         except Exception:  # noqa: BLE001
             played = 0.0
         if isinstance(out, CastOutput) and played >= self.RECONNECT_AFTER_S:
+            if eng.gate.paused and not eng.cue_hold:
+                # the party is paused: a paused speaker's connection idles out and it asks again, every ten
+                # minutes or so; restarting it there was a cast (the speaker's sound) each time, all night (the
+                # user). Left be: it gets a fresh stream from the paused spot when the music plays again.
+                if not eng._speaker_dropped:
+                    eng._speaker_dropped = True
+                    eng.say("the speaker let go of the stream during the pause: it restarts when the music does")
+                raise web.HTTPGone()
             eng.say(f"the speaker lost its stream (Wi-Fi) and came back: restarting it where the room was")
             threading.Thread(target=self._restart_cast, args=(out,), daemon=True).start()
             raise web.HTTPGone()
@@ -743,6 +751,9 @@ class JamService:
         if e is None or e.output is not out:
             return
         with e.lock:
+            if e.gate.paused and not e.cue_hold:
+                e._speaker_dropped = True                    # (paused meanwhile: it restarts with the music)
+                return
             rc = e.room_capture_time()
             start = rc if rc is not None else max(e.relay.oldest_time, e.relay.capture_time - e.cfg.target_delay)
             out.start_stream(e.relay.open_stream(start))
