@@ -1676,7 +1676,12 @@
     if (fits) for (const x of words) drawn.push({ t: x.t, end: x.end, text: x.w, x: xOf(x.t), bg: !!x.bg });
     else {
       edge = -1e9;
-      for (const ln of ly.lines || []) {
+      // (lyrics Whisper heard on its own come without lines: its words, split where the singing pauses)
+      const lines = (ly.lines || []).length ? ly.lines : (ly._lines = ly._lines || ly.words.reduce((out, x, i, ws) => {
+        const cur = out[out.length - 1];
+        if (cur && x.t - ws[i - 1].end < 0.7 && cur.n < 10) { cur.text += ' ' + x.w; cur.end = x.end; cur.n++; } else out.push({ t: x.t, end: x.end, text: x.w, n: 1 });
+        return out; }, []));
+      for (const ln of lines) {
         if (ln.end < t0 || ln.t > t1 || !ln.text) continue;
         const px = Math.max(HEADER + 2, xOf(ln.t)); if (px < edge + 8) continue;
         drawn.push({ t: ln.t, end: ln.end, text: ln.text, x: px }); edge = px + g.measureText(ln.text).width;
