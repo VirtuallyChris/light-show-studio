@@ -194,10 +194,6 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .cue-live .prog { height: 100%; width: 0; background: #fff; }
   .cue-edit { padding: 12px 0; border-top: 1px solid var(--line); }
   .cue-edit:first-of-type { border-top: none; }
-  .fade-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 15px; }
-  .fade-row .secs { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
-  .fade-row input[type=number] { width: 64px; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; text-align: center; }
-  .fade-row input[type=number]:disabled { opacity: .4; }
   .cue-edit .top { display: flex; align-items: center; gap: 10px; }
   .cue-edit input[type=text], .cue-edit select { font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
   .cue-edit .top input[type=text] { flex: 1; min-width: 0; font-weight: 600; }
@@ -580,8 +576,8 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     }
   }
 
-  // ---- cues: tap one and the music fades out, a saved show plays, and the music fades back in
-  const PHASE = { starting: 'Starting…', fade_out: 'Fading out…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…', fade_in: 'Fading in…' };
+  // ---- cues: tap one and a saved show plays at once, to its end, then the music fades back in (cues.py)
+  const PHASE = { starting: 'Starting…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…', fade_in: 'Music back…' };
   let cuesShown = '', liveShown = '', cueTick = null;
   function renderCues(st) {
     const cues = st.cues || [], run = st.cue || {}, live = run.phase && run.phase !== 'done';
@@ -617,7 +613,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     }
   }
 
-  // settings: each cue's show, and whether the music fades out and back in, and over how long
+  // settings: each cue's shows
   let cueDoc = null;
   async function loadCueEdit() {
     try { cueDoc = await (await fetch('/api/cues')).json(); } catch (e) { $('#cueEdit').innerHTML = '<div class="empty">Couldn’t load the cues.</div>'; return; }
@@ -629,26 +625,20 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   }
   function renderCueEdit() {
     if (!cueDoc) return;
-    const cues = cueDoc.cues.map(c => ({ ...c, fade_out: { ...c.fade_out }, fade_in: { ...c.fade_in } })), shows = cueDoc.shows || [];
+    const cues = cueDoc.cues.map(c => ({ ...c })), shows = cueDoc.shows || [];
     const len = n => { const s = shows.find(x => x.name === n); return s && s.length ? ` (${Math.floor(s.length / 60)}:${String(Math.round(s.length % 60)).padStart(2, '0')})` : ''; };
-    const fade = (c, k, label) => `<div class="fade-row"><span>${label}</span><span class="secs"><input type="number" min="0" max="30" step="0.5" class="${k}-s" value="${c[k].s}" ${c[k].on ? '' : 'disabled'} aria-label="${label} seconds"> s
-        <label class="switch"><input type="checkbox" class="${k}-on" ${c[k].on ? 'checked' : ''} aria-label="${label}"><span></span></label></span></div>`;
     $('#cueEdit').innerHTML = cues.map((c, i) => `<div class="cue-edit" data-i="${i}">
         <div class="top"><input type="text" value="${esc(c.name)}" maxlength="30" aria-label="Cue name"><button class="del" aria-label="Delete ${esc(c.name)}">&times;</button></div>
         <div class="show-pick" role="group" aria-label="Shows" title="Tick one show, or several: each time, one at random, and none again until every one has played">${shows.map(s => { const on = (c.shows || []).includes(s.name); return `<label class="${on ? 'on' : ''}"><input type="checkbox" value="${esc(s.name)}" ${on ? 'checked' : ''}><span>${esc(s.name)}${len(s.name)}</span></label>`; }).join('') || '<div class="empty">No saved shows yet.</div>'}</div>
-        ${fade(c, 'fade_out', 'Fade the music out')}${fade(c, 'fade_in', 'Fade the music back in')}</div>`).join('')
+        </div>`).join('')
       + `<button class="add" id="addCue">+ Add cue</button>`;
-    $('#addCue').onclick = () => saveCues([...cues, { name: `Cue ${cues.length + 1}`, show: '', shows: [], fade_out: { on: true, s: 2 }, fade_in: { on: true, s: 3 } }]);
+    $('#addCue').onclick = () => saveCues([...cues, { name: `Cue ${cues.length + 1}`, show: '', shows: [] }]);
     for (const el of $('#cueEdit').querySelectorAll('.cue-edit')) {
       const c = cues[+el.dataset.i];
       el.querySelector('input[type=text]').onchange = e => { c.name = e.target.value.trim() || c.name; saveCues(cues); };
       for (const box of el.querySelectorAll('.show-pick input')) box.onchange = () => {   // its shows, in the list's order
         c.shows = [...el.querySelectorAll('.show-pick input:checked')].map(x => x.value); c.show = c.shows[0] || ''; saveCues(cues); };
       el.querySelector('.del').onclick = () => { if (confirm(`Delete ${c.name}?`)) { cues.splice(+el.dataset.i, 1); saveCues(cues); } };
-      for (const k of ['fade_out', 'fade_in']) {
-        el.querySelector(`.${k}-on`).onchange = e => { c[k].on = e.target.checked; saveCues(cues); };
-        el.querySelector(`.${k}-s`).onchange = e => { c[k].s = Math.max(0, Math.min(30, parseFloat(e.target.value) || 0)); saveCues(cues); };
-      }
     }
   }
 

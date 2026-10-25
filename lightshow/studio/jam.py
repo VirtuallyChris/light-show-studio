@@ -1437,12 +1437,12 @@ class JamEngine:
             pass
         return rc
 
-    def cue_insert(self, pcm: np.ndarray, lead_s: float, tail_s: float) -> bool:
+    def cue_insert(self, pcm: np.ndarray, fade_in_s: float) -> bool:
         """A cue's song, played inside the room's own stream: the speakers get one fresh stream (as for a
-        skip, they drop what they held) that crossfades from where the room is into the song over lead_s,
-        and at the song's end back into the music over tail_s. Nothing is paused or loaded on the speakers
-        in between, so the song starts at once and the music comes back without a gap. Spotify is paused
-        meanwhile (the buffer is held). False when there is no stream to put it in."""
+        skip, they drop what they held) that cuts from where the room is straight into the song, plays it to
+        its end, then the music from where it held, fading in over fade_in_s. Nothing is paused or loaded on
+        the speakers in between, so the song starts at once. Spotify is paused meanwhile (the buffer is
+        held). False when there is no stream to put it in."""
         with self.lock:
             if not self.streaming or self.output.stream is None:
                 return False
@@ -1455,10 +1455,10 @@ class JamEngine:
                 at = max(self.relay.oldest_time, at)
             sr = self.relay.sr
             fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
-            fresh.insert(pcm, int(lead_s * sr), int(tail_s * sr))
+            fresh.insert(pcm, int(fade_in_s * sr))
             self.gate.paused = True                       # Spotify's pause is not the room's: nothing to pause
             self.cue_hold, self.cue_in_stream = True, True
-            self.held_at = at + min(lead_s, len(pcm) / sr / 2)    # where the music picks up after the song
+            self.held_at = at                            # where the music picks up after the song
             self.output.start_stream(fresh)
             self._streamed_at = self.clock()             # (keep_delay leaves a fresh stream alone while it settles)
             self._quiet_start()
@@ -1477,40 +1477,15 @@ class JamEngine:
             return max(0.0, self.output.position() - self.output.offset)
 
     def cue_over(self) -> None:
-        """The cue's song is crossfading back into the music, already in the stream: the room is the jam's
+        """The cue's song is over and the music fades back in, already in the stream: the room is the jam's
         again, and Spotify resumes behind it."""
         with self.lock:
             self.held_at, self.cue_hold = None, False
-            self.say("the cue is over: the music crossfades back in")
+            self.say("the cue is over: the music fades back in")
         try:
             self.spotify.resume()
         except Exception:  # noqa: BLE001
             pass
-
-    def fade_out(self, seconds: float) -> float | None:
-        """A cue fades the room out first, in the audio itself (a speaker's volume would chime at every
-        step). Where the speakers hold little ahead (this PC: about a second) the stream simply fades
-        from here. A Cast speaker holds up to 20 s ahead, so it is handed a fresh stream from where the
-        room is, fading out, as a skip is: it drops what it held and plays that at once. Returns how long
-        to wait for the room to fall silent, or None when there is nothing to fade."""
-        with self.lock:
-            s = self.output.stream
-            if not self.streaming or s is None or self.gate.paused or seconds <= 0:
-                return None
-            ahead = s.sent / self.relay.sr - self.output.position()
-            if not isinstance(self.output, CastOutput) and ahead <= 3.0:
-                s.fade(seconds, 0.0)
-                return max(0.0, ahead) + max(0.0, self.output.offset) + seconds
-            at = self.room_capture_time()
-            if at is None:
-                return None
-            fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
-            fresh.fade(seconds, 0.0, start=1.0)
-            self.output.start_stream(fresh)
-            self.say(f"a cue: the room fades out over {seconds:.1f}s")
-            return seconds + (self.CAST_RELOAD_S if isinstance(self.output, CastOutput) else 0.0)
-
-    CAST_RELOAD_S = 2.0      # a Cast speaker taking a fresh stream starts it within about this (waiting longer is only silence)
 
     def release(self, restart: bool, fade_in: float = 0.0) -> None:
         """The cue is over: the room carries on from where it stopped. When the cue played on the

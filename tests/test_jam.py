@@ -1238,7 +1238,7 @@ class TestCueFades(unittest.TestCase):
         s2.read(500, timeout=0)
         self.assertIsNone(s2.gain)                          # done fading: back to plain copying
 
-    def test_this_pc_fades_in_place_and_comes_back_fading_in(self):
+    def test_after_a_cue_the_music_comes_back_fading_in(self):
         d = tempfile.mkdtemp()
         try:
             a, ta = song(128.0, 1)
@@ -1246,11 +1246,7 @@ class TestCueFades(unittest.TestCase):
             sim.play(a, ta)
             sim.run(14.0, analyse=False)
             e = sim.engine
-            self.assertTrue(e.streaming)
             starts = sim.out.starts
-            wait = e.fade_out(1.5)
-            self.assertAlmostEqual(wait, 2.5, delta=0.6)    # the second it holds ahead, then the fade
-            self.assertEqual(sim.out.starts, starts)        # faded where it is: no new stream
             e.hold()
             e.release(restart=True, fade_in=2.0)
             self.assertEqual(sim.out.starts, starts + 1)    # the room's music back, from where it stopped
@@ -1258,54 +1254,27 @@ class TestCueFades(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
-    def test_a_cast_speaker_gets_a_fresh_stream_fading_out(self):
-        from types import SimpleNamespace
-        from lightshow.studio.jam import CastOutput
-        d = tempfile.mkdtemp()
-        try:
-            a, ta = song(128.0, 1)
-            sim = Sim(d, target=10.0)
-            sim.play(a, ta)
-            sim.run(14.0, analyse=False)
-            e = sim.engine
-            played = []
-            cast = SimpleNamespace(name="Everywhere", status=lambda: {"position": 3.0},
-                                   play_stream=lambda url, kind, title: played.append(url), pause=lambda: None, resume=lambda: None)
-            out = CastOutput(cast, lambda sid: f"http://pc/stream/{sid}")
-            e.output = out
-            old = e.relay.open_stream(e.relay.capture_time - 10.0, pace=False)
-            out.start_stream(old)
-            old.read(44100 * 15, timeout=0)                  # the speaker has pulled 15 s ahead
-            room = e.room_capture_time()
-            wait = e.fade_out(2.0)
-            self.assertEqual(played, ["http://pc/stream/1", "http://pc/stream/2"])   # a fresh stream, as for a skip
-            self.assertAlmostEqual(out.stream.cursor / e.relay.sr, room, delta=0.05)  # from where the room is
-            self.assertEqual(out.stream.gain[2:], (1.0, 0.0))
-            self.assertGreaterEqual(wait, 2.0)
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
-
 
 class TestCueInTheStream(unittest.TestCase):
-    """A cue's song played inside the jam's own stream, crossfading in and out. Fakes only."""
+    """A cue's song played inside the jam's own stream: straight in, to its end, then the music fading back in.
+    Fakes only."""
 
-    def test_the_stream_crossfades_into_the_song_and_back_into_the_music(self):
+    def test_the_song_plays_alone_to_its_end_then_the_music_fades_in(self):
+        """The user: let it finish fully, then fade back in (the two overlapping each other's ends was a mess)."""
         clock = Clock()
         relay = Relay(sr=1000, channels=2, capacity_s=60, clock=clock)
         relay.write(np.full((10000, 2), 1000, dtype=np.int16))          # the music
         s = relay.open_stream(2.0, pace=False)
-        s.insert(np.full((3000, 2), 8000, dtype=np.int16), lead=500, tail=1000)
+        s.insert(np.full((3000, 2), 8000, dtype=np.int16), after=1000)
         x = np.frombuffer(s.read(10000, timeout=0), dtype=np.int16).reshape(-1, 2)[:, 0]
-        while len(x) < 5000:
+        while len(x) < 6000:
             x = np.concatenate([x, np.frombuffer(s.read(10000, timeout=0), dtype=np.int16).reshape(-1, 2)[:, 0]])
-        self.assertEqual(x[0], 1000)                                     # from the music...
-        self.assertTrue(np.all(x[600:1900] == 8000))                     # ...to the song alone...
-        self.assertGreater(x[2500], 1000)                                # ...the two together at its end...
-        self.assertLess(x[2500], 8000)
-        self.assertTrue(np.all(x[3000:5000] == 1000))                    # ...and the music carries on
+        self.assertTrue(np.all(x[:3000] == 8000))                        # straight into the song, all of it alone
+        self.assertLess(x[3000], 50)                                      # then the music, from silence...
+        self.assertAlmostEqual(x[3500], 500, delta=60)                   # ...halfway up halfway through
+        self.assertTrue(np.all(x[4000:6000] == 1000))                    # ...and on at its level
         self.assertIsNone(s.cut)
-        # the music picks up after what the two crossfades used: 0.5 s at the start, 1 s at the end
-        self.assertAlmostEqual(s.capture_time_at(3.0), 2.0 + 0.5 + 1.0, delta=0.01)
+        self.assertAlmostEqual(s.capture_time_at(3.0), 2.0, delta=0.01)  # the music picks up exactly where it held
         self.assertIsNone(s.capture_time_at(1.0))                         # the song alone: none of the music
 
     def test_the_engine_holds_the_music_while_the_song_plays_in_its_stream(self):
@@ -1318,16 +1287,16 @@ class TestCueInTheStream(unittest.TestCase):
             e = sim.engine
             starts, room = sim.out.starts, e.room_capture_time()
             pcm = np.zeros((SR * 6, 2), dtype=np.int16)
-            self.assertTrue(e.cue_insert(pcm, 1.0, 2.0))
+            self.assertTrue(e.cue_insert(pcm, 2.0))
             self.assertEqual(sim.out.starts, starts + 1)                 # one fresh stream, as for a skip
             self.assertFalse(sim.spotify.playing)                        # the buffer is held
-            self.assertAlmostEqual(e.held_at, room + 1.0, delta=0.05)
+            self.assertAlmostEqual(e.held_at, room, delta=0.05)
             paused_at = sim.out.paused_at
             sim.run(3.0, analyse=False)
             self.assertEqual(sim.out.paused_at, paused_at)               # the speakers never paused
             self.assertAlmostEqual(e.cue_position(), 3.0, delta=0.6)    # the room is 3 s into the song
             sim.run(1.0, analyse=False)
-            e.cue_over()                                                 # the song crossfades back into the music
+            e.cue_over()                                                 # the song over: the music fades back in
             self.assertTrue(sim.spotify.playing)
             sim.run(4.0, analyse=False)
             self.assertFalse(e.gate.paused)
@@ -1348,7 +1317,7 @@ class TestCueInTheStream(unittest.TestCase):
             e = sim.engine
             e.room_capture_time = lambda: None                           # the speakers' place: not known this moment
             starts = sim.out.starts
-            self.assertTrue(e.cue_insert(np.zeros((SR * 4, 2), dtype=np.int16), 0.0, 1.0))
+            self.assertTrue(e.cue_insert(np.zeros((SR * 4, 2), dtype=np.int16), 1.0))
             self.assertEqual(sim.out.starts, starts + 1)
             self.assertAlmostEqual(e.held_at, e.relay.capture_time - 10.0, delta=1.0)   # where the room should be
         finally:

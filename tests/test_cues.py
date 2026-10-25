@@ -4,7 +4,20 @@ Rehearsals only: nothing here touches a speaker, a light or Spotify."""
 
 import unittest
 
+from unittest import mock
+
+from lightshow.studio import cues as cues_module
 from lightshow.studio.cues import CueRunner, Rehearsal, clean
+
+# (the music's 2 s fade back after every cue, shortened here so the tests do not wait on it)
+def setUpModule():
+    global _short
+    _short = mock.patch.object(cues_module, "MUSIC_BACK_S", 0.2)
+    _short.start()
+
+
+def tearDownModule():
+    _short.stop()
 
 
 class Store:
@@ -27,8 +40,8 @@ class TestCues(unittest.TestCase):
     def runner(self):
         st = Store()
         r = CueRunner(st.load, st.save, lambda name: 0.3)
-        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding", "fade_out": {"on": True, "s": 0.2}, "fade_in": {"on": True, "s": 0.3}},
-                   {"id": "shot", "name": "Shot o'clock", "show": "Shots", "fade_out": {"on": False, "s": 2}, "fade_in": {"on": False, "s": 2}},
+        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding"},
+                   {"id": "shot", "name": "Shot o'clock", "show": "Shots"},
                    {"id": "empty", "name": "Nothing yet", "show": ""}])
         return r
 
@@ -37,20 +50,14 @@ class TestCues(unittest.TestCase):
         names = [c["name"] for c in CueRunner(st.load, st.save, lambda n: 0).list()]
         self.assertEqual(names, ["Doorbell", "Shot o'clock"])
 
-    def test_fades_out_plays_the_show_then_fades_back_in(self):
+    def test_cuts_to_the_show_plays_it_to_the_end_then_the_music_comes_back(self):
+        """The user: no fade out, no overlapping; the show to its end, then the music fades back in over 2 s."""
         r, h = self.runner(), Watch(0.3)
         r.run("door", h)
         r.thread.join(5)
-        self.assertEqual(h.calls, [("fade out", 0.2), "pause", ("show", "Ding"), "resume"])
+        self.assertEqual(h.calls, ["pause", ("show", "Ding"), "resume"])
         self.assertEqual(r.status()["phase"], "done")
-        self.assertEqual(r.status()["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
-
-    def test_without_fades_the_music_just_stops_and_starts(self):
-        r, h = self.runner(), Watch(0.2)
-        r.run("shot", h)
-        r.thread.join(5)
-        self.assertEqual(h.calls, ["pause", ("show", "Shots"), "resume"])
-        self.assertEqual(r.status()["steps"], ["pause", "show", "resume", "done"])
+        self.assertEqual(r.status()["steps"], ["pause", "show", "resume", "fade_in", "done"])
 
     def test_ending_early_brings_the_music_back(self):
         r, h = self.runner(), Watch(30)
@@ -81,17 +88,15 @@ class TestCues(unittest.TestCase):
         self.assertTrue(st["rehearsal"])
         r.thread.join(5)
 
-    def test_settings_are_kept_in_range(self):
+    def test_settings_are_kept_in_range_and_the_old_fades_dropped(self):
         c = clean([{"name": "x" * 50, "fade_out": {"on": True, "s": 99}, "fade_in": {"s": "soon"}}])[0]
         self.assertEqual(len(c["name"]), 30)
-        self.assertEqual(c["fade_out"]["s"], 30.0)
-        self.assertEqual(c["fade_in"], {"on": True, "s": 2.0})
+        self.assertNotIn("fade_out", c)                                    # (no per-cue fades any more)
+        self.assertNotIn("fade_in", c)
 
-    def test_a_doorbell_saved_without_fades_cuts_then_fades_back_in(self):
+    def test_a_cue_saved_with_one_show_has_a_list_of_one(self):
         c = clean([{"id": "doorbell", "name": "Doorbell", "show": "Thriller End Laugh"}])[0]
-        self.assertFalse(c["fade_out"]["on"])                              # a jump cut to its show
-        self.assertEqual(c["fade_in"], {"on": True, "s": 3.0})
-        self.assertEqual(c["shows"], ["Thriller End Laugh"])               # one show saved the old way: its list of one
+        self.assertEqual(c["shows"], ["Thriller End Laugh"])
 
     def test_several_shows_each_once_before_any_again(self):
         st = Store()
@@ -175,7 +180,7 @@ class TestLiveCues(unittest.TestCase):
     def run_cue(self, hooks):
         st = Store()
         r = CueRunner(st.load, st.save, lambda n: 0.2, live=lambda: hooks)
-        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding", "fade_out": {"on": True, "s": 0.2}, "fade_in": {"on": True, "s": 0.2}}])
+        r.replace([{"id": "door", "name": "Doorbell", "show": "Ding"}])
         st_ = r.run("door")
         r.thread.join(5)
         return st_, r.status()
@@ -189,19 +194,19 @@ class TestLiveCues(unittest.TestCase):
         first, last = self.run_cue(self.hooks(cast, jam))
         self.assertFalse(first["rehearsal"])
         self.assertEqual((first["via"], first["device"]), ("cast", "Everywhere"))
-        # faded in the jam's own audio, and the speakers get the jam back fading in
-        self.assertEqual(jam.calls, [("fade out", 0.2), "hold", ("release", True, 0.2)])
+        # a straight cut, and the speakers get the jam back fading in (MUSIC_BACK_S, shortened here)
+        self.assertEqual(jam.calls, ["hold", ("release", True, 0.2)])
         self.assertEqual(cast.calls, [("play", "http://pc/api/audio/Ding", "C:/shows/Ding/song.mp3", "Ding", 0.0)])
         self.assertEqual(cast.levels, [])                                    # the speakers' volume never touched: no chimes
-        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "fade_in", "done"])
 
     def test_a_jam_on_this_pc_leaves_the_song_to_the_page(self):
         cast, jam = FakeCast(connected=False), FakeJam("pc")
         first, last = self.run_cue(self.hooks(cast, jam))
         self.assertEqual(first["via"], "pc")
         self.assertEqual(cast.calls, [])
-        self.assertEqual(jam.calls, [("fade out", 0.2), "hold", ("release", True, 0.2)])   # this PC's stream fades too
-        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
+        self.assertEqual(jam.calls, ["hold", ("release", True, 0.2)])     # this PC's stream fades back in too
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "fade_in", "done"])
 
     def test_without_a_jam_spotify_is_paused_only_if_it_was_playing(self):
         jam = FakeJam(None, playing=True)
@@ -212,29 +217,23 @@ class TestLiveCues(unittest.TestCase):
         self.run_cue(self.hooks(FakeCast(connected=False), quiet))
         self.assertEqual(quiet.spotify.calls, [])
 
-    def test_in_a_jam_the_song_plays_in_the_stream_and_crossfades_back(self):
+    def test_in_a_jam_the_song_plays_in_the_stream_to_its_end_then_the_music_fades_in(self):
         import numpy as np
         from types import SimpleNamespace
         cast, jam = FakeCast(), FakeJam("cast")
         pos = {"t": 0.0}
         jam.engine.streaming = True
-        jam.engine.cue_insert = lambda pcm, lead, tail: (jam.calls.append(("insert", len(pcm), lead, tail)), True)[1]
+        jam.engine.cue_insert = lambda pcm, fade_in: (jam.calls.append(("insert", len(pcm), fade_in)), True)[1]
         jam.engine.cue_position = lambda: (pos.__setitem__("t", pos["t"] + 0.05), pos["t"])[1]
         jam.engine.cue_over = lambda: jam.calls.append("over")
         from lightshow.studio.cues import LiveHooks
         hooks = LiveHooks(cast, jam, lambda name: ("u", "p"), lambda n: 0.5, pcm=lambda name: (np.zeros((500, 2), dtype=np.int16), 1000))
         first, last = self.run_cue(hooks)
-        self.assertEqual(jam.calls, [("insert", 500, 0.2, 0.15), "over"])  # no pause, no hold: the song was in the stream
-        # (crossfading back over its last 30% at most: 0.15 s of a 0.5 s song, not its 0.2 s fade)
+        self.assertEqual(jam.calls, [("insert", 500, 0.2), "over"])       # no pause, no hold: the song was in the stream
+        self.assertGreaterEqual(pos["t"], 0.5)                             # over only once the song had played to its end
         self.assertEqual(cast.calls, [])                                   # the speakers never loaded the show's song
         self.assertTrue(last["stream"])
         self.assertEqual(last["steps"], ["show", "fade_in", "done"])
-
-    def test_a_short_sound_effect_comes_back_to_the_music_only_at_its_end(self):
-        from lightshow.studio.cues import cue_tail
-        self.assertAlmostEqual(cue_tail(3.0, 4.76), 1.428)                 # the werewolf howl: its last 1.4 s, not 3
-        self.assertEqual(cue_tail(3.0, 12.4), 3.0)                         # a longer one: its whole fade
-        self.assertEqual(cue_tail(0.0, 5.0), 0.0)
 
     def test_a_song_not_ready_plays_the_old_way(self):
         cast, jam = FakeCast(), FakeJam("cast")
@@ -242,7 +241,7 @@ class TestLiveCues(unittest.TestCase):
         from lightshow.studio.cues import LiveHooks
         hooks = LiveHooks(cast, jam, lambda name: ("u", "p"), lambda n: 0.2, pcm=lambda name: None)
         _, last = self.run_cue(hooks)
-        self.assertEqual(last["steps"], ["fade_out", "pause", "show", "resume", "fade_in", "done"])
+        self.assertEqual(last["steps"], ["pause", "show", "resume", "fade_in", "done"])
 
     def test_a_silent_preview_jam_shows_only_the_lights(self):
         cast, jam = FakeCast(), FakeJam("none")

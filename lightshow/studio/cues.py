@@ -1,20 +1,18 @@
 """Cues: buttons on the Party Hub that stop the party for a moment (a doorbell, shot o'clock).
 
-A cue fades the music out (if set), pauses Spotify, plays one of your saved shows (its sound on the
-speakers, its lights in the room), then resumes Spotify and fades the music back in (if set). In a
-jam the room is behind Spotify; pausing Spotify pauses the room at once and holds the buffer, so the
-room picks up exactly where it stopped.
+A cue cuts straight to one of your saved shows (its sound on the speakers, its lights in the room),
+plays it to its very end, then the music fades back in over MUSIC_BACK_S, from where it stopped. (The
+user asked for exactly this: no fade out first, no songs overlapping, the same 2 s fade in after every
+cue; the per-cue fade settings are gone.) In a jam the room is behind Spotify; Spotify is paused, the
+buffer held, and the room picks up exactly where it stopped.
 
 In a jam on the speakers (or this PC), the show's song is played inside the jam's own stream: the
-speakers get one fresh stream, as for a skip, that crossfades from the room's music into the song
-(over the fade-out time; none is a straight cut) and, as the song ends, back into the music (over
-the fade-in time), so the two overlap instead of one stopping before the other starts. The speakers
-are never paused, and never load the show's song, so nothing waits in between. The songs are
-decoded ahead of time and kept in memory.
+speakers get one fresh stream, as for a skip, with the song first and the music after it, fading in.
+The speakers are never paused, and never load the show's song, so nothing waits in between. The songs
+are decoded ahead of time and kept in memory.
 
-The fades are in the audio itself, never on the speakers' volume: a Google speaker chimes at every
-volume change, so a fade on the volume was a run of beeps. Without a jam there is no audio of ours
-to fade, and the music just stops and starts.
+The fade is in the audio itself, never on the speakers' volume: a Google speaker chimes at every
+volume change. Without a jam there is no audio of ours to fade, and the music just stops and starts.
 
 Where the show plays:
 - the jam is on Cast speakers (or the studio is casting): the show's song goes to the same speaker
@@ -38,35 +36,10 @@ import time
 import uuid
 
 DEFAULT_CUES = [
-    # the doorbell cuts straight to its show (someone is at the door), then the music fades back in
-    {"id": "doorbell", "name": "Doorbell", "show": "", "fade_out": {"on": False, "s": 1.5}, "fade_in": {"on": True, "s": 3.0}},
-    {"id": "shot", "name": "Shot o'clock", "show": "", "fade_out": {"on": True, "s": 2.0}, "fade_in": {"on": True, "s": 4.0}},
+    {"id": "doorbell", "name": "Doorbell", "show": ""},
+    {"id": "shot", "name": "Shot o'clock", "show": ""},
 ]
-
-
-def _fade(v, default: dict) -> dict:
-    v = v if isinstance(v, dict) else {}
-    try:
-        s = float(v.get("s", default["s"]))
-    except (TypeError, ValueError):
-        s = default["s"]
-    return {"on": bool(v.get("on", default["on"])), "s": round(max(0.0, min(30.0, s)), 2)}
-
-
-CUE_TAIL_SHARE = 0.3       # a cue's song crossfades back into the music over at most this share of it
-
-
-def cue_tail(tail: float, dur: float) -> float:
-    """How long a cue's song crossfades back into the music: its fade in, but over no more than its last 30%. A
-    4.8 s werewolf howl with a 3 s fade had the music back from 1.8 s in, over the howl, and its lights handed
-    back to the jam's show before they had played (the user: they played no light show, and came back weird)."""
-    return max(0.0, min(float(tail), CUE_TAIL_SHARE * float(dur)))
-
-
-def _fade_default(cid: str, key: str) -> dict:
-    """A cue saved without its fades takes the starting cue's (the doorbell's cut, then fade in), else 2 s each."""
-    start = next((c for c in DEFAULT_CUES if c["id"] == cid), None)
-    return dict(start[key]) if start else {"on": True, "s": 2.0}
+MUSIC_BACK_S = 2.0         # after every cue, the music fades back in over this
 
 
 def clean(cues) -> list[dict]:
@@ -87,9 +60,7 @@ def clean(cues) -> list[dict]:
                 shows.append(s)
         shows = shows[:20]
         out.append({"id": cid, "name": str(c.get("name") or "").strip()[:30] or f"Cue {len(out) + 1}",
-                    "show": shows[0] if shows else "", "shows": shows,
-                    "fade_out": _fade(c.get("fade_out"), _fade_default(cid, "fade_out")),
-                    "fade_in": _fade(c.get("fade_in"), _fade_default(cid, "fade_in"))})
+                    "show": shows[0] if shows else "", "shows": shows})
     return out[:12]
 
 
@@ -99,10 +70,6 @@ class Rehearsal:
     def __init__(self, show_length):
         self.show_length = show_length                  # show name -> seconds
         self.calls: list = []
-
-    def fade_out(self, seconds: float) -> float:
-        self.calls.append(("fade out", seconds))
-        return seconds
 
     def pause_music(self) -> None:
         self.calls.append("pause")
@@ -139,10 +106,9 @@ class LiveHooks:
         self.paused_spotify = False
 
     # -- a cue played inside the jam's stream ---------------------------------------------------
-    def stream_cue(self, name: str, lead: float, tail: float) -> float | None:
-        """(tail: as long as cue_tail allows for this song)"""
-        """Put the show's song into the jam's stream, crossfading in over lead and out over tail.
-        Returns its length, or None when it cannot be (no jam on speakers, or the song is not ready)."""
+    def stream_cue(self, name: str) -> float | None:
+        """Put the show's song into the jam's stream, the music fading back in after it. Returns its length,
+        or None when it cannot be (no jam on speakers, or the song is not ready)."""
         why = ("no jam" if self.engine is None else "the jam is not on speakers" if self.via not in ("cast", "pc")
                else "the jam's speakers have not started" if not getattr(self.engine, "streaming", False) else "" if self.pcm else "no audio loader")
         got = None if why else self.pcm(name)
@@ -150,7 +116,7 @@ class LiveHooks:
             why = f"{name}'s audio could not be loaded"
         if not why:
             frames, rate = got
-            if self.engine.cue_insert(frames, lead, cue_tail(tail, len(frames) / float(rate))):
+            if self.engine.cue_insert(frames, MUSIC_BACK_S):
                 return len(frames) / float(rate)
             why = "no stream to put it in"
         if self.engine is not None and hasattr(self.engine, "say"):
@@ -161,18 +127,12 @@ class LiveHooks:
         return self.engine.cue_position() if self.engine is not None else None
 
     def music_back(self) -> None:
-        """The song is crossfading back into the music (already in the stream)."""
+        """The song is over; the music fades back in (already in the stream)."""
         self.engine.cue_over()
 
     def cut_short(self, fade_in: float) -> None:
         """Ended early: the music comes back from where it held, fading in."""
         self.engine.release(restart=True, fade_in=fade_in)
-
-    def fade_out(self, seconds: float) -> float | None:
-        """The jam's audio fades out on its speakers (or this PC): how long until the room is silent."""
-        if self.engine is None or self.via == "none":
-            return None                                  # no audio of ours to fade
-        return self.engine.fade_out(seconds)
 
     def pause_music(self) -> None:
         if self.engine is not None:
@@ -301,16 +261,10 @@ class CueRunner:
 
     def _run(self, cue: dict) -> None:
         h = self.hooks
-        fo, fi = cue["fade_out"], cue["fade_in"]
-        lead, tail = (fo["s"] if fo["on"] else 0.0), (fi["s"] if fi["on"] else 0.0)
-        dur = h.stream_cue(cue["show"], lead, tail) if hasattr(h, "stream_cue") else None
+        dur = h.stream_cue(cue["show"]) if hasattr(h, "stream_cue") else None
         if dur:
-            return self._run_in_stream(h, dur, tail)
+            return self._run_in_stream(h, dur)
         try:
-            wait = h.fade_out(fo["s"]) if fo["on"] and fo["s"] > 0 else None
-            if wait:
-                self._phase("fade_out", wait)
-                self._wait(wait)
             self._phase("pause")
             h.pause_music()
             dur = h.play_show(cue["show"])
@@ -321,10 +275,9 @@ class CueRunner:
             if self.stop_flag.is_set():
                 h.stop_show()
             self._phase("resume")
-            fade = fi["s"] if fi["on"] else 0.0
-            if h.resume_music(fade):
-                self._phase("fade_in", fade)
-                self._wait(fade)
+            if h.resume_music(MUSIC_BACK_S):
+                self._phase("fade_in", MUSIC_BACK_S)
+                self._wait(MUSIC_BACK_S)
             self._phase("done")
         except Exception as e:  # noqa: BLE001 - the music must come back whatever went wrong
             self.state["error"] = f"{type(e).__name__}: {e}"
@@ -334,10 +287,9 @@ class CueRunner:
                 pass
             self._phase("done")
 
-    def _run_in_stream(self, h, dur: float, tail: float) -> None:
+    def _run_in_stream(self, h, dur: float) -> None:
         """The song is in the jam's stream already: follow it by the speakers' own position (they take a
-        moment to start a fresh stream), and hand the room back as it crossfades into the music."""
-        tail = cue_tail(tail, dur)                       # (the crossfade the stream was given)
+        moment to start a fresh stream) to its very end, then hand the room back as the music fades in."""
         self.state["stream"] = True                      # the page plays only its lights, never its sound
         self._phase("show", dur)
         t0, stopped = self.clock(), False
@@ -348,17 +300,16 @@ class CueRunner:
                     break
                 p = h.cue_position()
                 at = p if p is not None else self.clock() - t0
-                left = (dur - tail) - at
+                left = dur - at
                 if left <= 0 or self.clock() - t0 > dur + 10:
                     break
                 self.sleep(min(0.1, max(0.01, left)))
             if stopped:
-                h.cut_short(tail)
+                h.cut_short(MUSIC_BACK_S)
             else:
                 h.music_back()
-            if tail > 0:
-                self._phase("fade_in", tail)
-                self._wait(tail)
+            self._phase("fade_in", MUSIC_BACK_S)
+            self._wait(MUSIC_BACK_S)
             self._phase("done")
         except Exception as e:  # noqa: BLE001 - the music must come back whatever went wrong
             self.state["error"] = f"{type(e).__name__}: {e}"
