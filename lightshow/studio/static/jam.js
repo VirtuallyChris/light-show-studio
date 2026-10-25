@@ -642,6 +642,7 @@
     setGlow();
     St.fullBrightness();                                            // between songs: every light back to 100%
     J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
+    J.secsSeen = { key: room.key, sig: St.sectionsSig() };          // (section changes from here on are kept: app.js jamSave)
     J.drums = !!(S.analysis && S.analysis.events && S.analysis.events.kick && S.analysis.events.kick.length);
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
   }
@@ -676,6 +677,7 @@
     if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); St.draw(); return; }
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice(); p.drops = a.drops.slice();
     p.sections = St.withBuildups(St.tidySections(a.sections));      // a drop with none still gets its buildup
+    J.secsSeen = { key: room.key, sig: St.sectionsSig() };
     $('#bpm').value = p.bpm.toFixed(2);
     // the genre arrived, or the drums did (the beat pulse goes only where there are drums): rebuild
     const drumsNow = !!(a.events && a.events.kick && a.events.kick.length);

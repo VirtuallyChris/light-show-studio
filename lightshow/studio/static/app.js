@@ -315,7 +315,8 @@
     return P();
   }
   async function save() {
-    if (!P() || !S.name || (S.jam && S.jam.live) || S.review) return false;   // a jam never writes over a saved show; a song under review is not a show
+    if (P() && S.jam && S.jam.live) return jamSave(false);
+    if (!P() || !S.name || S.review) return false;   // a song under review is not a show
     collectProject();
     try {
       const r = await fetch(`/api/projects/${encodeURIComponent(S.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(P()) });
@@ -330,9 +331,38 @@
     try { return (await fetch(`/api/projects/${encodeURIComponent(S.name)}?backup=1`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectProject()) })).ok; }
     catch (e) { return false; }
   }
+  const sectionsOf = p => p.sections.map(s => ({ type: s.type, start: +(+s.start).toFixed(3), end: +(+s.end).toFixed(3) }));
+  const sectionsSig = () => (P() ? JSON.stringify(sectionsOf(P())) : '');
+  /** In a jam, sections fixed by hand (a breakdown, a buildup) are kept as they are changed (the user), never the
+   *  lights (a jam never writes over a saved show): a learned song's go to the section truth, as review mode keeps
+   *  them (the jam plays them from then on, and the labeler learns from them); your own show gets just its
+   *  sections, into its saved show. `say`: Ctrl+S, which also says when there is nothing to keep. */
+  async function jamSave(say) {
+    const J = S.jam, d = J.doc, p = P(); if (!d || !p) return false;
+    const sig = sectionsSig(), seen = J.secsSeen && J.secsSeen.key === J.key ? J.secsSeen.sig : null, key = J.key;
+    if (sig === seen) { if (say) toast('Nothing to keep: in a jam only section changes are kept'); return false; }
+    const label = (d.track && d.track.name) || d.project || 'this song';
+    const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    try {
+      if (d.kind === 'custom' && d.project) {
+        const data = await (await fetch('/api/projects/' + encodeURIComponent(d.project))).json();
+        if (!data.saved) throw new Error('your show has no saved version to keep them in');
+        const r = await post('/api/projects/' + encodeURIComponent(d.project), { ...data.saved, sections: JSON.parse(sig) });
+        if (!r.ok) throw new Error(`the studio answered ${r.status}`);
+      } else {
+        if (!d.track || !d.track.id) throw new Error('no song to keep them for');
+        const r = await post('/api/review/truth', { id: d.track.id, ok: false, beat_shift: 0, sections: JSON.parse(sig) });
+        const out = await r.json();
+        if (out.error) throw new Error(out.error === 'no such learned song' ? 'a first listen: its sections can be kept once it is learned' : out.error);
+      }
+      if (J.key === key) J.secsSeen = { key, sig };
+      toast(`${label}: sections kept`);
+      return true;
+    } catch (e) { toast(`${label}: sections not kept: ${e.message}`, true); return null; }
+  }
   /** Save, and say what happened (the button and Ctrl+S). */
   async function saveNow() {
-    if (S.jam && S.jam.live) return toast('Jam songs are not saved: a jam never writes over a saved show.', true);
+    if (S.jam && S.jam.live) return jamSave(true);
     if (!P() || !S.name) return toast('Open a song first.', true);
     if (await save()) toast(`Saved ${S.name}`);
   }
@@ -569,7 +599,13 @@
   function stopSource() { const a = S.audio; if (a.source) { try { a.source.onended = null; a.source.stop(); } catch (e) { } a.source = null; } }
   function stopPlayback() { pause(); S.audio.pos = 0; }
   function seek(t) { if ((S.jam && S.jam.live) || (S.cue && S.cue.live)) return; t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
-  function togglePlay() { if (S.cue && S.cue.live) return toast('A cue is playing: tap it on the Party Hub to end it'); if (S.jam && S.jam.live) return toast('Spotify is in charge during a jam: play and pause from the phone'); S.audio.playing ? pause() : play(); }
+  function togglePlay() { if (S.cue && S.cue.live) return toast('A cue is playing: tap it on the Party Hub to end it'); if (S.jam && S.jam.live) return jamPlayPause(); S.audio.playing ? pause() : play(); }
+  /** In a jam, play and pause are Spotify's, as on the Party Hub (the user: pausing here did nothing). */
+  function jamPlayPause() {
+    const st = S.jam.state || {}, playing = st.room ? st.room.playing : !st.paused;
+    fetch('/api/party/playback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: playing ? 'pause' : 'resume' }) })
+      .then(r => r.json()).then(d => { if (!d.ok) toast(d.error || 'Spotify did not answer', true); }).catch(e => toast(String(e), true));
+  }
   function updateTransport() { $('#btnPlay').textContent = S.audio.playing ? '❚❚' : '▶'; }
 
   // ------------------------------------------------------------------ Google Cast
@@ -755,19 +791,38 @@
     // armed, not started: the lights keep what they are showing until a song plays
     $('#outputOn').checked = true; S.lightsArmed = true;
   }
+  // The lights, room by room, each room with its switch (as on the Party Hub): a room switched on is played on, one
+  // switched off goes back to how its lights were (the user: the rooms decide, no tick per light). A light in no room
+  // is played on only while there are no rooms at all.
   function renderLights() {
     const el = $('#lightList'); el.innerHTML = '';
     if (!S.lights.length) { el.innerHTML = '<div class="hint">No lights found yet. Turn on LAN Control in the Govee app; the studio keeps looking.</div>'; return; }
-    for (const l of S.lights) {
+    const rooms = S.rooms || [], groups = rooms.map(r => ({ room: r, lights: S.lights.filter(l => roomOf(l) === r) })).filter(g => g.lights.length);
+    const loose = S.lights.filter(l => !roomOf(l));
+    if (loose.length) groups.push({ room: null, lights: loose });
+    for (const g of groups) {
+      if (rooms.length) {
+        const head = document.createElement('div'); head.className = 'room-head' + (g.room && !g.room.on ? ' off' : '');
+        head.innerHTML = g.room ? `<span>${esc(g.room.name)}</span><label class="toggle" title="${g.room.on ? 'Played on. Off: its lights go back to how they were and its speakers mute' : 'Not played on. On: its lights fade back in and its speakers unmute'}"><input type="checkbox" ${g.room.on ? 'checked' : ''} aria-label="${esc(g.room.name)} in the show"></label>` : '<span>Not in a room</span>';
+        if (g.room) head.querySelector('input').onchange = async e => {
+          g.room.on = e.target.checked; renderLights(); sendSelect(); saveSelection(); S.forceSend = true;
+          try { await fetch('/api/rooms/on', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: g.room.id, on: g.room.on }) }); } catch (err) { /* the next look shows the truth */ }
+          loadRooms();
+        };
+        el.appendChild(head);
+      }
+      for (const l of g.lights) renderLight(el, l);
+    }
+  }
+  function renderLight(el, l) {
       const row = document.createElement('label');
       const rm = roomOf(l);
-      if (rm && !rm.on) row.classList.add('room-off');
-      row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><input type="checkbox" ${l.on ? 'checked' : ''}> <span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${rm ? esc(rm.name) + (rm.on ? '' : ' (off)') + ' · ' : ''}${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="255" value="${l.segments}" title="Segments (LED zones)">`;
+      if (!lightDriven(l)) row.classList.add('room-off');
+      row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="255" value="${l.segments}" title="Segments (LED zones)">`;
       const nm = row.querySelector('.light-name'); nm.value = l.name || '';
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
       nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
       if (l.online === false) row.style.opacity = '0.6';
-      row.querySelector('input[type=checkbox]').onchange = e => { l.on = e.target.checked; sendSelect(); saveSelection(); draw(); };
       const grip = row.querySelector('.grip');
       grip.onmousedown = () => { row.draggable = true; };
       grip.onclick = e => e.preventDefault();
@@ -788,13 +843,14 @@
         toast(`${lightLabel(l)}: ${l.flip ? 'flipped' : 'normal direction'}`); };
       row.querySelector('.seg').onchange = async e => { l.segments = parseInt(e.target.value) || 1; await fetch('/api/devices/segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: l.mac || l.ip, segments: l.segments }) }); };
       el.appendChild(row);
-    }
   }
-  const selectedLights = () => S.lights.filter(l => l.on);
+  /** Played on: a light whose room is switched on (with no rooms at all, every light). */
+  function lightDriven(l) { const r = roomOf(l); return r ? !!r.on : !(S.rooms || []).length; }
+  const selectedLights = () => S.lights.filter(lightDriven);
   /** Every light the show is made for: the ticked ones and every light in a room that is on, ticked or
    *  not. Testing on the Office strip alone, the show is still built for the poles and strings of the
    *  party rooms (their parts only play on them), so the room view shows it as the party would see it. */
-  const showLights = () => S.lights.filter(l => l.on || (roomOf(l) && !roomOff(l)));
+  const showLights = () => S.lights.filter(l => lightDriven(l) || (roomOf(l) && !roomOff(l)));
   /** The party rooms' lights (rooms with two or more lights, switched on), ticked or not: what the room
    *  view shows. A room with one light (the Office, a test room) is not part of the party. */
   function partyLights() {
@@ -974,7 +1030,7 @@
     try {
       const d = await (await fetch('/api/rooms')).json();
       const was = JSON.stringify(S.rooms); S.rooms = d.rooms || [];
-      if (JSON.stringify(S.rooms) !== was) { if (!$('#lightList').contains(document.activeElement)) renderLights(); S.forceSend = true; }
+      if (JSON.stringify(S.rooms) !== was) { if (!$('#lightList').contains(document.activeElement)) renderLights(); sendSelect(); saveSelection(); S.forceSend = true; }
     } catch (e) { /* the next look will do */ }
   }
   setInterval(() => { if (!document.hidden) loadRooms(); }, 3000);
@@ -984,7 +1040,7 @@
   async function saveRooms(rooms) {
     try {
       const r = await fetch('/api/rooms?devices=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rooms }) });
-      roomsDoc = await r.json(); S.rooms = roomsDoc.rooms; renderRooms(); renderLights(); S.forceSend = true;
+      roomsDoc = await r.json(); S.rooms = roomsDoc.rooms; renderRooms(); renderLights(); sendSelect(); saveSelection(); S.forceSend = true;
     } catch (e) { toast('Could not save the rooms', true); }
   }
   async function openRooms() {
@@ -1695,6 +1751,9 @@
   }
   function compose() {
     if (!S.analysis || !off.width || !off.height) return;   // nothing rendered yet (or a zero-size canvas)
+    // not drawn at this size yet: a canvas still at the browser's 300 x 150 is stretched over the window, and
+    // the playhead on it was a giant arrow while a song decoded (the user)
+    if (tl.width !== Math.floor(tl.clientWidth * devicePixelRatio) || tl.height !== Math.floor(tl.clientHeight * devicePixelRatio)) return;
     const w = TW(), h = TH(); const g = tctx;
     g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(off, 0, 0);
     g.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
@@ -3959,7 +4018,7 @@
   $('#bpm').onchange = () => { if (P()) { beginChange(); P().bpm = parseFloat($('#bpm').value) || P().bpm; changed(); toast('BPM stored — press Regrid to rebuild the beat grid'); } };
   $('#beatEdit').onchange = draw; $('#snap').onchange = draw; $('#effectSearch').oninput = renderLibrary;
   $('#roomViewBtn').onclick = openRoomView;
-  $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Tick a light first', true); e.target.checked = false; return; } rememberLights(true); S.lightsArmed = false; if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
+  $('#outputOn').onchange = e => { if (e.target.checked) { if (!selectedLights().length) { toast('Switch a room on first', true); e.target.checked = false; return; } rememberLights(true); S.lightsArmed = false; if (S.audio.playing) startOutput(); else pushFrameIfIdle(); } else { rememberLights(false); stopOutput(); } };
   // Closing the window stops the studio at once, speakers included (a reload comes straight back,
   // and the studio waits a moment to tell the two apart).
   window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/closing'); } catch (e) { /* the watchdog still notices */ } });
@@ -4022,6 +4081,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, sectionsSig, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

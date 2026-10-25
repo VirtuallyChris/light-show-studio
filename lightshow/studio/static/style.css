@@ -252,6 +252,9 @@ button.icon { width: 2.1rem; padding: 0; display: inline-flex; align-items: cent
 .rooms-pop .chip { font-size: .8rem; padding: .15rem .55rem; border-radius: 999px; min-height: 0; color: var(--muted); }
 .rooms-pop .chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
 .light-list label.room-off { opacity: .5; }
+.light-list .room-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .45rem 0 .2rem; font-weight: 600; font-size: .85rem; color: var(--text); }
+.light-list .room-head:not(:first-child) { border-top: 1px solid var(--line); margin-top: .35rem; }
+.light-list .room-head.off span { color: var(--muted); }
 .jam-sw { display: inline-block; width: 1.6rem; height: 1.6rem; border-radius: .35rem; border: 1px solid var(--line2); vertical-align: middle; }
 .jam-pair .jp-theme { min-height: 0; padding: .1rem .45rem; font-size: .75rem; color: var(--muted); }
 .jam-pair .jp-theme.on { color: #fff; background: var(--accent); border-color: var(--accent); }
