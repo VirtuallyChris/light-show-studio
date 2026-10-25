@@ -835,8 +835,10 @@ class TestSpeakerPause(unittest.TestCase):
         cast = SimpleNamespace(state=state, resume=lambda: self.calls.append("resume"), name="Speaker")
         e = JamEngine.__new__(JamEngine)
         e.lock, e.streaming, e.cue_hold, e._streamed_at = threading.RLock(), True, False, -1e9
-        e._paused_room, e._speaker_dropped = None, False
-        e.gate, e.cfg, e.clock, e.log = SimpleNamespace(paused=False), SimpleNamespace(target_delay=5.0), lambda: 100.0, []
+        e._paused_room, e._speaker_dropped, e._paused_at, e._resume_watch = None, False, None, None
+        self.now, self.room = 100.0, None
+        e.gate, e.cfg, e.clock, e.log = SimpleNamespace(paused=False), SimpleNamespace(target_delay=5.0), lambda: self.now, []
+        e.room_capture_time = lambda: self.room
         e.say = lambda m: e.log.append(m)
         e.output = CastOutput(cast, lambda sid: "http://x")
         e.output.stream = object()
@@ -882,8 +884,43 @@ class TestSpeakerPause(unittest.TestCase):
     def test_a_short_pause_just_resumes(self):
         e, cast = self.engine("PAUSED")
         e.output.resume = lambda: self.calls.append("resume")
-        e._paused_room = 42.0
+        e._paused_room, e._paused_at = 42.0, self.now - 4.0
         e._resume_output()
+        self.assertEqual(self.calls, ["resume"])
+
+    def test_a_long_pause_resumes_with_a_fresh_stream_from_where_the_room_stopped(self):
+        """Paused 9 minutes on the phone: the speaker, told to play on, sat silent for half a minute, the room fell
+        36 s behind and jumped ahead, losing half a minute of the song (the user)."""
+        e, cast = self.engine("PAUSED")
+        e.output.resume = lambda: self.calls.append("resume")
+        e.output.start_stream = lambda stream: self.calls.append(("fresh stream", stream[1]))
+        e._paused_room, e._paused_at = 42.0, self.now - 540.0
+        e._resume_output()
+        self.assertEqual(self.calls, [("fresh stream", 42.0)])         # from the paused spot: nothing skipped
+        self.assertTrue(any("paused 540s" in line for line in e.log))
+
+    def test_a_resume_the_speaker_does_not_pick_up_gets_a_fresh_stream_not_a_jump(self):
+        e, cast = self.engine("PAUSED")
+        e.output.resume = lambda: self.calls.append("resume")
+        e.output.start_stream = lambda stream: self.calls.append(("fresh stream", stream[1]))
+        e._paused_room, e._paused_at, self.room = 42.0, self.now - 3.0, 42.0
+        e._resume_output()
+        cast.state = "BUFFERING"
+        self.now += 2.0
+        self.assertIsNone(e.keep_playing())                            # a moment to start
+        self.now += 4.0                                                # 6 s on, the room still at 42 s
+        self.assertEqual(e.keep_playing(), "restarted the speaker after the pause")
+        self.assertEqual(self.calls, ["resume", ("fresh stream", 42.0)])
+
+    def test_a_resume_the_speaker_picks_up_is_left_alone(self):
+        e, cast = self.engine("PAUSED")
+        e.output.resume = lambda: self.calls.append("resume")
+        e._paused_room, e._paused_at, self.room = 42.0, self.now - 3.0, 42.0
+        e._resume_output()
+        cast.state = "PLAYING"
+        self.now += 6.0
+        self.room = 47.8                                               # it played on
+        self.assertIsNone(e.keep_playing())
         self.assertEqual(self.calls, ["resume"])
 
 

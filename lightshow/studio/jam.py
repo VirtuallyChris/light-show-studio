@@ -938,7 +938,9 @@ class JamEngine:
         self._streamed_at = -1e9                       # when the speakers last got a fresh stream (keep_delay)
         self._planned_level = None                     # the song whose next song's level is set ahead (plan_levels)
         self._paused_room: float | None = None         # where the room was when Spotify paused
+        self._paused_at: float | None = None           # and when
         self._speaker_dropped = False                  # the speaker ended its Cast session during that pause
+        self._resume_watch = None                      # (when, room) at a resume: has the room moved on since?
         self.error = ""
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
@@ -1037,6 +1039,7 @@ class JamEngine:
                     self.say(f"paused on the phone: holding the buffer (trimmed {cut:.1f}s of silence)")
                     if self.streaming:
                         self._paused_room, self._speaker_dropped = self.room_capture_time(), False
+                        self._paused_at, self._resume_watch = self.clock(), None
                         self.output.pause()
                 return
             if self.gate.paused and not self.cue_hold:
@@ -1206,19 +1209,30 @@ class JamEngine:
 
     SPEAKER_LIVE = ("PLAYING", "PAUSED", "BUFFERING")
 
+    RESUME_FRESH_S = 15.0    # paused longer than this, the speaker gets a fresh stream on resume, not "play"
+    RESUME_CHECK_S = 5.0     # a plain resume whose room has not moved on by then gets one too
+
     def _resume_output(self) -> None:
         """Spotify plays again: so does the room. A speaker left paused for a while ends its Cast session
-        (it chimes as it does): there is nothing left on it to resume, so it gets a fresh stream from where
-        the room stopped, and with it a new sync check (jam_service._maybe_auto_sync)."""
+        (it chimes as it does), or keeps it but takes half a minute to play again (a 9 minute pause: the room
+        sat silent, fell 36 s behind, and keep_delay jumped half a minute of the song): past RESUME_FRESH_S,
+        or with its session gone, it gets a fresh stream from where the room stopped (playing in a second or
+        two, nothing skipped), and with it a new sync check (jam_service._maybe_auto_sync). A short pause just
+        resumes, watched by keep_playing."""
         cast = getattr(self.output, "cast", None)
-        if cast is not None and (self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE):
-            at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
+        paused_for = self.clock() - self._paused_at if getattr(self, "_paused_at", None) is not None else 0.0
+        at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
+        if cast is not None and (self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE or paused_for > self.RESUME_FRESH_S):
             self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, at), pace=True))
             self._streamed_at = self.clock()
-            self.say("the speaker had ended its session during the pause: a fresh stream, then a sync check")
+            self._resume_watch = None
+            why = "had ended its session" if self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE else f"was paused {paused_for:.0f}s"
+            self.say(f"the speaker {why}: a fresh stream from where the room stopped, then a sync check")
         else:
             self.output.resume()
-        self._speaker_dropped, self._paused_room = False, None
+            self._streamed_at = self.clock()                # (keep_delay waits for it to settle)
+            self._resume_watch = (self.clock(), at) if cast is not None else None
+        self._speaker_dropped, self._paused_room, self._paused_at = False, None, None
 
     def keep_playing(self) -> str | None:
         """The speaker's own pause (tapped on the speaker, or the Cast controls on a phone) paused the party
@@ -1236,6 +1250,17 @@ class JamEngine:
             if cast is None or not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
                 self._idle_seen = 0
                 return None
+            # a plain resume (_resume_output) the speaker did not pick up: the room has not moved on since, so a
+            # fresh stream from where it stopped (never a jump ahead: nothing of the song is lost)
+            watch = getattr(self, "_resume_watch", None)
+            if watch is not None and self.clock() - watch[0] >= self.RESUME_CHECK_S:
+                self._resume_watch = None
+                rc = self.room_capture_time()
+                if rc is None or rc - watch[1] < 1.0:
+                    self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, watch[1]), pace=True))
+                    self._streamed_at = self.clock()
+                    self.say("the speaker did not play on after the pause: a fresh stream from where the room stopped")
+                    return "restarted the speaker after the pause"
             state = getattr(cast, "state", "")
             if state == "PAUSED":
                 self._idle_seen = 0
