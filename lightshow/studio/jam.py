@@ -1189,10 +1189,12 @@ class JamEngine:
     DRIFT_S = 5.0            # this far past the target delay, the room jumps back
 
     def keep_delay(self) -> str | None:
-        """The delay only ever grew back (silence between songs), never shrank: a pause in Spotify, or a speaker
-        that stalled, left the room far behind for good. Past the target by DRIFT_S, the room jumps back to 1 s
-        behind the target, at once (a 5 s target: over 10 s, back to 6). Not while paused or held by a cue, nor
-        in the 20 s after the speakers got a fresh stream (their position settles first)."""
+        """The delay only ever grew back (silence between songs, a pause, a doorbell, a speaker that stalled), never
+        shrank. Past the target by DRIFT_S the room catches up, but only between songs (the user: never in the
+        middle of one, as after a doorbell): it leaves out just enough of the end of the song it is in, the
+        excess, and plays the next one from its first beat, back at 1 s behind the target. It waits for the next
+        song to have begun at the capture head; already past where it should have left, it goes at once. Not
+        while paused or held by a cue, nor in the 20 s after the speakers got a fresh stream or resumed."""
         with self.lock:
             if not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
                 return None
@@ -1200,13 +1202,26 @@ class JamEngine:
                 return None
             d = self.delay()
             if d <= self.cfg.target_delay + self.DRIFT_S:
+                self._catch_up_said = False
                 return None
-            to = self.cfg.target_delay + 1.0
-            self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, self.relay.capture_time - to),
+            rc = self.room_capture_time()
+            if rc is None:
+                return None
+            excess = d - (self.cfg.target_delay + 1.0)
+            here = self.track_at(rc)
+            nxt = next((t for t in self.tracks if t.start > rc + 0.5), None)
+            if nxt is None or rc < nxt.start - excess - 0.05:
+                if not getattr(self, "_catch_up_said", False):
+                    self._catch_up_said = True
+                    self.say(f"the room is {d:.0f}s behind: it catches up at the end of this song")
+                return None
+            self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, nxt.start),
                                                             pace=not isinstance(self.output, VirtualOutput)))
-            self._streamed_at = self.clock()
-            self.say(f"the room had drifted {d:.0f}s behind: jumped back to {to:.0f}s")
-            return f"delay {d:.0f}s -> {to:.0f}s"
+            self._streamed_at, self._catch_up_said = self.clock(), False
+            left = max(0.0, nxt.start - rc)
+            self.say(f"caught up between songs: the last {left:.0f}s of {here.track.label if here else 'the song'} left out, "
+                     f"{nxt.track.label} from its start ({d:.0f}s behind -> {d - left:.0f}s)")
+            return f"delay {d:.0f}s -> {d - left:.0f}s"
 
     SPEAKER_LIVE = ("PLAYING", "PAUSED", "BUFFERING")
 

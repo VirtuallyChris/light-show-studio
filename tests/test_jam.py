@@ -659,18 +659,28 @@ class TestEngine(unittest.TestCase):
         self.assertAlmostEqual(e.delay(), before, delta=1.0)                      # the room is as far behind as before
         self.assertEqual(sim.out.starts, 1)
 
-    def test_a_room_that_drifted_far_behind_jumps_back(self):
+    def test_a_room_far_behind_catches_up_between_songs_not_in_one(self):
+        """The user: catch up only between songs, never in the middle of one (as after a doorbell)."""
         sim = Sim(self.dir, target=20.0, lag=0.25)
         sim.play(self.a, self.ta)
         sim.run(46, analyse=False)                                   # streaming at 20 s behind, settled 20 s
         e = sim.engine
         self.assertAlmostEqual(e.delay(), 20.0, delta=1.5)
         e.cfg.target_delay = 5.0                                     # 20 s is now 15 past the target: too far
-        sim.run(2, analyse=False)
-        self.assertAlmostEqual(e.delay(), 6.0, delta=1.0)
+        starts = sim.out.starts
         sim.run(10, analyse=False)
-        self.assertAlmostEqual(e.delay(), 6.0, delta=1.0)            # and it stays there (no jumping about)
-        self.assertTrue(any("drifted" in line for line in e.log))
+        self.assertAlmostEqual(e.delay(), 20.0, delta=1.5)           # not in the middle of the song
+        self.assertEqual(sim.out.starts, starts)
+        self.assertTrue(any("catches up at the end of this song" in line for line in e.log))
+        sim.run(self.a["duration"] - 56, analyse=False)
+        sim.play(self.b, self.tb)                                    # the next song begins at the capture head
+        sim.run(14, analyse=False)
+        self.assertEqual(sim.out.starts, starts + 1)                 # once, as the room left the first song early
+        self.assertAlmostEqual(e.delay(), 6.0, delta=1.0)
+        self.assertEqual(e.state()["room"]["id"], self.tb.id)        # on the next song
+        self.assertTrue(any("caught up between songs" in line for line in e.log))
+        sim.run(10, analyse=False)
+        self.assertAlmostEqual(e.delay(), 6.0, delta=1.0)            # and it stays there
 
     def test_a_saved_show_is_chosen_for_its_song(self):
         name = "The Synthetics - Test Tune 1"
