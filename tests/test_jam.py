@@ -912,6 +912,31 @@ class TestSpeakerPause(unittest.TestCase):
         self.assertEqual(e.keep_playing(), "restarted the speaker after the pause")
         self.assertEqual(self.calls, ["resume", ("fresh stream", 42.0)])
 
+    def test_a_resume_just_after_a_fresh_stream_leaves_it_be(self):
+        """A cue over: release gave the speakers a fresh stream, then Spotify resumed. Watching that resume and giving
+        another fresh stream to speakers still starting the first was the glitch on the way back."""
+        e, cast = self.engine("BUFFERING")
+        e.output.resume = lambda: self.calls.append("resume")
+        e._paused_room, e._paused_at, e._streamed_at = 42.0, self.now - 9.0, self.now - 1.0
+        e._resume_output()
+        self.assertEqual(self.calls, [])
+        self.assertIsNone(e._resume_watch)
+        self.now += 6.0
+        self.assertIsNone(e.keep_playing())
+        self.assertEqual(self.calls, [])
+
+    def test_a_watch_is_dropped_by_a_fresh_stream_since(self):
+        e, cast = self.engine("PAUSED")
+        e.output.resume = lambda: self.calls.append("resume")
+        e.output.start_stream = lambda stream: self.calls.append(("fresh stream", stream[1]))
+        e._paused_room, e._paused_at, self.room = 42.0, self.now - 3.0, 42.0
+        e._resume_output()
+        e._streamed_at = self.now + 1.0                                # something else gave a fresh stream
+        cast.state = "BUFFERING"
+        self.now += 6.0
+        self.assertIsNone(e.keep_playing())
+        self.assertEqual(self.calls, ["resume"])
+
     def test_a_resume_the_speaker_picks_up_is_left_alone(self):
         e, cast = self.engine("PAUSED")
         e.output.resume = lambda: self.calls.append("resume")
@@ -1250,6 +1275,24 @@ class TestCueInTheStream(unittest.TestCase):
             self.assertFalse(e.gate.paused)
             self.assertEqual(sim.out.starts, starts + 1)                 # no other stream: the music was in this one
             self.assertIsNotNone(e.room_capture_time())
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_a_cue_rung_while_the_speakers_start_a_fresh_stream_still_plays_in_it(self):
+        """Rung 2 s after keep_delay gave the speakers a fresh stream: the room's place was not known yet, so the
+        cue was played the old way (loaded on the speakers: a pause, the music back late, glitches)."""
+        d = tempfile.mkdtemp()
+        try:
+            a, ta = song(128.0, 1)
+            sim = Sim(d, target=10.0)
+            sim.play(a, ta)
+            sim.run(14.0, analyse=False)
+            e = sim.engine
+            e.room_capture_time = lambda: None                           # the speakers' place: not known this moment
+            starts = sim.out.starts
+            self.assertTrue(e.cue_insert(np.zeros((SR * 4, 2), dtype=np.int16), 0.0, 1.0))
+            self.assertEqual(sim.out.starts, starts + 1)
+            self.assertAlmostEqual(e.held_at, e.relay.capture_time - 10.0, delta=1.0)   # where the room should be
         finally:
             shutil.rmtree(d, ignore_errors=True)
 

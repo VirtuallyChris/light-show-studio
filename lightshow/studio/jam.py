@@ -941,6 +941,7 @@ class JamEngine:
         self._paused_at: float | None = None           # and when
         self._speaker_dropped = False                  # the speaker ended its Cast session during that pause
         self._resume_watch = None                      # (when, room) at a resume: has the room moved on since?
+        self._resumed_at = -1e9                        # when the speakers last just resumed (keep_delay waits)
         self.error = ""
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
@@ -1195,7 +1196,7 @@ class JamEngine:
         with self.lock:
             if not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
                 return None
-            if self.clock() - self._streamed_at < 20.0:
+            if self.clock() - self._streamed_at < 20.0 or self.clock() - getattr(self, "_resumed_at", -1e9) < 20.0:
                 return None
             d = self.delay()
             if d <= self.cfg.target_delay + self.DRIFT_S:
@@ -1220,6 +1221,11 @@ class JamEngine:
         two, nothing skipped), and with it a new sync check (jam_service._maybe_auto_sync). A short pause just
         resumes, watched by keep_playing."""
         cast = getattr(self.output, "cast", None)
+        if self.clock() - self._streamed_at < 8.0:
+            # the speakers were just handed a fresh stream (a cue over, a skip): it is the room's already; no
+            # resume, no watch (one more fresh stream on a speaker still starting was a glitch)
+            self._speaker_dropped, self._paused_room, self._paused_at, self._resume_watch = False, None, None, None
+            return
         paused_for = self.clock() - self._paused_at if getattr(self, "_paused_at", None) is not None else 0.0
         at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
         if cast is not None and (self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE or paused_for > self.RESUME_FRESH_S):
@@ -1230,7 +1236,7 @@ class JamEngine:
             self.say(f"the speaker {why}: a fresh stream from where the room stopped, then a sync check")
         else:
             self.output.resume()
-            self._streamed_at = self.clock()                # (keep_delay waits for it to settle)
+            self._resumed_at = self.clock()                 # (keep_delay waits for it to settle)
             self._resume_watch = (self.clock(), at) if cast is not None else None
         self._speaker_dropped, self._paused_room, self._paused_at = False, None, None
 
@@ -1253,6 +1259,8 @@ class JamEngine:
             # a plain resume (_resume_output) the speaker did not pick up: the room has not moved on since, so a
             # fresh stream from where it stopped (never a jump ahead: nothing of the song is lost)
             watch = getattr(self, "_resume_watch", None)
+            if watch is not None and self._streamed_at > watch[0]:
+                self._resume_watch = watch = None                # a fresh stream since: it is not the resume's
             if watch is not None and self.clock() - watch[0] >= self.RESUME_CHECK_S:
                 self._resume_watch = None
                 rc = self.room_capture_time()
@@ -1417,7 +1425,11 @@ class JamEngine:
                 return False
             at = self.room_capture_time()
             if at is None:
-                return False
+                # the speakers are starting a fresh stream this moment (the room's place not known yet): where
+                # it should be, not the old way (a doorbell rung 2 s after one played its song on the speakers,
+                # with a pause, music back late and glitches)
+                at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
+                at = max(self.relay.oldest_time, at)
             sr = self.relay.sr
             fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
             fresh.insert(pcm, int(lead_s * sr), int(tail_s * sr))
@@ -1491,6 +1503,8 @@ class JamEngine:
                 if fade_in > 0:
                     fresh.fade(fade_in, 1.0, start=0.0)
                 self.output.start_stream(fresh)
+                self._streamed_at = self.clock()          # (keep_delay leaves it to settle)
+                self._resume_watch = None
             self.say("the cue is over: the room carries on")
         try:
             self.spotify.resume()

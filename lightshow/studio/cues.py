@@ -143,15 +143,19 @@ class LiveHooks:
         """(tail: as long as cue_tail allows for this song)"""
         """Put the show's song into the jam's stream, crossfading in over lead and out over tail.
         Returns its length, or None when it cannot be (no jam on speakers, or the song is not ready)."""
-        if self.engine is None or self.via not in ("cast", "pc") or not getattr(self.engine, "streaming", False) or self.pcm is None:
-            return None
-        got = self.pcm(name)
-        if got is None:
-            return None
-        frames, rate = got
-        if not self.engine.cue_insert(frames, lead, cue_tail(tail, len(frames) / float(rate))):
-            return None
-        return len(frames) / float(rate)
+        why = ("no jam" if self.engine is None else "the jam is not on speakers" if self.via not in ("cast", "pc")
+               else "the jam's speakers have not started" if not getattr(self.engine, "streaming", False) else "" if self.pcm else "no audio loader")
+        got = None if why else self.pcm(name)
+        if not why and got is None:
+            why = f"{name}'s audio could not be loaded"
+        if not why:
+            frames, rate = got
+            if self.engine.cue_insert(frames, lead, cue_tail(tail, len(frames) / float(rate))):
+                return len(frames) / float(rate)
+            why = "no stream to put it in"
+        if self.engine is not None and hasattr(self.engine, "say"):
+            self.engine.say(f"a cue the old way (its song loaded on the speakers): {why}")
+        return None
 
     def cue_position(self) -> float | None:
         return self.engine.cue_position() if self.engine is not None else None
