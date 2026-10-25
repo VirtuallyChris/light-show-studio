@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bulb Show</title>
+<link rel="icon" href="/static/bulb.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1014">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- every show, each one runnable on its own -->
+<section id="home" class="view">
+  <header class="topbar">
+    <div class="brand">Bulb Show</div>
+    <button id="btnNew" class="accent">+ New show</button>
+    <div class="spacer"></div>
+    <span id="usage" class="usage" hidden title="Commands sent to Govee's cloud today, every show together. Govee allows 10,000 a day per account; past that the cloud bulbs wait until tomorrow (the sound keeps playing)."></span>
+    <button id="btnRunAll" title="Start every show that has a sound, a speaker and a bulb">▶ Run all</button>
+    <button id="btnStopAll" title="Stop every show">■ Stop all</button>
+    <div class="menu-wrap">
+      <button class="icon btnSettings" title="Settings">&#9881;</button>
+    </div>
+  </header>
+  <main id="cards" class="cards"></main>
+</section>
+
+<!-- one show's timeline -->
+<section id="editor" class="view" hidden>
+  <header class="topbar">
+    <button id="btnBack" class="icon" title="All shows">&#8592;</button>
+    <input id="showName" class="show-name" placeholder="untitled" spellcheck="false" title="Show name">
+    <div class="group transport">
+      <button id="btnPlay" class="icon" title="Play on the speaker and bulb, looping (Space)">▶</button>
+      <button id="btnStop" class="icon" title="Stop">■</button>
+      <span id="time" class="time">0:00.0</span>
+      <button id="btnHere" class="icon" title="Preview on this PC instead: the sound plays here and only the bulb on screen lights">&#127911;</button>
+    </div>
+    <div class="group">
+      <select id="speaker" title="Google speaker"><option value="">Speaker…</option></select>
+      <select id="bulb" title="Bulb"><option value="">Bulb…</option></select>
+      <input id="volume" type="range" min="0" max="100" value="100" title="Volume of this show's sound (in the stream: the speaker's own volume is left alone)">
+    </div>
+    <div class="spacer"></div>
+    <span id="cost" class="usage" hidden title="Govee cloud commands this show costs per hour while it loops. All shows together get 10,000 a day."></span>
+    <button id="btnOpen" title="Open a sound (or drop one anywhere)">Sound…</button>
+    <input id="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac" hidden>
+    <div class="menu-wrap">
+      <button class="icon btnSettings" title="Settings">&#9881;</button>
+    </div>
+  </header>
+  <main class="edit">
+    <aside class="palette">
+      <div class="tile" draggable="true" data-effect="color" title="A steady color, with an optional fade in and out"><i class="sw sw-color"></i>Color</div>
+      <div class="tile" draggable="true" data-effect="pulse" title="Breathes between two brightness levels"><i class="sw sw-pulse"></i>Pulse</div>
+      <div class="tile" draggable="true" data-effect="lightning" title="Hard flashes spread across the clip. Over a color or pulse on a lower layer, it flashes out of that glow."><i class="sw sw-lightning"></i>Lightning</div>
+      <div class="bulb-wrap"><div id="bulbBig" class="bulb"></div></div>
+    </aside>
+    <div class="timeline-wrap">
+      <canvas id="tl"></canvas>
+      <div id="dropHint" class="drop-hint" hidden>Drop a sound to start</div>
+    </div>
+    <aside id="inspector" class="inspector"></aside>
+  </main>
+</section>
+
+<div id="settings" class="menu" hidden>
+  <div class="menu-title">Govee cloud</div>
+  <label class="field" title="For bulbs with no LAN Control. Get one in the Govee Home app: Profile → ⚙ → Apply for API Key (it comes by email).">API key
+    <input id="apiKey" type="password" placeholder="paste the key" autocomplete="off" spellcheck="false"></label>
+  <div class="row"><span id="keyState" class="dim"></span><button id="btnKey" class="small">Save</button></div>
+  <div id="timingWrap">
+    <div class="menu-title">This show</div>
+    <label class="field" title="Send the light this many ms earlier than the sound (negative: later). The speaker's own delay, measured in Light Show Studio, is already allowed for.">Light timing
+      <span><input id="lightMs" type="number" step="25" class="num"> ms</span></label>
+    <button id="btnDelete" class="small danger">Delete show</button>
+  </div>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -24,6 +24,12 @@
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "lightshow", "studio", "--no-browser", "--stay", "--port", "8799", "--no-lights"],
       "port": 8799
+    },
+    {
+      "name": "bulbshow-test",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "bulbshow", "--no-browser", "--stay", "--port", "8798", "--no-lights", "--no-cast"],
+      "port": 8798
     }
   ]
 }
