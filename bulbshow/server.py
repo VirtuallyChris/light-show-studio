@@ -422,6 +422,27 @@ class App:
 APP_PROFILE = os.path.join(local_appdata(), "bulbshow", "browser")
 
 
+APP_ID = "LightShowStudio.BulbShow"
+
+
+def window_identity() -> dict:
+    wscript = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "wscript.exe")
+    return dict(title="", app_id=APP_ID, name="Bulb Show", relaunch=f'"{wscript}" "{os.path.join(HERE, "Bulb Show.vbs")}"',
+                icon=os.path.join(HERE, "Bulb Show.ico") + ",0")
+
+
+def give_window_identity(wait: bool = False) -> None:
+    """Make the app window Bulb Show on the taskbar rather than Chrome: its own button, name and icon,
+    and a pin that starts Bulb Show (the studio's window_identity, with Bulb Show's details). Every
+    window of the app's own browser profile is Bulb Show's, whatever its title."""
+    from lightshow.studio.window_identity import adopt_studio_windows
+    identity = window_identity()
+    if wait:
+        adopt_studio_windows(APP_PROFILE, **identity)
+    else:
+        threading.Thread(target=adopt_studio_windows, args=(APP_PROFILE,), kwargs=identity, daemon=True).start()
+
+
 def find_chromium() -> str | None:
     cands = []
     if sys.platform == "win32":
@@ -469,14 +490,19 @@ def run(host: str = "0.0.0.0", port: int = 8770, open_browser: bool = True, stay
         print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} Bulb Show starting")
     url = f"http://127.0.0.1:{port}/"
     if open_browser and _already_running(url):
-        if not open_app_window(url):
+        if open_app_window(url):
+            give_window_identity(wait=True)             # this process ends right after, so do it now
+        else:
             webbrowser.open(url)
         return
     app = App(port=port, lights=lights, cast=cast, quit_when_closed=open_browser and not stay)
     print(f"Bulb Show running at {url}" + ("" if lights else "   (lights are virtual in this copy)")
           + ("" if cast else "   (speakers are virtual in this copy)"))
-    if open_browser and not open_app_window(url):
-        webbrowser.open(url)
+    if open_browser:
+        if open_app_window(url):
+            give_window_identity()
+        else:
+            webbrowser.open(url)
 
     async def start_watch(_app):
         _app["watch"] = asyncio.create_task(app.watch_window())

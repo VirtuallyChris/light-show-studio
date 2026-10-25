@@ -407,5 +407,18 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.app.client.key, "abc")
 
 
+class TaskbarTest(unittest.TestCase):
+    def test_a_pinned_bulb_show_starts_bulb_show_with_its_own_icon(self):
+        import re
+        from bulbshow.server import window_identity
+        idn = window_identity()
+        files = re.findall(r'"([^"]+)"', idn["relaunch"])
+        self.assertTrue(files[0].lower().endswith("wscript.exe"))
+        self.assertTrue(os.path.isfile(files[1]) and files[1].endswith("Bulb Show.vbs"), files)
+        self.assertTrue(os.path.isfile(idn["icon"].rsplit(",", 1)[0]))
+        self.assertNotEqual(idn["app_id"], "LightShowStudio.Studio")   # its own button, apart from the studio's
+        self.assertEqual(idn["title"], "")                              # every window of its own profile
+
+
 if __name__ == "__main__":
     unittest.main()

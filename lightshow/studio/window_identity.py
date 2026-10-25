@@ -12,7 +12,8 @@ This does the same for the studio's window, once Chrome has opened it:
 
 Pinning it then pins a Light Show Studio button that starts the whole studio,
 server and all, and its windows group under that button, apart from your Chrome.
-Off Windows, or if anything refuses, nothing changes.
+Off Windows, or if anything refuses, nothing changes. Bulb Show (bulbshow/) passes its own ID,
+name, launcher and icon to the same calls.
 """
 
 from __future__ import annotations
@@ -115,8 +116,9 @@ class _Store:
             self.inited = False
 
 
-def apply(hwnd: int) -> bool:
-    """Give one window the studio's taskbar identity. The relaunch details go first, the ID last."""
+def apply(hwnd: int, app_id: str = APP_ID, name: str = NAME, relaunch: str | None = None, icon: str | None = None) -> bool:
+    """Give one window a taskbar identity (the studio's unless told otherwise). The relaunch details go
+    first, the ID last."""
     if sys.platform != "win32":
         return False
     try:
@@ -124,8 +126,8 @@ def apply(hwnd: int) -> bool:
     except Exception:  # noqa: BLE001
         return False
     try:
-        ok = (st.set(PID_RELAUNCH, relaunch_command()) and st.set(PID_NAME, NAME)
-              and st.set(PID_ICON, icon_resource()) and st.set(PID_ID, APP_ID))
+        ok = (st.set(PID_RELAUNCH, relaunch or relaunch_command()) and st.set(PID_NAME, name)
+              and st.set(PID_ICON, icon or icon_resource()) and st.set(PID_ID, app_id))
         return bool(ok and st.commit())
     finally:
         st.close()
@@ -178,14 +180,15 @@ def profile_pids(profile: str) -> set[int]:
     return {int(x) for x in out.split() if x.strip().isdigit()}
 
 
-def adopt_studio_windows(profile: str, wait_s: float = 20.0) -> int:
-    """Wait for the studio's window(s) to appear and give each the studio's identity. Returns how many."""
+def adopt_studio_windows(profile: str, wait_s: float = 20.0, title: str = NAME, **identity) -> int:
+    """Wait for the window(s) of an app profile, titled `title`..., to appear and give each the app's
+    identity (the studio's, or the one in `identity`: see apply). Returns how many."""
     done: set[int] = set()
     t_end = time.monotonic() + wait_s
     while time.monotonic() < t_end:
         pids = profile_pids(profile)
-        for h in (windows_titled(NAME, pids) if pids else []):       # only the studio profile's windows, never your own Chrome
-            if h not in done and apply(h):
+        for h in (windows_titled(title, pids) if pids else []):      # only the app profile's windows, never your own Chrome
+            if h not in done and apply(h, **identity):
                 done.add(h)
         if done:
             return len(done)
