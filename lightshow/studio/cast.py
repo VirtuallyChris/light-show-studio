@@ -261,6 +261,47 @@ class CastManager:
         out.sort(key=lambda d: (d["type"] != "group", d["name"].lower()))
         return out
 
+    def is_group(self, name: str | None) -> bool:
+        """Is this a speaker group (by name; None: the one being cast to)?"""
+        try:
+            c = self._device(name) if name else self.cast
+            return c is not None and getattr(c.cast_info, "cast_type", "") == "group"
+        except Exception:  # noqa: BLE001
+            return False
+
+    def muted_speakers(self) -> set[str]:
+        """The speakers (not groups) muted right now, of those that answer."""
+        out = set()
+        for c in list(self.casts):
+            try:
+                if getattr(c.cast_info, "cast_type", "") != "group" and self._answered(c) and c.status.volume_muted:
+                    out.add(c.cast_info.friendly_name)
+            except Exception:  # noqa: BLE001
+                pass
+        return out
+
+    def is_muted(self, name: str) -> bool:
+        try:
+            c = self._device(name)
+            return bool(c is not None and c.status is not None and c.status.volume_muted)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def mute_again(self, names, wait_s: float = 1.5, sleep=time.sleep) -> list[str]:
+        """After a group's volume moved: the speakers that were muted before it and are not now, muted again
+        (a speaker muted, by hand or by its room, stays muted when its group's volume changes: the user)."""
+        sleep(wait_s)
+        did = []
+        for name in names:
+            try:
+                c = self._device(name)
+                if c is not None and c.status is not None and not c.status.volume_muted:
+                    c.set_volume_muted(True)
+                    did.append(name)
+            except Exception:  # noqa: BLE001
+                pass
+        return did
+
     def set_device_volume(self, name: str, level: float) -> dict:
         c = self._device(name)
         if c is None:

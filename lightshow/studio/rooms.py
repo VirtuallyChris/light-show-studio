@@ -188,19 +188,27 @@ class Rooms:
                 self.gen[name] = 0
 
     # -- the levels the party plays at ----------------------------------------------------------------
-    # Every level set on the Party Hub is kept (config.json speaker_levels), so the studio comes back to
-    # it after a restart; while the jam plays, a speaker found at another level (turned down on the
-    # speaker or in the Google Home app, or one that missed the change at casting) is set back, and one
-    # muted while its room is on is unmuted. One change each (a Google speaker chimes per change), only
-    # after it was off at two looks running, at most once in 10 s per speaker: never a tug of war.
+    # Every level is kept (config.json speaker_levels): set on the Party Hub, or changed in person (on the
+    # speaker, or in the Google Home app). The person in the room wins: while the jam plays, a speaker found
+    # at another level, still there at the next look, has that level kept as its own, and one muted by hand
+    # stays muted; the studio never turns it back (the user). Only a change the studio itself sent in the
+    # last SENT_S seconds that the speaker missed is sent again, once (a Google speaker chimes per change).
+    SENT_S = 15.0
+
     def levels(self) -> dict[str, float]:
         return dict(self.load_config().get("speaker_levels", {}))
 
-    def remember_level(self, name: str, level: float) -> None:
+    def remember_level(self, name: str, level: float, sent: bool = False) -> None:
+        """Keep a speaker's level. sent: the studio is setting the speaker to it now (the Party Hub), so for a
+        little while a speaker found elsewhere missed it, rather than someone changing it."""
         with self.lock:
             cfg = self.load_config()
             cfg.setdefault("speaker_levels", {})[str(name)] = round(max(0.0, min(1.0, float(level))), 3)
             self.save_config(cfg)
+        if sent:
+            self.__dict__.setdefault("_sent_at", {})[str(name)] = self.clock()
+
+    clock = staticmethod(time.monotonic)
 
     def keep_as_they_are(self, wait_s: float = 1.5, sleep=time.sleep) -> None:
         """A group's volume was moved on purpose (the Party Hub's cast volume, the jam casting to "Everywhere"):
@@ -220,14 +228,18 @@ class Rooms:
             except Exception:  # noqa: BLE001 - a speaker that does not answer keeps its kept level
                 continue
 
-    def keep_levels(self, names, clock=time.monotonic) -> list[str]:
-        """Look at each of these speakers once; set back the ones off their kept level. Returns what it did.
-        Only while the studio is casting, and never a speaker someone else is casting to."""
+    def keep_levels(self, names, clock=None) -> list[str]:
+        """Look at each of these speakers once. One found off its kept level twice running: changed in person,
+        so its level is kept from now on (muted by hand: left muted); or, just after the studio set it, it missed
+        that: sent again, once. Returns what it did. Only while the studio is casting, and never a speaker
+        someone else is casting to."""
         if not self.touch or self.cast is None or not self.casting():
             return []
+        clock = clock or self.clock
         kept, muted, did = self.levels(), self.muted(), []
         off = self.__dict__.setdefault("_off_seen", {})
         last = self.__dict__.setdefault("_set_at", {})
+        sent = self.__dict__.setdefault("_sent_at", {})
         for name in names:
             if name in muted or self.gen.get(name, 0):
                 continue                                         # its room is off, or a mute is on its way
@@ -235,27 +247,32 @@ class Rooms:
                 c = self.cast._device(name)
                 if c is None or c.status is None or getattr(c.cast_info, "cast_type", "") == "group" or self.foreign(c):
                     continue
-                live, is_muted = float(c.status.volume_level), bool(c.status.volume_muted)
+                live = float(c.status.volume_level)               # (muted by hand: left as it is)
             except Exception:  # noqa: BLE001 - a speaker that does not answer is looked at next time
                 continue
             if name not in kept:                                 # first seen: its level now is the one kept
                 self.remember_level(name, live)
                 kept[name] = live
                 continue
-            wrong = abs(live - kept[name]) > 0.02 or is_muted
-            off[name] = off.get(name, 0) + 1 if wrong else 0
-            if off[name] < 2 or clock() - last.get(name, -1e9) < 10.0:
+            moved = abs(live - kept[name]) > 0.02
+            off[name] = off.get(name, 0) + 1 if moved else 0
+            if off[name] < 2:
+                continue                                         # (once could be in passing: a look later)
+            if clock() - sent.get(name, -1e9) < self.SENT_S:
+                # the studio set it a moment ago and the speaker did not take it: sent again, once
+                if clock() - last.get(name, -1e9) < 10.0:
+                    continue
+                try:
+                    c.set_volume(kept[name])
+                    did.append(f"{name}: missed {kept[name]:.2f}, sent again")
+                    last[name], off[name] = clock(), 0
+                    sent.pop(name, None)
+                except Exception:  # noqa: BLE001
+                    pass
                 continue
-            try:
-                if abs(live - kept[name]) > 0.02:
-                    c.set_volume(kept[name])                     # (setting a level unmutes it too)
-                    did.append(f"{name}: {live:.2f} -> {kept[name]:.2f}")
-                else:
-                    c.set_volume_muted(False)
-                    did.append(f"{name}: unmuted")
-                last[name], off[name] = clock(), 0
-            except Exception:  # noqa: BLE001
-                pass
+            self.remember_level(name, live)                      # changed in person: that is its level now
+            did.append(f"{name}: {kept[name]:.2f} -> {live:.2f} on the speaker, kept")
+            kept[name], off[name] = live, 0
         return did
 
     def unmute_all(self) -> None:

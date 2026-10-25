@@ -475,7 +475,8 @@ class JamService:
 
     def _keep_levels(self, eng) -> None:
         """While this jam plays, every 5 s: the party's speakers (the rooms that are on, and the one cast to) at
-        the levels kept for them (Rooms.keep_levels): turned down on a speaker, or missed at casting, set back."""
+        the levels kept for them (Rooms.keep_levels): one changed in person keeps its new level; one that missed
+        a change the studio just sent gets it again."""
         rooms, cast = getattr(self.studio, "rooms", None), getattr(self.studio, "cast", None)
         if rooms is None:
             return
@@ -490,7 +491,7 @@ class JamService:
                 names.append(cast.name)
             try:
                 for line in rooms.keep_levels(names):
-                    eng.say(f"speaker volume set back: {line}")
+                    eng.say(f"speaker volume: {line}")
             except Exception:  # noqa: BLE001 - looked at again in 5 s
                 pass
 
@@ -1125,11 +1126,14 @@ class JamService:
             def set_all():
                 muted = rooms.muted() if rooms else {}
                 for n, v in levels.items():
+                    # a speaker muted (its room off, or by hand) keeps the level for later and stays muted:
+                    # sending a level to a Google speaker unmutes it
+                    quiet = n in muted or cast.is_muted(n)
                     if rooms:
-                        rooms.remember_level(n, v)               # kept: the studio comes back to it
+                        rooms.remember_level(n, v, sent=not quiet)   # kept (and being sent: see Rooms.keep_levels)
                     if n in muted:
                         rooms.set_saved_volume(n, v)
-                    else:
+                    elif not quiet:
                         cast.set_device_volume(n, v)
                 return {"levels": levels}
             try:
@@ -1137,23 +1141,33 @@ class JamService:
             except Exception as e:  # noqa: BLE001
                 return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
         if rooms and (body.get("name") or cast.cast is not None):
-            rooms.remember_level(str(body.get("name") or cast.name), level)
-        def group_moved(name):
-            """A group's volume moves every speaker in it: their new levels become the kept ones."""
-            try:
-                d = cast._device(name) if name else cast.cast
-                if rooms and d is not None and getattr(d.cast_info, "cast_type", "") == "group":
-                    threading.Thread(target=rooms.keep_as_they_are, daemon=True, name="keep-levels-now").start()
-            except Exception:  # noqa: BLE001
-                pass
+            rooms.remember_level(str(body.get("name") or cast.name), level, sent=True)
+        def via_group(name, set_it):
+            """Set a volume; a group's moves every speaker in it. The speakers muted before (by hand, or by their
+            room) are muted again if the group's change unmuted them (the user), and the others' new levels
+            become the kept ones."""
+            if not cast.is_group(name):
+                return set_it()
+            cast.device_volumes()                                # (every speaker's state read first)
+            before = cast.muted_speakers()
+            out = set_it()
+
+            def after():
+                again = cast.mute_again(before)
+                if again and self.engine is not None:
+                    self.engine.say(f"group volume: kept muted {', '.join(again)}")
+                if rooms:
+                    rooms.keep_as_they_are(wait_s=0)
+            threading.Thread(target=after, daemon=True, name="group-volume").start()
+            return out
         if body.get("name") and rooms and str(body["name"]) in rooms.muted():
             fn = lambda: (rooms.set_saved_volume(str(body["name"]), level), {"name": body["name"], "volume": level, "muted": True})[1]
         elif body.get("name"):
-            fn = lambda: (cast.set_device_volume(str(body["name"]), level), group_moved(str(body["name"])))[0]
+            fn = lambda: via_group(str(body["name"]), lambda: cast.set_device_volume(str(body["name"]), level))
         else:
             if cast.cast is None:
                 return web.json_response({"error": "not casting"}, status=400)
-            fn = lambda: (cast.set_volume(level), group_moved(None))[0]
+            fn = lambda: via_group(None, lambda: cast.set_volume(level))
         try:
             return web.json_response(await asyncio.get_running_loop().run_in_executor(None, fn))
         except Exception as e:  # noqa: BLE001

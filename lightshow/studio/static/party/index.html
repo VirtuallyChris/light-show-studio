@@ -913,10 +913,21 @@
         const top = Math.max(...names.map(n => (devs.find(x => x.name === n) || {}).volume || 0)); r.value = Math.round(top * 100); box.querySelector(':scope > .vol .vv').textContent = r.value + '%'; });
     }
   }
-  async function loadVolumes() {
+  // While Settings is open the levels are read again every 5 s, so one changed in person (on the speaker, in the
+  // Google Home app) shows here and a room's slider moves from it, not from a level gone stale; never while a
+  // slider is in hand, and drawn again only when something changed.
+  let volShown = '', volTouchedAt = 0, volHeld = false;
+  for (const ev of ['pointerdown', 'input']) document.addEventListener(ev, e => { if (e.target.closest && e.target.closest('#castVol, #speakers')) { volTouchedAt = performance.now(); if (ev === 'pointerdown') volHeld = true; } }, true);
+  document.addEventListener('pointerup', () => { volHeld = false; }, true);
+  setInterval(() => { if (settingsOpen && !document.hidden && !volHeld && performance.now() - volTouchedAt > 4000) loadVolumes(true); }, 5000);
+  async function loadVolumes(quiet) {
     try {
       const v = await (await fetch('/api/party/volumes')).json();
       if (v.error) throw new Error(v.error);
+      const sig = JSON.stringify([v, (state && state.rooms) || (roomsDoc && roomsDoc.rooms) || []]);
+      if (quiet && sig === volShown) return;                           // nothing changed: left as it is
+      if (quiet && (volHeld || performance.now() - volTouchedAt < 4000)) return;   // (a slider taken in hand meanwhile)
+      volShown = sig;
       $('#castVol').innerHTML = v.cast ? volRow(v.cast.name, v.cast.volume, '', false) : '<div class="empty">Not casting right now.</div>';
       const devs = v.devices || [], rooms = (state && state.rooms) || (roomsDoc && roomsDoc.rooms) || [];
       const placed = new Set(), html = [];
@@ -937,7 +948,7 @@
       wireVols($('#castVol'));
       roomVolumes($('#speakers'), devs);
       wireVols($('#speakers'));
-    } catch (e) { console.error(e); $('#speakers').innerHTML = '<div class="empty">Couldn’t reach the speakers.</div>'; }
+    } catch (e) { if (quiet) return; console.error(e); $('#speakers').innerHTML = '<div class="empty">Couldn’t reach the speakers.</div>'; }
   }
 
   // ---- appearance: Auto (the phone's), Light or Dark; the status bar follows the page
