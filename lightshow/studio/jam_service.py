@@ -141,6 +141,8 @@ class JamService:
             web.post("/api/party/level", self.party_level_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
+            web.get("/api/party/bulbshows", self.party_bulbshows),
+            web.post("/api/party/bulbshows", self.party_bulbshow_set),
             web.post("/api/party/even", self.party_even),
             web.post("/api/prelisten", self.prelisten_start),
             web.post("/api/prelisten/stop", self.prelisten_stop),
@@ -1108,10 +1110,15 @@ class JamService:
         cast = self.studio.cast
 
         rooms = getattr(self.studio, "rooms", None)
+        bulbs = getattr(self.studio, "bulbshows", None)
 
         def read():
             st = cast.status()
             devices = cast.device_volumes()
+            in_use = bulbs.speakers_in_use() if bulbs else {}      # (a bulb show playing on it: its volume is set here too)
+            for d in devices:
+                if d["name"] in in_use:
+                    d["bulb_show"] = in_use[d["name"]]
             # a speaker its room has muted shows the level it is set to (it plays at that once the room
             # is back), not what a fade has it at right now
             muted = rooms.muted() if rooms else {}
@@ -1185,6 +1192,30 @@ class JamService:
             return web.json_response(await asyncio.get_running_loop().run_in_executor(None, fn))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
+
+    async def party_bulbshows(self, request):
+        """Bulb Show's shows that can run, each on or off (the Lights tab's Bulb Shows)."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        bulbs = getattr(self.studio, "bulbshows", None)
+        if bulbs is None:
+            return web.json_response({"open": False, "shows": []})
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.list))
+
+    async def party_bulbshow_set(self, request):
+        """Switch a bulb show on or off ({id, on}). Never on the speaker the party plays on."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        bulbs, cast = getattr(self.studio, "bulbshows", None), self.studio.cast
+        if bulbs is None or not body.get("id"):
+            return web.json_response({"ok": False, "error": "no such bulb show"}, status=400)
+        busy = {cast.name} if cast.cast is not None and cast.name else set()
+        try:
+            out = await asyncio.get_running_loop().run_in_executor(None, bulbs.set, str(body["id"]), bool(body.get("on")), busy)
+        except Exception as e:  # noqa: BLE001
+            out = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        return web.json_response(out)
 
     async def party_even(self, request):
         """From the phone: every song at about the same volume, on or off ({on}); kept for next time."""

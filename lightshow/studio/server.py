@@ -548,6 +548,10 @@ class Studio:
         self.requested: list[str] = []                   # the lights ticked in the studio (by address)
         self.rooms = Rooms(load_config, save_config, self.cast, touch=lights)   # a test copy never touches a speaker
         self.cast.on_release = self.rooms.unmute_all             # casting stops: the speakers it muted play again
+        # Bulb Show's shows, switched on and off from the Party Hub; a test copy talks to the test Bulb Show only
+        # (bulbshow-test, port 8798) and never starts one
+        from .bulbshows import BulbShows
+        self.bulbshows = BulbShows(port=8770 if lights else 8798, launch=lights)
         # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
         self.cues = CueRunner(load_config, save_config, self._show_length,
                               live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length, pcm=self._cue_pcm)) if lights else None)

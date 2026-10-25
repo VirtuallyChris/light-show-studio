@@ -320,6 +320,11 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     <div id="rooms"></div>
   </section>
 
+  <section class="card" id="bulbCard" hidden>
+    <div class="label">Bulb Shows</div>
+    <div id="bulbShows"></div>
+  </section>
+
   <section class="card" id="themeCard" hidden>
     <div class="label">Colors</div>
     <div class="modes" id="colorSource" role="group" aria-label="Where every song's colors come from"><button data-s="album">Album art</button><button data-s="party">Party colors</button><button data-s="wild">No Limits</button></div>
@@ -379,7 +384,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   const $ = s => document.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const fmt = t => (t == null || !isFinite(t)) ? '0:00' : `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  let state = null, shown = '', clock = null, settingsOpen = false, evenBusy = 0;
+  let state = null, shown = '', clock = null, settingsOpen = false, lightsOpen = false, evenBusy = 0;
   const api = async (path, body) => {
     const r = await fetch('/api/party/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(r.status);
@@ -841,6 +846,33 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     };
   }
 
+  // ---- Bulb Shows: Bulb Show's own looping shows (one sound, one speaker, one bulb each), on or off from here;
+  // switching one on starts Bulb Show if it is not open
+  let bulbShown = '', bulbBusy = 0, bulbNote = {};
+  async function loadBulbShows() {
+    if (performance.now() < bulbBusy) return;                          // a switch just flipped: wait for its answer
+    let d;
+    try { d = await api('bulbshows'); } catch (e) { return; }
+    const shows = d.shows || [];
+    $('#bulbCard').hidden = !shows.length;
+    const html = shows.map(b => `<div class="room-row"><div><div class="rname">${esc(b.name)}</div>
+        <div class="rsub">${esc(bulbNote[b.id] || b.error || [b.speaker, b.bulb].filter(Boolean).join(' · '))}</div></div>
+        <label class="switch"><input type="checkbox" data-id="${esc(b.id)}" ${b.on ? 'checked' : ''} aria-label="${esc(b.name)} on"><span></span></label></div>`).join('');
+    if (html === bulbShown) return;
+    bulbShown = html; $('#bulbShows').innerHTML = html;
+    for (const sw of $('#bulbShows').querySelectorAll('input[data-id]')) sw.onchange = async () => {
+      const id = sw.dataset.id, sub = sw.closest('.room-row').querySelector('.rsub');
+      bulbBusy = performance.now() + 30000; delete bulbNote[id];
+      sub.textContent = sw.checked ? 'Starting…' : 'Stopping…';
+      try { const r = await api('bulbshows', { id, on: sw.checked }); if (!r.ok) bulbNote[id] = r.error || 'Didn’t start'; }
+      catch (e) { bulbNote[id] = 'Couldn’t reach the studio'; }
+      bulbBusy = 0; bulbShown = ''; loadBulbShows();
+      if (bulbNote[id]) setTimeout(() => { delete bulbNote[id]; bulbShown = ''; loadBulbShows(); }, 6000);
+    };
+  }
+  setInterval(() => { if (lightsOpen && !document.hidden) loadBulbShows(); }, 4000);
+  loadBulbShows();
+
   // settings: which lights and speakers stand in each room
   let roomsDoc = null;
   async function saveRooms(rooms) {
@@ -879,8 +911,8 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
 
   // ---- settings: the cast's volume, and every speaker's own
   const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
-  function volRow(name, v, key, group, muted) {
-    return `<div class="vol${muted ? ' muted' : ''}"><div class="vname"><span>${esc(name)}${group ? '<span class="group-tag">group</span>' : ''}${muted ? '<span class="group-tag">muted</span>' : ''}</span><span class="vv">${pct(v)}</span></div>
+  function volRow(name, v, key, group, muted, bulbShow) {
+    return `<div class="vol${muted ? ' muted' : ''}"><div class="vname"><span>${esc(name)}${group ? '<span class="group-tag">group</span>' : ''}${muted ? '<span class="group-tag">muted</span>' : ''}${bulbShow ? `<span class="group-tag" title="Playing the bulb show ${esc(bulbShow)}">${esc(bulbShow)}</span>` : ''}</span><span class="vv">${pct(v)}</span></div>
       <input type="range" min="0" max="100" step="1" value="${v == null ? 0 : Math.round(v * 100)}" data-key="${esc(key)}" ${v == null ? 'disabled' : ''}></div>`;
   }
   function wireVols(root) {
@@ -945,10 +977,10 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
         html.push(`<div class="vroom" data-room="${esc(rm.id)}" data-names="${esc(JSON.stringify(known.map(d => d.name)))}">
           ${volRow(rm.name, top, '', false, !rm.on).replace('data-key=""', 'data-room-level="1"')}
           ${mine.length > 1 ? `<button class="mixbtn">${open ? 'Hide mix' : 'Edit mix'}</button>` : ''}
-          <div class="mix" ${open && mine.length > 1 ? '' : 'hidden'}>${mine.map(d => volRow(d.name, d.volume, d.name, false, d.muted)).join('')}</div></div>`);
+          <div class="mix" ${open && mine.length > 1 ? '' : 'hidden'}>${mine.map(d => volRow(d.name, d.volume, d.name, false, d.muted, d.bulb_show)).join('')}</div></div>`);
       }
       const rest = devs.filter(d => !placed.has(d.name));
-      if (rest.length) html.push(`${html.length ? '<div class="eyebrow" style="margin-top:14px">Not in a room</div>' : ''}${rest.map(d => volRow(d.name, d.volume, d.name, d.type === 'group', d.muted)).join('')}`);
+      if (rest.length) html.push(`${html.length ? '<div class="eyebrow" style="margin-top:14px">Not in a room</div>' : ''}${rest.map(d => volRow(d.name, d.volume, d.name, d.type === 'group', d.muted, d.bulb_show)).join('')}`);
       $('#speakers').innerHTML = html.join('') || '<div class="empty">No speakers found.</div>';
       wireVols($('#castVol'));
       roomVolumes($('#speakers'), devs);
@@ -976,6 +1008,8 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     for (const b of document.querySelectorAll('.nav-btn')) b.dataset.tab === tab ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current');
     $('#title').textContent = TABS[tab]; $('#scroller').scrollTop = 0;
     settingsOpen = tab === 'settings';
+    if (tab === 'lights' && !lightsOpen) loadBulbShows();
+    lightsOpen = tab === 'lights';
     if (settingsOpen && !was) { loadCueEdit(); loadBell(); loadRoomEdit(); loadVolumes(); if (state) showPre(state.prelisten); }
   }
   function goTab(t) { const h = t === 'now' ? '' : t; if (location.hash.slice(1) === h) showTab(); else location.hash = h; }

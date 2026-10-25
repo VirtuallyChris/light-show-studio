@@ -38,6 +38,15 @@ The light follows what the speaker reports it is playing, less the speaker's del
 Light Show Studio (`cast_offsets` in the studio's config.json). If a bulb still looks early or
 late, ⚙ → Light timing nudges that show.
 
+## From the Party Hub
+
+Light Show Studio's Party Hub lists every show that is ready (a sound, a speaker and a bulb) under
+**Lights → Bulb Shows**, each with an on/off switch. Switching one on while Bulb Show is closed
+starts it without a window, and it keeps running until it is switched off (opening Bulb Show
+then shows the running app). A show is never started on the speaker the party is casting to. Under
+Settings, a speaker playing a bulb show carries the show's name, and its volume slider works as for
+any other speaker.
+
 ## The bulb: LAN or Govee's cloud
 
 A bulb that answers on the LAN (LAN Control switched on in the Govee Home app, if the bulb offers
