@@ -1320,7 +1320,7 @@
       if (!tubes) layers(dst, n, L.ip, c => !c.target || c.target === kind, null);
       else {
         const across = buf('tubes' + L.ip, tubes.count); across.fill(0);
-        layers(across, tubes.count, L.ip + 't', c => !c.target, null);
+        layers(across, tubes.count, L.ip + 't', c => !c.target || c.target === 'long', null);   // (the strings' show too: they hang like them)
         let form = null;
         for (const lane of p.lanes) if (!lane.hidden) for (const c of lane.clips) if (c.target === 'tubes' && b >= c.start && b < c.start + c.len) {
           if (c.effect === 'tubeform') form = c.params || {};
@@ -1353,9 +1353,10 @@
   function tubeShape(form, tubes, beat) {
     const per = tubes.per, last = Math.max(1, per - 1), shape = (form && form.shape) || 'full';
     const bell = (k, mid, w) => Math.exp(-0.5 * ((k - mid) / w) ** 2);
-    if (shape === 'orb') return (tb, k) => bell(k, last / 2, per * 0.2);
-    if (shape === 'drift') return (tb, k) => bell(k, last / 2 + Math.sin((beat / 8 + Effects.hash(tb * 7919 + 3)) * Math.PI * 2) * per * 0.28, per * 0.17);
-    if (shape === 'top') return (tb, k) => Math.pow(1 - k / (last + 1), 1.6);
+    // (wide enough that a tube in a shape is not much darker than the strings beside it: they were half as bright)
+    if (shape === 'orb') return (tb, k) => bell(k, last / 2, per * 0.3);
+    if (shape === 'drift') return (tb, k) => bell(k, last / 2 + Math.sin((beat / 8 + Effects.hash(tb * 7919 + 3)) * Math.PI * 2) * per * 0.25, per * 0.26);
+    if (shape === 'top') return (tb, k) => Math.pow(1 - k / (last + 1), 0.8);
     return (tb, k) => 1 - 0.15 * k / last;
   }
   // The room view (roomview.html, its own window): the party rooms' lights as the party would see them,
@@ -3351,17 +3352,20 @@
     // their own way: meteors fall down them. On every kick and snare of a drop (more tubes and quicker the
     // harder the song; a calm song's on the beat, slow), through a buildup more and quicker toward the drop,
     // on the snare in a verse, and a slow drip on the beat in the quiet parts.
-    // (the user: the meteor is great, but not ALL THE TIME. The tubes play what the other lights play,
-    // alternating, gradients, chases, in a shape of their own; the meteors are moments)
+    // (the user, 2026-10-18: the meteor is great, but not ALL THE TIME. 2026-10-24, the tubes hung over the middle
+    // of the party: too chill in LSD's drops, and darker than the strings; "we love the 3D, meteors down": every
+    // drop and buildup has them, a verse a light drip on the snare; the calm parts stay without)
     if (S.hasTubes) {
       const T = { target: 'tubes', blend: 'add' };
-      if (s.type === 'drop' && variant % 2 === 1) clip(10, 'meteorfall', b0, len, chill ? { follow: 'beat', many: 1, fall: 1.4, tail: 6 }
-        : { follow: drumsHere ? 'drums' : 'beat', many: style === 'rave' ? 4 : hard ? 3 : 2, fall: style === 'rave' ? 0.35 : hard ? 0.45 : 0.6, tail: 4 }, { ...T, opacity: 1 });
+      if (s.type === 'drop') clip(10, 'meteorfall', b0, len, chill ? { follow: 'beat', many: 1, fall: 1.4, tail: 6 }
+        : { follow: drumsHere ? 'drums' : 'beat', many: style === 'rave' ? 5 : hard ? 4 : 3, fall: style === 'rave' ? 0.35 : hard ? 0.42 : 0.55, tail: 4,
+            way: drumsHere && variant % 2 === 1 ? 'split' : 'down' }, { ...T, opacity: 1 });   // (every other drop: up on the snare)
       else if (s.type === 'buildup' && !chill) clip(10, 'meteorfall', b0, len, { follow: snaresHere >= 4 ? 'snare' : 'build', many: 5, fall: 0.7, tail: 3, grows: true }, { ...T, opacity: 1 });
-      // their shape: the whole tube, an orb floating in the middle of each (the user's idea), orbs drifting up
-      // and down, or a glow from the top; calm parts float, the big parts fill the tubes (the same on a rebuild)
+      else if (s.type === 'verse' && !chill && drumsHere) clip(10, 'meteorfall', b0, len, { follow: 'snare', many: 1, fall: 0.8, tail: 5 }, { ...T, opacity: 0.85 });
+      // their shape: the busy parts fill the whole tube, as bright as the strings; the calm parts float: an orb in
+      // the middle of each (the user's idea), orbs drifting up and down, or a glow from the top (the same on a rebuild)
       const calm = ['intro', 'breakdown', 'outro'].includes(s.type) || chill;
-      const forms = calm ? ['orb', 'drift', 'drift', 'top'] : s.type === 'drop' ? ['full', 'full', 'orb'] : ['full', 'orb', 'drift', 'top'];
+      const forms = calm ? ['orb', 'drift', 'drift', 'top'] : ['full'];
       const form = forms[Math.floor(Effects.hash((S.lookSeed || 0) * 13 + idx * 7919 + variant * 31) * forms.length)];
       if (form !== 'full') clip(10, 'tubeform', b0, len, { shape: form }, { target: 'tubes', opacity: 1 });
     }
