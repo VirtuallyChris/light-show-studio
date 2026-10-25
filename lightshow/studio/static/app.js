@@ -308,7 +308,7 @@
     autoBuild(true);
     return 'rebuilt';
   }
-  function changed() { if (P()) P().drops = dropsOf(P()); reviewRebuild(true); reviewCustom(); scheduleSave(); draw(); }
+  function changed() { if (P()) P().drops = dropsOf(P()); reviewRebuild(true); reviewCustom(); if (S.jam && S.jam.live && S.jam.onEdit) S.jam.onEdit(); scheduleSave(); draw(); }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); S.project = JSON.parse(S.undo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); S.project = JSON.parse(S.redo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function scheduleSave() { clearTimeout(S.saveTimer); S.saveTimer = setTimeout(save, 1500); }
@@ -1692,7 +1692,8 @@
       // a hidden layer is greyed out as a whole: its clips in grey, faded
       // (a jam song under review whose lights are the jam's own, untouched: every layer at half, until a change to
       // the lights makes it your own show; undone back to the jam's, half again)
-      const ga = (lane.hidden ? 0.35 : 1) * (S.review && S.review.id && !S.review.custom ? 0.5 : 1); g.globalAlpha = ga; g.filter = lane.hidden ? 'grayscale(1)' : 'none';
+      const built = (S.review && S.review.id && !S.review.custom) || (S.jam && S.jam.live && S.jam.auto && !S.jam.custom);   // (the show as built: it follows the sections)
+      const ga = (lane.hidden ? 0.35 : 1) * (built ? 0.5 : 1); g.globalAlpha = ga; g.filter = lane.hidden ? 'grayscale(1)' : 'none';
       for (const c of lane.clips) {
         const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x1 < HEADER || x0 > w) continue;
         // a clip that starts off to the left is drawn from the timeline's edge: its width must be
@@ -4096,6 +4097,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, sectionsSig, dropsOf, flipOf, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

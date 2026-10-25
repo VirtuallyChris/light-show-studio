@@ -168,7 +168,7 @@
     a._swells = undefined;
   }
   function recolor() {
-    if (!J.live || !J.doc || J.doc.kind === 'custom' || J.doc.locked) return;      // (a locked show keeps its colors)
+    if (!J.live || !J.doc || J.doc.kind === 'custom' || J.doc.locked || J.custom) return;   // (a locked show, or one made yours, keeps its colors)
     // not while the song's show is still being loaded (a cover can arrive half way): the load uses it itself
     if (!St.P() || J.key !== J.doc.key) return;
     if (J.doc.light) { S.jamColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
@@ -177,6 +177,7 @@
     applyStyle(J.doc.track);
     if (restyle) { St.pickLook(); J.style = St.showStyle(); }
     try { St.autoBuild(true); J.built = sectionKeys(); } catch (e) { console.error(e); }
+    J.clips = St.clipSig();                                        // (rebuilt by the jam, not by hand)
     St.draw();
   }
   const roomTrackId = () => J.doc && J.doc.track && J.doc.track.id;
@@ -615,6 +616,7 @@
     S.albumPalette = pre ? await pre.pal.catch(() => albumPalette(doc.track)) : await albumPalette(doc.track);
     S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
     S.jamExtras = extrasFor(S.jamColors, doc.track); S.jamRainbow = rainbowOn(doc.track); S.noLimits = doc.kind !== 'custom' && wildOn(doc.track); J.colorSig = colorSig();
+    clearTimeout(J.saveT); J.auto = J.custom = J.secsByHand = false; J.savedAs = null;   // (see J.onEdit)
     if (doc.kind === 'custom' && doc.project) {
       const data = (pre && await pre.proj.catch(() => null)) || await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
       if (data.error) return toast('Jam: ' + data.error, true);
@@ -636,15 +638,52 @@
       adopt(doc.analysis, room.label, null);
       applyStyle(doc.track);                                          // a vibe picked for it by hand
       try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
-      J.built = sectionKeys();
+      J.built = sectionKeys(); J.auto = true;                         // the jam's own show: it follows the sections
       if (J.failedKey !== room.key) toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
     }
     setGlow();
     St.fullBrightness();                                            // between songs: every light back to 100%
     J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
     J.secsSeen = { key: room.key, sig: St.sectionsSig() };          // (section changes from here on are kept: app.js jamSave)
+    J.clips = St.clipSig();                                         // (the lights as built: a change to them is a hand edit)
     J.drums = !!(S.analysis && S.analysis.events && S.analysis.events.kick && S.analysis.events.kick.length);
     St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
+  }
+
+  /** A section moved in a jam (as under review): the jam's own show follows it, rebuilt the way it is when the song
+   *  is heard better (reconcile: what changed, the part playing now from the next beat on), its layers dimmed to
+   *  say so. Lights changed by hand (a clip added, moved, recolored...) make it your own show: saved as you go
+   *  (review.py make_custom), played by the jam from then on, and no longer rebuilt; undone back to the lights as
+   *  built, it is the jam's own again. Your own saved shows are never rebuilt. (app.js changed() calls this.) */
+  J.onEdit = () => {
+    if (!J.live || !J.auto || !J.doc) return;
+    const label = (J.doc.track && J.doc.track.name) || 'This song';
+    const mine = St.clipSig() !== J.clips;
+    if (mine !== J.custom) {
+      J.custom = mine; St.draw();
+      toast(mine ? `${label}: your own show now. It is saved as you go, and the jam plays it.` : `${label}: back to the jam's own show`);
+    }
+    if (J.custom || J.savedAs) { clearTimeout(J.saveT); J.saveT = setTimeout(saveCustom, 1200); }
+    if (J.custom) return;
+    const keys = sectionKeys();
+    if (JSON.stringify(keys) === JSON.stringify(J.built)) return;
+    J.secsByHand = true;                                            // (a first listen heard better keeps them: refresh)
+    J.built = reconcile(J.built, Math.ceil(St.timeToBeat(J.pos()) + 0.1), false);
+    J.clips = St.clipSig(); S.forceSend = true; St.draw();
+  };
+  async function saveCustom() {
+    clearTimeout(J.saveT);
+    const id = J.doc && J.doc.track && J.doc.track.id; if (!id) return;
+    const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+    try {
+      if (J.custom) {
+        const d = await post('/api/review/custom', { track_id: id, project: { ...St.P(), handEdited: true } }); if (d.error) throw new Error(d.error);
+        J.savedAs = d.name;
+      } else if (J.savedAs) {
+        const d = await post('/api/review/uncustom', { track_id: id, name: J.savedAs }); if (d.error) throw new Error(d.error);
+        J.savedAs = null;
+      }
+    } catch (e) { toast('Your show was not saved: ' + e.message, true); }
   }
 
   /** Learning ahead, a song playing before it is learned (the jam just started, a skip to a song not yet
@@ -674,7 +713,9 @@
     const a = doc.analysis, p = St.P();
     S.analysis = a; J.lastFeat = performance.now(); applyGenre(J.doc && J.doc.track);
     if (doc.light) { J.version = doc.version; buildLight(); return; }   // the beat, a little further along
-    if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); St.draw(); return; }
+    // your own lights, or sections you set by hand: kept as they are (the song's features above still update)
+    if (J.custom || J.secsByHand) { J.version = doc.version; return; }
+    if (featuresOnly && doc.version === J.version) { const nb = Math.ceil(St.timeToBeat(J.pos()) + 0.1); St.addMoments(nb); St.addFlavor(nb); J.clips = St.clipSig(); St.draw(); return; }
     p.bpm = a.bpm; p.phase = a.downbeat_phase; p.beats = a.beats.slice();
     p.sections = St.withBuildups(St.tidySections(a.sections));      // a drop with none still gets its buildup
     p.drops = St.dropsOf(p);
@@ -690,6 +731,7 @@
     St.addMoments(nowBeat);                                        // cuts and entrances this pass heard, still ahead of the room
     St.addFlavor(nowBeat);                                         // and the song's own flavor: spotlights, wobbles, the finale once it is all heard
     J.built = keys; J.version = doc.version; J.style = style; J.drums = drumsNow;
+    J.clips = St.clipSig();                                        // (the jam's own rebuild, not a hand edit)
     St.draw();
   }
 
