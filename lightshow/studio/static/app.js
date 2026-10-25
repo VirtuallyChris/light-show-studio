@@ -1283,7 +1283,7 @@
       // pixel of it: washes, hits, flashes, a chase tube to tube), each tube's color runs down its LEDs
       // (a little softer at the bottom), and their own layers (the meteors falling, target 'tubes') play on
       // every LED on top, as bright as every other light (dimmed under the meteors, they were too dark: the user).
-      const layers = (out, np, keyOf, wanted, sub) => {
+      const layers = (out, np, keyOf, wanted, sub, gain = 1) => {
       for (const pass of [0, 1]) p.lanes.forEach((lane, li) => {
         if (lane.hidden) return;
         let clip = null;
@@ -1298,7 +1298,7 @@
           clipT: clamp(clipBeat / clip.len, 0, 1), clipBeats: clip.len, clipBeat, p: { ...Effects.defaults(clip.effect), ...clip.params },
           pal: clipPalette(clip, lanePal), energy: f.energy, bands: f.bands, kick, rnd: Effects.hash, music, room, tubes: sub, where: spotsFor(where, n) };
         if (!houseDraw(c, e, clip, kind, sub, hcache)) e.render(c);
-        let alpha = (clip.opacity ?? 1) * partyScale(clip);
+        let alpha = (clip.opacity ?? 1) * partyScale(clip) * gain;
         // (no flashes in calm music: the show's own; a flash the user put there plays, its frame not smoothed either:
         // Haunted Mansion's lightning, a sound effect heard as calm, was black)
         if (calm > 0 && (clip.blend === 'cut' || PARTY_FLASHY.has(clip.effect))) { if (handPlaced(clip)) handFlash = true; else alpha *= 1 - calm; }
@@ -1331,7 +1331,10 @@
           if (i + 3 >= dst.length) break;
           dst[i] = across[j] * sh; dst[i + 1] = across[j + 1] * sh; dst[i + 2] = across[j + 2] * sh; dst[i + 3] = 1;
         }
-        layers(dst, n, L.ip + 'm', c => c.target === 'tubes', tubes);
+        // their own layers (the meteors) ride the show: as bright as what plays across the tubes allows, at full only
+        // when it is (near-white meteor heads in a drop's dark moments were far brighter than everything else: the user)
+        let lit = 0; for (let tb = 0; tb < tubes.count; tb++) lit += Math.max(across[tb * 4], across[tb * 4 + 1], across[tb * 4 + 2]);
+        layers(dst, n, L.ip + 'm', c => c.target === 'tubes', tubes, clamp(0.15 + 2.2 * lit / tubes.count, 0.15, 1));
       }
       // The party level (set on the Party Hub): below 100% the song's main color is laid over the whole
       // show, that much more opaque, so the room calms down into one color without going dark.
@@ -1439,6 +1442,20 @@
   // requestAnimationFrame and throttle timers when the tab is not in front,
   // which would silently stop the lights. Worker ticks keep coming regardless.
   /** a light mounted the other way round: its segments in reverse order (each keeps its r, g, b) */
+  /** The meteor tubes' brightness as the eye sees it: they are not linear like the strings (at 10% they look 40%:
+   *  the user), so what goes out to them is raised to TUBE_CURVE (config tube_curve, 2.5: 0.1 -> 0.003, 0.5 -> 0.18,
+   *  1 -> 1), the three colors together so the color holds. Only on the way out: the room view shows it as meant. */
+  S.tubeCurve = 2.5;
+  function tubeOut(px) {
+    const g = S.tubeCurve; if (!(g > 0) || g === 1) return px;
+    const o = new Array(px.length);
+    for (let i = 0; i < px.length; i += 3) {
+      const m = Math.max(px[i], px[i + 1], px[i + 2]); if (!m) { o[i] = o[i + 1] = o[i + 2] = 0; continue; }
+      const k = 255 * Math.pow(m / 255, g) / m;
+      o[i] = Math.round(px[i] * k); o[i + 1] = Math.round(px[i + 1] * k); o[i + 2] = Math.round(px[i + 2] * k);
+    }
+    return o;
+  }
   function flipPx(px) { const n = px.length / 3, o = new Array(px.length); for (let i = 0; i < n; i++) { const j = (n - 1 - i) * 3; o[i * 3] = px[j]; o[i * 3 + 1] = px[j + 1]; o[i * 3 + 2] = px[j + 2]; } return o; }
   function outputTick() {
     if (!S.analysis || !S.outputActive) return;
@@ -1446,7 +1463,7 @@
     const t = pos();
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
     const lf = renderFrame(lt, undefined, 'lights');
-    wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => f.light.flip ? flipPx(f.px) : f.px) });
+    wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => { const px = f.light.flip ? flipPx(f.px) : f.px; return lightKind(f.light) === 'tubes' ? tubeOut(px) : px; }) });
     S.forceSend = false; S.framesSent = (S.framesSent || 0) + 1; S.lastLightSend = performance.now();
   }
   // (the room view's frames go on this clock too: it keeps ticking with the studio minimized or behind)
@@ -3906,7 +3923,7 @@
 
   // ------------------------------------------------------------------ boot
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {};
-    S.defaults.lightOffset = s.light_offset_ms ?? 30; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
+    S.defaults.lightOffset = s.light_offset_ms ?? 30; if (s.tube_curve != null) S.tubeCurve = +s.tube_curve; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
   renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
   bootModels();
   /** As the studio opens, the models load (and warm up) in the model host, out of sight: the studio is

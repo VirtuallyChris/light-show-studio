@@ -1232,7 +1232,7 @@ class Studio:
     async def settings(self, request):
         cfg = load_config()
         return web.json_response({"cast_offset_ms": cfg.get("cast_offset_ms", 0), "cast_offsets": cfg.get("cast_offsets", {}),
-                                  "light_offset_ms": cfg.get("light_offset_ms", 30)})
+                                  "light_offset_ms": cfg.get("light_offset_ms", 30), "tube_curve": float(cfg.get("tube_curve", 2.5))})
 
     async def set_light_offset(self, request):
         """The lights' offset belongs to the lights, not to a song: one value for every show and jam."""
