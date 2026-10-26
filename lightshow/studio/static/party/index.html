@@ -346,6 +346,26 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
 <!-- ======================================================== SETTINGS -->
 <section class="tab" id="tab-settings" hidden>
   <section class="card">
+    <div class="label">Cast volume</div>
+    <div id="castVol"><div class="empty">…</div></div>
+    <div class="theme-row even-row" title="Quiet songs turned up and the loudest a little down, each as a whole, so the volume needs no changing between songs. Nothing is compressed."><span>Even out song volume</span>
+      <label class="switch"><input type="checkbox" id="evenOn" aria-label="Even out song volume"><span></span></label></div>
+  </section>
+  <section class="card">
+    <div class="label">Speakers by room</div>
+    <div id="speakers"><div class="empty">Looking for speakers…</div></div>
+  </section>
+  <section class="card rv-card">
+    <button class="rv-open" type="button" id="moreOpen"><span>More settings</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+  </section>
+</section>
+
+<!-- ======================================================== MORE SETTINGS (from Settings) -->
+<section class="tab" id="tab-more" hidden>
+  <section class="card rv-card">
+    <button class="rv-open" type="button" id="moreBack" style="justify-content:flex-start;gap:6px"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Settings</span></button>
+  </section>
+  <section class="card">
     <div class="label">Cues</div>
     <div id="cueEdit"><div class="empty">…</div></div>
   </section>
@@ -371,16 +391,6 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     <a href="/party/map" style="display:inline-block;margin-top:10px;color:var(--accent);font-weight:600;text-decoration:none" title="Where every light stands in the house: pin each segment, pole and tube on the floor plan">Map the house &rsaquo;</a>
   </section>
   <section class="card">
-    <div class="label">Cast volume</div>
-    <div id="castVol"><div class="empty">…</div></div>
-    <div class="theme-row even-row" title="Quiet songs turned up and the loudest a little down, each as a whole, so the volume needs no changing between songs. Nothing is compressed."><span>Even out song volume</span>
-      <label class="switch"><input type="checkbox" id="evenOn" aria-label="Even out song volume"><span></span></label></div>
-  </section>
-  <section class="card">
-    <div class="label">Speakers by room</div>
-    <div id="speakers"><div class="empty">Looking for speakers…</div></div>
-  </section>
-  <section class="card">
     <div class="theme-row"><div class="label">Appearance</div>
       <div class="seg" id="lookSeg" role="group" aria-label="Appearance"><button type="button" data-look="auto">Auto</button><button type="button" data-look="light">Light</button><button type="button" data-look="dark">Dark</button></div></div>
   </section>
@@ -392,7 +402,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   const $ = s => document.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const fmt = t => (t == null || !isFinite(t)) ? '0:00' : `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  let state = null, shown = '', clock = null, settingsOpen = false, lightsOpen = false, evenBusy = 0;
+  let state = null, shown = '', clock = null, settingsOpen = false, moreOpen = false, lightsOpen = false, evenBusy = 0;
   const api = async (path, body) => {
     const r = await fetch('/api/party/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(r.status);
@@ -604,7 +614,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
       cuesShown = html; $('#cues').innerHTML = html;
       for (const b of $('#cues').querySelectorAll('.cue')) b.onclick = async () => {
         const c = cues.find(x => x.id === b.dataset.id); if (!c) return;
-        if (!c.show) { goTab('settings'); return; }                     // no show yet: pick one in Settings
+        if (!c.show) { goTab('more'); return; }                         // no show yet: pick one in More settings
         if (b.classList.contains('running')) { await fetch('/api/cues/stop', { method: 'POST' }).catch(() => {}); poll(); return; }
         const r = await fetch('/api/cues/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(x => x.json()).catch(() => ({}));
         if (r.error) alert(r.error);
@@ -696,7 +706,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     $('#bellPass').value = ''; document.activeElement && document.activeElement.blur(); showBell();
   }
   for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
-  setInterval(() => { if (settingsOpen && !document.hidden) loadBell(); }, 3000);
+  setInterval(() => { if (moreOpen && !document.hidden) loadBell(); }, 3000);
   $('#evenOn').onchange = e => { evenBusy = performance.now() + 4000; api('even', { on: e.target.checked }).catch(() => { evenBusy = 0; }); };
 
   // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
@@ -812,7 +822,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     }
     renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
     if (performance.now() > evenBusy) $('#evenOn').checked = st.even_levels !== false;
-    if (settingsOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
+    if (moreOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
   }
@@ -1033,20 +1043,24 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncBar);
 
   // ---- tabs: Now Playing, Lights, Settings (one per #hash, so the phone's back gesture works)
-  const TABS = { now: 'Now Playing', lights: 'Lights', settings: 'Settings' };
+  // (More settings is a page of Settings: its own #hash so the back gesture returns to Settings, Settings lit below)
+  const TABS = { now: 'Now Playing', lights: 'Lights', settings: 'Settings', more: 'More Settings' };
   function showTab() {
-    const h = location.hash.slice(1), tab = TABS[h] ? h : 'now', was = settingsOpen;
+    const h = location.hash.slice(1), tab = TABS[h] ? h : 'now', was = settingsOpen, wasMore = moreOpen, navTab = tab === 'more' ? 'settings' : tab;
     for (const t in TABS) $('#tab-' + t).hidden = t !== tab;
-    for (const b of document.querySelectorAll('.nav-btn')) b.dataset.tab === tab ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current');
+    for (const b of document.querySelectorAll('.nav-btn')) b.dataset.tab === navTab ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current');
     $('#title').textContent = TABS[tab]; $('#scroller').scrollTop = 0;
-    settingsOpen = tab === 'settings';
+    settingsOpen = tab === 'settings'; moreOpen = tab === 'more';
     if (tab === 'lights' && !lightsOpen) loadBulbShows();
     lightsOpen = tab === 'lights';
     if (!lightsOpen) roomView(false);
-    if (settingsOpen && !was) { loadCueEdit(); loadBell(); loadRoomEdit(); loadVolumes(); if (state) showPre(state.prelisten); }
+    if (settingsOpen && !was) loadVolumes();
+    if (moreOpen && !wasMore) { loadCueEdit(); loadBell(); loadRoomEdit(); if (state) showPre(state.prelisten); }
   }
   function goTab(t) { const h = t === 'now' ? '' : t; if (location.hash.slice(1) === h) showTab(); else location.hash = h; }
   for (const b of document.querySelectorAll('.nav-btn')) b.onclick = () => goTab(b.dataset.tab);
+  $('#moreOpen').onclick = () => goTab('more');
+  $('#moreBack').onclick = () => goTab('settings');
   window.addEventListener('hashchange', showTab);
   showTab();
 
