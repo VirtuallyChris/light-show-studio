@@ -3,7 +3,7 @@
 A show lives in bulbshow/shows/<id>/ as show.json and sound.wav (both kept out of git). Any number of
 shows can run at once, each looping on its own speaker and bulb, as long as no two share either.
 Like the studio, closing the window ends it all: every show stops, every bulb is put back as it
-was, and the server quits.
+was, and the server quits. Closing Light Show Studio does the same (it asks /api/quit).
 """
 
 from __future__ import annotations
@@ -114,6 +114,7 @@ class App:
             web.get("/api/running", self.running),
             web.get("/api/loop/{sid}.wav", self.loop_stream),
             web.get("/ws", self.websocket),
+            web.post("/api/quit", self.quit_request),
         ])
         self.app.on_shutdown.append(self._shutdown)
 
@@ -433,6 +434,18 @@ class App:
         await asyncio.sleep(self.CLOSE_GRACE_S)
         if self.quit_when_closed and not self.ws_clients:
             await self.quit("the window was closed")
+
+    async def quit_request(self, request):
+        """Light Show Studio closing: Bulb Show goes with it (shows stopped, bulbs put back). This PC only."""
+        if request.remote not in ("127.0.0.1", "::1"):
+            raise web.HTTPForbidden()
+        why = (await request.json() if request.can_read_body else {}).get("why") or "asked to"
+
+        async def later():
+            await asyncio.sleep(0.2)                   # (the answer goes out first)
+            await self.quit(why)
+        self._quitting = asyncio.create_task(later())
+        return web.json_response({"ok": True})
 
     async def quit(self, why: str) -> None:
         """Stop every show (each bulb put back as it was, each speaker let go), then end."""

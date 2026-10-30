@@ -29,6 +29,9 @@ class FakeApp:
             return {"shows": {i: {"error": ""} for i, s in self.shows.items() if s["running"]}}
         if path == "/api/settings":
             return {}
+        if path == "/api/quit":
+            self.open = False
+            return {"ok": True}
         if path.startswith("/api/run/"):
             self.shows[path.rsplit("/", 1)[1]]["running"] = True
             return {"ok": True, "error": ""}
@@ -101,6 +104,14 @@ class TestBulbShows(unittest.TestCase):
         self.assertIn("playing the party", r["error"])
         self.assertFalse(b.set("new-show", True)["ok"])
         self.assertNotIn(("POST", "/api/run/witch"), app.calls)
+
+    def test_closing_the_studio_closes_bulb_show_if_it_is_open(self):
+        app = FakeApp()
+        b = self.make(app)
+        self.assertTrue(b.quit())
+        self.assertIn(("POST", "/api/quit"), app.calls)
+        self.assertFalse(b.quit())                                # (already closed: nothing to do, no error)
+        self.assertEqual(b.started, 0)
 
     def test_switched_off_while_closed_is_nothing_to_do(self):
         app = FakeApp(open_=False)

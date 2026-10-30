@@ -629,13 +629,17 @@ class Studio:
 
     async def _close_player(self, app):
         """Any orderly exit: Edge's sound goes back to the default output, the hidden player closes,
-        and every speaker a room muted plays again."""
+        every speaker a room muted plays again, and Bulb Show closes."""
         try:
             await asyncio.get_running_loop().run_in_executor(None, self.jam.close_player)
         except Exception:  # noqa: BLE001
             pass
         try:
             await asyncio.get_running_loop().run_in_executor(None, self.rooms.unmute_all)
+        except Exception:  # noqa: BLE001
+            pass
+        try:                                              # Bulb Show closes with the studio
+            await asyncio.get_running_loop().run_in_executor(None, self.bulbshows.quit)
         except Exception:  # noqa: BLE001
             pass
         try:
@@ -861,6 +865,10 @@ class Studio:
         loop = asyncio.get_running_loop()
 
         def shut():
+            try:                                          # Bulb Show goes too: it stops its shows and puts its bulbs back
+                self.bulbshows.quit()
+            except Exception:  # noqa: BLE001
+                pass
             try:                                          # the music first: held at once, then the speakers stopped
                 self.jam.hush()                           # (a Cast speaker would play out what it had buffered)
                 if self.jam.engine is not None:

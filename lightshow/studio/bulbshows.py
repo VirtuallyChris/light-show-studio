@@ -82,6 +82,15 @@ class BulbShows:
         """{speaker: the show playing on it} for every running show (none when Bulb Show is not open)."""
         return {s["speaker"]: s["name"] for s in (self._from_app() or []) if s["on"] and s["speaker"]}
 
+    def quit(self, why: str = "Light Show Studio closed") -> bool:
+        """Close Bulb Show if it is open: its shows stop and their bulbs are put back (the user: closing the
+        studio closes Bulb Show too). True if one was open."""
+        try:
+            self.http("POST", self.base + "/api/quit", {"why": why}, timeout=2.0)
+            return True
+        except Exception:  # noqa: BLE001 - not open
+            return False
+
     # -- switching one ------------------------------------------------------------------
     def _start_app(self) -> None:
         exe = sys.executable

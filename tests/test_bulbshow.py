@@ -547,6 +547,22 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.8)
         self.assertFalse(quit.is_set())
 
+    async def test_closing_light_show_studio_closes_bulb_show(self):
+        sid = await self.make("Witch", "Office Home 2")
+        quit = asyncio.Event()
+        self.app.exit = quit.set
+        self.assertTrue((await (await self.client.post(f"/api/run/{sid}", json={})).json())["ok"])
+        runner = self.app.runners[sid]
+        for _ in range(200):
+            if runner.state == "playing":
+                break
+            await asyncio.sleep(0.02)
+        res = await (await self.client.post("/api/quit", json={"why": "Light Show Studio closed"})).json()
+        self.assertTrue(res["ok"])
+        await asyncio.wait_for(quit.wait(), 10)
+        self.assertFalse(runner.active)
+        self.assertEqual(runner.bulb.color, (0, 0, 0))             # its bulb put back
+
     async def test_a_reload_is_not_a_close(self):
         self.app.quit_when_closed, self.app.CLOSE_GRACE_S = True, 0.3
         quit = asyncio.Event()

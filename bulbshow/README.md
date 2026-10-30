@@ -35,7 +35,8 @@ The strip under the waveform is exactly what the bulb will show.
 The show list's ▶ on each card runs that show on its own; **Run all** starts every show that has
 a sound, a speaker and a bulb. Two running shows can never share a speaker or a bulb. Like Light
 Show Studio, closing the window ends everything: every show stops, each bulb is put back as it was
-before its show, and the app quits. Minimizing the window keeps the shows going.
+before its show, and the app quits. Minimizing the window keeps the shows going. Closing Light Show
+Studio closes Bulb Show too, the same way, however Bulb Show was started.
 
 The light follows what the speaker reports it is playing, less the speaker's delay as measured in
 Light Show Studio (`cast_offsets` in the studio's config.json). If a bulb still looks early or
