@@ -290,7 +290,8 @@ class App:
         return web.json_response({"bulbs": bulbs, "problem": problem})
 
     VIRTUAL_SCENES = [{"name": n, "instance": "lightScene", "value": {"id": i, "paramId": i}}
-                      for i, n in enumerate(["Breathe", "Candlelight", "Flicker", "Rainbow"], 1)]
+                      for i, n in enumerate(["Breathe", "Candlelight", "Flicker", "Rainbow"], 1)] + [
+                     {"name": "Witch twinkle", "instance": "diyScene", "value": 901}]
 
     async def list_scenes(self, request):
         """The bulb's own scenes (asked of Govee once per bulb while the app runs)."""

@@ -676,26 +676,36 @@ function sceneRow(c, row) {
   const sel = document.createElement('select');
   sel.style.maxWidth = '10rem';
   const b = S.show.bulb;
+  const opt = (v, name) => `<option value="${v}">${String(name).replace(/</g, '&lt;')}</option>`;
+  // the user's own effects from the Govee app (DIY) first, then Govee's scenes; the list is kept until the
+  // app closes, so an effect saved in the Govee app meanwhile needs Refresh list
   const fill = list => {
-    sel.innerHTML = '<option value="">Pick a scene…</option>' + list.map((o, i) => `<option value="${i}">${String(o.name).replace(/</g, '&lt;')}</option>`).join('');
+    const idx = list.map((o, i) => [o, i]), mine = idx.filter(([o]) => o.instance === 'diyScene'), theirs = idx.filter(([o]) => o.instance !== 'diyScene');
+    sel.innerHTML = '<option value="">Pick a scene…</option>'
+      + (mine.length ? `<optgroup label="Your effects (Govee app)">${mine.map(([o, i]) => opt(i, o.name)).join('')}</optgroup>` : '')
+      + (theirs.length ? `<optgroup label="Govee scenes">${theirs.map(([o, i]) => opt(i, o.name)).join('')}</optgroup>` : '')
+      + (b && b.id ? '<option value="refresh">↻ Refresh list</option>' : '');
     const at = c.scene ? list.findIndex(o => o.name === c.scene.name && o.instance === c.scene.instance) : -1;
     sel.value = at >= 0 ? String(at) : '';
-    if (c.scene && at < 0) { sel.insertAdjacentHTML('afterbegin', `<option value="keep">${String(c.scene.name).replace(/</g, '&lt;')}</option>`); sel.value = 'keep'; }
+    if (c.scene && at < 0) { sel.insertAdjacentHTML('afterbegin', opt('keep', c.scene.name)); sel.value = 'keep'; }
   };
+  const load = fresh => api(`/api/scenes?sku=${encodeURIComponent(b.sku || '')}&id=${encodeURIComponent(b.id)}&via=${encodeURIComponent(b.via || '')}${fresh ? '&fresh=1' : ''}`).then(res => {
+    if (res.problem) toast(res.problem, true);
+    if (res.scenes && res.scenes.length) S.scenes[b.id] = res.scenes;
+    fill(S.scenes[b.id] || []);
+    if (fresh) toast(`${(S.scenes[b.id] || []).filter(o => o.instance === 'diyScene').length} of your own effects, ${(S.scenes[b.id] || []).filter(o => o.instance !== 'diyScene').length} Govee scenes`);
+  });
   sel.onchange = () => {
+    if (sel.value === 'refresh') { fill(S.scenes[b.id] || []); load(true); return; }
     const list = S.scenes[b && b.id] || [], o = list[+sel.value];
     if (!o) return;
     beginChange(); c.scene = { name: o.name, instance: o.instance, value: o.value }; changed();
   };
-  row('Scene', sel, null, 'The bulb plays it by itself; what it looks like is set in the Govee app');
+  row('Scene', sel, null, "The bulb plays it by itself: Govee's scenes, or effects you made in the Govee app (DIY)");
   if (!b || !b.id) { fill([]); sel.disabled = true; return; }
   if (S.scenes[b.id]) { fill(S.scenes[b.id]); return; }
   fill([]);
-  api(`/api/scenes?sku=${encodeURIComponent(b.sku || '')}&id=${encodeURIComponent(b.id)}&via=${encodeURIComponent(b.via || '')}`).then(res => {
-    if (res.problem) toast(res.problem, true);
-    if (res.scenes && res.scenes.length) S.scenes[b.id] = res.scenes;
-    fill(res.scenes || []);
-  });
+  load(false);
 }
 const SHOW = { pct: v => `${Math.round(v * 100)}%`, sec: v => `${(+v).toFixed(1)} s`, int: v => `${Math.round(v)}` };
 function syncInspector(c) {

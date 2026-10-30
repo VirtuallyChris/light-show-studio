@@ -530,6 +530,18 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
             await self.client.post(f"/api/stop/{sid}")
         self.assertTrue((await (await self.client.post(f"/api/run/{sid}", json={})).json())["ok"])
 
+    async def test_a_new_govee_app_effect_shows_up_on_refresh(self):
+        from unittest import mock
+        made = [[{"name": "Halloween", "instance": "lightScene", "value": {"id": 1, "paramId": 2}}]]
+        self.app.lights = True                                       # (the scene list of a cloud bulb)
+        self.app.client = mock.Mock(scenes=lambda sku, dev: list(made[-1]))
+        url = "/api/scenes?sku=H6008&id=AA&via=cloud"
+        self.assertEqual(len((await (await self.client.get(url)).json())["scenes"]), 1)
+        made.append(made[-1] + [{"name": "Witch twinkle", "instance": "diyScene", "value": 901}])   # saved in the Govee app
+        self.assertEqual(len((await (await self.client.get(url)).json())["scenes"]), 1)         # remembered...
+        fresh = (await (await self.client.get(url + "&fresh=1")).json())["scenes"]              # ...until refreshed
+        self.assertEqual(fresh[-1], {"name": "Witch twinkle", "instance": "diyScene", "value": 901})
+
     async def test_scenes_of_a_virtual_bulb(self):
         res = await (await self.client.get("/api/scenes?via=virtual&id=virtual-1")).json()
         self.assertEqual(res["scenes"][0]["name"], "Breathe")

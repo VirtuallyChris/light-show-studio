@@ -19,7 +19,10 @@ project folder. It opens on http://127.0.0.1:8770.
    runs it by itself, so it costs one command however long it plays. A color on a higher layer
    interrupts it and the scene starts again afterwards: a pulsing scene with red every 20 seconds
    costs about 360 commands an hour. On screen a scene shows as a rainbow, since only the bulb knows
-   what it looks like.
+   what it looks like. Effects you make in the Govee app (DIY: gradient, jumping, twinkle, breath,
+   simple or combo) are scenes too, listed first under "Your effects"; one saved while Bulb Show is
+   open shows up with **↻ Refresh list** at the bottom of the scene picker. (Govee's cloud can play
+   them but not make them, so they are made in the Govee app.)
 4. Pick the speaker and the bulb at the top. The volume slider sets the show's own volume, inside
    its stream, so the speaker's volume is never changed (Google speakers chime on every change).
 5. ▶ plays it on the speaker and bulb, looping, from the playhead. 🎧 switches ▶ to preview on
