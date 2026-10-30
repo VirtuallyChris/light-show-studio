@@ -62,9 +62,13 @@ def _write_json(path: str, doc) -> None:
 
 class App:
     def __init__(self, port: int, shows_dir: str = SHOWS_DIR, config_path: str = CONFIG_PATH, lights: bool = True,
-                 cast: bool = True, quit_when_closed: bool = False, speakers=None):
+                 cast: bool = True, quit_when_closed: bool = False, quit_when_idle: bool = False, speakers=None):
         self.port, self.shows_dir, self.config_path = port, shows_dir, config_path
         self.lights, self.quit_when_closed = lights, quit_when_closed
+        # Started with no window (the Party Hub switching a show on): quit once no show runs and no window is
+        # open, after IDLE_GRACE_S (which also gives the Party Hub time to start its show after starting this)
+        self.quit_when_idle = quit_when_idle
+        self.IDLE_GRACE_S, self.WATCH_S = 30.0, 5.0
         os.makedirs(shows_dir, exist_ok=True)
         if speakers is None:
             if cast:
@@ -437,10 +441,16 @@ class App:
         self.exit()
 
     async def watch_window(self) -> None:
-        """Saves the cloud count now and then, and quits if no window ever turned up (it failed to open)."""
+        """Saves the cloud count now and then, and quits if no window ever turned up (it failed to open), or,
+        started with no window, once nothing has run and no window has been open for a while."""
+        idle_since = time.monotonic()
         while True:
-            await asyncio.sleep(5)
+            await asyncio.sleep(self.WATCH_S)
             self.usage.save()
+            if self.ws_clients or self.any_running():
+                idle_since = time.monotonic()
+            elif self.quit_when_idle and time.monotonic() - idle_since > self.IDLE_GRACE_S:
+                await self.quit("no show running and no window")
             # (only if none ever did: a window that closes is _window_gone's, after its grace for reloads)
             if (self.quit_when_closed and not self.ever_connected and time.monotonic() - self.started_at > 90
                     and not self.any_running()):
@@ -531,7 +541,8 @@ def run(host: str = "0.0.0.0", port: int = 8770, open_browser: bool = True, stay
         else:
             webbrowser.open(url)
         return
-    app = App(port=port, lights=lights, cast=cast, quit_when_closed=open_browser and not stay)
+    app = App(port=port, lights=lights, cast=cast, quit_when_closed=open_browser and not stay,
+              quit_when_idle=not open_browser and not stay)
     print(f"Bulb Show running at {url}" + ("" if lights else "   (lights are virtual in this copy)")
           + ("" if cast else "   (speakers are virtual in this copy)"))
     if open_browser:

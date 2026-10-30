@@ -512,6 +512,41 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner.active)
         self.assertEqual(runner.bulb.color, (0, 0, 0))             # put back (a virtual bulb's "before")
 
+    async def start_watch(self):
+        self.app.IDLE_GRACE_S, self.app.WATCH_S = 0.3, 0.05
+        quit = asyncio.Event()
+        self.app.exit = quit.set
+        watch = asyncio.create_task(self.app.watch_window())
+        self.addAsyncCleanup(self._cancel, watch)
+        return quit
+
+    async def _cancel(self, task):
+        task.cancel()
+
+    async def test_started_from_the_party_hub_it_quits_once_its_show_is_off(self):
+        sid = await self.make("Witch", "Office Home 2")
+        self.app.quit_when_idle = True
+        quit = await self.start_watch()
+        self.assertTrue((await (await self.client.post(f"/api/run/{sid}", json={})).json())["ok"])
+        await asyncio.sleep(0.8)
+        self.assertFalse(quit.is_set())                               # its show is on: it stays
+        await self.client.post(f"/api/stop/{sid}")
+        await asyncio.wait_for(quit.wait(), 10)
+
+    async def test_with_its_window_open_it_stays(self):
+        self.app.quit_when_idle = True
+        quit = await self.start_watch()
+        ws = await self.client.ws_connect("/ws")
+        await asyncio.sleep(0.8)
+        self.assertFalse(quit.is_set())
+        await ws.close()
+        await asyncio.wait_for(quit.wait(), 10)                      # window closed, nothing on: it goes
+
+    async def test_started_normally_it_does_not_quit_for_being_idle(self):
+        quit = await self.start_watch()                              # (quit_when_idle off: window or --stay)
+        await asyncio.sleep(0.8)
+        self.assertFalse(quit.is_set())
+
     async def test_a_reload_is_not_a_close(self):
         self.app.quit_when_closed, self.app.CLOSE_GRACE_S = True, 0.3
         quit = asyncio.Event()

@@ -45,8 +45,8 @@ late, ⚙ → Light timing nudges that show.
 
 Light Show Studio's Party Hub lists every show that is ready (a sound, a speaker and a bulb) under
 **Lights → Bulb Shows**, each with an on/off switch. Switching one on while Bulb Show is closed
-starts it without a window, and it keeps running until it is switched off (opening Bulb Show
-then shows the running app). A show is never started on the speaker the party is casting to. Under
+starts it without a window (opening Bulb Show then shows the running app). Started that way, it
+quits by itself about 30 seconds after its last show is switched off, unless its window is open. A show is never started on the speaker the party is casting to. Under
 Settings, a speaker playing a bulb show carries the show's name, and its volume slider works as for
 any other speaker.
 
