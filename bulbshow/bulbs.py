@@ -252,20 +252,26 @@ class CloudBulb(VirtualBulb):
             self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorRgb", rgb_int(st))
 
     # Govee's state readback trails the bulb by several seconds. A show started soon after another one ended
-    # would read the look the last show was still showing (its brightness 100) as the bulb's own, and put that
-    # back at the end: so for a while after a show puts a bulb back, that look is taken as the bulb's.
+    # would read the look the last show was still showing as the bulb's own, and put that back at the end: so
+    # for a while after a show puts a bulb back, that look is taken as the bulb's, but only while Govee still
+    # reports what a show leaves (on, at full brightness). Anything else is a person's doing (switched off in
+    # the Govee app, dimmed) and Govee's report wins: the user switched a bulb off between two shows and the
+    # remembered look turned it back on.
     HOME_TRUST_S = 120.0
+
+    @staticmethod
+    def _show_leftover(st: dict) -> bool:
+        return st.get("powerSwitch") == 1 and st.get("brightness") == 100
 
     def begin(self) -> None:
         homes = getattr(self.client, "homes", {})
         home = homes.get(self.device)
-        if home and time.monotonic() - home[1] < self.HOME_TRUST_S:
-            self.before = dict(home[0])
-        else:
-            try:
-                self.before = self.client.state(self.sku, self.device)
-            except CloudError:
-                self.before = {}
+        try:
+            self.before = self.client.state(self.sku, self.device)
+        except CloudError:
+            self.before = {}
+        if home and time.monotonic() - home[1] < self.HOME_TRUST_S and (self._show_leftover(self.before) or not self.before):
+            self.before = {**self.before, **home[0]}
         self.color = None
         if self.before.get("online") is False:
             raise CloudError(f"{self.spec.get('name') or 'the bulb'} is offline (off at the switch, or off Wi-Fi)")
@@ -323,19 +329,33 @@ class CloudBulb(VirtualBulb):
         if (self.client.usage is not None and self.client.usage.exhausted) or self.before.get("online") is False:
             return                                         # (nothing to put back on a bulb that can't hear it)
         b = self.before
+
+        def send(ctype, instance, value):
+            """One restore command, inside Govee's per-bulb allowance, tried again if Govee says too fast:
+            the last of them (switching a bulb off that was off) must not be the one dropped."""
+            for attempt in range(3):
+                time.sleep(self.bucket.wait(self.clock()))
+                self.bucket.take(self.clock())
+                try:
+                    self.client.control(self.sku, self.device, ctype, instance, value)
+                    return
+                except CloudError as e:
+                    if "too fast" not in str(e) or attempt == 2:
+                        print(f"{self.spec.get('name') or self.device}: could not put back {instance}: {e}")
+                        raise
+                    time.sleep(1.0)
         try:
             # White comes back as white. A color only if Govee reported one: a bulb that was running one of its
             # own scenes reports color 0 and no white (and never which scene), and putting back "color 0" would
             # leave it on but dark, so then its color is left as the show left it.
             if int(b.get("colorTemperatureK") or 0) > 0:
-                self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorTemperatureK",
-                                    int(b["colorTemperatureK"]))
+                send("devices.capabilities.color_setting", "colorTemperatureK", int(b["colorTemperatureK"]))
             elif int(b.get("colorRgb") or 0) > 0:
-                self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorRgb", int(b["colorRgb"]))
+                send("devices.capabilities.color_setting", "colorRgb", int(b["colorRgb"]))
             if b.get("brightness") is not None:
-                self.client.control(self.sku, self.device, "devices.capabilities.range", "brightness", int(b["brightness"]))
+                send("devices.capabilities.range", "brightness", int(b["brightness"]))
             if b.get("powerSwitch") == 0:
-                self.client.control(self.sku, self.device, "devices.capabilities.on_off", "powerSwitch", 0)
+                send("devices.capabilities.on_off", "powerSwitch", 0)
         except CloudError:
             pass
         homes = getattr(self.client, "homes", None)

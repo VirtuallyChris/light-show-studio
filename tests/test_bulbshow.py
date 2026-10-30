@@ -289,6 +289,36 @@ class CloudBulbTest(unittest.TestCase):
         second.end()
         self.assertEqual(client.calls[n:], [("colorTemperatureK", 2702), ("brightness", 10)])
 
+    def test_a_bulb_switched_off_between_shows_goes_off_again(self):
+        # the user switched it off in the Govee app after one show and before the next: Govee's report wins
+        client = FakeClient(before={"powerSwitch": 1, "brightness": 10, "colorRgb": 0, "colorTemperatureK": 2702})
+        first = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        first.begin()
+        first.end()
+        client.before = {"powerSwitch": 0, "brightness": 10, "colorRgb": 0, "colorTemperatureK": 2702}
+        second = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        second.begin()
+        n = len(client.calls)
+        second.end()
+        self.assertEqual(client.calls[-1], ("powerSwitch", 0))
+        self.assertEqual(second.before["powerSwitch"], 0)
+
+    def test_switching_off_is_tried_again_when_govee_says_too_fast(self):
+        client = FakeClient(before={"powerSwitch": 0, "brightness": 70, "colorRgb": 0, "colorTemperatureK": 0})
+        b = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        b.begin()
+        real, refused = client.control, []
+
+        def control(sku, device, ctype, instance, value):
+            if instance == "powerSwitch" and value == 0 and not refused:
+                refused.append(1)
+                raise CloudError("too fast for Govee's cloud")
+            real(sku, device, ctype, instance, value)
+        client.control = control
+        b.end()
+        self.assertEqual(refused, [1])
+        self.assertEqual(client.calls[-1], ("powerSwitch", 0))
+
     def test_long_after_a_show_the_bulb_is_asked_again(self):
         client = FakeClient(before={"powerSwitch": 1, "brightness": 10, "colorRgb": 0, "colorTemperatureK": 2702})
         first = CloudBulb({"sku": "H6008", "id": "AA"}, client)
