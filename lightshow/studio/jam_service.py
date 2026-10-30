@@ -75,6 +75,9 @@ class JamService:
         # Party level, 0..1: how much of the show comes through. Below 1 the studio lays the song's main
         # color over every show, more and more opaque, so the room calms down without going dark.
         self.party_level = float(load_config().get("party_level", 1.0))
+        # Built up to 100% over a while (the Party Hub's button under the slider): {from, start (epoch s), minutes, song}.
+        # Kept in the config, so a restart carries on with it.
+        self.party_ramp: dict | None = load_config().get("party_ramp") or None
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
@@ -139,6 +142,7 @@ class JamService:
             web.post("/api/jam/genre", self.track_genre),
             web.post("/api/party/playback", self.party_playback),
             web.post("/api/party/level", self.party_level_set),
+            web.post("/api/party/ramp", self.party_ramp_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
             web.get("/api/party/bulbshows", self.party_bulbshows),
@@ -557,6 +561,8 @@ class JamService:
             st["sync_warning"] = self.sync_warning
         if self.capture is not None and getattr(self.capture, "lost", 0):
             st["capture"]["lost_s"] = round(self.capture.lost, 2)
+        if self._ramp_step((st.get("room") or {}).get("key")):
+            base["party_level"] = self.party_level
         played = [st.get("room"), st.get("ahead"), *(st.get("queue") or [])]
         for t in played:                                     # learning ahead: where each first listen stands
             if t and t.get("kind") == "live" and t.get("id") and base.get("fetch", {}).get("on"):
@@ -1011,6 +1017,7 @@ class JamService:
                 "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
                 "sync_warning": st.get("sync_warning", ""),
                 "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
+                "party_ramp": getattr(self, "ramp_status", lambda: None)(),
                 "even_levels": bool(getattr(self, "load_config", dict)().get("jam_even_levels", True)),
                 "color_source": "album" if not jc.get("on", True) else "wild" if jc.get("wild") else "album" if jc.get("mode") not in ("pick", "mix") else "party",
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
@@ -1230,13 +1237,70 @@ class JamService:
         return web.json_response({"even_levels": on})
 
     async def party_level_set(self, request):
+        """The slider: the level, at once (a build-up under way stops: the hand on the slider wins)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         self.party_level = max(0.0, min(1.0, float((await request.json()).get("level", 1.0))))
+        self.party_ramp = None
+        self._save_level()
+        return web.json_response({"party_level": self.party_level, "party_ramp": None})
+
+    # -- the party level, built up over an hour ---------------------------------------------
+    # The button under the slider (the user): from where it is to 100% over an hour, moving only as a new song
+    # starts in the room (each song plays at one level, the next a step up), to where the hour says it should be.
+    RAMP_MINUTES = 60
+
+    def _save_level(self) -> None:
         cfg = self.load_config()
         cfg["party_level"] = round(self.party_level, 3)
+        if self.party_ramp:
+            cfg["party_ramp"] = self.party_ramp
+        else:
+            cfg.pop("party_ramp", None)
         self.save_config(cfg)
-        return web.json_response({"party_level": self.party_level})
+
+    def _ramp_step(self, song_key: str | None, now: float | None = None) -> bool:
+        """A new song in the room during a build-up: the level to where the hour has got to (100% ends it).
+        True when the level moved."""
+        r = self.party_ramp
+        if not r or not song_key or song_key == r.get("song"):
+            return False
+        r["song"] = song_key
+        if r.get("waiting"):                              # (the song playing as the button was pressed keeps its level)
+            r["waiting"] = False
+            self._save_level()
+            return False
+        now = time.time() if now is None else now
+        k = max(0.0, min(1.0, (now - float(r["start"])) / (60.0 * float(r.get("minutes") or self.RAMP_MINUTES))))
+        was = self.party_level
+        self.party_level = max(was, round(float(r["from"]) + (1.0 - float(r["from"])) * k, 2))   # (never down)
+        if self.party_level >= 1.0:
+            self.party_level, self.party_ramp = 1.0, None
+        self._save_level()
+        return self.party_level != was
+
+    def ramp_status(self) -> dict | None:
+        r = self.party_ramp
+        if not r:
+            return None
+        minutes = float(r.get("minutes") or self.RAMP_MINUTES)
+        return {"from": r["from"], "minutes": minutes, "left_s": max(0, round(float(r["start"]) + 60 * minutes - time.time()))}
+
+    async def party_ramp_set(self, request):
+        """The button: {on} starts a build-up from the level now to 100% over an hour, or stops it."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        if body.get("on") and self.party_level < 1.0:
+            room = None
+            if self.engine is not None:
+                room = (self.engine.state().get("room") or {}).get("key")
+            self.party_ramp = {"from": round(self.party_level, 3), "start": time.time(),
+                               "minutes": float(body.get("minutes") or self.RAMP_MINUTES), "song": room, "waiting": room is None}
+        else:
+            self.party_ramp = None
+        self._save_level()
+        return web.json_response({"party_level": self.party_level, "party_ramp": self.ramp_status()})
 
     async def colors(self, request):
         """Set the jam's colors ({mode, primary, secondary}), or one track's ({track_id, primary,

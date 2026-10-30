@@ -321,6 +321,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     <div class="party-row"><div class="label">Party level</div><div class="party-val" id="partyVal">100%</div></div>
     <input id="party" type="range" min="0" max="100" step="1" value="100" aria-label="Party level" title="How intense the lights are: 100% is the full concert; lower, the strobes, flashes and one-shots fade out and the show calms into a background in the song's colors.">
     <div class="hint" id="partyHint">The full show.</div>
+    <div class="pre-buttons"><button class="chip" id="rampBtn" type="button" hidden></button></div>
   </section>
 
   <section class="card" id="roomsCard" hidden>
@@ -419,6 +420,15 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     clearTimeout(sendTimer); sendTimer = setTimeout(() => api('level', { level: v / 100 }).catch(() => {}), 120);
   });
   slider.addEventListener('change', () => { api('level', { level: +slider.value / 100 }).catch(() => {}); setTimeout(() => { dragging = false; }, 800); });
+  // the build-up: from where the slider is to 100% over an hour, a step up as each new song starts (the studio does
+  // it, so it carries on with the phone put away); moving the slider by hand stops it
+  function showRamp(st) {
+    const rp = st.party_ramp, b = $('#rampBtn');
+    b.hidden = !rp && (st.party_level ?? 1) >= 1;
+    b.textContent = rp ? 'Stop the build-up' : 'Build to 100% over an hour';
+    if (rp && !dragging) $('#partyHint').textContent = `Building to 100% as the songs change: ${Math.max(1, Math.round(rp.left_s / 60))} min to go.`;
+  }
+  $('#rampBtn').onclick = () => api('ramp', { on: !(state && state.party_ramp) }).then(poll).catch(() => {});
 
   // ---- colors: a song's own pair (kept for next time), or back to the jam's
   // A song out of the party's colors plays in its album cover's: worked out here from the cover, the way
@@ -778,6 +788,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     status.className = 'pill' + (st.running && st.streaming && !st.paused && !micOff ? ' live' : '');
     status.hidden = !!(st.running && st.streaming && !st.paused && !micOff);    // all is well: nothing to say (only trouble shows)
     if (!dragging && document.activeElement !== slider) { slider.value = Math.round((st.party_level ?? 1) * 100); showLevel(+slider.value); }
+    showRamp(st);
     const r = st.room;
     // the room's song tints the card: its own pair, else its cover's
     const pair = r && (r.colors || (r.kind !== 'custom' && coverPair(r.image)));
