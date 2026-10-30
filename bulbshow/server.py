@@ -82,6 +82,7 @@ class App:
         self.runners: dict[str, ShowRunner] = {}
         self.sounds: dict[str, tuple[float, Sound]] = {}
         self.ws_clients: set = set()
+        self.ever_connected = False        # a window has connected at least once
         self.started_at = time.monotonic()
         self.CLOSE_GRACE_S = 8.0           # a reload drops the window's socket for a moment: not a close
         self.exit = lambda: os._exit(0)
@@ -181,7 +182,9 @@ class App:
         s = self.load(sid)
         r = self.runners.get(sid)
         bulb = s.get("bulb") or {}
-        return {"id": sid, "name": s.get("name") or sid, "duration": s.get("duration", 0), "speaker": s.get("speaker", ""),
+        preview = bool(r and r.active and r.here)                  # (a preview plays in the editor: no speaker)
+        return {"id": sid, "name": s.get("name") or sid, "duration": s.get("duration", 0),
+                "speaker": "this PC" if preview else s.get("speaker", ""),
                 "bulb": bulb, "per_hour": effects.per_hour(s) if bulb.get("via") == "cloud" else None,
                 "running": bool(r and r.active),
                 "ready": bool(s.get("duration") and s.get("speaker") and bulb)}
@@ -318,13 +321,14 @@ class App:
         return await self.get_settings(request)
 
     # -- running -----------------------------------------------------------------------------
-    def _start(self, sid: str, at: float = 0.0) -> str:
-        """Start a show; returns "" or why it cannot start."""
+    def _start(self, sid: str, at: float = 0.0, here: bool = False) -> str:
+        """Start a show (`here`: a preview, its sound played by the editor and only its bulb run from here);
+        returns "" or why it cannot start."""
         show = self.load(sid)
         snd = self.sound(sid)
         if snd is None:
             return "it has no sound yet"
-        if not show.get("speaker"):
+        if not here and not show.get("speaker"):
             return "it has no speaker"
         if not show.get("bulb"):
             return "it has no bulb"
@@ -332,7 +336,7 @@ class App:
         for oid, r in self.runners.items():
             if oid == sid or not r.active:
                 continue
-            if r.speaker == show["speaker"]:
+            if not here and r.speaker == show["speaker"]:
                 return f"{show['speaker']} is already playing {r.show.get('name')}"
             if (r.show.get("bulb") or {}).get("id") == bulb_id:
                 return f"that bulb is already in {r.show.get('name')}"
@@ -344,7 +348,7 @@ class App:
         except CloudError as e:
             return str(e)
         r = ShowRunner(sid, show, snd, self.speakers, bulb, url_for=lambda s: f"http://{self.lan_ip}:{self.port}/api/loop/{s}.wav",
-                       cast_offset_s=self.cast_offset(show["speaker"]), start_at=at)
+                       cast_offset_s=0.0 if here else self.cast_offset(show["speaker"]), start_at=at, here=here)
         self.runners[sid] = r
         r.start()
         return ""
@@ -353,7 +357,7 @@ class App:
         sid = request.match_info["id"]
         body = await request.json() if request.can_read_body else {}
         loop = asyncio.get_running_loop()
-        why = await loop.run_in_executor(None, self._start, sid, float(body.get("at") or 0))
+        why = await loop.run_in_executor(None, self._start, sid, float(body.get("at") or 0), bool(body.get("here")))
         return web.json_response({"ok": not why, "error": why})
 
     async def stop_show(self, request):
@@ -410,6 +414,7 @@ class App:
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)
         self.ws_clients.add(ws)
+        self.ever_connected = True
         try:
             async for _ in ws:
                 pass
@@ -435,7 +440,9 @@ class App:
         while True:
             await asyncio.sleep(5)
             self.usage.save()
-            if self.quit_when_closed and not self.ws_clients and time.monotonic() - self.started_at > 90 and not self.any_running():
+            # (only if none ever did: a window that closes is _window_gone's, after its grace for reloads)
+            if (self.quit_when_closed and not self.ever_connected and time.monotonic() - self.started_at > 90
+                    and not self.any_running()):
                 await self.quit("no window")
 
     async def _shutdown(self, app) -> None:

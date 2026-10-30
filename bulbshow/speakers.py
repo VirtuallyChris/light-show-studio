@@ -17,16 +17,16 @@ from lightshow.studio.cast import CastManager
 class Speakers:
     def __init__(self):
         self.ip = govee_lan.local_ip()
-        self.zc = None
         self.lock = threading.Lock()
         self.cached: list[dict] = []
         self.cached_at = 0.0
 
     def _zeroconf(self):
+        """A new discovery engine for every lookup: pychromecast's stop_discovery() closes the one it was
+        given, so a shared one died with the first lookup that ended, and the next show to start failed
+        with "The event loop is not running"."""
         import zeroconf
-        if self.zc is None:
-            self.zc = zeroconf.Zeroconf(interfaces=[self.ip]) if self.ip else zeroconf.Zeroconf()
-        return self.zc
+        return zeroconf.Zeroconf(interfaces=[self.ip]) if self.ip else zeroconf.Zeroconf()
 
     def list(self, fresh: bool = False) -> list[dict]:
         import pychromecast

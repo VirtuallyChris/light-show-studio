@@ -139,6 +139,7 @@ class CloudClient:
         self.key, self.usage, self.timeout = key, usage, timeout
         self.conn = None
         self.lock = threading.Lock()
+        self.homes: dict[str, tuple[dict, float]] = {}       # device -> (the look a show put back, when): see CloudBulb
 
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
         if not self.key:
@@ -175,7 +176,8 @@ class CloudClient:
         if resp.status in (401, 403):
             raise CloudError("Govee did not accept the API key")
         if resp.status >= 400 or doc.get("code") not in (None, 200):
-            raise CloudError(f"Govee's cloud said {resp.status}: {doc.get('message') or doc.get('msg') or raw[:120]!r}")
+            msg = doc.get("message") or doc.get("msg") or raw[:120].decode(errors="replace")
+            raise CloudError(f"Govee says: {msg}")
         return doc
 
     def devices(self) -> list[dict]:
@@ -249,14 +251,29 @@ class CloudBulb(VirtualBulb):
         else:
             self.client.control(self.sku, self.device, "devices.capabilities.color_setting", "colorRgb", rgb_int(st))
 
+    # Govee's state readback trails the bulb by several seconds. A show started soon after another one ended
+    # would read the look the last show was still showing (its brightness 100) as the bulb's own, and put that
+    # back at the end: so for a while after a show puts a bulb back, that look is taken as the bulb's.
+    HOME_TRUST_S = 120.0
+
     def begin(self) -> None:
-        try:
-            self.before = self.client.state(self.sku, self.device)
-        except CloudError:
-            self.before = {}
+        homes = getattr(self.client, "homes", {})
+        home = homes.get(self.device)
+        if home and time.monotonic() - home[1] < self.HOME_TRUST_S:
+            self.before = dict(home[0])
+        else:
+            try:
+                self.before = self.client.state(self.sku, self.device)
+            except CloudError:
+                self.before = {}
         self.color = None
-        self.client.control(self.sku, self.device, "devices.capabilities.on_off", "powerSwitch", 1)
-        self.client.control(self.sku, self.device, "devices.capabilities.range", "brightness", 100)
+        if self.before.get("online") is False:
+            raise CloudError(f"{self.spec.get('name') or 'the bulb'} is offline (off at the switch, or off Wi-Fi)")
+        try:
+            self.client.control(self.sku, self.device, "devices.capabilities.on_off", "powerSwitch", 1)
+            self.client.control(self.sku, self.device, "devices.capabilities.range", "brightness", 100)
+        except CloudError as e:
+            raise CloudError(f"{self.spec.get('name') or 'the bulb'}: {e}") from None
         self.bucket.tokens = 0                               # the three commands above came out of the burst
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -303,8 +320,8 @@ class CloudBulb(VirtualBulb):
             self.cv.notify()
         if self.thread is not None:
             self.thread.join(timeout=3)
-        if self.client.usage is not None and self.client.usage.exhausted:
-            return
+        if (self.client.usage is not None and self.client.usage.exhausted) or self.before.get("online") is False:
+            return                                         # (nothing to put back on a bulb that can't hear it)
         b = self.before
         try:
             # White comes back as white. A color only if Govee reported one: a bulb that was running one of its
@@ -321,6 +338,9 @@ class CloudBulb(VirtualBulb):
                 self.client.control(self.sku, self.device, "devices.capabilities.on_off", "powerSwitch", 0)
         except CloudError:
             pass
+        homes = getattr(self.client, "homes", None)
+        if homes is not None and self.before:
+            homes[self.device] = (dict(self.before), time.monotonic())
 
 
 # Govee's bulbs are the H600x and H601x models (the H6008 among them). Every other light on the account

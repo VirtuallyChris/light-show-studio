@@ -7,6 +7,9 @@ The bulb is given the color of that moment fifty times a second; the bulb itself
 worth sending (a cloud bulb only sends changes, within Govee's allowance).
 
 Several runners run at once, one per show, each with its own speaker and bulb.
+
+A preview on this PC (`here`) is the same with no speaker: the editor plays the sound itself and the runner
+keeps time with a clock that starts when the bulb is ready (the page starts the sound on that clock).
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ import uuid
 
 from . import effects
 from .sound import LoopReader, Sound
+from .speakers import FakeCast
 
 
 class ShowRunner:
@@ -24,7 +28,7 @@ class ShowRunner:
     RECONNECT_AFTER_S = 3.0        # a speaker that had played less of its stream than this was only starting it
 
     def __init__(self, show_id: str, show: dict, sound: Sound, speakers, bulb, url_for, cast_offset_s: float = 0.0,
-                 start_at: float = 0.0, clock=time.monotonic, log=print):
+                 start_at: float = 0.0, clock=time.monotonic, log=print, here: bool = False):
         self.id, self.show, self.sound = show_id, show, sound
         self.speakers, self.bulb, self.url_for = speakers, bulb, url_for
         self.cast_offset = float(cast_offset_s)
@@ -34,7 +38,9 @@ class ShowRunner:
         self.sid = ""
         self.reader = None
         self.base = 0.0              # where in the loop the current stream begins
-        self.loop_t = None           # where in the loop the room is
+        self.loop_t = None           # where in the loop the light is (the room plus the light's lead)
+        self.heard_t = None          # where in the loop the sound is
+        self.here = here             # a preview: the sound plays in the editor, not on a speaker
         self.state = "starting"
         self.error = ""
         self._stop = threading.Event()
@@ -43,7 +49,7 @@ class ShowRunner:
 
     @property
     def speaker(self) -> str:
-        return self.show.get("speaker", "")
+        return "this PC" if self.here else self.show.get("speaker", "")
 
     @property
     def light_lead(self) -> float:
@@ -125,7 +131,7 @@ class ShowRunner:
             self.bulb.begin()
             if self._stop.is_set():
                 return
-            self.cast = self.speakers.open(self.speaker)
+            self.cast = FakeCast(self.speaker, self.clock) if self.here else self.speakers.open(self.speaker)
             if self._stop.is_set():
                 return
             self._new_stream(self.start_at)
@@ -136,8 +142,10 @@ class ShowRunner:
                 now = self.clock()
                 if state == "PLAYING":
                     idle_since, played = None, True
-                    t = self.moment(float(st.get("position") or 0))
+                    pos = float(st.get("position") or 0)
+                    t = self.moment(pos)
                     if t is not None:
+                        self.heard_t = (self.base + pos - self.cast_offset) % self.sound.duration
                         self.loop_t = t
                         self.bulb.apply(effects.state(self.show, t, cloud=self.cloud))
                         self.state = "playing"
@@ -168,5 +176,5 @@ class ShowRunner:
     def status(self) -> dict:
         color = getattr(self.bulb, "color", None)
         return {"id": self.id, "state": self.state, "error": self.error, "position": self.loop_t,
-                "speaker": self.speaker, "via": getattr(self.bulb, "via", ""),
+                "speaker": self.speaker, "via": getattr(self.bulb, "via", ""), "heard": self.heard_t, "here": self.here,
                 "color": effects.code(color) if color else None, "sent": getattr(self.bulb, "sent", 0)}

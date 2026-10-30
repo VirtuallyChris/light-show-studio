@@ -242,6 +242,7 @@ class FakeClient:
     def __init__(self, usage=None, fail=None, before=None):
         self.calls, self.usage, self.fail = [], usage or CloudUsage(), fail
         self.before = before or {"powerSwitch": 1, "brightness": 40, "colorRgb": 0x00ff00, "colorTemperatureK": 0}
+        self.homes = {}
 
     def control(self, sku, device, ctype, instance, value):
         if self.fail:
@@ -274,6 +275,40 @@ class CloudBulbTest(unittest.TestCase):
         n = len(client.calls)
         b.end()
         return client.calls[n:]
+
+    def test_a_show_started_right_after_another_puts_back_the_bulb_s_own_look(self):
+        # Govee's readback trails the bulb: just after a show, it still reports the show's brightness 100
+        client = FakeClient(before={"powerSwitch": 1, "brightness": 10, "colorRgb": 0, "colorTemperatureK": 2702})
+        first = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        first.begin()
+        first.end()
+        client.before = {"powerSwitch": 1, "brightness": 100, "colorRgb": 0, "colorTemperatureK": 2702}   # stale
+        second = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        second.begin()
+        n = len(client.calls)
+        second.end()
+        self.assertEqual(client.calls[n:], [("colorTemperatureK", 2702), ("brightness", 10)])
+
+    def test_long_after_a_show_the_bulb_is_asked_again(self):
+        client = FakeClient(before={"powerSwitch": 1, "brightness": 10, "colorRgb": 0, "colorTemperatureK": 2702})
+        first = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        first.begin()
+        first.end()
+        client.homes["AA"] = (client.homes["AA"][0], time.monotonic() - CloudBulb.HOME_TRUST_S - 1)
+        client.before = {"powerSwitch": 1, "brightness": 60, "colorRgb": 0, "colorTemperatureK": 5000}    # changed in the Govee app since
+        second = CloudBulb({"sku": "H6008", "id": "AA"}, client)
+        second.begin()
+        self.assertEqual(second.before["brightness"], 60)
+        second.end()
+
+    def test_an_offline_bulb_says_so_by_name(self):
+        client = FakeClient(before={"online": False, "powerSwitch": 1, "brightness": 10})
+        b = CloudBulb({"sku": "H6008", "id": "AA", "name": "Bedroom Bulb Right"}, client)
+        with self.assertRaises(CloudError) as cm:
+            b.begin()
+        self.assertEqual(str(cm.exception), "Bedroom Bulb Right is offline (off at the switch, or off Wi-Fi)")
+        b.end()
+        self.assertEqual(client.calls, [])                          # nothing sent to a bulb that can't hear it
 
     def test_white_comes_back_as_white(self):
         self.assertEqual(self.put_back({"powerSwitch": 1, "brightness": 55, "colorRgb": 0, "colorTemperatureK": 4000}),
@@ -458,6 +493,43 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(quit.is_set())
         await ws.close()
 
+    async def test_a_preview_lights_the_bulb_with_no_speaker(self):
+        a = await self.make("Witch", "Office Home 2")
+        b = await self.make("Ghost", "Office Home 2")
+        self.assertTrue((await (await self.client.post(f"/api/run/{a}", json={})).json())["ok"])
+        # the same speaker as a running show: no matter, a preview plays in the editor
+        res = await (await self.client.post(f"/api/run/{b}", json={"at": 0.5, "here": True})).json()
+        self.assertTrue(res["ok"], res)
+        for _ in range(200):
+            r = (await (await self.client.get("/api/running")).json())["shows"].get(b, {})
+            if r.get("state") == "playing":
+                break
+            await asyncio.sleep(0.02)
+        self.assertTrue(r["here"])
+        self.assertEqual(r["speaker"], "this PC")
+        self.assertIsNotNone(r["heard"])
+        self.assertEqual(r["color"], "#ff0000")                     # the bulb follows the preview
+        self.assertEqual(len(self.app.speakers.opened), 1)         # only the real show opened a speaker
+        shows = {s["id"]: s for s in await (await self.client.get("/api/shows")).json()}
+        self.assertEqual(shows[b]["speaker"], "this PC")
+
+    async def test_a_preview_still_needs_its_bulb_free(self):
+        a = await self.make("Witch", "Office Home 2")
+        b = await self.make("Ghost", "Kitchen Home")
+        show = await (await self.client.get(f"/api/shows/{b}")).json()
+        show["bulb"] = {"id": "virtual-Witch", "via": "virtual", "sku": "H6008"}
+        await self.client.post(f"/api/shows/{b}", json=show)
+        self.assertTrue((await (await self.client.post(f"/api/run/{a}", json={})).json())["ok"])
+        res = await (await self.client.post(f"/api/run/{b}", json={"here": True})).json()
+        self.assertIn("that bulb is already in Witch", res["error"])
+
+    async def test_stop_then_play_again(self):
+        sid = await self.make("Witch", "Office Home 2")
+        for _ in range(3):
+            self.assertTrue((await (await self.client.post(f"/api/run/{sid}", json={})).json())["ok"])
+            await self.client.post(f"/api/stop/{sid}")
+        self.assertTrue((await (await self.client.post(f"/api/run/{sid}", json={})).json())["ok"])
+
     async def test_scenes_of_a_virtual_bulb(self):
         res = await (await self.client.get("/api/scenes?via=virtual&id=virtual-1")).json()
         self.assertEqual(res["scenes"][0]["name"], "Breathe")
@@ -472,6 +544,20 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(st["has_key"])
         self.assertNotIn("abc", str(st))
         self.assertEqual(self.app.client.key, "abc")
+
+
+class SpeakersTest(unittest.TestCase):
+    def test_every_lookup_gets_its_own_discovery(self):
+        # pychromecast's stop_discovery() closes the discovery it was given: one shared between lookups made
+        # every show after the first fail with "The event loop is not running"
+        from unittest import mock
+        from bulbshow.speakers import Speakers
+        made = []
+        fake_zc = mock.MagicMock(side_effect=lambda **kw: made.append(object()) or made[-1])
+        with mock.patch.dict("sys.modules", {"zeroconf": mock.MagicMock(Zeroconf=fake_zc)}):
+            sp = Speakers()
+            first, second = sp._zeroconf(), sp._zeroconf()
+        self.assertIsNot(first, second)
 
 
 class TaskbarTest(unittest.TestCase):

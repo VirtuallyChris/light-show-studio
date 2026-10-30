@@ -131,9 +131,12 @@ async function poll() {
     }
   } else if (S.show) {
     const r = S.running[S.show.id];
+    const gone = !r || r.state === 'stopped' || r.state === 'error';
     if (S.play && S.play.mode === 'room') {
-      if (!r || r.state === 'stopped' || r.state === 'error') { S.play = null; if (r && r.error) toast(r.error, true); drawTransport(); }
-    } else if (!S.play && r && !['stopped', 'error'].includes(r.state)) { S.play = { mode: 'room' }; drawTransport(); }
+      if (gone) { S.play = null; if (r && r.error) toast(r.error, true); drawTransport(); }
+    } else if (S.play && S.play.mode === 'here' && S.play.bulb) {              // the bulb's side of a preview ended
+      if (gone) { stopHere(false); if (r && r.error) toast(r.error, true); drawTransport(); }
+    } else if (!S.play && !gone && !r.here) { S.play = { mode: 'room' }; drawTransport(); }
   }
 }
 setInterval(poll, 400);
@@ -296,16 +299,29 @@ function now() {
   if (!r || r.position == null) return S.playhead;
   return r.state === 'playing' ? (r.position + (performance.now() - r.at) / 1000) % dur : r.position;
 }
+// Preview on this PC: the sound plays here, and the show's bulb (if it has one) follows it for real. The server
+// runs the show on its own clock, with no speaker; the sound starts on that clock once the bulb is ready.
 async function play() {
   if (!S.show || !S.show.duration) return;
   if (S.here) {
     if (!S.audio) return;
     stopHere();
-    const ctx = audioCtx(); await ctx.resume();
-    S.gain = ctx.createGain(); S.gain.gain.value = S.show.volume == null ? 1 : S.show.volume; S.gain.connect(ctx.destination);
-    S.src = ctx.createBufferSource(); S.src.buffer = S.audio; S.src.loop = true; S.src.connect(S.gain);
-    S.src.start(0, S.playhead % S.show.duration);
-    S.play = { mode: 'here', offset: S.playhead, started: ctx.currentTime };
+    const id = S.show.id;
+    if (!(S.show.bulb && S.show.bulb.id)) { startSound(S.playhead, false); drawTransport(); return; }
+    clearTimeout(save.timer); await post(`/api/shows/${id}`, S.show);
+    const res = await post(`/api/run/${id}`, { at: S.playhead, here: true });
+    if (!res.ok) { toast(`Can't start: ${res.error}`, true); return; }
+    const mine = S.play = { mode: 'starting', id }; drawTransport();
+    const t0 = performance.now();
+    while (S.play === mine && performance.now() - t0 < 20000) {
+      const q0 = performance.now(), st = await api('/api/running'), q1 = performance.now();
+      const r = (st.shows || {})[id];
+      if (S.play !== mine) return;                                       // stopped while the bulb got ready
+      if (!r || r.state === 'error' || r.state === 'stopped') { S.play = null; drawTransport(); toast((r && r.error) || 'The bulb did not start', true); return; }
+      if (r.state === 'playing' && r.heard != null) { startSound(r.heard + (q1 - q0) / 2000, true); drawTransport(); return; }
+      await new Promise(ok => setTimeout(ok, 100));
+    }
+    if (S.play === mine) { S.play = null; post(`/api/stop/${id}`); drawTransport(); toast('The bulb did not start', true); }
   } else {
     clearTimeout(save.timer); await post(`/api/shows/${S.show.id}`, S.show);
     const res = await post(`/api/run/${S.show.id}`, { at: S.playhead });
@@ -315,13 +331,26 @@ async function play() {
   }
   drawTransport();
 }
-function stopHere() {
+function startSound(at, bulb) {
+  const ctx = audioCtx(); ctx.resume();
+  S.gain = ctx.createGain(); S.gain.gain.value = S.show.volume == null ? 1 : S.show.volume; S.gain.connect(ctx.destination);
+  S.src = ctx.createBufferSource(); S.src.buffer = S.audio; S.src.loop = true; S.src.connect(S.gain);
+  const off = ((at % S.show.duration) + S.show.duration) % S.show.duration;
+  S.src.start(0, off);
+  S.play = { mode: 'here', offset: off, started: ctx.currentTime, bulb, id: S.show.id };
+}
+// stops a preview's sound, and (unless told not to) its bulb on the server
+function stopHere(bulbToo = true) {
   if (S.src) { try { S.src.stop(); } catch (e) { /* already stopped */ } S.src.disconnect(); S.src = null; }
-  if (S.play && S.play.mode === 'here') S.play = null;
+  const p = S.play;
+  if (p && (p.mode === 'here' || p.mode === 'starting')) {
+    S.play = null;
+    if (bulbToo && (p.bulb || p.mode === 'starting')) post(`/api/stop/${p.id || (S.show && S.show.id)}`);
+  }
 }
 async function stop() {
   if (!S.play) return;
-  if (S.play.mode === 'here') stopHere();
+  if (S.play.mode === 'here' || S.play.mode === 'starting') stopHere();
   else { await post(`/api/stop/${S.show.id}`); S.play = null; }
   drawTransport();
 }
@@ -553,7 +582,10 @@ function hoverCursor(e) {
 }
 function seekTo(t) {
   S.playhead = clamp(t, 0, S.show.duration || 0);
-  if (S.play && S.play.mode === 'here') play();
+  if (S.play && S.play.mode === 'here') {
+    if (!S.play.bulb) play();
+    else { clearTimeout(seekTo.timer); seekTo.timer = setTimeout(play, 350); }   // the bulb restarts once the playhead settles
+  }
   draw();
 }
 cv.addEventListener('wheel', e => {
