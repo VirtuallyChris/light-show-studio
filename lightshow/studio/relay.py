@@ -49,6 +49,10 @@ class Relay:
         # Each song's volume (loudness.py): [capture frame, gain] from where each song begins, every stream
         # applying it as it reads, so a song is evened out on Cast, on this PC, and after any restart alike.
         self.levels: list[list] = []
+        # The music turned down for a while (costume contest mode): (from capture frame, frames, gain from, gain to),
+        # a fade on the capture timeline, so every stream (a skip, a restart) plays it the same; the speakers' own
+        # volume is left alone (they chime on every change)
+        self.duck: tuple = (0, 1, 1.0, 1.0)
         # Spotify paused and played again (a doorbell): what it played after the pause was asked for (its last
         # moment, its fade) is kept from the streams until the seam is mended (see hold)
         self.held_from: int | None = None
@@ -74,6 +78,18 @@ class Relay:
                 break
             g = v
         return g
+
+    def set_duck(self, at_capture_time: float, seconds: float, to: float) -> None:
+        """From this capture time the music fades to `to` (1.0: as it was) over `seconds`, from the gain it
+        has there (turned around mid-fade, from where it got to)."""
+        f = int(at_capture_time * self.sr)
+        with self.cond:
+            self.duck = (f, max(1, int(seconds * self.sr)), self.duck_at(f), float(to))
+
+    def duck_at(self, frame: int) -> float:
+        s, n, g0, g1 = self.duck
+        k = min(1.0, max(0.0, (frame - s) / n))
+        return g0 + (g1 - g0) * k * k * (3 - 2 * k)
 
     # -- capture side -----------------------------------------------------------------
     def write(self, frames: np.ndarray) -> None:
@@ -370,6 +386,16 @@ class RelayStream:
         x = np.frombuffer(data, dtype=np.int16).reshape(n, -1).astype(np.float32) * g[:, None]
         return np.clip(x, -32768, 32767).astype(np.int16).tobytes()
 
+    def _ducked(self, data: bytes, f0: int, n: int) -> bytes:
+        """The music from capture frame f0 at the relay's duck (Relay.duck): untouched while it is at 1."""
+        s, length, g0, g1 = self.relay.duck
+        if g0 == g1 == 1.0 or (g1 == 1.0 and f0 >= s + length):
+            return data
+        k = np.clip((f0 + np.arange(n) - s) / length, 0.0, 1.0)
+        g = (g0 + (g1 - g0) * k * k * (3 - 2 * k)).astype(np.float32)
+        x = np.frombuffer(data, dtype=np.int16).reshape(n, -1).astype(np.float32) * g[:, None]
+        return np.clip(x, -32768, 32767).astype(np.int16).tobytes()
+
     def _note(self, capture_frame: int, n: int) -> None:
         last = self.segments[-1] if self.segments else None
         if last and ((capture_frame < 0 and last[1] < 0) or (capture_frame >= 0 and last[1] >= 0 and last[1] + last[2] == capture_frame)):
@@ -418,7 +444,7 @@ class RelayStream:
             n = min(max_frames, avail)
             if self.gaps:
                 n = min(n, max(1, self.gaps[0][0] - self.cursor))
-            data = self._faded(self._leveled(r._slice(self.cursor, self.cursor + n), self.cursor), n)
+            data = self._faded(self._ducked(self._leveled(r._slice(self.cursor, self.cursor + n), self.cursor), self.cursor, n), n)
             self._note(self.cursor, n)
             self.cursor += n
             return data

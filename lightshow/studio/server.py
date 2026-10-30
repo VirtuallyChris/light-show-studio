@@ -1401,6 +1401,14 @@ class Studio:
         if w in self.room_watchers:
             self.room_watchers[w] = False
 
+    async def tell_studio(self, msg: dict) -> None:
+        """A message for every studio page (its /ws), at once: the Party Hub's orange switches."""
+        for s in list(self.studio_sockets):
+            try:
+                await s.send_json(msg)
+            except Exception:  # noqa: BLE001 - gone: its own handler cleans up
+                pass
+
     async def _room_count(self) -> None:
         for s in list(self.studio_sockets):
             try:

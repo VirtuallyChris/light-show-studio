@@ -945,6 +945,7 @@ class JamEngine:
         self._speaker_dropped = False                  # the speaker ended its Cast session during that pause
         self._resume_watch = None                      # (when, room) at a resume: has the room moved on since?
         self._resumed_at = -1e9                        # when the speakers last just resumed (keep_delay waits)
+        self._duck_fresh = False                       # the music turned down or up while paused: a fresh stream on resume
         self.error = ""
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
@@ -1262,12 +1263,18 @@ class JamEngine:
             return
         paused_for = self.clock() - self._paused_at if getattr(self, "_paused_at", None) is not None else 0.0
         at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
-        if cast is not None and (self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE or paused_for > self.RESUME_FRESH_S):
+        duck, self._duck_fresh = getattr(self, "_duck_fresh", False), False
+        dropped = cast is not None and (self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE or paused_for > self.RESUME_FRESH_S)
+        if dropped or (cast is not None and duck):
             self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, at), pace=True))
             self._streamed_at = self.clock()
             self._resume_watch = None
-            why = "had ended its session" if self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE else f"was paused {paused_for:.0f}s"
-            self.say(f"the speaker {why}: a fresh stream from where the room stopped, then a sync check")
+            if dropped:
+                why = "had ended its session" if self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE else f"was paused {paused_for:.0f}s"
+                self.say(f"the speaker {why}: a fresh stream from where the room stopped, then a sync check")
+            else:
+                self._quiet_start()                          # (its delay is unchanged: no sync check)
+                self.say("the music was turned down or up during the pause: a fresh stream from where the room stopped")
         else:
             self.output.resume()
             self._resumed_at = self.clock()                 # (keep_delay waits for it to settle)
@@ -1481,6 +1488,35 @@ class JamEngine:
         except Exception:  # noqa: BLE001 - nothing playing, or not Premium: the buffer is held regardless
             pass
         return True
+
+    def duck_music(self, to: float, seconds: float) -> str:
+        """The music turned down (costume contest mode) or back up, fading over `seconds` from what the room hears
+        now, the speakers' own volume left alone. They hold up to 20 s already sent, so playing they get a fresh
+        stream from where the room is with the fade in it, as the music comes back after a doorbell. With the room
+        held (a cue, a pause) nothing is heard: the music is simply at its new level when it plays again."""
+        with self.lock:
+            playing = self.streaming and self.output.stream is not None and self.held_at is None and self._room_playing()
+            rc = self.room_capture_time()
+            if playing and rc is not None:
+                self.relay.set_duck(rc, seconds, to)
+                fresh = self.relay.open_stream(rc, pace=not isinstance(self.output, VirtualOutput))
+                old = self.output.stream.gain
+                if old is not None and old[3] >= 1.0:             # (still fading in after a doorbell: carries on)
+                    g = self.output.stream._gain_at(self.output.stream.sent)
+                    fresh.fade(seconds, 1.0, start=g)
+                self.output.start_stream(fresh)
+                self._streamed_at = self.clock()             # (keep_delay leaves it to settle)
+                self._resume_watch = None
+                self._quiet_start()
+                how = "fading"
+            else:
+                at = rc if rc is not None else self._paused_room if self._paused_room is not None else self.relay.oldest_time
+                self.relay.set_duck(at, 0.0, to)
+                if self.streaming and getattr(self.output, "cast", None) is not None and rc is not None and self.held_at is None:
+                    self._duck_fresh = True                  # (what the paused speaker holds is at the old level)
+                how = "at once (nothing playing)"
+            self.say(f"the music {'down to ' + str(round(to * 100)) + '%' if to < 1 else 'back up'}, {how}")
+            return how
 
     SEAMS_KEPT = 6
 

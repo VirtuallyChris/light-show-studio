@@ -1117,7 +1117,8 @@
     ws.onopen = () => { S.wsOpen = true; sendSelect(); autoLights(); if ($('#outputOn').checked) pushFrameIfIdle(); };
     ws.onclose = () => { S.wsOpen = false; S.outputActive = false; setTimeout(connectWs, 2000); };
     ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'started') S.outputActive = true; if (m.type === 'stopped') S.outputActive = false;
-      if (m.type === 'roomview_watchers') S.roomViewRemote = m.n > 0; };   // (a phone has the room view open: sendRoomView)
+      if (m.type === 'roomview_watchers') S.roomViewRemote = m.n > 0;     // (a phone has the room view open: sendRoomView)
+      if (m.type === 'orange') setOrange(m.name, m.state); };            // (costume contest, stop party: told at once)
     ws.addEventListener('close', () => { S.roomViewRemote = false; });
     S.ws = ws;
   }
@@ -1434,7 +1435,7 @@
       if (g && g.level > 0) for (let i = 0; i < n * 3; i++) flat[i] = Math.max(flat[i], Math.round(g.rgb[i % 3] * g.level * 255));
       out.push({ light: L, px: flat });
     }
-    return smoothKey ? blendIn(smoothKey, calmSmooth(smoothKey, t, out, handFlash ? 0 : calm)) : out;
+    return orangeOver(smoothKey ? blendIn(smoothKey, calmSmooth(smoothKey, t, out, handFlash ? 0 : calm)) : out);
   }
   /** A cross-fade of the lights from what they last showed into the show now (crossfadeLights): a doorbell's show
    *  handing back to the jam's as the music comes back, instead of a jump (the user). Every light's last frame is
@@ -1458,6 +1459,31 @@
   }
   function crossfadeLights(seconds) {
     S.lightBlend = { t0: performance.now(), dur: Math.max(0.2, seconds) * 1000, from: Object.fromEntries(Object.entries(LAST).map(([k, m]) => [k, new Map(m)])) };
+  }
+  /** The Party Hub's two orange switches (the server says, at once over /ws and in the jam state each second):
+   *  costume contest mode fades every light to orange at full brightness over 5 s and back to the show (the music
+   *  fades with it, in the stream, once the speakers have their fresh stream: a second or so); stop party turns them
+   *  orange at once and back at once (Spotify paused meanwhile). Seen within a second or two of the switch a fade
+   *  starts now, with the music, not with a jump; seen later (the studio opened mid-fade) it is where the fade has
+   *  got to. Turned around mid-fade, it goes back from where it got to. */
+  const ORANGE_RGB = [255, 96, 0];                    // (#ff6000, the party colors' orange)
+  S.orange = {};                                      // name -> { on, t0, dur, from }
+  function setOrange(name, c) {
+    if (!c || !!c.on === !!(S.orange[name] && S.orange[name].on)) return;
+    const age = (c.age || 0) > 2 ? c.age : 0, from = orangeOf(name), t0 = performance.now() - age * 1000;
+    S.orange[name] = { on: !!c.on, t0, dur: Math.max(1, (c.fade ?? 5) * 1000), from };
+    S.forceSend = true;
+  }
+  function orangeOf(name) {
+    const c = S.orange[name]; if (!c) return 0;
+    const k = clamp((performance.now() - c.t0) / c.dur, 0, 1), e = k * k * (3 - 2 * k), to = c.on ? 1 : 0;
+    return c.from + (to - c.from) * e;
+  }
+  const orangeFading = () => Object.values(S.orange).some(c => performance.now() - c.t0 < c.dur);
+  function orangeOver(frame) {
+    const k = Math.max(0, ...Object.keys(S.orange).map(orangeOf)); if (k <= 0) return frame;
+    for (const f of frame) f.px = f.px.map((v, i) => Math.round(v + (ORANGE_RGB[i % 3] - v) * k));
+    return frame;
   }
   /** How a tube carries its color down its LEDs (0 at the top): the whole tube (a little softer at the bottom),
    *  an orb floating in the middle fading to both ends (the user's idea), orbs drifting up and down (each tube
@@ -1575,7 +1601,7 @@
   function outputTick() {
     if (!S.analysis || !S.outputActive) return;
     // paused: ~5 fps hold, but never while the lights cross-fade (a doorbell handing back: it stepped at 5 fps)
-    const fading = S.lightBlend && performance.now() - S.lightBlend.t0 < S.lightBlend.dur;
+    const fading = (S.lightBlend && performance.now() - S.lightBlend.t0 < S.lightBlend.dur) || orangeFading();
     if (!S.audio.playing && !S.forceSend && !fading && performance.now() - S.lastLightSend < 200) return;
     const t = pos();
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
@@ -4115,6 +4141,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setOrange, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

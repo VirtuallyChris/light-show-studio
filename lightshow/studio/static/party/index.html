@@ -194,6 +194,8 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .cue .phase { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .cue .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
   .cue:disabled { opacity: .45; }
+  .cue.mode[aria-pressed="true"] { color: #fff; border-color: transparent; background: #ff6000; }
+  .cue.mode[aria-pressed="true"]::after { content: 'On'; display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .cue-edit { padding: 12px 0; border-top: 1px solid var(--line); }
   .cue-edit:first-of-type { border-top: none; }
   .cue-edit .top { display: flex; align-items: center; gap: 10px; }
@@ -305,6 +307,12 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   <section class="card" id="cuesCard" hidden>
     <div class="label">Cues</div>
     <div class="cues" id="cues"></div>
+  </section>
+  <section class="card">
+    <div class="cues">
+      <button class="cue mode" id="contestOn" type="button" aria-pressed="false" title="The music down to 20% (the speakers stay at their volume) and every light orange at full brightness, fading over 5 seconds. Tap again to fade back.">Costume contest</button>
+      <button class="cue mode" id="stopOn" type="button" aria-pressed="false" title="Every light orange at full brightness at once, and the music paused. Tap again to play on.">STOP PARTY</button>
+    </div>
   </section>
 </section>
 
@@ -613,7 +621,9 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   const PHASE = { starting: 'Starting…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…', fade_in: 'Music back…' };
   let cuesShown = '', cueTick = null;
   function renderCues(st) {
-    const cues = st.cues || [], run = st.cue || {}, live = run.phase && run.phase !== 'done';
+    const run = st.cue || {}, live = run.phase && run.phase !== 'done';
+    // the real doorbell rings its own cue: its button only shows while it plays (to end it early)
+    const cues = (st.cues || []).filter(c => c.id !== st.doorbell_cue || (live && run.id === c.id));
     $('#cuesCard').hidden = !cues.length;
     const html = cues.map(c => {
       const mine = live && run.id === c.id;
@@ -718,6 +728,20 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
   setInterval(() => { if (moreOpen && !document.hidden) loadBell(); }, 3000);
   $('#evenOn').onchange = e => { evenBusy = performance.now() + 4000; api('even', { on: e.target.checked }).catch(() => { evenBusy = 0; }); };
+  // the two orange switches: on only after asking twice (an accidental tap stops the party), off at once
+  const orangeSwitch = (id, path, sure, surer) => {
+    let busy = 0;
+    const b = $(id), set = on => b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.onclick = () => {
+      const on = b.getAttribute('aria-pressed') !== 'true';
+      if (on && !(confirm(sure) && confirm(surer))) return;
+      busy = performance.now() + 4000; set(on);
+      api(path, { on }).catch(() => { busy = 0; set(!on); });
+    };
+    return st => { if (performance.now() > busy) set(st && st.on); };
+  };
+  const showContest = orangeSwitch('#contestOn', 'contest', 'Turn on costume contest mode? The music goes down to 20% and every light turns orange.', 'Are you sure? Costume contest mode starts now.');
+  const showStop = orangeSwitch('#stopOn', 'stop', 'STOP PARTY? The music pauses and every light turns orange at once.', 'Are you sure? The party stops now.');
 
   // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
   for (const b of document.querySelectorAll('#colorSource button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ source: b.dataset.s }); };
@@ -833,6 +857,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     }
     renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
     if (performance.now() > evenBusy) $('#evenOn').checked = st.even_levels !== false;
+    showContest(st.contest); showStop(st.stop_party);
     if (moreOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();

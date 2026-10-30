@@ -78,6 +78,11 @@ class JamService:
         # Built up to 100% over a while (the Party Hub's button under the slider): {from, start (epoch s), minutes, song}.
         # Kept in the config, so a restart carries on with it.
         self.party_ramp: dict | None = load_config().get("party_ramp") or None
+        # Costume contest mode (a switch on the Party Hub): the music down to a fifth in the stream, the lights all
+        # orange at full, both fading over 5 s each way. {on, at (monotonic s)}; not kept over a restart.
+        self.contest = {"on": False, "at": -1e9}
+        # Stop party (the other switch): the lights orange at full at once, Spotify paused until it is off. {on, at, paused}
+        self.stop_party = {"on": False, "at": -1e9, "paused": False}
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
@@ -143,6 +148,8 @@ class JamService:
             web.post("/api/party/playback", self.party_playback),
             web.post("/api/party/level", self.party_level_set),
             web.post("/api/party/ramp", self.party_ramp_set),
+            web.post("/api/party/contest", self.party_contest_set),
+            web.post("/api/party/stop", self.party_stop_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
             web.get("/api/party/bulbshows", self.party_bulbshows),
@@ -255,6 +262,8 @@ class JamService:
         genre_fn = WORKER.classify_audio if WORKER.available() else None
         segment_fn = structure_model.run_audio if structure_model.available() else None
         self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
+        if self.contest["on"]:
+            relay.set_duck(0.0, 0.0, self.CONTEST_GAIN)          # (started during the costume contest: down from the start)
         self.runner = JamRunner(self.engine, file_status=self._file_status)
         if ahead:
             self.engine.on_queue = lambda tracks, now=None: self.fetch.submit(tracks, first=True, now=now)
@@ -541,7 +550,7 @@ class JamService:
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
                 "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "track_styles": self.library.styles(),
                 "track_genres": self.library.genres(), "genre_choices": self._genre_choices(),
-                "party_level": self.party_level,
+                "party_level": self.party_level, "contest": self.contest_status(), "stop_party": self.stop_status(),
                 "cue": self._room_cue(),
                 "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice(),
                 "fetch": {**self.fetch.status(), "on": self._fetch_on(),
@@ -979,6 +988,11 @@ class JamService:
                       {"src": "/static/party/icon-512.png", "sizes": "512x512", "type": "image/png"}]},
             content_type="application/manifest+json")
 
+    def _doorbell_cue(self) -> str:
+        """The cue the real doorbell rings, while it is set up (the Party Hub leaves its button out: the bell rings it)."""
+        bell = (getattr(self, "load_config", dict)() or {}).get("doorbell") or {}
+        return str(bell.get("cue") or "") if bell.get("on") and bell.get("host") else ""
+
     def _party(self) -> dict:
         """What the Party Hub shows: the song in the room, what comes next, and each one's colors."""
         st = self._state()
@@ -1018,11 +1032,14 @@ class JamService:
                 "sync_warning": st.get("sync_warning", ""),
                 "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
                 "party_ramp": getattr(self, "ramp_status", lambda: None)(),
+                "contest": getattr(self, "contest_status", lambda: None)(),
+                "stop_party": getattr(self, "stop_status", lambda: None)(),
                 "even_levels": bool(getattr(self, "load_config", dict)().get("jam_even_levels", True)),
                 "color_source": "album" if not jc.get("on", True) else "wild" if jc.get("wild") else "album" if jc.get("mode") not in ("pick", "mix") else "party",
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
                 "cues": self.studio.cues.list() if getattr(self.studio, "cues", None) else [],
+                "doorbell_cue": getattr(self, "_doorbell_cue", lambda: "")(),
                 "prelisten": self.prelisten.status() if getattr(self, "prelisten", None) else {},
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
                 "room": (self._opener_room() if hasattr(self, "_opener_room") else None) or item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
@@ -1097,18 +1114,23 @@ class JamService:
         if not self._lan(request):
             raise web.HTTPForbidden()
         action = (await request.json()).get("action")
+        fn = self._playback_fn(action)
+        if fn is None:
+            return web.json_response({"error": "unknown action"}, status=400)
+        ok = await asyncio.get_running_loop().run_in_executor(None, fn)
+        return web.json_response({"ok": bool(ok)})
+
+    def _playback_fn(self, action: str):
+        """What play, pause, skip or back does now (the demo's own, or Spotify's), or None."""
         if self.demo is not None:
-            {"next": self.demo.skip, "pause": self.demo.pause, "resume": self.demo.resume}.get(action, lambda: None)()
-            return web.json_response({"ok": True})
+            fn = {"next": self.demo.skip, "pause": self.demo.pause, "resume": self.demo.resume}.get(action)
+            return (lambda: fn() or True) if fn else None
         fn = {"pause": self.spotify.pause, "resume": self.spotify.resume, "next": self.spotify.next_track,
               "previous": self.spotify.previous_track}.get(action)
         if action == "resume" and self.source == "studio" and self.player.device_id:
             dev = self.player.device_id
             fn = lambda: self.spotify.resume_on(dev)    # (the studio's player, woken if Spotify let it go)
-        if fn is None:
-            return web.json_response({"error": "unknown action"}, status=400)
-        ok = await asyncio.get_running_loop().run_in_executor(None, fn)
-        return web.json_response({"ok": bool(ok)})
+        return fn
 
     async def party_volumes(self, request):
         """The speaker the jam plays on (its volume is the cast's), and every speaker and group's own."""
@@ -1301,6 +1323,68 @@ class JamService:
             self.party_ramp = None
         self._save_level()
         return web.json_response({"party_level": self.party_level, "party_ramp": self.ramp_status()})
+
+    # -- costume contest mode ---------------------------------------------------------------
+    # The switch on the Party Hub (the user): the music down to 20% of itself in the stream (the speakers stay at
+    # their volume), the lights all orange at full brightness (the studio page), both fading over 5 s, and back.
+    CONTEST_GAIN = 0.2
+    CONTEST_FADE_S = 5.0
+
+    def contest_status(self) -> dict:
+        """On or off, and how long ago it was switched (the studio page fades the lights from then)."""
+        return {"on": self.contest["on"], "age": round(max(0.0, time.monotonic() - self.contest["at"]), 2), "fade": self.CONTEST_FADE_S}
+
+    def _contest(self, on: bool) -> dict:
+        if on != self.contest["on"]:
+            self.contest = {"on": on, "at": time.monotonic()}
+            if self.engine is not None:
+                self.engine.duck_music(self.CONTEST_GAIN if on else 1.0, self.CONTEST_FADE_S)
+        return {"contest": self.contest_status()}
+
+    async def party_contest_set(self, request):
+        """The switch: {on}."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        resp = await self._run(self._contest, bool((await request.json()).get("on")))
+        await self._tell_studio("contest", self.contest_status())
+        return resp
+
+    async def _tell_studio(self, name: str, state: dict) -> None:
+        tell = getattr(self.studio, "tell_studio", None)
+        if tell is not None:
+            await tell({"type": "orange", "name": name, "state": state})
+
+    # -- stop party ----------------------------------------------------------------------------
+    # The other switch (the user): every light orange at full at once, and the music stopped (Spotify paused) while
+    # it is on; off, the music plays on (if it was playing) and the show comes back at once.
+    def stop_status(self) -> dict:
+        return {"on": self.stop_party["on"], "age": round(max(0.0, time.monotonic() - self.stop_party["at"]), 2), "fade": 0}
+
+    def _music_playing(self) -> bool:
+        now = getattr(self.engine, "now", None) if self.engine is not None else None
+        return bool(now.playing) if now is not None and now.track is not None else self.engine is not None
+
+    def _stop_party(self, on: bool) -> dict:
+        if on != self.stop_party["on"]:
+            if on:
+                was = self._music_playing()
+                self.stop_party = {"on": True, "at": time.monotonic(), "paused": was}
+                if was:
+                    self._playback_fn("pause")()
+            else:
+                paused = self.stop_party["paused"]
+                self.stop_party = {"on": False, "at": time.monotonic(), "paused": False}
+                if paused:
+                    self._playback_fn("resume")()          # (only what it paused: music paused already stays paused)
+        return {"stop_party": self.stop_status()}
+
+    async def party_stop_set(self, request):
+        """The switch: {on}. The lights are told first: they go orange as Spotify is asked to pause."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        on = bool((await request.json()).get("on"))
+        await self._tell_studio("stop", {"on": on, "age": 0, "fade": 0})
+        return await self._run(self._stop_party, on)
 
     async def colors(self, request):
         """Set the jam's colors ({mode, primary, secondary}), or one track's ({track_id, primary,
