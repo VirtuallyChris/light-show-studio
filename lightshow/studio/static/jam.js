@@ -66,6 +66,10 @@
       return '#' + [f(5), f(3), f(1)].map(x => x.toString(16).padStart(2, '0')).join(''); };
     return [hex((start + span * 0.38) % 360), hex((start + span * 0.62) % 360)];
   }
+  /** The party's pairs, for the rest of a song: its own pair is its drops' colors, and the other parts now and then
+   *  take another of these (app.js buildSection; the user). None for a song kept to just its two colors. */
+  const pairsFor = track => { const jc = (J.state || {}).jam_colors || {};
+    return themeOn() && !onlyTwo(track) && Array.isArray(jc.pairs) && jc.pairs.length > 1 ? jc.pairs : null; };
   /** No Limits Colors: every section in the stage colors that suit it (app.js wildPlan), for every song
    *  but one given its own colors (or its cover's) by hand */
   const wildOn = track => { const jc = (J.state || {}).jam_colors || {}, own = track && ((J.state || {}).track_colors || {})[track.id];
@@ -172,7 +176,7 @@
     // not while the song's show is still being loaded (a cover can arrive half way): the load uses it itself
     if (!St.P() || J.key !== J.doc.key) return;
     if (J.doc.light) { S.jamColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
-    S.jamColors = colorsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); S.noLimits = wildOn(J.doc.track); J.colorSig = colorSig();
+    S.jamColors = colorsFor(J.doc.track); S.jamPairs = pairsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); S.noLimits = wildOn(J.doc.track); J.colorSig = colorSig();
     const restyle = (St.P().settings || {}).style !== (trackStyle(J.doc.track) || undefined);
     applyStyle(J.doc.track);
     if (restyle) { St.pickLook(); J.style = St.showStyle(); }
@@ -412,7 +416,7 @@
     // the jam's show is kept as it is, to take up again the moment the cue is over (not loaded again)
     C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing,
                key: J.key, doc: J.doc, version: J.version, built: J.built, style: J.style, drums: J.drums,
-               palette: S.albumPalette, colors: S.jamColors, extras: S.jamExtras, rainbow: S.jamRainbow, wild: S.noLimits, glow: S.glowAt };
+               palette: S.albumPalette, colors: S.jamColors, pairs: S.jamPairs, extras: S.jamExtras, rainbow: S.jamRainbow, wild: S.noLimits, glow: S.glowAt };
     S.glowAt = null;                                                // (a cue's show has no songs either side)
     J.live = false; J.key = null;                                   // the jam steps aside; the room is held
     // how far into the show the server already is (the page looks once a second), kept up to date below
@@ -459,7 +463,7 @@
     if (p.jam) {
       // the jam's show again, as it was: the next tick anchors it to the room, nothing is loaded
       J.live = true; J.key = p.key; J.doc = p.doc; J.version = p.version; J.built = p.built; J.style = p.style; J.drums = p.drums;
-      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamExtras = p.extras; S.jamRainbow = p.rainbow; S.noLimits = p.wild; S.glowAt = p.glow || null;
+      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamPairs = p.pairs || null; S.jamExtras = p.extras; S.jamRainbow = p.rainbow; S.noLimits = p.wild; S.glowAt = p.glow || null;
       S.forceSend = true;
       setTimeout(tick, 0);                                           // where the room is now, not a second from now
     }
@@ -614,7 +618,7 @@
     if (!doc || doc.kind !== room.kind) { pre = null; doc = await api('jam/analysis?key=' + encodeURIComponent(room.key)); }
     J.live = true; J.doc = doc;
     S.albumPalette = pre ? await pre.pal.catch(() => albumPalette(doc.track)) : await albumPalette(doc.track);
-    S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track);
+    S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track); S.jamPairs = doc.kind === 'custom' ? null : pairsFor(doc.track);
     S.jamExtras = extrasFor(S.jamColors, doc.track); S.jamRainbow = rainbowOn(doc.track); S.noLimits = doc.kind !== 'custom' && wildOn(doc.track); J.colorSig = colorSig();
     clearTimeout(J.saveT); J.auto = J.custom = J.secsByHand = false; J.savedAs = null;   // (see J.onEdit)
     if (doc.kind === 'custom' && doc.project) {
@@ -815,7 +819,7 @@
 
   function leave() {
     S.glowAt = null;
-    S.albumPalette = null; S.jamColors = null; S.jamExtras = null; S.jamRainbow = false; S.noLimits = false; J.doc = null;
+    S.albumPalette = null; S.jamColors = null; S.jamPairs = null; S.jamExtras = null; S.jamRainbow = false; S.noLimits = false; J.doc = null;
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;
     St.updateTransport(); St.stopOutput(); St.draw();

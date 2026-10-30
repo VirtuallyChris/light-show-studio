@@ -2840,7 +2840,7 @@
     p.built = { show: SHOW_VERSION, analysis: (S.analysis && S.analysis.version) ?? null, at: new Date().toISOString() };
     p.handEdited = false;
     if (!keepSections) p.sections = withBuildups(p.sections);      // (keepSections: the sections exactly as the user set them)
-    for (const lane of p.lanes) lane.clips = []; p.paletteClips = [];
+    for (const lane of p.lanes) lane.clips = []; p.paletteClips = []; S.secPals = [];
     while (p.lanes.length < DEFAULT_LANES) p.lanes.push(newLane());
     // one palette carries the whole song, chosen from its key, brightness and drive
     // A handful of palettes that suit this song, cycled and rotated section by section:
@@ -3164,13 +3164,18 @@
   }
   /** The song's own fingerprint, a number: its key, how bright and driven it sounds, its tempo and length (what
    *  the analysis hears, not its name), so a show rebuilds the same and two songs differ. */
+  const PARTY_MIX = 0.5;                       // party colors: the share of a song's other parts in another of the party's pairs
   function songSeed() {
     const a = S.analysis || {}, m = a.mood || {}, s = [m.key, m.brightness, m.drive, Math.round(a.duration || 0), Math.round((P() && P().bpm) || a.bpm || 0)].join('|');
     let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
     return (h >>> 0) % 1000003;
   }
-  function clip(lane, effect, start, len, params = {}, extra = {}) { const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...easeFor(effect, start), ...spaceFor(effect, start, lane), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? S.contrastPal : S.buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
-      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, S.buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : whiteMotion(start) ? ['#ffffff'] : [punchColor(start)]; }
+  function clip(lane, effect, start, len, params = {}, extra = {}) {
+    // (outside a section's build, with two colors: the colors of the section it lands in, not the last one built)
+    let sp = null; if (!S.sectionClips && S.pairMode && S.secPals) for (let k = S.secPals.length - 1; k >= 0 && !sp; k--) if (start >= S.secPals[k].b0 && start < S.secPals[k].b1) sp = S.secPals[k];
+    const buildPal = sp ? sp.build : S.buildPal, contrastPal = sp ? sp.contrast : S.contrastPal;
+    const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...easeFor(effect, start), ...spaceFor(effect, start, lane), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? contrastPal : buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
+      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : whiteMotion(start) ? ['#ffffff'] : [punchColor(start)]; }
     if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
@@ -3183,12 +3188,23 @@
     const pair = S.pairMode && p.palettes.Jam;
     const pidx = S.secPart ? S.secPart.first : idx;                   // (a part heard again: the colors it had)
     S.buildPal = pair ? p.palettes.Jam.slice() : paletteVariant(fam[pidx % fam.length], pidx);
+    // Party colors (the user): the song's pair is its drops' colors. The rest of it now and then (about half its
+    // parts) takes another of the party's pairs, picked from the song itself so it is the same on every rebuild, a
+    // part heard again in the colors it had. A buildup keeps the song's own pair, so the drop lands back on it.
+    if (pair && S.jamPairs && s.type !== 'drop' && s.type !== 'buildup') {
+      const key = q => q.map(x => String(x).toLowerCase()).sort().join(), own = key(S.jamColors || []);
+      const others = S.jamPairs.filter(q => Array.isArray(q) && q.length === 2 && key(q) !== own), seed = songSeed();
+      if (others.length && Effects.hash(seed * 7 + pidx * 131 + 17) < PARTY_MIX)
+        S.buildPal = Effects.solidPalette(others[Math.floor(Effects.hash(seed * 13 + pidx * 97 + 5) * others.length) % others.length]);
+    }
     const opposite = pair ? (cols => cols.slice().reverse()) : contrastPalette;
     // Buildups and breakdowns run on the opposite colors, so the drop lands back on the song's
     // own palette and the change of color hits with it.
     if (s.type === 'buildup' || s.type === 'breakdown') S.buildPal = opposite(S.buildPal);
     S.contrastPal = opposite(S.buildPal);
     if (S.noLimits) { const sp = wildPlan()[pidx]; if (sp) { S.buildPal = Effects.solidPalette(sp.build); S.contrastPal = Effects.solidPalette(sp.over); } }
+    // (kept, so what is added over the song afterwards, its moments and flavor, takes the colors of the section it is in)
+    (S.secPals = S.secPals || []).push({ b0, b1, build: S.buildPal, contrast: S.contrastPal });
     const chillStyle = showStyle() === 'chill';
     S.bedLevel = ({ drop: 0.4, buildup: 0.35 }[s.type] || 0.3) + (chillStyle ? 0.1 : 0);
     S.bedDuck = chillStyle ? 0.35 : ({ drop: 0.7, verse: 0.55, buildup: 0.5 }[s.type] || 0.4);
