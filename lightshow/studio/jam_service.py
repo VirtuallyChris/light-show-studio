@@ -81,7 +81,7 @@ class JamService:
         # Costume contest mode (a switch on the Party Hub): the music down to a fifth in the stream, the lights all
         # orange at full, both fading over 5 s each way. {on, at (monotonic s)}; not kept over a restart.
         self.contest = {"on": False, "at": -1e9}
-        # Stop party (the other switch): the lights orange at full at once, Spotify paused until it is off. {on, at, paused}
+        # Stop party (the other switch): the lights warm white at full at once, Spotify paused until it is off. {on, at, paused}
         self.stop_party = {"on": False, "at": -1e9, "paused": False}
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
@@ -1352,10 +1352,10 @@ class JamService:
     async def _tell_studio(self, name: str, state: dict) -> None:
         tell = getattr(self.studio, "tell_studio", None)
         if tell is not None:
-            await tell({"type": "orange", "name": name, "state": state})
+            await tell({"type": "cover", "name": name, "state": state})
 
     # -- stop party ----------------------------------------------------------------------------
-    # The other switch (the user): every light orange at full at once, and the music stopped (Spotify paused) while
+    # The other switch (the user): every light warm white at full at once, and the music stopped (Spotify paused) while
     # it is on; off, the music plays on (if it was playing) and the show comes back at once.
     def stop_status(self) -> dict:
         return {"on": self.stop_party["on"], "age": round(max(0.0, time.monotonic() - self.stop_party["at"]), 2), "fade": 0}
@@ -1379,7 +1379,7 @@ class JamService:
         return {"stop_party": self.stop_status()}
 
     async def party_stop_set(self, request):
-        """The switch: {on}. The lights are told first: they go orange as Spotify is asked to pause."""
+        """The switch: {on}. The lights are told first: they go warm white as Spotify is asked to pause."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         on = bool((await request.json()).get("on"))

@@ -195,6 +195,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .cue .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
   .cue:disabled { opacity: .45; }
   .cue.mode[aria-pressed="true"] { color: #fff; border-color: transparent; background: #ff6000; }
+  #stopOn[aria-pressed="true"] { color: #2a1c0c; background: #ffd9a8; }
   .cue.mode[aria-pressed="true"]::after { content: 'On'; display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .cue-edit { padding: 12px 0; border-top: 1px solid var(--line); }
   .cue-edit:first-of-type { border-top: none; }
@@ -311,7 +312,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   <section class="card">
     <div class="cues">
       <button class="cue mode" id="contestOn" type="button" aria-pressed="false" title="The music down to 20% (the speakers stay at their volume) and every light orange at full brightness, fading over 5 seconds. Tap again to fade back.">Costume contest</button>
-      <button class="cue mode" id="stopOn" type="button" aria-pressed="false" title="Every light orange at full brightness at once, and the music paused. Tap again to play on.">STOP PARTY</button>
+      <button class="cue mode" id="stopOn" type="button" aria-pressed="false" title="Every light warm white at full brightness at once, and the music paused. Tap again to play on.">STOP PARTY</button>
     </div>
   </section>
 </section>
@@ -728,8 +729,8 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
   setInterval(() => { if (moreOpen && !document.hidden) loadBell(); }, 3000);
   $('#evenOn').onchange = e => { evenBusy = performance.now() + 4000; api('even', { on: e.target.checked }).catch(() => { evenBusy = 0; }); };
-  // the two orange switches: on only after asking twice (an accidental tap stops the party), off at once
-  const orangeSwitch = (id, path, sure, surer) => {
+  // the two cover switches: on only after asking twice (an accidental tap stops the party), off at once
+  const coverSwitch = (id, path, sure, surer) => {
     let busy = 0;
     const b = $(id), set = on => b.setAttribute('aria-pressed', on ? 'true' : 'false');
     b.onclick = () => {
@@ -740,8 +741,8 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     };
     return st => { if (performance.now() > busy) set(st && st.on); };
   };
-  const showContest = orangeSwitch('#contestOn', 'contest', 'Turn on costume contest mode? The music goes down to 20% and every light turns orange.', 'Are you sure? Costume contest mode starts now.');
-  const showStop = orangeSwitch('#stopOn', 'stop', 'STOP PARTY? The music pauses and every light turns orange at once.', 'Are you sure? The party stops now.');
+  const showContest = coverSwitch('#contestOn', 'contest', 'Turn on costume contest mode? The music goes down to 20% and every light turns orange.', 'Are you sure? Costume contest mode starts now.');
+  const showStop = coverSwitch('#stopOn', 'stop', 'STOP PARTY? The music pauses and every light turns warm white at once.', 'Are you sure? The party stops now.');
 
   // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
   for (const b of document.querySelectorAll('#colorSource button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ source: b.dataset.s }); };
