@@ -37,6 +37,97 @@ class TestRangePerLight(unittest.TestCase):
         self.assertEqual(mon.governors["pole"].levels, [15])              # a pole never climbs
 
 
+class TestDropAndRejoin(unittest.TestCase):
+    """A light far behind even at its lowest rate (the party night: a pole at 15 losing 70% of its pings,
+    a frame every 2 s) is dropped, kept black and sent nothing until its Wi-Fi answers, then rejoins."""
+
+    def weak(self, k=iter(range(10**6))):
+        return None if next(k) % 10 < 7 else 240.0
+
+    def test_far_behind_at_its_lowest_rate_is_stuck(self):
+        c = Clock(); g = FpsGovernor(15, 15, start=15, clock=c)
+        run(g, c, 10, self.weak)
+        self.assertIn("pings lost", g.stuck())
+        g.fresh()
+        run(g, c, 10, 8.0)
+        self.assertEqual(g.stuck(), "")
+
+    def test_a_strip_steps_down_first(self):
+        c = Clock(); g = FpsGovernor(15, 30, start=30, clock=c)
+        g.report(None); g.report(None); g.report(None); g.report(None); g.report(None)
+        self.assertEqual(g.stuck(), "")                                   # at 30: a step down comes first
+
+    def monitor(self, pings):
+        import threading
+        from types import SimpleNamespace
+        done, calls = threading.Event(), []
+
+        def rejoin(ip, link_back):
+            calls.append(ip)
+            done.set()
+            return True
+        out = SimpleNamespace(devices=[SimpleNamespace(ip="pole")], enabled=True, active=True, fps_by_ip={}, max_fps=0, rejoin=rejoin)
+        c = Clock()
+        mon = LinkMonitor(out, 15, 30, log=lambda m: None, clock=c, range_for=lambda ip: (15, 15, 15))
+        mon.ping = lambda ip, timeout_ms=300: next(pings)
+        return mon, c, done, calls
+
+    def test_dropped_once_then_not_again_for_a_while(self):
+        k = iter(range(10**6))
+        mon, c, done, calls = self.monitor(iter(lambda: None if next(k) % 10 < 7 else 240.0, 0))
+        for _ in range(20):
+            c.t += 1.5
+            mon.tick()
+        done.wait(2)
+        for _ in range(20):                                               # still weak, half a minute on
+            c.t += 1.5
+            mon.tick()
+        self.assertEqual(calls, ["pole"])
+
+    def test_it_waits_for_quick_replies_but_not_forever(self):
+        mon, c, done, calls = self.monitor(iter([None, None, 300.0, 5.0, 6.0, 4.0] + [5.0] * 100))
+        slept = []
+        mon.sleep = slept.append
+        self.assertTrue(mon._link_back("pole"))
+        self.assertGreaterEqual(sum(slept), LinkMonitor.DRAIN_S)          # at least long enough to clear
+        mon.ping = lambda ip, timeout_ms=300: None
+        slept.clear()
+        self.assertFalse(mon._link_back("pole"))
+        self.assertAlmostEqual(sum(slept), LinkMonitor.REJOIN_MAX_S)      # and back in the show after this
+
+    def test_black_and_nothing_sent_until_it_rejoins(self):
+        from unittest import mock
+        from lightshow.studio import server
+
+        class Light:
+            ip, mac, device_id = "pole", "", ""
+
+            def __init__(self):
+                self.got = []
+
+            def razer_leds(self, cols, gradient=False):
+                self.got.append(("frame", cols[0]))
+
+            def razer(self, on):
+                self.got.append(("realtime", on))
+
+        light = Light()
+        with mock.patch.object(server, "load_config", lambda: {}):
+            o = server.LightOutput(enabled=True)
+            o.devices, o.active = [light], True
+            o.frame([[200, 0, 0] * 10], ["pole"])
+
+            def link_back(ip):
+                for _ in range(5):                                        # the show plays on meanwhile
+                    o.last_frame = server.time.monotonic()
+                    o.frame([[0, 255, 0] * 10], ["pole"])
+                return True
+            self.assertTrue(o.rejoin("pole", link_back))
+            o.frame([[0, 0, 255] * 10], ["pole"])
+        self.assertEqual(light.got, [("frame", (200, 0, 0)), ("frame", (0, 0, 0)), ("realtime", True),
+                                     ("frame", (0, 0, 0)), ("frame", (0, 0, 255))])
+
+
 class TestFpsGovernor(unittest.TestCase):
     def test_clean_wifi_climbs_to_60_and_no_further(self):
         c = Clock(); g = FpsGovernor(15, 60, start=24, clock=c)

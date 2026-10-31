@@ -14,6 +14,10 @@ used to climb straight back to it after every recovery, and each time the light 
 piling up in it, replies at 100-270 ms) until it stepped down again: the lights lagged, over and over,
 all night. Now each light settles where it can keep up.
 
+A light still far behind at its lowest rate (half its pings lost, or replies past 250 ms, for 10 s) is
+dropped and rejoined: black, nothing sent while its Wi-Fi clears, then real-time mode again (rejoin). A
+pole held at 15 on a link losing 70% of its pings fell so far behind it showed a frame every 2 s.
+
 Pings use Windows' own ICMP API (no extra process, no admin rights); elsewhere, the ping command.
 """
 
@@ -66,6 +70,27 @@ class FpsGovernor:
     def _p90(rtts):
         got = sorted(r for r in rtts if r is not None)
         return got[min(len(got) - 1, int(0.9 * len(got)))] if got else None
+
+    STUCK_LOSS = 0.5      # way behind at its lowest rate: this share of the last 10 s of pings lost...
+    STUCK_MS = 250        # ...or replies this slow (90th percentile)
+
+    def stuck(self) -> str:
+        """Why this light is far behind even at its lowest rate ('' when it is not): time to drop and rejoin it."""
+        if self.i > 0:
+            return ""
+        got = self._window(10.0)
+        if len(got) < 5:
+            return ""
+        loss = sum(r is None for r in got) / len(got)
+        p90 = self._p90(got)
+        if loss >= self.STUCK_LOSS:
+            return f"{loss:.0%} of pings lost"
+        return f"replies at {p90:.0f} ms" if p90 is not None and p90 > self.STUCK_MS else ""
+
+    def fresh(self) -> None:
+        """Judged anew from here (a light that rejoined): its pings from before say nothing about now."""
+        self.samples.clear()
+        self.changed_at = self.hold_until = self.clock()
 
     def decide(self) -> int:
         now = self.clock()
@@ -170,6 +195,9 @@ class LinkMonitor:
         self.ping = make_pinger()
         self.stop = threading.Event()
         self.k = 0
+        self.sleep = time.sleep
+        self.rejoined_at: dict[str, float] = {}          # when each light was last dropped and rejoined
+        self.rejoining: set[str] = set()
 
     def _governor(self, ip: str) -> FpsGovernor:
         g = self.governors.get(ip)
@@ -187,6 +215,8 @@ class LinkMonitor:
             return
         ip = devices[self.k % len(devices)].ip
         self.k += 1
+        if ip in self.rejoining:                         # (its own pings, meanwhile: _link_back)
+            return
         g = self._governor(ip)
         g.report(self.ping(ip, 300))
         before = out.fps_by_ip.get(ip, g.fps)
@@ -195,6 +225,42 @@ class LinkMonitor:
         out.max_fps = max(out.fps_by_ip.get(d.ip, g.fps) for d in devices)
         if fps != before:
             self.log(f"[lights] {ip}: {before:.0f} -> {fps} fps: {g.reason}")
+        why = g.stuck()
+        now = self.clock()
+        if why and hasattr(out, "rejoin") and now - self.rejoined_at.get(ip, -1e9) >= self.REJOIN_GAP_S:
+            self.rejoined_at[ip] = now
+            self.rejoining.add(ip)
+            self.log(f"[lights] {ip}: far behind at {fps} fps ({why}): dropped, black until its Wi-Fi is back")
+            threading.Thread(target=self._rejoin, args=(ip, g), daemon=True, name=f"rejoin-{ip}").start()
+
+    REJOIN_GAP_S = 120.0  # a light is dropped and rejoined at most this often
+    DRAIN_S = 3.0         # nothing sent for at least this long: what its Wi-Fi had piled up clears
+    REJOIN_MAX_S = 20.0   # and at most this long: back in the show, its link well or not
+
+    def _rejoin(self, ip: str, g: FpsGovernor) -> None:
+        try:
+            t0 = time.monotonic()
+            back = self.output.rejoin(ip, self._link_back)
+            self.log(f"[lights] {ip}: rejoined after {time.monotonic() - t0:.1f} s"
+                     f"{'' if back else ' (its Wi-Fi still weak)'}")
+        except Exception as e:  # noqa: BLE001 - the show goes on
+            self.log(f"[lights] {ip}: rejoin failed: {type(e).__name__}: {e}")
+        finally:
+            g.fresh()
+            self.rejoining.discard(ip)
+
+    def _link_back(self, ip: str) -> bool:
+        """Wait, sending it nothing, until the light answers quickly three times in a row (at least DRAIN_S,
+        at most REJOIN_MAX_S). True when its link came back."""
+        waited, good = 0.0, 0
+        while waited < self.REJOIN_MAX_S:
+            rtt = self.ping(ip, 300)
+            good = good + 1 if rtt is not None and rtt < FpsGovernor.SLOW_MS else 0
+            if good >= 3 and waited >= self.DRAIN_S:
+                return True
+            self.sleep(0.5)
+            waited += 0.5
+        return False
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="link-monitor", daemon=True).start()
@@ -207,5 +273,5 @@ class LinkMonitor:
                 self.log(f"[lights] link monitor: {type(e).__name__}: {e}")
 
     def to_json(self) -> dict:
-        lights = {ip: {"fps": g.fps, "reason": g.reason} for ip, g in self.governors.items()}
+        lights = {ip: {"fps": g.fps, "reason": "rejoining" if ip in self.rejoining else g.reason} for ip, g in self.governors.items()}
         return {"fps": max([v["fps"] for v in lights.values()] or [self.governor.fps]), "lights": lights}

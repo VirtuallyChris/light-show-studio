@@ -180,6 +180,35 @@ class LightOutput:
         self.leaving: dict = {}     # ip -> {"dev", "t0", "dur", "target"}
         self.arriving: dict = {}    # ip -> {"t0", "dur", "target"}
         self.last_px: dict = {}     # ip -> the last frame it was sent
+        self.dropped: set = set()   # lights sent nothing for now: their Wi-Fi fell far behind (rejoin)
+
+    def rejoin(self, ip: str, link_back) -> bool:
+        """A light whose Wi-Fi fell far behind (link_health: half its pings lost at its lowest rate) is
+        dropped and joins again: one black frame, then nothing at all while what its Wi-Fi piled up clears
+        (link_back waits for quick replies again), then real-time mode afresh, black, and the show's frames
+        go to it once more. It stays black throughout: in real-time mode on a black frame, not handed back
+        (switched off or out of real-time mode it would show its own colors). True when its link came back."""
+        d = next((d for d in self.devices if d.ip == ip), None)
+        if d is None or not self.enabled:
+            return False
+        black = [(0, 0, 0)] * max(1, len(self.last_px.get(ip) or [0, 0, 0]) // 3)
+        self.dropped.add(ip)
+        try:
+            self._send_black(d, black)
+            back = link_back(ip)
+            d.razer(True)
+            self._send_black(d, black)
+            return back
+        finally:
+            self.dropped.discard(ip)
+
+    def _send_black(self, d, black) -> None:
+        try:
+            d.razer_leds(black)
+            self.last_px[d.ip] = [0] * (3 * len(black))
+        except Exception as e:  # noqa: BLE001 - keep the show running, remember the fault
+            self.errors += 1
+            self.last_error = f"{type(e).__name__}: {e}"
 
     # -- how a light was before the show: asked when the show takes it, and kept on disk ------------
     @staticmethod
@@ -487,7 +516,7 @@ class LightOutput:
         out = []
         for d in self.devices:
             flat = by_ip.get(d.ip)
-            if flat is None or not due(d.ip):
+            if flat is None or d.ip in self.dropped or not due(d.ip):
                 continue
             a = self.arriving.get(d.ip)
             if a:
@@ -498,7 +527,7 @@ class LightOutput:
                     flat = _mix_toward(flat, a["target"], 1 - _ease(k))
             out.append((d, flat))
         for ip, f in list(self.leaving.items()):
-            if not due(ip):
+            if ip in self.dropped or not due(ip):
                 continue
             flat = by_ip.get(ip) or self.last_px.get(ip) or [0, 0, 0]
             out.append((f["dev"], _mix_toward(flat, f["target"], _ease(self._progress(f, now)))))
