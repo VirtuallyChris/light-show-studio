@@ -1326,26 +1326,40 @@ class JamService:
 
     # -- costume contest mode ---------------------------------------------------------------
     # The switch on the Party Hub (the user): the music down to 20% of itself in the stream (the speakers stay at
-    # their volume), the lights all orange at full brightness (the studio page), both fading over 5 s, and back.
+    # their volume), the lights all one color at full brightness (the studio page; orange unless another is picked
+    # while it is on), both fading over 5 s, and back.
     CONTEST_GAIN = 0.2
     CONTEST_FADE_S = 5.0
+    COVER_DEFAULT = {"contest": "#ff6000", "stop": "#ffaa5a"}          # (the party colors' orange; warm white)
+
+    @staticmethod
+    def _cover_color(c) -> str | None:
+        """A picked color, as #rrggbb, or None when it is not one."""
+        c = str(c or "").strip().lower()
+        return c if len(c) == 7 and c[0] == "#" and all(ch in "0123456789abcdef" for ch in c[1:]) else None
 
     def contest_status(self) -> dict:
-        """On or off, and how long ago it was switched (the studio page fades the lights from then)."""
-        return {"on": self.contest["on"], "age": round(max(0.0, time.monotonic() - self.contest["at"]), 2), "fade": self.CONTEST_FADE_S}
+        """On or off, its color, and how long ago it was switched (the studio page fades the lights from then)."""
+        return {"on": self.contest["on"], "age": round(max(0.0, time.monotonic() - self.contest["at"]), 2), "fade": self.CONTEST_FADE_S,
+                "color": self.contest.get("color") or self.COVER_DEFAULT["contest"]}
 
-    def _contest(self, on: bool) -> dict:
-        if on != self.contest["on"]:
-            self.contest = {"on": on, "at": time.monotonic()}
+    def _contest(self, on: bool | None, color: str | None = None) -> dict:
+        """Switched on (its color back to orange, or the one asked for) or off, or only its color changed."""
+        if on is not None and on != self.contest["on"]:
+            keep = self.contest.get("color")
+            self.contest = {"on": on, "at": time.monotonic(), "color": (color or self.COVER_DEFAULT["contest"]) if on else keep}
             if self.engine is not None:
                 self.engine.duck_music(self.CONTEST_GAIN if on else 1.0, self.CONTEST_FADE_S)
+        elif color:
+            self.contest["color"] = color
         return {"contest": self.contest_status()}
 
     async def party_contest_set(self, request):
-        """The switch: {on}."""
+        """The switch: {on}, and/or {color} (#rrggbb)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        resp = await self._run(self._contest, bool((await request.json()).get("on")))
+        body = await request.json()
+        resp = await self._run(self._contest, bool(body["on"]) if "on" in body else None, self._cover_color(body.get("color")))
         await self._tell_studio("contest", self.contest_status())
         return resp
 
@@ -1355,36 +1369,46 @@ class JamService:
             await tell({"type": "cover", "name": name, "state": state})
 
     # -- stop party ----------------------------------------------------------------------------
-    # The other switch (the user): every light warm white at full at once, and the music stopped (Spotify paused) while
-    # it is on; off, the music plays on (if it was playing) and the show comes back at once.
+    # The other switch (the user): every light one color at full at once (warm white unless another is picked while
+    # it is on), and the music stopped (Spotify paused) while it is on; off, the music plays on (if it was playing)
+    # and the show comes back at once.
     def stop_status(self) -> dict:
-        return {"on": self.stop_party["on"], "age": round(max(0.0, time.monotonic() - self.stop_party["at"]), 2), "fade": 0}
+        return {"on": self.stop_party["on"], "age": round(max(0.0, time.monotonic() - self.stop_party["at"]), 2), "fade": 0,
+                "color": self.stop_party.get("color") or self.COVER_DEFAULT["stop"]}
 
     def _music_playing(self) -> bool:
         now = getattr(self.engine, "now", None) if self.engine is not None else None
         return bool(now.playing) if now is not None and now.track is not None else self.engine is not None
 
-    def _stop_party(self, on: bool) -> dict:
-        if on != self.stop_party["on"]:
+    def _stop_party(self, on: bool | None, color: str | None = None) -> dict:
+        if on is not None and on != self.stop_party["on"]:
             if on:
                 was = self._music_playing()
-                self.stop_party = {"on": True, "at": time.monotonic(), "paused": was}
+                self.stop_party = {"on": True, "at": time.monotonic(), "paused": was, "color": color or self.COVER_DEFAULT["stop"]}
                 if was:
                     self._playback_fn("pause")()
             else:
                 paused = self.stop_party["paused"]
-                self.stop_party = {"on": False, "at": time.monotonic(), "paused": False}
+                self.stop_party = {"on": False, "at": time.monotonic(), "paused": False, "color": self.stop_party.get("color")}
                 if paused:
                     self._playback_fn("resume")()          # (only what it paused: music paused already stays paused)
+        elif color:
+            self.stop_party["color"] = color
         return {"stop_party": self.stop_status()}
 
     async def party_stop_set(self, request):
-        """The switch: {on}. The lights are told first: they go warm white as Spotify is asked to pause."""
+        """The switch: {on}, and/or {color} (#rrggbb). The lights are told first: they change as Spotify is asked
+        to pause."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        on = bool((await request.json()).get("on"))
-        await self._tell_studio("stop", {"on": on, "age": 0, "fade": 0})
-        return await self._run(self._stop_party, on)
+        body = await request.json()
+        on, color = (bool(body["on"]) if "on" in body else None), self._cover_color(body.get("color"))
+        was = self.stop_status()
+        ahead = {**was, "age": 0} if on is None or on == was["on"] else {"on": on, "age": 0, "fade": 0, "color": color or self.COVER_DEFAULT["stop"] if on else was["color"]}
+        if on is None and color:
+            ahead["color"] = color
+        await self._tell_studio("stop", ahead)
+        return await self._run(self._stop_party, on, color)
 
     async def colors(self, request):
         """Set the jam's colors ({mode, primary, secondary}), or one track's ({track_id, primary,

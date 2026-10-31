@@ -1461,17 +1461,29 @@
     S.lightBlend = { t0: performance.now(), dur: Math.max(0.2, seconds) * 1000, from: Object.fromEntries(Object.entries(LAST).map(([k, m]) => [k, new Map(m)])) };
   }
   /** The Party Hub's two cover switches (the server says, at once over /ws and in the jam state each second):
-   *  costume contest mode fades every light to orange at full brightness over 5 s and back to the show (the music
+   *  costume contest mode fades every light to one color at full brightness over 5 s and back to the show (the music
    *  fades with it, in the stream, once the speakers have their fresh stream: a second or so); stop party turns them
-   *  warm white at once and back at once (Spotify paused meanwhile), over the contest's orange if both are on. Seen
-   *  within a second or two of the switch a fade starts now, with the music, not with a jump; seen later (the studio
-   *  opened mid-fade) it is where the fade has got to. Turned around mid-fade, it goes back from where it got to. */
-  const COVER_RGB = { contest: [255, 96, 0], stop: [255, 170, 90] };   // (#ff6000, the party colors' orange; warm white, ~2700 K)
-  S.cover = {};                                       // name -> { on, t0, dur, from }
+   *  one color at once and back at once (Spotify paused meanwhile), over the contest's if both are on. Each has its
+   *  color (orange, warm white, or one picked on the phone while it is on: the contest's moves to it over a second,
+   *  stop party's at once). Seen within a second or two of the switch a fade starts now, with the music, not with a
+   *  jump; seen later (the studio opened mid-fade) it is where the fade has got to. Turned around mid-fade, it goes
+   *  back from where it got to. */
+  const COVER_DEFAULT = { contest: '#ff6000', stop: '#ffaa5a' };   // (the party colors' orange; warm white, ~2700 K)
+  const hexRgb = h => { const v = parseInt(String(h).slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+  S.cover = {};                                       // name -> { on, t0, dur, from, color, rgb, rgbFrom, c0, cdur }
   function setCover(name, c) {
-    if (!c || !!c.on === !!(S.cover[name] && S.cover[name].on)) return;
+    if (!c) return;
+    const cur = S.cover[name], color = /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color.toLowerCase() : COVER_DEFAULT[name];
+    if (!!c.on === !!(cur && cur.on)) {
+      if (cur && cur.on && color !== cur.color) {      // a color picked while it is on
+        Object.assign(cur, { rgbFrom: coverRgb(name), rgb: hexRgb(color), color, c0: performance.now(), cdur: Math.max(1, Math.min(1, c.fade ?? 5) * 1000) });
+        S.forceSend = true;
+      }
+      return;
+    }
     const age = (c.age || 0) > 2 ? c.age : 0, from = coverOf(name), t0 = performance.now() - age * 1000;
-    S.cover[name] = { on: !!c.on, t0, dur: Math.max(1, (c.fade ?? 5) * 1000), from };
+    const rgb = c.on || !cur ? hexRgb(color) : coverRgb(name);   // (off: fades back from the color it shows)
+    S.cover[name] = { on: !!c.on, t0, dur: Math.max(1, (c.fade ?? 5) * 1000), from, color, rgb, rgbFrom: rgb, c0: 0, cdur: 1 };
     S.forceSend = true;
   }
   function coverOf(name) {
@@ -1479,10 +1491,15 @@
     const k = clamp((performance.now() - c.t0) / c.dur, 0, 1), e = k * k * (3 - 2 * k), to = c.on ? 1 : 0;
     return c.from + (to - c.from) * e;
   }
-  const coverFading = () => Object.values(S.cover).some(c => performance.now() - c.t0 < c.dur);
+  function coverRgb(name) {
+    const c = S.cover[name], k = clamp((performance.now() - c.c0) / c.cdur, 0, 1), e = k * k * (3 - 2 * k);
+    return c.rgb.map((v, i) => c.rgbFrom[i] + (v - c.rgbFrom[i]) * e);
+  }
+  const coverFading = () => { const now = performance.now(); return Object.values(S.cover).some(c => now - c.t0 < c.dur || now - c.c0 < c.cdur); };
   function coverOver(frame) {
     for (const name of ['contest', 'stop']) {
-      const k = coverOf(name), rgb = COVER_RGB[name]; if (k <= 0) continue;
+      const k = coverOf(name); if (k <= 0) continue;
+      const rgb = coverRgb(name);
       for (const f of frame) f.px = f.px.map((v, i) => Math.round(v + (rgb[i % 3] - v) * k));
     }
     return frame;

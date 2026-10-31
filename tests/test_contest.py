@@ -93,10 +93,10 @@ class TestEngineDuck(unittest.TestCase):
 class TestContestSwitch(unittest.TestCase):
     def service(self):
         calls = []
-        s = SimpleNamespace(contest={"on": False, "at": -1e9}, CONTEST_GAIN=0.2, CONTEST_FADE_S=5.0,
+        s = SimpleNamespace(contest={"on": False, "at": -1e9}, CONTEST_GAIN=0.2, CONTEST_FADE_S=5.0, COVER_DEFAULT=JamService.COVER_DEFAULT,
                             engine=SimpleNamespace(duck_music=lambda to, secs: calls.append((to, secs))))
         s.contest_status = lambda: JamService.contest_status(s)
-        s.set = lambda on: JamService._contest(s, on)
+        s.set = lambda on, color=None: JamService._contest(s, on, color)
         return s, calls
 
     def test_on_and_off_turn_the_music_down_and_up(self):
@@ -113,25 +113,44 @@ class TestContestSwitch(unittest.TestCase):
         s.engine = None
         self.assertTrue(s.set(True)["contest"]["on"])
 
+    def test_orange_until_another_color_is_picked_and_orange_again_next_time(self):
+        s, calls = self.service()
+        self.assertEqual(s.set(True)["contest"]["color"], "#ff6000")
+        st = s.set(None, "#8000ff")["contest"]                          # picked while on: the music is left alone
+        self.assertEqual((st["on"], st["color"], calls), (True, "#8000ff", [(0.2, 5.0)]))
+        self.assertEqual(s.set(False)["contest"]["color"], "#8000ff")   # (fades back from the color it shows)
+        self.assertEqual(s.set(True)["contest"]["color"], "#ff6000")
+
+    def test_only_a_real_color_is_taken(self):
+        self.assertEqual(JamService._cover_color(" #80FF00 "), "#80ff00")
+        for bad in ("red", "#12345", "#gggggg", None, "javascript:x"):
+            self.assertIsNone(JamService._cover_color(bad))
+
 
 class TestStopParty(unittest.TestCase):
     def service(self, playing):
         calls = []
         now = SimpleNamespace(track=object(), playing=playing)
-        s = SimpleNamespace(stop_party={"on": False, "at": -1e9, "paused": False}, engine=SimpleNamespace(now=now))
+        s = SimpleNamespace(stop_party={"on": False, "at": -1e9, "paused": False}, engine=SimpleNamespace(now=now), COVER_DEFAULT=JamService.COVER_DEFAULT)
         s._playback_fn = lambda action: (lambda: calls.append(action))
         s._music_playing = lambda: JamService._music_playing(s)
         s.stop_status = lambda: JamService.stop_status(s)
-        s.set = lambda on: JamService._stop_party(s, on)
+        s.set = lambda on, color=None: JamService._stop_party(s, on, color)
         return s, calls
 
     def test_the_music_pauses_while_it_is_on_and_plays_on_after(self):
         s, calls = self.service(playing=True)
         st = s.set(True)["stop_party"]
-        self.assertEqual((st["on"], st["fade"]), (True, 0))            # (the lights: orange at once)
+        self.assertEqual((st["on"], st["fade"], st["color"]), (True, 0, "#ffaa5a"))   # (the lights: warm white at once)
         s.set(True)
         s.set(False)
         self.assertEqual(calls, ["pause", "resume"])
+
+    def test_a_color_picked_while_on_leaves_the_music_paused(self):
+        s, calls = self.service(playing=True)
+        s.set(True)
+        self.assertEqual(s.set(None, "#ff0000")["stop_party"]["color"], "#ff0000")
+        self.assertEqual(calls, ["pause"])
 
     def test_music_paused_already_stays_paused_after(self):
         s, calls = self.service(playing=False)

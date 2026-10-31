@@ -194,8 +194,11 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .cue .phase { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .cue .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
   .cue:disabled { opacity: .45; }
-  .cue.mode[aria-pressed="true"] { color: #fff; border-color: transparent; background: #ff6000; }
-  #stopOn[aria-pressed="true"] { color: #2a1c0c; background: #ffd9a8; }
+  .cue.mode[aria-pressed="true"] { color: var(--on-text, #fff); border-color: transparent; background: var(--on, #ff6000); }
+  .cover-colors { margin-top: 16px; }
+  .cover-colors .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-top: 8px; }
+  .cover-colors .grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
+  .cover-colors .grid button.on { border-color: var(--text); }
   .cue.mode[aria-pressed="true"]::after { content: 'On'; display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .cue-edit { padding: 12px 0; border-top: 1px solid var(--line); }
   .cue-edit:first-of-type { border-top: none; }
@@ -314,6 +317,8 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
       <button class="cue mode" id="contestOn" type="button" aria-pressed="false" title="The music down to 20% (the speakers stay at their volume) and every light orange at full brightness, fading over 5 seconds. Tap again to fade back.">Costume contest</button>
       <button class="cue mode" id="stopOn" type="button" aria-pressed="false" title="Every light warm white at full brightness at once, and the music paused. Tap again to play on.">STOP PARTY</button>
     </div>
+    <div class="cover-colors" id="contestColors" hidden><div class="label">Costume contest color</div><div class="grid"></div></div>
+    <div class="cover-colors" id="stopColors" hidden><div class="label">STOP PARTY color</div><div class="grid"></div></div>
   </section>
 </section>
 
@@ -729,20 +734,39 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
   setInterval(() => { if (moreOpen && !document.hidden) loadBell(); }, 3000);
   $('#evenOn').onchange = e => { evenBusy = performance.now() + 4000; api('even', { on: e.target.checked }).catch(() => { evenBusy = 0; }); };
-  // the two cover switches: on only after asking twice (an accidental tap stops the party), off at once
-  const coverSwitch = (id, path, sure, surer) => {
-    let busy = 0;
-    const b = $(id), set = on => b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  // the two cover switches: on only after asking twice (an accidental tap stops the party), off at once. While one is
+  // on, its color can be picked (each starts at its own: orange, warm white); the lights take it at once.
+  const COVER_COLORS = [['#ffaa5a', 'Warm white', '#ffdcae'], ['#ffffff', 'White'], ['#ff0000', 'Red'], ['#ff6000', 'Orange'],
+    ['#ffbf00', 'Amber'], ['#ffff00', 'Yellow'], ['#80ff00', 'Lime'], ['#00ff00', 'Green'], ['#00ff80', 'Mint'], ['#00ffff', 'Cyan'],
+    ['#0080ff', 'Sky blue'], ['#0000ff', 'Blue'], ['#4000ff', 'Indigo'], ['#8000ff', 'Purple'], ['#ff00ff', 'Magenta'], ['#ff0080', 'Pink']];
+  const coverSwitch = (id, colorsId, path, sure, surer) => {
+    let busy = 0, colorBusy = 0;
+    const b = $(id), box = $(colorsId), grid = box.querySelector('.grid');
+    const set = on => { b.setAttribute('aria-pressed', on ? 'true' : 'false'); box.hidden = !on; };
+    // (the lit button wears the color the lights show, dark lettering on a light one)
+    const pick = c => {
+      for (const s of grid.children) s.classList.toggle('on', s.dataset.c === c);
+      const col = COVER_COLORS.find(x => x[0] === c), shown = col ? col[2] || col[0] : c, v = parseInt(shown.slice(1), 16);
+      b.style.setProperty('--on', shown);
+      b.style.setProperty('--on-text', 0.299 * (v >> 16) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255) > 150 ? '#2a1c0c' : '#fff');
+    };
+    grid.innerHTML = COVER_COLORS.map(([c, name, shown]) => `<button type="button" data-c="${c}" style="background:${shown || c}" aria-label="${name}" title="${name}"></button>`).join('');
+    for (const s of grid.children) s.onclick = () => { colorBusy = performance.now() + 4000; pick(s.dataset.c); api(path, { color: s.dataset.c }).catch(() => { colorBusy = 0; }); };
+    pick(path === 'stop' ? '#ffaa5a' : '#ff6000');
     b.onclick = () => {
       const on = b.getAttribute('aria-pressed') !== 'true';
       if (on && !(confirm(sure) && confirm(surer))) return;
       busy = performance.now() + 4000; set(on);
+      if (on) pick(path === 'stop' ? '#ffaa5a' : '#ff6000');          // (each time on, it starts at its own color)
       api(path, { on }).catch(() => { busy = 0; set(!on); });
     };
-    return st => { if (performance.now() > busy) set(st && st.on); };
+    return st => {
+      if (performance.now() > busy) set(st && st.on);
+      if (st && performance.now() > colorBusy) pick(st.color);
+    };
   };
-  const showContest = coverSwitch('#contestOn', 'contest', 'Turn on costume contest mode? The music goes down to 20% and every light turns orange.', 'Are you sure? Costume contest mode starts now.');
-  const showStop = coverSwitch('#stopOn', 'stop', 'STOP PARTY? The music pauses and every light turns warm white at once.', 'Are you sure? The party stops now.');
+  const showContest = coverSwitch('#contestOn', '#contestColors', 'contest', 'Turn on costume contest mode? The music goes down to 20% and every light turns orange.', 'Are you sure? Costume contest mode starts now.');
+  const showStop = coverSwitch('#stopOn', '#stopColors', 'stop', 'STOP PARTY? The music pauses and every light turns warm white at once.', 'Are you sure? The party stops now.');
 
   // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
   for (const b of document.querySelectorAll('#colorSource button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ source: b.dataset.s }); };
