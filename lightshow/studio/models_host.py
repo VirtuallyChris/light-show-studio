@@ -118,7 +118,6 @@ class Model:
                 raise
         _log(f"{time.strftime('%H:%M:%S')} {self.name}: out of the card's memory beside the other models: again, alone")
         with CARD.alone():
-            _free()
             try:
                 return HANDLERS[self.name](self.state, req, payload)
             except Exception as e:  # noqa: BLE001
@@ -145,9 +144,16 @@ class Card:
     songs, reached 14 GB on a 16 GB card and 8 GB more borrowed: the sections and stems of a song took
     30 s instead of 6, and the next song sat "analyzing" for minutes. So the models are kept under the
     card's size, less room for the desktop, the browser and the room view (a model that would go past
-    that is told it is out of memory, and runs again alone: see Model._answer)."""
+    that is told it is out of memory, and runs again alone: see Model._answer).
+
+    That cap is PyTorch's alone: the lyrics' Whisper (CTranslate2, its own memory), the CUDA runtime and
+    a second host (the learn-ahead process starts its own when the studio's goes away) are outside it.
+    With them on top, PyTorch filling up to its cap on a long party night filled the card again (15.5 GB
+    of 16, a song "analyzing" for minutes). So before each model runs, PyTorch's share is set from what
+    the card really has free: what PyTorch holds, plus what is free, less a margin (fit)."""
 
     HEADROOM = 3.0 * 2**30                               # bytes left for everything else on the card
+    MARGIN = 1.5 * 2**30                                 # kept free on the card, whoever holds the rest
 
     def __init__(self):
         self.cond = threading.Condition()
@@ -169,11 +175,25 @@ class Card:
         if torch is not None:
             torch.cuda.set_per_process_memory_fraction(share)
 
+    def fit(self) -> None:
+        """PyTorch's share set to what the card has room for now (never above the cap): what it holds,
+        plus what is free on the card, less MARGIN for everything else there."""
+        torch = _cuda()
+        if torch is None or self.cap is None:
+            return
+        try:
+            free, total = torch.cuda.mem_get_info()
+            room = torch.cuda.memory_reserved() + free - self.MARGIN
+            self.limit(min(self.cap, max(0.1, room / total)))
+        except Exception:  # noqa: BLE001 - the cap as it was
+            pass
+
     @contextlib.contextmanager
     def shared(self):
         with self.cond:
             self.cond.wait_for(lambda: not self.solo)
             self.running += 1
+            self.fit()
         try:
             yield
         finally:
@@ -187,6 +207,8 @@ class Card:
             self.cond.wait_for(lambda: not self.solo)
             self.solo = True                             # nothing new starts meanwhile
             self.cond.wait_for(lambda: self.running == 0)
+        _free()
+        self.fit()
         try:
             yield
         finally:
@@ -227,7 +249,8 @@ def _card_use() -> str:
     if torch is None:
         return ""
     try:
-        return f" (card: {torch.cuda.memory_reserved() / 2**30:.1f} GB held)"
+        free, _ = torch.cuda.mem_get_info()              # (free on the card: what PyTorch holds is not all of it)
+        return f" (card: {torch.cuda.memory_reserved() / 2**30:.1f} GB held, {free / 2**30:.1f} GB free)"
     except Exception:  # noqa: BLE001
         return ""
 

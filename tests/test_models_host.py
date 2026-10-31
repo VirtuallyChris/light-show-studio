@@ -33,6 +33,31 @@ class TestCard(unittest.TestCase):
         late.join(1)
         self.assertEqual(order, ["other done", "alone", "alone done", "late"])
 
+    def fake_torch(self, held_gb, free_gb, total_gb=16.0):
+        gb = 2**30
+        cuda = mock.Mock(mem_get_info=lambda: (free_gb * gb, total_gb * gb), memory_reserved=lambda: held_gb * gb)
+        return mock.Mock(cuda=cuda)
+
+    def test_the_share_leaves_room_for_what_pytorch_does_not_hold(self):
+        card, limits = mh.Card(), []
+        card.cap, card.limit = 13.0 / 16, limits.append
+        # the night's case: PyTorch holds 9 GB, Whisper, the runtime and a second host the rest: 1 GB free
+        with mock.patch.object(mh, "_cuda", return_value=self.fake_torch(held_gb=9.0, free_gb=1.0)):
+            card.fit()
+        self.assertAlmostEqual(limits[-1] * 16, 8.5)                # under what it holds: the next big one runs alone
+        with mock.patch.object(mh, "_cuda", return_value=self.fake_torch(held_gb=2.0, free_gb=13.0)):
+            card.fit()
+        self.assertAlmostEqual(limits[-1], 13.0 / 16)               # room to spare: the cap, never above it
+
+    def test_each_request_fits_the_share_first(self):
+        card, fits = mh.Card(), []
+        card.fit = lambda: fits.append(1)
+        with card.shared():
+            pass
+        with mock.patch.object(mh, "_free"), card.alone():
+            pass
+        self.assertEqual(len(fits), 2)
+
     def test_out_of_memory_is_recognised(self):
         self.assertTrue(mh._out_of_memory(OutOfMemoryError("CUDA out of memory. Tried to allocate 2 GiB")))
         self.assertTrue(mh._out_of_memory(RuntimeError("CUDA error: out of memory")))
