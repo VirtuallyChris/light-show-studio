@@ -177,6 +177,12 @@ def _recorder_main(name: str, capacity: int, ch: int, sr: int, device: str | Non
                         q.append(np.stack([v] * ch, axis=1))
                     k += block
                 return
+            from . import mac_capture
+            if device == mac_capture.DEVICE:
+                for frames in mac_capture.frames(sr, ch, lambda: ring.h[STOP]):
+                    with lock:
+                        q.append(frames)
+                return
             import soundcard as sc
             mic = sc.get_microphone(device or sc.default_speaker().name, include_loopback=True)
             with mic.recorder(samplerate=sr, channels=ch, blocksize=block) as rec:

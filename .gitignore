@@ -34,3 +34,6 @@ bulbshow/bulbshow.log
 
 # The AI models' environment the in-app installer makes (lightshow/studio/model_setup.py)
 models-env/
+
+# The Mac audio helper, built from packaging/mac/audiotap.swift
+packaging/mac/audiotap

@@ -24,6 +24,7 @@ Pings use Windows' own ICMP API (no extra process, no admin rights); elsewhere, 
 from __future__ import annotations
 
 import collections
+import re
 import subprocess
 import sys
 import threading
@@ -160,14 +161,28 @@ def _icmp_windows():
     return ping
 
 
+def ping_args(ip: str, plat: str = sys.platform) -> list[str]:
+    """One ping, waiting a second at most. -W means milliseconds on a Mac and seconds on Linux."""
+    return ["ping", "-c", "1", "-W", "1000" if plat == "darwin" else "1", ip]
+
+
+def ping_ms(output: str) -> float | None:
+    """The round trip the ping itself reports: time spent starting the command is not the light's."""
+    m = re.search(r"time[=<]\s*([\d.]+)\s*ms", output)
+    return float(m.group(1)) if m else None
+
+
 def _icmp_command():
     def ping(ip: str, timeout_ms: int = 300) -> float | None:
         t0 = time.monotonic()
         try:
-            r = subprocess.run(["ping", "-c", "1", "-W", "1", ip], capture_output=True, timeout=2)
+            r = subprocess.run(ping_args(ip), capture_output=True, text=True, timeout=2)
         except Exception:  # noqa: BLE001
             return None
-        return (time.monotonic() - t0) * 1000 if r.returncode == 0 else None
+        if r.returncode != 0:
+            return None
+        ms = ping_ms(r.stdout)
+        return ms if ms is not None else (time.monotonic() - t0) * 1000
     return ping
 
 

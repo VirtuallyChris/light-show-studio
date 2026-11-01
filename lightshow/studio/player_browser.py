@@ -16,22 +16,44 @@ the studio closes it hands Edge back to the default output.
 The player page opens a silent audio stream as soon as it loads, so Edge has an
 audio stream to route before Spotify plays a note, and no music leaks to the room
 live.
+
+Mac and Linux need no output nobody listens to, and no setup at all, and use Google Chrome (it has the protected-audio
+module Spotify needs, which Linux's own Chromium builds lack). On Linux the player is started on an output the studio
+makes for it (linux_audio); on a Mac a tap records it and silences it (mac_capture).
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 
-from . import audio_route
+from . import audio_route, linux_audio, mac_capture
 from .winpaths import local_appdata
+from .updates import clean_env
 
 HOME = os.path.join(local_appdata(), "lanlightshow")
 PROFILE = os.path.join(HOME, "player-browser")
-HIDDEN_OUTPUT = "CABLE Input"                          # part of the output's name (VB-Cable's, by default); config.json jam_hidden_output
+# Part of the output's name (VB-Cable's, by default); config.json jam_hidden_output. Mac and Linux make their own.
+HIDDEN_OUTPUT = {"darwin": mac_capture.DEVICE, "linux": linux_audio.DESCRIPTION}.get(sys.platform, "CABLE Input")
+BROWSER_NAME = {"darwin": "Google Chrome, hidden", "linux": "Google Chrome, hidden"}.get(sys.platform, "Microsoft Edge, hidden")
+
+
+def own_hidden_output() -> bool:
+    """Does the studio make the hidden output itself (so there is nothing to pick)?"""
+    return sys.platform != "win32"
+
+
+def hidden_problem() -> str:
+    """Why this system cannot record Spotify's sound, or "". (Windows: said when the output is looked for.)"""
+    if sys.platform == "darwin":
+        return mac_capture.problem()
+    if sys.platform == "win32":
+        return ""
+    return "" if linux_audio.available() else "Jam mode needs PulseAudio or PipeWire (the pactl command) to record Spotify's sound"
 
 
 def edge() -> str | None:
@@ -44,23 +66,51 @@ def edge() -> str | None:
     return None
 
 
+def player_browser_exe(plat: str = sys.platform, exists=os.path.exists, which=shutil.which) -> str | None:
+    if plat == "win32":
+        return edge()
+    if plat == "darwin":
+        return next((p for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge") if exists(p)), None)
+    return next((p for p in map(which, ("google-chrome", "google-chrome-stable", "microsoft-edge", "microsoft-edge-stable")) if p), None)
+
+
 def _version(exe: str) -> str:
+    if sys.platform != "win32":
+        try:
+            out = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=10, env=clean_env()).stdout
+            return next((w for w in out.split() if w[:1].isdigit() and "." in w), "140.0.0.0")
+        except (OSError, subprocess.SubprocessError):
+            return "140.0.0.0"
     folder = os.path.dirname(exe)
     vs = [d for d in os.listdir(folder) if d[:1].isdigit() and os.path.isdir(os.path.join(folder, d))]
     vs.sort(key=lambda v: [int(x) for x in v.split(".") if x.isdigit()])
     return vs[-1] if vs else "140.0.0.0"
 
 
-def user_agent(exe: str) -> str:
-    # headless Edge calls itself "HeadlessEdg"; Spotify's player may turn that away. It is the same Edge.
-    v = _version(exe)
+def user_agent(exe: str, plat: str = sys.platform, version: str | None = None) -> str:
+    # a headless browser calls itself "Headless..."; Spotify's player may turn that away. It is the same browser.
+    v = version or _version(exe)
+    if plat == "darwin":
+        return f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{v} Safari/537.36"
+    if plat != "win32":
+        return f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{v} Safari/537.36"
     return f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{v} Safari/537.36 Edg/{v}"
 
 
+def _processes() -> str:
+    """Every process on a Mac or Linux, as "pid<tab>command" lines."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return "\n".join("\t".join(line.strip().split(None, 1)) for line in out.splitlines() if line.strip())
+
+
 def audio_pids(profile: str = PROFILE) -> list[int]:
-    """Edge's audio processes for the player's profile (normally one)."""
+    """The browser's audio processes for the player's profile (normally one)."""
     if sys.platform != "win32":
-        return []
+        return parse_audio_pids(_processes(), profile)
     ps = ("Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | "
           "ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }")
     try:
@@ -81,8 +131,15 @@ def parse_audio_pids(listing: str, profile: str) -> list[int]:
 
 
 def close_leftovers(profile: str = PROFILE) -> None:
-    """End Edge processes still running the player's profile (the profile can only be open once)."""
+    """End browser processes still running the player's profile (the profile can only be open once)."""
     if sys.platform != "win32":
+        for line in _processes().splitlines():
+            pid, _, cmd = line.partition("\t")
+            if f"--user-data-dir={profile}" in cmd and pid.isdigit():
+                try:
+                    os.kill(int(pid), 9)
+                except OSError:
+                    pass
         return
     ps = ("Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | Where-Object { $_.CommandLine -like '*"
           + profile.replace("'", "''") + "*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }")
@@ -105,6 +162,7 @@ class HiddenPlayer:
         self.stop_flag = threading.Event()
         self.thread: threading.Thread | None = None
         self.last_launch = 0.0
+        self.mute_tap: subprocess.Popen | None = None      # (a Mac) silences the player for as long as it runs
 
     @property
     def running(self) -> bool:
@@ -124,13 +182,25 @@ class HiddenPlayer:
 
     def _launch(self) -> None:
         close_leftovers()                                 # a player left behind by a studio that crashed
-        exe = edge()
+        exe = player_browser_exe()
         if exe is None:
-            self.error = "Microsoft Edge is not installed; the studio's Spotify player needs it"
+            self.error = ("Microsoft Edge is not installed; the studio's Spotify player needs it" if sys.platform == "win32"
+                          else "Google Chrome is not installed; the studio's Spotify player needs it")
             return
-        if audio_route.device_id(self.hidden_output) is None:
-            self.error = f"no output named like {self.hidden_output!r} to send Spotify to"
-            return
+        env = clean_env()
+        if sys.platform == "win32":
+            if audio_route.device_id(self.hidden_output) is None:
+                self.error = f"no output named like {self.hidden_output!r} to send Spotify to"
+                return
+        else:
+            self.error = hidden_problem()
+            if self.error:
+                return
+            if sys.platform != "darwin":
+                if linux_audio.ensure_sink() is None:
+                    self.error = "could not make an output for Spotify to play into"
+                    return
+                env["PULSE_SINK"] = linux_audio.SINK
         os.makedirs(PROFILE, exist_ok=True)
         self.last_launch = time.monotonic()
         self.routed_pid = None
@@ -138,18 +208,47 @@ class HiddenPlayer:
                 "--autoplay-policy=no-user-gesture-required", "--disable-features=Translate,TranslateUI",
                 f"--user-agent={user_agent(exe)}", self.url]
         try:
-            self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            self.proc = subprocess.Popen(args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.error = ""
         except OSError as e:
-            self.error = f"could not start Edge: {e}"
+            self.error = f"could not start the player's browser: {e}"
+
+    def _mute(self, pid: int) -> bool:
+        """A Mac: a tap on the player that goes nowhere, so nothing reaches the room before a recording tap starts."""
+        self._unmute()
+        helper = mac_capture.helper_path()
+        if not helper:
+            return False
+        try:
+            self.mute_tap = subprocess.Popen([helper, str(pid)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except OSError:
+            return False
+
+    def _unmute(self) -> None:
+        if self.mute_tap is not None:
+            try:
+                self.mute_tap.stdin.close()               # (how the helper is told to end)
+                self.mute_tap.wait(3)
+            except (OSError, subprocess.SubprocessError):
+                self.mute_tap.kill()
+            self.mute_tap = None
 
     def _keep(self) -> None:
         """Start the player, route its sound as soon as it has any, and restart it if it dies."""
         while not self.stop_flag.is_set():
             if not self.running and time.monotonic() - self.last_launch > 10.0:
                 self._launch()
-            if self.running:
+            if self.running and sys.platform.startswith("linux"):
+                self.routed_pid = self.proc.pid           # (it started on the hidden output: nothing to move)
+            elif self.running and sys.platform == "darwin":
+                pids = audio_pids()
+                if pids and pids[0] != self.routed_pid:
+                    self.routed_pid = pids[0] if self._mute(pids[0]) else None
+                elif not pids:
+                    self.routed_pid = None
+            elif self.running:
                 pids = audio_pids()
                 new = [p for p in pids if p != self.routed_pid]
                 if new:
@@ -166,7 +265,7 @@ class HiddenPlayer:
         """Hand Edge's sound back to the default output, then close the player."""
         self.stop_flag.set()
         pid = self.routed_pid
-        if pid is not None and self.running:
+        if pid is not None and self.running and sys.platform == "win32":
             audio_route.route(pid, None)                  # needs the player still playing its silent stream
         self.routed_pid = None
         if self.proc is not None and self.proc.poll() is None:
@@ -175,7 +274,12 @@ class HiddenPlayer:
                                creationflags=subprocess.CREATE_NO_WINDOW)
             else:
                 self.proc.kill()
+                close_leftovers()
         self.proc = None
+        if sys.platform == "darwin":
+            self._unmute()                                # (after the player: nothing plays once it is gone)
+        elif sys.platform != "win32":
+            linux_audio.remove_sink()
 
     def to_json(self) -> dict:
         return {"hidden": True, "running": self.running, "routed": self.routed, "hidden_output": self.hidden_output,

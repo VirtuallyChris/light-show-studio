@@ -57,7 +57,10 @@ if sys.platform == "win32":
 else:
     icon = os.path.join(ROOT, "lightshow", "studio", "static", "icon-512.png")   # (Pillow turns it into .icns)
 
-a = Analysis([os.path.join(SPECPATH, "entry.py")], pathex=[ROOT], datas=datas, binaries=collect_dynamic_libs("xgboost"), hiddenimports=hidden,
+binaries = collect_dynamic_libs("xgboost")
+if sys.platform == "darwin":                               # the audio helper Jam mode records with, built by the release workflow
+    binaries += [(os.path.join(SPECPATH, "mac", "audiotap"), os.path.join("lightshow", "studio", "bin"))]
+a = Analysis([os.path.join(SPECPATH, "entry.py")], pathex=[ROOT], datas=datas, binaries=binaries, hiddenimports=hidden,
              excludes=excludes, noarchive=False)
 INTEL_MAC = sys.platform == "darwin" and platform.machine() == "x86_64"
 if INTEL_MAC:
@@ -82,6 +85,7 @@ if sys.platform == "darwin":
                      "LSMinimumSystemVersion": "14.0" if INTEL_MAC else "12.0",     # (Homebrew's libomp, above)
                      "NSHighResolutionCapable": True,
                      "NSMicrophoneUsageDescription": "Light Show Studio listens to measure your speakers' delay and to follow the music.",
+                     "NSAudioCaptureUsageDescription": "Light Show Studio records Spotify's sound in memory, so the lights can study each song before the room hears it.",
                      "NSLocalNetworkUsageDescription": "Light Show Studio finds and drives the lights and speakers on your network.",
                      "NSBonjourServices": ["_googlecast._tcp", "_hue._tcp"],
                  })

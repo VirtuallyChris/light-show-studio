@@ -78,6 +78,9 @@ jobs:
           # would otherwise be compiled from source, and fail
           pip install --prefer-binary -r requirements.txt -r requirements-addons.txt pyinstaller pillow
           echo "LSS_VERSION=${LSS_VERSION#v}" >> "$GITHUB_ENV"
+      - name: Mac audio helper (Jam mode)
+        if: runner.os == 'macOS'
+        run: swiftc -O -target "$(uname -m)-apple-macos14.2" -framework CoreAudio -framework AudioToolbox -framework Foundation -o packaging/mac/audiotap packaging/mac/audiotap.swift
       - name: Build the app
         run: pyinstaller --noconfirm --clean packaging/lightshow.spec
 

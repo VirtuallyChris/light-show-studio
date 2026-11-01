@@ -8,6 +8,7 @@ import html
 import ipaddress
 import os
 import re
+import sys
 import threading
 import time
 
@@ -90,11 +91,11 @@ class JamService:
                                    start_jam=lambda: self._start({"source": "studio", "speakers": "none", "target_delay": 20, "prelisten": True}),
                                    stop_jam=self._stop, device_id=lambda: self.player.device_id,
                                    fetch=self.fetch if self._fetch_on() else None)
-        self.player_browser = "Microsoft Edge, hidden"
         self.player_enabled = True                      # False: a test copy that must not register a Spotify speaker
-        from .player_browser import HIDDEN_OUTPUT, HiddenPlayer
+        from .player_browser import BROWSER_NAME, HIDDEN_OUTPUT, HiddenPlayer, own_hidden_output
+        self.player_browser = BROWSER_NAME
         self.hidden = HiddenPlayer(f"http://127.0.0.1:{studio.port}/static/player.html",
-                                   load_config().get("jam_hidden_output", HIDDEN_OUTPUT))
+                                   HIDDEN_OUTPUT if own_hidden_output() else load_config().get("jam_hidden_output", HIDDEN_OUTPUT))
         self.engine: JamEngine | None = None
         self.runner: JamRunner | None = None
         self.capture = None
@@ -218,7 +219,8 @@ class JamService:
                           level_target=float(self.load_config().get("jam_level_target", -9.0)))
         hidden_name = self._hidden_output_name()
         if not demo and hidden_name is None:
-            raise ValueError(f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")
+            from .player_browser import hidden_problem
+            raise ValueError(hidden_problem() or f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")
         where = body.get("speakers", "cast")
         # Speakers asked for (Cast or this PC) means the room always hears it: on the Cast speaker
         # when one is connected, otherwise on this PC. Only "none" is a silent preview. (A jam that
@@ -354,8 +356,8 @@ class JamService:
             from .local_output import DEFAULT_OFFSET_S
             pc_device = self.load_config().get("jam_room_output") or None          # the default output, unless set
             if check and self._same_device(hidden_name if hidden_name is not None else self._hidden_output_name(), pc_device):
-                raise ValueError(f"Windows' default output is {hidden_name or self.hidden.hidden_output}, the output Spotify plays "
-                                 "into unheard. Set your speakers or headphones as the default output in Windows' sound settings.")
+                raise ValueError(f"The default output is {hidden_name or self.hidden.hidden_output}, the output Spotify plays "
+                                 "into unheard. Set your speakers or headphones as the default output in your sound settings.")
             offset = float(self.load_config().get("pc_output_offset_ms", DEFAULT_OFFSET_S * 1000)) / 1000.0
             return ProcessOutput(pc_device, offset)         # plays from its own process: the analysis cannot starve it
         return VirtualOutput(time.monotonic)
@@ -433,7 +435,14 @@ class JamService:
         self.hidden.stop()
 
     def _hidden_output_name(self) -> str | None:
+        """What the jam records: an output's name, or on a Mac the tap's. None if there is nothing to record."""
+        if sys.platform == "darwin":
+            from . import mac_capture
+            return mac_capture.DEVICE if mac_capture.available() else None
         try:
+            if sys.platform != "win32":
+                from . import linux_audio
+                linux_audio.ensure_sink()              # (it may not be there yet, or the player has gone)
             import soundcard as sc
             return next((s.name for s in sc.all_speakers() if self.hidden.hidden_output.lower() in s.name.lower()), None)
         except Exception:  # noqa: BLE001

@@ -49,16 +49,21 @@ def _outputs() -> tuple[list[str], str]:
 def hidden_output_help() -> dict:
     """Where to get an output nobody listens to, for this computer's system."""
     import sys
-    if sys.platform == "darwin":
-        return {"name": "BlackHole 2ch", "url": "https://existential.audio/blackhole/", "label": "BlackHole (free)"}
-    if sys.platform.startswith("linux"):
-        return {"name": "Light Show Studio", "url": "", "label": "made by the studio itself"}
+    if sys.platform != "win32":
+        return {"name": "", "url": "", "label": "nothing to install"}
     return {"name": "CABLE Input", "url": "https://vb-audio.com/Cable/", "label": "VB-Cable (free)"}
 
 
 class HomeSetup:
     def __init__(self, studio, load_config, save_config, port: int):
         self.studio, self.load_config, self.save_config, self.port = studio, load_config, save_config, port
+
+    @staticmethod
+    def _sound_note(hidden: str, found: bool) -> str:
+        from .player_browser import hidden_problem, own_hidden_output
+        if own_hidden_output():
+            return "Set up by itself" if found else hidden_problem()
+        return f"Spotify plays into {hidden}" if found else f"Install {hidden_output_help()['label']} for Spotify to play into"
 
     def routes(self) -> list:
         return [
@@ -114,8 +119,9 @@ class HomeSetup:
         signed_in = bool(sp and sp.signed_in)
         client = bool((cfg.get("spotify") or {}).get("client_id"))
         outs, _ = _outputs()
+        from .player_browser import hidden_problem, own_hidden_output
         hidden = cfg.get("jam_hidden_output") or hidden_output_help()["name"]
-        hidden_found = any(hidden.lower() in o.lower() for o in outs)
+        hidden_found = not hidden_problem() if own_hidden_output() else any(hidden.lower() in o.lower() for o in outs)
         try:
             from .model_worker import venv_py
             models = os.path.exists(venv_py())
@@ -132,7 +138,7 @@ class HomeSetup:
             item("speakers", "Speakers", casts or room_speakers or cfg.get("cast_offsets"),
                  f"{casts} Cast speakers found" if casts else ("Speakers in your rooms" if room_speakers else "Find your Google Cast speakers")),
             item("spotify", "Spotify", signed_in, "Signed in" if signed_in else ("Sign in to finish" if client else "Connect your Spotify Premium account")),
-            item("sound", "Sound devices", hidden_found, f"Spotify plays into {hidden}" if hidden_found else f"Install {hidden_output_help()['label']} for Spotify to play into"),
+            item("sound", "Sound devices", hidden_found, self._sound_note(hidden, hidden_found)),
             item("models", "AI models", models, "Installed" if models else "Optional: better beats, sections and drums"),
             item("phone", "Your phone", True, self.link()),
             item("addons", "Add-ons", True, ", ".join(on) if on else "None switched on"),

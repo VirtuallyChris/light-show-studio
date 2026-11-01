@@ -259,20 +259,33 @@ def _collect(found: dict, ip: str, msg: dict, arp: dict) -> None:
     found[dev_ip] = GoveeDevice(ip=dev_ip, device_id=d.get("device", ""), sku=d.get("sku", ""), mac=arp.get(dev_ip, ""))
 
 
-_MAC_RE = re.compile(r"(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f]{2}(?:[-:][0-9a-f]{2}){5})", re.I)
+# The ARP cache as each system prints it. Windows: "192.168.1.5   d0-c9-07-aa-01-02". Mac and Linux "arp -a":
+# "? (192.168.1.5) at d0:c9:7:aa:1:2 on en0" (a Mac drops leading zeros). Linux "ip neigh": "192.168.1.5 dev wlan0 lladdr d0:c9:..."
+_MAC_RES = (re.compile(r"(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f]{2}(?:[-:][0-9a-f]{2}){5})", re.I),
+            re.compile(r"\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-f]{1,2}(?::[0-9a-f]{1,2}){5})", re.I),
+            re.compile(r"(\d+\.\d+\.\d+\.\d+) dev \S+ lladdr ([0-9a-f]{2}(?::[0-9a-f]{2}){5})", re.I))
 
 
-def arp_table() -> dict[str, str]:
-    """Return {ip: mac} from the OS ARP cache (works on Windows, Linux, macOS)."""
-    try:
-        out = subprocess.run(["arp", "-a"], capture_output=True, text=True, timeout=5, creationflags=NO_WINDOW).stdout
-    except (OSError, subprocess.SubprocessError):
-        return {}
+def parse_arp(text: str) -> dict[str, str]:
     table = {}
-    for ip, mac in _MAC_RE.findall(out):
-        table[ip] = normalize_mac(mac)
+    for pattern in _MAC_RES:
+        for ip, mac in pattern.findall(text):
+            table[ip] = normalize_mac(mac)
     return table
 
 
+def arp_table() -> dict[str, str]:
+    """Return {ip: mac} from the OS ARP cache (works on Windows, Linux, macOS). Many Linux systems have only `ip`."""
+    for cmd in (["arp", "-a"], ["ip", "neigh"]):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=NO_WINDOW).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        table = parse_arp(out)
+        if table:
+            return table
+    return {}
+
+
 def normalize_mac(mac: str) -> str:
-    return mac.replace("-", ":").upper()
+    return ":".join(part.zfill(2) for part in mac.replace("-", ":").split(":")).upper()
