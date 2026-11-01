@@ -26,6 +26,12 @@
       "port": 8799
     },
     {
+      "name": "studio-docs",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "lightshow", "studio", "--no-browser", "--stay", "--port", "8797", "--no-lights", "--no-player"],
+      "port": 8797
+    },
+    {
       "name": "bulbshow",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "bulbshow", "--no-browser", "--stay", "--port", "8770"],
