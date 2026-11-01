@@ -16,8 +16,9 @@ import time
 import urllib.request
 from urllib.parse import quote
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SHOWS_DIR = os.path.join(ROOT, "bulbshow", "shows")
+from ..appdirs import FROZEN, code_dir, data_dir, self_command
+
+SHOWS_DIR = os.path.join(data_dir(), "bulbshow", "shows")
 
 
 def _http(method: str, url: str, body: dict | None = None, timeout: float = 2.0):
@@ -110,9 +111,9 @@ class BulbShows:
         w = os.path.join(os.path.dirname(exe), "pythonw.exe")
         flags = 0
         if os.name == "nt":
-            exe = w if os.path.exists(w) else exe
+            exe = w if os.path.exists(w) and not FROZEN else exe
             flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-        subprocess.Popen([exe, "-m", "bulbshow", "--no-browser", "--port", str(self.port)], cwd=ROOT,
+        subprocess.Popen(self_command("bulbshow", "--no-browser", "--port", str(self.port), exe=exe), cwd=code_dir(),
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          creationflags=flags, close_fds=True)
 

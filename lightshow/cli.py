@@ -12,8 +12,9 @@ import os
 import sys
 
 from . import govee_lan
+from .appdirs import data_dir
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+CONFIG_PATH = os.path.join(data_dir(), "config.json")
 DEFAULT_SEGMENTS = 10
 
 

@@ -139,7 +139,7 @@ class HiddenPlayer:
                 f"--user-agent={user_agent(exe)}", self.url]
         try:
             self.proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                         creationflags=subprocess.CREATE_NO_WINDOW)
+                                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.error = ""
         except OSError as e:
             self.error = f"could not start Edge: {e}"
@@ -170,8 +170,11 @@ class HiddenPlayer:
             audio_route.route(pid, None)                  # needs the player still playing its silent stream
         self.routed_pid = None
         if self.proc is not None and self.proc.poll() is None:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True,
-                           creationflags=subprocess.CREATE_NO_WINDOW)
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            else:
+                self.proc.kill()
         self.proc = None
 
     def to_json(self) -> dict:

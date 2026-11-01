@@ -32,12 +32,14 @@ from .review import Review
 from .cues import CueRunner, LiveHooks
 from . import addons
 from .doorbell import Doorbell
+from ..appdirs import data_dir
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
 ROOT = os.path.dirname(os.path.dirname(HERE))
-SHOWS_DIR = os.path.join(ROOT, "shows")
-CONFIG_PATH = os.path.join(ROOT, "config.json")
+DATA = data_dir()                  # the project folder from source; the user's app data when packaged
+SHOWS_DIR = os.path.join(DATA, "shows")
+CONFIG_PATH = os.path.join(DATA, "config.json")
 AUDIO_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".opus"}
 
 
@@ -107,7 +109,7 @@ def light_priority_policy() -> bool | None:
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command",
                               "(Get-NetQosPolicy | Where-Object { $_.Name -like 'Light Show Studio*' } | Measure-Object).Count"],
-                             capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW).stdout.strip()
+                             capture_output=True, text=True, timeout=15, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
         found = out.isdigit() and int(out) > 0
     except (OSError, subprocess.TimeoutExpired):
         found = None
@@ -1671,7 +1673,7 @@ def _rotate_logs(limit: int = 2_000_000) -> None:
     """studio.log and models.log grow with every session: past 2 MB, each is kept as .1 (one older copy)
     and starts afresh. (Not while another studio has it open: then it is left as it is.)"""
     for name in ("studio.log", "models.log"):
-        path = os.path.join(ROOT, name)
+        path = os.path.join(DATA, name)
         try:
             if os.path.getsize(path) > limit:
                 os.replace(path, path + ".1")
@@ -1683,9 +1685,9 @@ def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
         app_window: bool = True, stay: bool = False, lights: bool = True, player: bool = True) -> None:
     _rotate_logs()
     if sys.stdout is None:
-        # Started without a console (pythonw, the hidden launcher): keep a log
-        # next to the project instead of losing every message.
-        log = open(os.path.join(ROOT, "studio.log"), "a", encoding="utf-8", buffering=1)
+        # Started without a console (pythonw, the hidden launcher, the packaged app): keep a log
+        # in the data folder instead of losing every message.
+        log = open(os.path.join(DATA, "studio.log"), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
         print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} studio starting (hidden)")
     os.makedirs(SHOWS_DIR, exist_ok=True)

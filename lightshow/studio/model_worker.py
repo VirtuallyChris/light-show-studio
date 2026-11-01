@@ -21,6 +21,7 @@ import time
 
 import numpy as np
 
+from ..appdirs import data_dir
 from .priority import POPEN_BELOW_NORMAL
 from .winpaths import local_appdata
 
@@ -31,9 +32,7 @@ def models_env_dir() -> str:
     """Where the in-app installer (model_setup.py) puts the model environment: a standalone Python with the
     models' packages, in <this>/python. The one place to change when the app's data folder moves.
     Run from source, the project folder, like .venv-songformer (see below); a packaged app, its app data."""
-    if getattr(sys, "frozen", False):
-        return os.path.join(local_appdata(), "LightShowStudio", "models-env")
-    return os.path.join(ROOT, "models-env")
+    return os.path.join(data_dir(), "models-env")
 
 
 def _paths(plat: str):
@@ -76,7 +75,7 @@ def venv_py() -> str:
 
 
 VENV_PY = venv_py()
-MODELS_LOG = os.path.join(ROOT, "models.log")   # what the model processes print (PyTorch's warnings, a crash)
+MODELS_LOG = os.path.join(data_dir(), "models.log")   # what the model processes print (PyTorch's warnings, a crash)
 RETRY_S = 120.0                                  # a model that would not start is tried again after this
 
 
@@ -358,6 +357,10 @@ class ModelWorker:
         """The Python the worker runs in: the model environment's (a subclass may run elsewhere)."""
         return venv_py()
 
+    def command(self) -> list[str]:
+        """The worker's command line: its module, in the model environment's Python."""
+        return [self.python(), "-m", self.module]
+
     def available(self) -> bool:
         return os.path.exists(self.python() if not self.hosted else venv_py())
 
@@ -386,7 +389,7 @@ class ModelWorker:
             err.flush()
         except OSError:
             err = subprocess.DEVNULL
-        self.proc = subprocess.Popen([self.python(), "-m", self.module], cwd=ROOT, env=env,
+        self.proc = subprocess.Popen(self.command(), cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                                      creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)
         hello = self._read(self.start_timeout)          # the first run downloads the model

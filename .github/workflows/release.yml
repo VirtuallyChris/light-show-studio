@@ -1,0 +1,131 @@
+# The downloads: on a version tag (v1.2.3), build the app for Windows, macOS (Apple Silicon and Intel) and Linux,
+# start each one headless to check it serves its pages, and attach them to the GitHub release.
+# The README's download buttons point at releases/latest/download/<file>, so the file names never change.
+# Run it by hand (Actions > Release > Run workflow) to build without publishing.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON: "3.13"
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    # Windows is the system the studio is built on: its tests gate the release. macOS and Linux report only,
+    # until the rest of their support lands.
+    continue-on-error: ${{ matrix.os != 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON }}
+          cache: pip
+      - name: Linux audio libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libsndfile1 libpulse0
+      - run: pip install -r requirements.txt -r requirements-addons.txt
+      - run: python -m unittest discover -s tests
+
+  build:
+    name: Build ${{ matrix.asset }}
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: LightShowStudio-Windows.exe
+          - os: macos-15
+            asset: LightShowStudio-Mac.dmg
+          - os: macos-15-intel
+            asset: LightShowStudio-Mac-Intel.dmg
+          - os: ubuntu-22.04
+            asset: LightShowStudio-Linux.AppImage
+    runs-on: ${{ matrix.os }}
+    env:
+      LSS_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.0.0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON }}
+          cache: pip
+      - name: Linux audio libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 libsndfile1 libpulse0 libfuse2
+      - name: Install
+        shell: bash
+        run: |
+          pip install -r requirements.txt -r requirements-addons.txt pyinstaller pillow
+          echo "LSS_VERSION=${LSS_VERSION#v}" >> "$GITHUB_ENV"
+      - name: Build the app
+        run: pyinstaller --noconfirm --clean packaging/lightshow.spec
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: python packaging/smoke_test.py dist/LightShowStudio/LightShowStudio.exe
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: python packaging/smoke_test.py "dist/Light Show Studio.app/Contents/MacOS/LightShowStudio"
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: python packaging/smoke_test.py dist/LightShowStudio/LightShowStudio
+
+      - name: Package (Windows installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DVersion=$env:LSS_VERSION" packaging\installer.iss
+      - name: Package (macOS disk image)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dmg && cp -R "dist/Light Show Studio.app" dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname "Light Show Studio" -srcfolder dmg -ov -format UDZO "dist/${{ matrix.asset }}"
+      - name: Package (Linux AppImage)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p AppDir/usr/lib
+          cp -R dist/LightShowStudio AppDir/usr/lib/light-show-studio
+          cp packaging/linux/AppRun packaging/linux/light-show-studio.desktop AppDir/
+          cp lightshow/studio/static/icon-512.png AppDir/light-show-studio.png
+          chmod +x AppDir/AppRun
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir "dist/${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "Light Show Studio $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" assets/* -R "$GITHUB_REPOSITORY" --clobber

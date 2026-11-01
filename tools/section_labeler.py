@@ -16,11 +16,12 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from lightshow.appdirs import data_dir  # noqa: E402
 from lightshow.studio import labeler  # noqa: E402
 from lightshow.studio.jam import JamLibrary  # noqa: E402
 
 if __name__ == "__main__":
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = JamLibrary(os.path.join(data_dir(), "shows"))
     cmd = sys.argv[1] if len(sys.argv) > 1 else "eval"
     if "--fresh" in sys.argv and os.path.isdir(labeler.CACHE):
         for f in os.listdir(labeler.CACHE):

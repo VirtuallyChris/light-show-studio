@@ -29,10 +29,11 @@ import threading
 import time
 from collections import deque
 
+from ..appdirs import data_dir, self_command
 from .model_worker import ModelWorker
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SPOTDL = os.path.join(ROOT, ".venv-spotdl", "Scripts" if os.name == "nt" else "bin", "spotdl" + (".exe" if os.name == "nt" else ""))
+SPOTDL = os.path.join(data_dir(), ".venv-spotdl", "Scripts" if os.name == "nt" else "bin", "spotdl" + (".exe" if os.name == "nt" else ""))
 SPOTDL_HOME = os.path.join(os.path.expanduser("~"), ".spotdl")   # where `spotdl --download-deno` puts Deno
 LENGTH_SLACK_S = 8.0            # a copy this much longer or shorter than Spotify's is another version (a little
                                 # more silence at an end is fine: the jam checks the copy against Spotify by ear)
@@ -248,6 +249,9 @@ class AnalysisWorker(ModelWorker):
         exe = sys.executable
         console = os.path.join(os.path.dirname(exe), "python.exe")        # (pythonw.exe when started hidden)
         return console if os.path.basename(exe).lower() == "pythonw.exe" and os.path.exists(console) else exe
+
+    def command(self) -> list[str]:
+        return self_command(self.module, exe=self.python())     # (the packaged app's own executable, packaged)
 
 
 ANALYSER = AnalysisWorker("lightshow.studio.analysis_worker", "analysis", start_timeout=120, request_timeout=900)

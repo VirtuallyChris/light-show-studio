@@ -218,8 +218,8 @@ class TestEnvLayouts(unittest.TestCase):
 
     def test_the_installer_folder_is_the_project_from_source_and_app_data_when_frozen(self):
         self.assertEqual(mw.models_env_dir(), os.path.join(mw.ROOT, "models-env"))
-        with mock.patch.object(sys, "frozen", True, create=True), mock.patch.object(mw, "local_appdata", return_value="/data"):
-            self.assertEqual(mw.models_env_dir(), os.path.join("/data", "LightShowStudio", "models-env"))
+        with mock.patch.object(mw, "data_dir", return_value="/data"):          # (a packaged app's data folder)
+            self.assertEqual(mw.models_env_dir(), os.path.join("/data", "models-env"))
 
     def test_base_python_windows_layout(self):
         with tempfile.TemporaryDirectory() as d:

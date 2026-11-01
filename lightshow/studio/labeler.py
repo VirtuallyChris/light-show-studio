@@ -30,8 +30,10 @@ import time
 
 import numpy as np
 
+from ..appdirs import data_dir, self_command
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-JAM = os.path.join(ROOT, "shows", "_jam")
+JAM = os.path.join(data_dir(), "shows", "_jam")
 FEAT = os.path.join(JAM, "features")                        # SongFormer's features, one set a song
 CACHE = os.path.join(FEAT, "bars")                          # per-bar features, one file a song
 MODEL = os.path.join(JAM, "labeler.joblib")
@@ -340,9 +342,8 @@ def retrain_soon(jam: str = JAM, log=print) -> bool:
 
     def run():
         import subprocess
-        import sys
         try:
-            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "section_labeler.py"), "train"], cwd=ROOT,
+            r = subprocess.run(self_command("lightshow.studio.labeler_train"), cwd=ROOT,
                                capture_output=True, text=True, timeout=1800,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             line = next((x for x in r.stdout.splitlines() if x.startswith("[labeler]")), "")

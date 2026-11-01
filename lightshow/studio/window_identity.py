@@ -31,11 +31,15 @@ VT_LPWSTR = 31
 
 
 def relaunch_command() -> str:
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}"'
     wscript = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "wscript.exe")
     return f'"{wscript}" "{os.path.join(ROOT, NAME + ".vbs")}"'
 
 
 def icon_resource() -> str:
+    if getattr(sys, "frozen", False):
+        return sys.executable + ",0"
     return os.path.join(ROOT, NAME + ".ico") + ",0"
 
 

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Light Show Studio
+Comment=Light shows on your smart lights, synced to every song
+Exec=LightShowStudio
+Icon=light-show-studio
+Categories=AudioVideo;Audio;
+Terminal=false

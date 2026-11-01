@@ -1,0 +1,52 @@
+"""Where the app's code and its data live, run from source or as a packaged download.
+
+From source both are the project folder, as they always were: config.json, shows/ and the logs sit next
+to the code. A packaged app (PyInstaller) has its code in a read-only bundle, so its data goes to the
+usual per-user folder of each system instead:
+
+    Windows   %LOCALAPPDATA%\\LightShowStudio
+    macOS     ~/Library/Application Support/Light Show Studio
+    Linux     $XDG_DATA_HOME/light-show-studio  (~/.local/share/light-show-studio)
+
+LSS_DATA_DIR overrides it (the release smoke test uses a scratch folder).
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+FROZEN = bool(getattr(sys, "frozen", False))
+SOURCE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def code_dir() -> str:
+    """The folder holding the `lightshow` and `bulbshow` packages (the bundle's own folder when packaged)."""
+    return getattr(sys, "_MEIPASS", SOURCE_ROOT) if FROZEN else SOURCE_ROOT
+
+
+def user_data_dir(plat: str = sys.platform, home: str | None = None, env: dict | None = None) -> str:
+    env = os.environ if env is None else env
+    home = home or os.path.expanduser("~")
+    if plat == "win32":
+        from lightshow.studio.winpaths import local_appdata
+        return os.path.join(local_appdata(), "LightShowStudio")
+    if plat == "darwin":
+        return os.path.join(home, "Library", "Application Support", "Light Show Studio")
+    return os.path.join(env.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share"), "light-show-studio")
+
+
+def data_dir() -> str:
+    """Where config.json, shows/ and the logs go. Made on first use."""
+    path = os.environ.get("LSS_DATA_DIR") or (user_data_dir() if FROZEN else SOURCE_ROOT)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def self_command(module: str, *args: str, frozen: bool = FROZEN, exe: str | None = None) -> list[str]:
+    """How to start one of the app's own modules in a new process: `python -m module` from source; the
+    packaged app's own executable with --run-module, which lightshow/__main__.py hands to that module."""
+    exe = exe or sys.executable
+    if frozen:
+        return [exe, "--run-module", module, *args]
+    return [exe, "-m", module, *args]

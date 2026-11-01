@@ -16,7 +16,8 @@ from __future__ import annotations
 import importlib.util
 import os
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ..appdirs import code_dir
+
 
 ADDONS = {
     "doorbell": {"name": "Doorbell", "about": "A Reolink video doorbell rings a cue: the music dips and its show plays."},
@@ -32,7 +33,7 @@ def installed(addon: str) -> str:
     if addon == "homeassistant":
         return ""
     if addon == "bulbshow":
-        return "" if os.path.isdir(os.path.join(ROOT, "bulbshow")) else "Bulb Show is not in this copy"
+        return "" if os.path.isdir(os.path.join(code_dir(), "bulbshow")) else "Bulb Show is not in this copy"
     return "no such add-on"
 
 

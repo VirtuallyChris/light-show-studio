@@ -23,6 +23,7 @@ import webbrowser
 from aiohttp import web
 
 from lightshow import govee_lan
+from lightshow.appdirs import data_dir
 from lightshow.studio.winpaths import local_appdata
 
 from . import effects
@@ -33,9 +34,10 @@ from .sound import Sound
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 STATIC = os.path.join(HERE, "static")
-SHOWS_DIR = os.path.join(HERE, "shows")
-CONFIG_PATH = os.path.join(HERE, "config.json")
-STUDIO_CONFIG = os.path.join(ROOT, "config.json")      # read only: the speakers' measured delays
+DATA = os.path.join(data_dir(), "bulbshow")     # bulbshow/ itself from source; the app data when packaged
+SHOWS_DIR = os.path.join(DATA, "shows")
+CONFIG_PATH = os.path.join(DATA, "config.json")
+STUDIO_CONFIG = os.path.join(data_dir(), "config.json")      # read only: the speakers' measured delays
 
 NEW_SHOW = {"name": "", "source": "", "duration": 0.0, "layers": [[], []], "speaker": "", "bulb": None, "volume": 1.0, "light_ms": 0}
 
@@ -550,7 +552,8 @@ def keeps_log(open_browser: bool, stay: bool) -> bool:
 def run(host: str = "0.0.0.0", port: int = 8770, open_browser: bool = True, stay: bool = False,
         lights: bool = True, cast: bool = True) -> None:
     if keeps_log(open_browser, stay):
-        log = open(os.path.join(HERE, "bulbshow.log"), "a", encoding="utf-8", buffering=1)
+        os.makedirs(DATA, exist_ok=True)
+        log = open(os.path.join(DATA, "bulbshow.log"), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
         print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} Bulb Show starting" + ("" if open_browser else " (no window)"))
     url = f"http://127.0.0.1:{port}/"

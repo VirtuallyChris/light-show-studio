@@ -346,8 +346,8 @@ def main(argv=None):
     ap.add_argument("--no-save", action="store_true")
     args = ap.parse_args(argv)
 
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    pdir = os.path.join(root, "shows", "_calibration"); os.makedirs(pdir, exist_ok=True)
+    from ..appdirs import data_dir
+    pdir = os.path.join(data_dir(), "shows", "_calibration"); os.makedirs(pdir, exist_ok=True)
     wav = os.path.join(pdir, "song.wav")
     write_calibration_file(wav)
     url = f"http://{local_ip()}:{args.port}/api/audio/_calibration"

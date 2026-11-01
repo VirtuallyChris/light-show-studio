@@ -1,0 +1,4 @@
+#!/bin/sh
+# The AppImage's way in: the PyInstaller folder sits in usr/lib/light-show-studio.
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/lib/light-show-studio/LightShowStudio" "$@"
