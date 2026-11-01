@@ -660,7 +660,7 @@ main > .library { grid-column: 1; } main > .workspace { grid-column: 2; } main >
 .st-progress { height: 8px; border-radius: 4px; background: var(--bg4); overflow: hidden; margin: .6rem 0 .3rem; }
 .st-progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
 .st-phone { display: flex; align-items: center; gap: 1.6rem; padding: 1rem 0; }
-.st-phone svg { width: 11rem; height: 11rem; flex: none; background: var(--bg); border-radius: .8rem; }
+.st-phone svg { width: 11rem; height: 11rem; flex: none; border-radius: .8rem; shape-rendering: crispEdges; }
 .warn { color: var(--warn); }
 /* the rooms editor shown inside Settings: a page section, not a popover */
 #viewSettings .rooms-pop { position: static !important; width: auto; max-height: none; box-shadow: none; background: transparent; border: none; padding: .6rem 0 0; }

@@ -108,7 +108,8 @@ class HomeSetup:
             return ""
         import io
         buf = io.BytesIO()
-        segno.make(url, error="m").save(buf, kind="svg", scale=4, border=2, dark="#e8e9f0", light=None, xmldecl=False, svgns=True)
+        # no fixed size, so it fills its box; black on white with its margin, in any theme, as some phone cameras read nothing else
+        segno.make(url, error="m").save(buf, kind="svg", omitsize=True, border=3, dark="#000", light="#fff", xmldecl=False, svgns=True)
         return buf.getvalue().decode("utf-8")
 
     # -- the checklist --------------------------------------------------------------------------

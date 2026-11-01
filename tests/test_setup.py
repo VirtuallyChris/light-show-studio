@@ -56,7 +56,10 @@ class TestSetup(unittest.TestCase):
         with mock.patch.object(setup.govee_lan, "local_ip", return_value="192.168.1.20"):
             url = self.make().link()
         self.assertEqual(url, "http://192.168.1.20:8765/party")
-        self.assertIn("<svg", setup.HomeSetup.qr_svg(url))
+        svg = setup.HomeSetup.qr_svg(url)
+        self.assertIn("<svg", svg)
+        self.assertIn("viewBox", svg)                     # scales with its box, rather than sitting in a corner of it
+        self.assertNotIn('width="', svg.split(">")[0])
 
 
 if __name__ == "__main__":
