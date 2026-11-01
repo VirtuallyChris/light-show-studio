@@ -821,12 +821,20 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
 4. Choose where Spotify plays, under **Spotify plays in**:
    - **The studio itself** (recommended). While the studio is open it is a
      Spotify speaker called **Light Show Studio**. It runs Spotify's official
-     player (the Web Playback SDK) in Microsoft Edge with no window at all, and
-     sends Edge's sound to an output nobody listens to: **CABLE Input**, a
-     free virtual audio cable (VB-Cable), unless `jam_hidden_output` names
-     another (a PC's unused **Digital Audio (S/PDIF)** works too). The studio records that output and plays it to the room late on your
-     default output. There is nothing to route by hand and nothing in the
-     taskbar. Pick Light Show Studio from your phone, or host a Jam with it and
+     player (the Web Playback SDK) in a browser with no window at all, and
+     keeps its sound away from the room by itself; the studio records it and
+     plays it to the room late. There is nothing to install, route or set up:
+     - **Windows** (Microsoft Edge): the studio picks an output you aren't using
+       (S/PDIF, a monitor's HDMI, VB-Cable if you have it) and mutes it while the
+       player runs, then puts it back. `jam_hidden_output` or Settings chooses one
+       yourself. A computer with only one output needs
+       [VB-Cable](https://vb-audio.com/Cable/) (free).
+     - **Mac** (Google Chrome, macOS 14.2 or later): macOS asks once for permission
+       to record audio.
+     - **Linux** (Google Chrome, not distro Chromium): the studio makes a temporary
+       output in PulseAudio or PipeWire.
+
+     Pick Light Show Studio from your phone, or host a Jam with it and
      let others join and queue songs. It needs a sign-in made after this was
      added (the Jam panel says if yours is older).
 

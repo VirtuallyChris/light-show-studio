@@ -109,6 +109,55 @@ class _Factory:
         return text
 
 
+def device_mute(name_part: str, on: bool | None = None) -> bool | None:
+    """Mute or unmute a whole output (on=None only reads it), as its volume control in Windows does. Its state after, or None
+    if Windows refused. Muting an output silences it but not a recording of it: the sound is recorded before the mute."""
+    if not _WIN:
+        return None
+    try:
+        import ctypes
+        dev = device_id(name_part)
+        if not dev:
+            return None
+        ole = ctypes.OleDLL("ole32")
+        started = False
+        try:
+            ole.CoInitializeEx(None, 0)                   # (apartment-threaded)
+            started = True
+        except OSError:
+            pass                                          # this thread is already set up, some other way
+
+        def method(ptr, slot, *argtypes):
+            vtable = ctypes.cast(ctypes.cast(ptr, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+            return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *argtypes)(vtable[slot])
+        held = []
+        try:
+            enumerator, device, volume = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_void_p()
+            clsid, iid = _guid("BCDE0395-E52F-467C-8E3D-C4579291692E"), _guid("A95664D2-9614-4F35-A746-DE8DB63617E6")
+            ole.CoCreateInstance(ctypes.byref(clsid), None, 23, ctypes.byref(iid), ctypes.byref(enumerator))
+            held.append(enumerator)
+            if method(enumerator, 5, ctypes.c_wchar_p, ctypes.c_void_p)(enumerator, dev, ctypes.byref(device)) != 0:   # GetDevice
+                return None
+            held.append(device)
+            iid = _guid("5CDF2C82-841E-4546-9722-0CF74078229A")                                                       # IAudioEndpointVolume
+            if method(device, 3, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)(device, ctypes.byref(iid), 23, None, ctypes.byref(volume)) != 0:
+                return None
+            held.append(volume)
+            if on is not None and method(volume, 14, ctypes.c_int, ctypes.c_void_p)(volume, int(on), None) != 0:       # SetMute
+                return None
+            state = ctypes.c_int()
+            if method(volume, 15, ctypes.c_void_p)(volume, ctypes.byref(state)) != 0:                                  # GetMute
+                return None
+            return bool(state.value)
+        finally:
+            for ptr in reversed(held):
+                method(ptr, 2)(ptr)                       # IUnknown::Release
+            if started:
+                ole.CoUninitialize()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def device_id(name_part: str) -> str | None:
     """The Windows id of the output whose name contains `name_part` (e.g. "S/PDIF")."""
     try:

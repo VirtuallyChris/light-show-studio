@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -172,6 +173,95 @@ class TestPlayerBrowser(unittest.TestCase):
                              f"102\t/opt/chrome --type=renderer --user-data-dir={prof}",
                              "103\t/opt/chrome --type=utility --utility-sub-type=audio.mojom.AudioService --user-data-dir=/home/u/mine"])
         self.assertEqual(player_browser.parse_audio_pids(listing, prof), [101])
+
+
+class TestPickingTheHiddenOutput(unittest.TestCase):
+    def test_never_the_default_or_the_rooms_output(self):
+        outs = ["Speakers", "LG Monitor (NVIDIA)", "DELL Monitor (NVIDIA)"]
+        self.assertEqual(player_browser.pick_hidden_output(outs, "Speakers", "LG Monitor"), ("DELL Monitor (NVIDIA)", True))
+
+    def test_one_output_has_nothing_to_pick(self):
+        self.assertEqual(player_browser.pick_hidden_output(["Speakers"], "Speakers"), ("", False))
+        self.assertEqual(player_browser.pick_hidden_output([], ""), ("", False))
+
+    def test_vb_cable_first_and_it_needs_no_muting(self):
+        outs = ["Speakers", "Digital Audio (S/PDIF)", "CABLE Input (VB-Audio Virtual Cable)"]
+        self.assertEqual(player_browser.pick_hidden_output(outs, "Speakers"), ("CABLE Input (VB-Audio Virtual Cable)", False))
+
+    def test_the_least_likely_to_be_in_use_next(self):
+        outs = ["Speakers", "Headset (Bluetooth)", "LG Monitor", "Digital Audio (S/PDIF)"]
+        self.assertEqual(player_browser.pick_hidden_output(outs, "Speakers"), ("Digital Audio (S/PDIF)", True))
+        self.assertEqual(player_browser.pick_hidden_output(["Speakers", "Headset (Bluetooth)", "LG Monitor"], "Speakers"), ("LG Monitor", True))
+        self.assertEqual(player_browser.pick_hidden_output(["Speakers", "Headset (Bluetooth)"], "Speakers"), ("Headset (Bluetooth)", True))
+
+
+class TestMutingThePickedOutput(unittest.TestCase):
+    """Windows only in real life; the calls to Windows are fakes here, so this runs anywhere and mutes nothing."""
+
+    def setUp(self):
+        self.state = {"Digital Audio (S/PDIF)": False}
+        self.calls = []
+
+        def device_mute(name, on=None):
+            if on is not None:
+                self.calls.append((name, on))
+                self.state[name] = on
+            return self.state.get(name)
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for target, name, value in ((player_browser.audio_route, "device_mute", device_mute),
+                                    (player_browser, "MUTED_NOTE", os.path.join(self.dir.name, "muted.txt")),
+                                    (player_browser, "HOME", self.dir.name),
+                                    (player_browser.sys, "platform", "win32")):
+            p = mock.patch.object(target, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def player(self, output="auto"):
+        return player_browser.HiddenPlayer("http://x/", output)
+
+    def test_mutes_for_as_long_as_it_runs_and_puts_it_back(self):
+        p = self.player()
+        self.assertTrue(p._mute_output("Digital Audio (S/PDIF)"))
+        self.assertTrue(self.state["Digital Audio (S/PDIF)"])
+        self.assertTrue(os.path.exists(player_browser.MUTED_NOTE))
+        p.stop()
+        self.assertFalse(self.state["Digital Audio (S/PDIF)"])
+        self.assertFalse(os.path.exists(player_browser.MUTED_NOTE))
+
+    def test_an_output_muted_already_stays_muted_afterwards(self):
+        self.state["Digital Audio (S/PDIF)"] = True
+        p = self.player()
+        self.assertTrue(p._mute_output("Digital Audio (S/PDIF)"))
+        p.stop()
+        self.assertTrue(self.state["Digital Audio (S/PDIF)"])
+        self.assertEqual(self.calls, [])
+
+    def test_vb_cable_is_never_muted(self):
+        p = self.player()
+        self.assertTrue(p._mute_output("CABLE Input (VB-Audio Virtual Cable)"))
+        self.assertEqual(self.calls, [])
+
+    def test_a_refusal_is_said_not_ignored(self):
+        p = self.player()
+        self.assertFalse(p._mute_output("an output Windows refuses"))
+
+    def test_after_a_crash_the_next_run_puts_it_back(self):
+        with open(player_browser.MUTED_NOTE, "w", encoding="utf-8") as fh:
+            fh.write("Digital Audio (S/PDIF)")
+        self.state["Digital Audio (S/PDIF)"] = True
+        player_browser.HiddenPlayer.undo_leftover_mute()
+        self.assertFalse(self.state["Digital Audio (S/PDIF)"])
+        self.assertFalse(os.path.exists(player_browser.MUTED_NOTE))
+
+    def test_an_output_chosen_in_settings_is_used_as_it_is(self):
+        p = self.player("S/PDIF")
+        self.assertFalse(p.automatic)
+        self.assertEqual(p.output_name(), "S/PDIF")
+
+    def test_says_what_to_do_with_a_single_output(self):
+        self.assertIn("VB-Cable", self.player().no_output_note())
+        self.assertIn("S/PDIF", self.player("S/PDIF").no_output_note())
 
 
 if __name__ == "__main__":

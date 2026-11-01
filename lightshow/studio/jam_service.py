@@ -95,7 +95,8 @@ class JamService:
         from .player_browser import BROWSER_NAME, HIDDEN_OUTPUT, HiddenPlayer, own_hidden_output
         self.player_browser = BROWSER_NAME
         self.hidden = HiddenPlayer(f"http://127.0.0.1:{studio.port}/static/player.html",
-                                   HIDDEN_OUTPUT if own_hidden_output() else load_config().get("jam_hidden_output", HIDDEN_OUTPUT))
+                                   HIDDEN_OUTPUT if own_hidden_output() else load_config().get("jam_hidden_output", HIDDEN_OUTPUT),
+                                   avoid=lambda: load_config().get("jam_room_output") or "")
         self.engine: JamEngine | None = None
         self.runner: JamRunner | None = None
         self.capture = None
@@ -220,7 +221,7 @@ class JamService:
         hidden_name = self._hidden_output_name()
         if not demo and hidden_name is None:
             from .player_browser import hidden_problem
-            raise ValueError(hidden_problem() or f"there is no output named like {self.hidden.hidden_output!r} for Spotify to play into unheard")
+            raise ValueError(hidden_problem() or self.hidden.no_output_note())
         where = body.get("speakers", "cast")
         # Speakers asked for (Cast or this PC) means the room always hears it: on the Cast speaker
         # when one is connected, otherwise on this PC. Only "none" is a silent preview. (A jam that
@@ -444,7 +445,8 @@ class JamService:
                 from . import linux_audio
                 linux_audio.ensure_sink()              # (it may not be there yet, or the player has gone)
             import soundcard as sc
-            return next((s.name for s in sc.all_speakers() if self.hidden.hidden_output.lower() in s.name.lower()), None)
+            wanted = self.hidden.output_name()
+            return next((s.name for s in sc.all_speakers() if wanted and wanted.lower() in s.name.lower()), None)
         except Exception:  # noqa: BLE001
             return None
 

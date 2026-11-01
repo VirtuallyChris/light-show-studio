@@ -263,14 +263,14 @@
     },
     async sound(el) {
       const [dev, s] = await Promise.all([get('/api/audio/devices'), get('/api/settings').catch(() => ({}))]);
-      const help = dev.hidden_help || {}, hiddenFound = dev.outputs.some(o => o.toLowerCase().includes((dev.jam_hidden_output || help.name || '').toLowerCase()));
+      const help = dev.hidden_help || {}, hiddenFound = dev.jam_hidden_output ? dev.outputs.some(o => o.toLowerCase().includes(dev.jam_hidden_output.toLowerCase())) : !!dev.auto_output;
       const pick = (id, list, value, auto) => `<select id="${id}"><option value="">${esc(auto)}</option>${list.map(n => `<option value="${esc(n)}" ${n === value ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
       const offs = s.cast_offsets || {};
       el.innerHTML = card(
         row('Microphone', 'Listens to the room for the sync check and to measure each speaker’s delay.', pick('stMic', dev.inputs, dev.mic_device, `Default${dev.default_input ? ': ' + dev.default_input : ''}`) + '<button id="stMicTest">Test</button><span id="stMicLevel" class="hint"></span>') +
         row('The room hears this computer on', 'When the jam plays on this computer instead of the Cast speakers.', pick('stRoomOut', dev.outputs, dev.jam_room_output, `Default${dev.default_output ? ': ' + dev.default_output : ''}`)) +
-        (help.label === 'nothing to install' ? '' : row('Spotify plays into', 'An output nobody listens to: the studio records it and plays it to the room in time with the lights.' +
-          (hiddenFound || !help.url ? '' : ` Not on this computer yet: <a href="${esc(help.url)}" target="_blank" rel="noopener">install ${esc(help.label)}</a>.`), pick('stHidden', dev.outputs, dev.jam_hidden_output, help.name ? `${help.name} (the usual one)` : 'The usual one')))) +
+        (help.label === 'nothing to install' ? '' : row('Spotify plays into', 'An output nobody listens to: the studio mutes the one it picks, records it, and plays it to the room in time with the lights.' +
+          (hiddenFound || !help.url ? '' : ` Not on this computer yet: <a href="${esc(help.url)}" target="_blank" rel="noopener">install ${esc(help.label)}</a>.`), pick('stHidden', dev.outputs, dev.jam_hidden_output, dev.auto_output ? `Automatic: ${dev.auto_output}` : 'Automatic')))) +
         card(`<div class="st-h">Cast speakers</div><p class="hint">Each speaker’s delay is measured with the microphone while the jam plays (the sync check), so the lights land on the beat.</p>
           ${Object.keys(offs).length ? Object.entries(offs).map(([n, ms]) => row(esc(n), `Measured: ${ms} ms late`, '<span class="st-pill on">Measured</span>')).join('') : '<p class="hint">None measured yet.</p>'}
           <div id="stCasts" class="hint">Looking for speakers…</div>`);

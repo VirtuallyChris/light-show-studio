@@ -41,9 +41,42 @@ jobs:
       - run: pip install --prefer-binary -r requirements.txt -r requirements-addons.txt
       - run: python -m unittest discover -s tests
 
+  jam-capture:
+    name: Jam capture (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON }}
+          cache: pip
+      - name: Linux sound system
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y pulseaudio libpulse0 libportaudio2 libsndfile1
+          pulseaudio --start --exit-idle-time=-1 --daemonize=yes
+      - name: Mac audio helper, and allow audio recording on this build machine
+        if: runner.os == 'macOS'
+        run: |
+          brew install libomp
+          swiftc -O -target "$(uname -m)-apple-macos14.2" -framework CoreAudio -framework AudioToolbox -framework Foundation -o packaging/mac/audiotap packaging/mac/audiotap.swift
+          NOW=$(date +%s)
+          for DB in "/Library/Application Support/com.apple.TCC/TCC.db" "$HOME/Library/Application Support/com.apple.TCC/TCC.db"; do
+            for CLIENT in /opt/hca/hosted-compute-agent /usr/local/opt/runner/provisioner/provisioner /opt/runner/provisioner/provisioner; do
+              sudo sqlite3 "$DB" "INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('kTCCServiceAudioCapture','$CLIENT',1,2,4,1,'UNUSED',0,$NOW);" || true
+            done
+          done
+      - run: pip install --prefer-binary -r requirements.txt
+      - run: python packaging/jam_capture_check.py
+
   build:
     name: Build ${{ matrix.asset }}
-    needs: tests
+    needs: [tests, jam-capture]
     strategy:
       fail-fast: false
       matrix:

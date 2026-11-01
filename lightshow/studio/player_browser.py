@@ -17,6 +17,11 @@ The player page opens a silent audio stream as soon as it loads, so Edge has an
 audio stream to route before Spotify plays a note, and no music leaks to the room
 live.
 
+Nothing has to be set up on Windows either: unless an output is chosen in Settings, the studio picks one this computer isn't
+using (VB-Cable if it is there, otherwise S/PDIF, a monitor's HDMI, and so on), and mutes that output while the player runs.
+A muted output is still recorded in full, as the sound is recorded before the mute. Only a computer with one output needs
+VB-Cable. Muting the player's own sound wouldn't do: Windows silences an app's muted session in the recording too.
+
 Mac and Linux need no output nobody listens to, and no setup at all, and use Google Chrome (it has the protected-audio
 module Spotify needs, which Linux's own Chromium builds lack). On Linux the player is started on an output the studio
 makes for it (linux_audio); on a Mac a tap records it and silences it (mac_capture).
@@ -38,7 +43,9 @@ from .updates import clean_env
 HOME = os.path.join(local_appdata(), "lanlightshow")
 PROFILE = os.path.join(HOME, "player-browser")
 # Part of the output's name (VB-Cable's, by default); config.json jam_hidden_output. Mac and Linux make their own.
-HIDDEN_OUTPUT = {"darwin": mac_capture.DEVICE, "linux": linux_audio.DESCRIPTION}.get(sys.platform, "CABLE Input")
+AUTO = "auto"
+HIDDEN_OUTPUT = {"darwin": mac_capture.DEVICE, "linux": linux_audio.DESCRIPTION}.get(sys.platform, AUTO)
+MUTED_NOTE = os.path.join(HOME, "muted-output.txt")     # the output this studio muted, should it crash before unmuting
 BROWSER_NAME = {"darwin": "Google Chrome, hidden", "linux": "Google Chrome, hidden"}.get(sys.platform, "Microsoft Edge, hidden")
 
 
@@ -54,6 +61,25 @@ def hidden_problem() -> str:
     if sys.platform == "win32":
         return ""
     return "" if linux_audio.available() else "Jam mode needs PulseAudio or PipeWire (the pactl command) to record Spotify's sound"
+
+
+def pick_hidden_output(outputs: list[str], default: str = "", avoid: str = "") -> tuple[str, bool]:
+    """The output to play Spotify into unheard, and whether it needs muting: ("", False) if this computer has no spare one.
+    Never the default output or the one the room hears; VB-Cable if it is there, else the least likely to be in use."""
+    spare = [o for o in outputs if o != default and not (avoid and avoid.lower() in o.lower())]
+    cable = next((o for o in spare if "cable input" in o.lower()), "")
+    if cable:
+        return cable, False
+
+    def rank(name: str) -> int:
+        low = name.lower()
+        if "s/pdif" in low or "spdif" in low or "digital" in low:
+            return 0
+        if "headset" in low or "headphone" in low or "hands-free" in low or "bluetooth" in low:
+            return 2
+        return 1
+    spare.sort(key=rank)
+    return (spare[0], True) if spare else ("", False)
 
 
 def edge() -> str | None:
@@ -153,8 +179,10 @@ def close_leftovers(profile: str = PROFILE) -> None:
 class HiddenPlayer:
     """Runs the windowless player, keeps its sound on the hidden output, and puts it back on exit."""
 
-    def __init__(self, url: str, hidden_output: str = HIDDEN_OUTPUT):
-        self.url, self.hidden_output = url, hidden_output
+    def __init__(self, url: str, hidden_output: str = HIDDEN_OUTPUT, avoid=lambda: ""):
+        """`avoid`: the output the room hears, never to be picked (config.json jam_room_output)."""
+        self.url, self.hidden_output, self.avoid = url, hidden_output, avoid
+        self.muted = ""                                    # the output this player muted
         self.proc: subprocess.Popen | None = None
         self.routed_pid: int | None = None
         self.error = ""
@@ -171,6 +199,66 @@ class HiddenPlayer:
     @property
     def routed(self) -> bool:
         return self.running and self.routed_pid is not None
+
+    @property
+    def automatic(self) -> bool:
+        return sys.platform == "win32" and self.hidden_output in ("", AUTO)
+
+    def output_name(self) -> str | None:
+        """The output Spotify plays into: the one chosen in Settings, or one picked now. None if there is none to pick."""
+        if not self.automatic:
+            return self.hidden_output
+        if self.muted:
+            return self.muted                              # (it stays put while it plays)
+        try:
+            import soundcard as sc
+            return pick_hidden_output([s.name for s in sc.all_speakers()], sc.default_speaker().name, self.avoid())[0] or None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def no_output_note(self) -> str:
+        if self.automatic:
+            return ("This computer has only one sound output, so there is nowhere for Spotify to play unheard. "
+                    "Install VB-Cable (free, vb-audio.com/Cable) and the studio will use it by itself.")
+        return f"there is no output named like {self.hidden_output!r} for Spotify to play into unheard"
+
+    def _mute_output(self, name: str) -> bool:
+        """Silences a picked output for as long as the player runs, unless it needs no muting. Was it muted already? Then
+        it is left that way afterwards, too."""
+        if self.muted == name or pick_hidden_output([name])[1] is False:
+            return True
+        before = audio_route.device_mute(name)
+        if before is None:
+            return False
+        if not before:
+            os.makedirs(HOME, exist_ok=True)
+            with open(MUTED_NOTE, "w", encoding="utf-8") as fh:
+                fh.write(name)
+            if audio_route.device_mute(name, True) is not True:
+                return False
+            self.muted = name
+        return True
+
+    def _unmute_output(self) -> None:
+        if self.muted:
+            audio_route.device_mute(self.muted, False)
+            self.muted = ""
+        try:
+            os.remove(MUTED_NOTE)
+        except OSError:
+            pass
+
+    @staticmethod
+    def undo_leftover_mute() -> None:
+        """A studio that crashed left its output muted: put it back."""
+        try:
+            with open(MUTED_NOTE, encoding="utf-8") as fh:
+                name = fh.read().strip()
+            os.remove(MUTED_NOTE)
+        except OSError:
+            return
+        if name:
+            audio_route.device_mute(name, False)
 
     def start(self) -> None:
         with self.lock:
@@ -189,8 +277,13 @@ class HiddenPlayer:
             return
         env = clean_env()
         if sys.platform == "win32":
-            if audio_route.device_id(self.hidden_output) is None:
-                self.error = f"no output named like {self.hidden_output!r} to send Spotify to"
+            self.undo_leftover_mute()
+            output = self.output_name()
+            if not output or audio_route.device_id(output) is None:
+                self.error = self.no_output_note()
+                return
+            if self.automatic and not self._mute_output(output):
+                self.error = f"could not silence {output} for Spotify to play into"
                 return
         else:
             self.error = hidden_problem()
@@ -252,11 +345,12 @@ class HiddenPlayer:
                 pids = audio_pids()
                 new = [p for p in pids if p != self.routed_pid]
                 if new:
-                    if audio_route.route(new[0], self.hidden_output):
+                    output = self.output_name()
+                    if output and audio_route.route(new[0], output):
                         self.routed_pid = new[0]
                         self.error = ""
                     else:
-                        self.error = f"Windows would not send Edge's sound to {self.hidden_output}"
+                        self.error = f"Windows would not send Edge's sound to {output}"
                 elif not pids:
                     self.routed_pid = None
             self.stop_flag.wait(1.0 if self.routed_pid is None else 5.0)
@@ -276,11 +370,13 @@ class HiddenPlayer:
                 self.proc.kill()
                 close_leftovers()
         self.proc = None
-        if sys.platform == "darwin":
-            self._unmute()                                # (after the player: nothing plays once it is gone)
+        if sys.platform == "win32":
+            self._unmute_output()                         # (after the player: nothing plays once it is gone)
+        elif sys.platform == "darwin":
+            self._unmute()
         elif sys.platform != "win32":
             linux_audio.remove_sink()
 
     def to_json(self) -> dict:
-        return {"hidden": True, "running": self.running, "routed": self.routed, "hidden_output": self.hidden_output,
+        return {"hidden": True, "running": self.running, "routed": self.routed, "hidden_output": self.muted or self.hidden_output, "own_output": own_hidden_output(),
                 "route_error": self.error}

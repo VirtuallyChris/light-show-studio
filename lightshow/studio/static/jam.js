@@ -213,7 +213,7 @@
           <option value="app">The Spotify app on this PC</option></select></div>
         <div id="jamPlayerBox">
           <div class="jam-row"><span>${playerLine(st)}</span><span>${st.player && st.player.ready ? '<button id="jamPlayerHere" class="small">Play here</button>' : ''}</span></div>
-          <div class="hint">While the studio is open it is a Spotify speaker called <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. It plays in a hidden Microsoft Edge whose sound goes to <b>${esc(((st.player || {}).hidden_output) || 'CABLE Input')}</b>, where nobody hears it; the room hears the studio's delayed copy on your default output.</div>
+          <div class="hint">While the studio is open it is a Spotify speaker called <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. It plays hidden${(st.player || {}).own_output ? '' : ` in Microsoft Edge, whose sound goes to <b>${esc(((st.player || {}).hidden_output) || 'CABLE Input')}</b>`}, where nobody hears it; the room hears the studio's delayed copy on your default output.</div>
           <label class="jam-check"><input id="jamAuto" type="checkbox" ${st.auto ? 'checked' : ''}> Start the jam by itself when music starts playing on Light Show Studio, with these settings</label>
           ${st.auto_error ? `<div class="warn">The jam could not start by itself: ${esc(st.auto_error)}</div>` : ''}
           ${sp.signed_in && !sp.can_stream ? '<div class="warn">Sign in to Spotify again: the studio player needs a permission the earlier sign-in did not ask for.</div>' : ''}
@@ -224,7 +224,7 @@
           <option value="cast" ${st.speaker_connected ? '' : 'disabled'}>Cast: ${st.speaker_connected ? esc(st.speaker) : 'press Cast first'}</option>
           <option value="pc">This PC</option>
           <option value="none">Nowhere (preview only)</option></select></div>
-        <div class="hint" id="jamPcHint">This PC plays on Windows' default output.</div>
+        <div class="hint" id="jamPcHint">This computer plays on your default output.</div>
         ${(st.fetch || {}).available ? `<div class="jam-row"><label title="Each queued song is found on YouTube by its Spotify details, analysed before it plays and the copy deleted, so the room needs to be only seconds behind. A song nobody queued is learned as it plays.">Learn ahead</label><label class="toggle"><input type="checkbox" id="jamFetch" ${st.fetch.on ? 'checked' : ''}></label></div>` : ''}
         <div class="jam-row" ${(st.fetch || {}).on ? 'hidden' : ''}><label title="One of your saved shows plays in the room first, with its lights, while Spotify plays unheard behind it. The room joins the jam as it ends, a whole song behind, so each song is heard to its end before the room gets to it.">Open with</label><select id="jamOpenWith">
           <option value="">Nothing (start ${esc(String(Math.round(((st.last || {}).target_delay) || 90)))} s behind)</option>

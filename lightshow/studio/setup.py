@@ -59,10 +59,17 @@ class HomeSetup:
         self.studio, self.load_config, self.save_config, self.port = studio, load_config, save_config, port
 
     @staticmethod
+    def _auto_output(outs: list[str], default_out: str, cfg: dict) -> str:
+        from .player_browser import pick_hidden_output
+        return pick_hidden_output(outs, default_out, cfg.get("jam_room_output") or "")[0]
+
+    @staticmethod
     def _sound_note(hidden: str, found: bool) -> str:
         from .player_browser import hidden_problem, own_hidden_output
         if own_hidden_output():
             return "Set up by itself" if found else hidden_problem()
+        if not hidden:
+            return "Set up by itself" if found else f"This computer has one output: install {hidden_output_help()['label']} for Spotify to play into"
         return f"Spotify plays into {hidden}" if found else f"Install {hidden_output_help()['label']} for Spotify to play into"
 
     def routes(self) -> list:
@@ -118,10 +125,15 @@ class HomeSetup:
         sp = getattr(getattr(st, "jam", None), "spotify", None)
         signed_in = bool(sp and sp.signed_in)
         client = bool((cfg.get("spotify") or {}).get("client_id"))
-        outs, _ = _outputs()
-        from .player_browser import hidden_problem, own_hidden_output
-        hidden = cfg.get("jam_hidden_output") or hidden_output_help()["name"]
-        hidden_found = not hidden_problem() if own_hidden_output() else any(hidden.lower() in o.lower() for o in outs)
+        outs, default_out = _outputs()
+        from .player_browser import hidden_problem, own_hidden_output, pick_hidden_output
+        hidden = cfg.get("jam_hidden_output") or ""
+        if own_hidden_output():
+            hidden_found = not hidden_problem()
+        elif hidden:
+            hidden_found = any(hidden.lower() in o.lower() for o in outs)
+        else:
+            hidden_found = bool(pick_hidden_output(outs, default_out, cfg.get("jam_room_output") or "")[0])
         try:
             from .model_worker import venv_py
             models = os.path.exists(venv_py())
@@ -155,7 +167,8 @@ class HomeSetup:
         outs, default_out = _outputs()
         return {"inputs": ins, "outputs": outs, "default_input": default_in, "default_output": default_out,
                 "mic_device": cfg.get("mic_device") or "", "jam_room_output": cfg.get("jam_room_output") or "",
-                "jam_hidden_output": cfg.get("jam_hidden_output") or "", "hidden_help": hidden_output_help()}
+                "jam_hidden_output": cfg.get("jam_hidden_output") or "", "hidden_help": hidden_output_help(),
+                "auto_output": self._auto_output(outs, default_out, cfg)}
 
     async def h_devices(self, request):
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self.devices))
