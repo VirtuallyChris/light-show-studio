@@ -69,7 +69,7 @@ Scan a QR code and your phone is the remote. Add it to your home screen and it o
 
 | | What you get |
 |---|---|
-| ▶️&nbsp;**Now&nbsp;Playing** | Skip and pause, on a screen that glows in the song's colors |
+| 🎵&nbsp;**Now&nbsp;Playing** | Skip and pause, on a screen that glows in the song's colors |
 | 🎨&nbsp;**Up&nbsp;next** | Every queued song with the two colors it will play in. Tap one to change it, or set its vibe and genre |
 | 🎚️&nbsp;**Party&nbsp;level** | One slider calms the whole home down or lets it go all out |
 | 🚪&nbsp;**Rooms** | Switch any room in or out of the party |
