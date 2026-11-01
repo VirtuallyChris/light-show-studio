@@ -54,6 +54,10 @@ def main() -> None:
             priority.process(priority.BELOW_NORMAL)
         except Exception as e:  # noqa: BLE001 - one song that fails must not end the worker
             reply({"error": f"{type(e).__name__}: {e}"})
+    # The studio has gone (it closed our stdin). End at once: a warming thread may be printing, and an ordinary
+    # shutdown while a daemon thread holds stderr's lock aborts the process ("Fatal Python error").
+    out.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":
