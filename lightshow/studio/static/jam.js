@@ -23,18 +23,6 @@
     return j;
   };
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  // what each song's show is built from: your own show, an analysis made ahead (or the last time it played),
-  // or a first listen; learning ahead, a first listen says where it stands: being analyzed, or next in line
-  const KIND = { custom: ['your show', 'k-custom'], learned: ['analyzed', 'k-learned'], live: ['first listen', 'k-live'],
-                 analyzing: ['analyzing…', 'k-learning'], queued: ['queued', 'k-live'], failed: ['error', 'k-error'] };
-  // anything that went wrong analyzing a song (no copy found, a model that failed) says so: error, and why
-  const badge = (k, t) => {
-    const s = t && t.learning ? t.learning : k, [label, cls] = KIND[s] || KIND.live;
-    const why = t && t.learning === 'failed' ? ` title="${esc(t.learning_why || 'something failed')}"` : '';
-    return `<span class="jam-kind ${cls}"${why}>${label}</span>`;
-  };
-  const styleTag = t => t && t.style ? ` <span class="jam-style">${esc(t.style)}</span>` : '';
-
   // ------------------------------------------------------------------ colors
   // Every jam song is shown in two colors: the ones picked for that track (kept for next time), else
   // the jam's own pair, else (jam set to "album cover") its cover's. A show you made keeps its own.
@@ -377,7 +365,7 @@
     clearTimeout(J.saveT); J.auto = J.custom = J.secsByHand = false; J.savedAs = null;   // (see J.onEdit)
     if (doc.kind === 'custom' && doc.project) {
       const data = (pre && await pre.proj.catch(() => null)) || await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
-      if (data.error) return toast('Jam: ' + data.error, true);
+      if (data.error) return toast(data.error, true);
       adopt(data.analysis, data.project, data.saved || null, data);
       if (!data.saved) try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
       if (J.failedKey !== room.key) toast(`${room.label}: playing your show`);
@@ -419,7 +407,7 @@
     const mine = St.clipSig() !== J.clips;
     if (mine !== J.custom) {
       J.custom = mine; St.draw();
-      toast(mine ? `${label}: your own show now. It is saved as you go, and the jam plays it.` : `${label}: back to the jam's own show`);
+      toast(mine ? `${label}: your own show now. It is saved as you go, and the party plays it.` : `${label}: back to the show the app made`);
     }
     if (J.custom || J.savedAs) { clearTimeout(J.saveT); J.saveT = setTimeout(saveCustom, 1200); }
     if (J.custom) return;
@@ -577,7 +565,7 @@
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;
     St.updateTransport(); St.stopOutput(); St.draw();
-    toast('Jam stopped.');
+    toast('The party stopped.');
   }
 
   window.Jam = { state: () => J.state };

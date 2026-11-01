@@ -485,6 +485,21 @@
   $('#libAdd').onclick = () => $('#fileInput').click();
   $('#libReview').onclick = () => { showView('editor'); $('#btnReview').click(); };
   $('#libContinue').onclick = () => showView('editor');
+  // songs learned ahead of the party, silently: a playlist's, or the queue's
+  $('#libLearn').onclick = () => openSheet('Learn a playlist', body => {
+    const draw = async () => {
+      const st = await party('state').catch(() => ({})), p = st.prelisten || {}, on = !!p.running;
+      body.innerHTML = `<p class="hint">The app studies these songs ahead of the party, silently, so each has its full show from the first beat. It takes as long as the songs do.</p>
+        <input id="preLink" placeholder="Spotify playlist link" autocomplete="off" aria-label="Spotify playlist link" ${on ? 'disabled' : ''}>
+        <div class="store-actions">${on ? '<button id="preStop">Stop</button>' : '<button id="preGo" class="accent">Learn this playlist</button><button id="preQueue">Learn the queue</button>'}</div>
+        <p class="hint" id="preState">${esc(p.status || p.error || '')}</p>`;
+      const start = source => post('/api/prelisten', { source }).then(r => { if (r && r.error) St.toast(r.error, true); draw(); });
+      const go = $('#preGo'); if (go) go.onclick = () => { const link = $('#preLink').value.trim(); if (link) start(link); else St.toast('Paste a Spotify playlist link first', true); };
+      const queue = $('#preQueue'); if (queue) queue.onclick = () => start('queue');
+      const stop = $('#preStop'); if (stop) stop.onclick = () => post('/api/prelisten/stop', {}).then(draw);
+    };
+    draw();
+  });
 
   // ------------------------------------------------------------------ Home: the map, and what is in it
   let homeTab = 'lights';

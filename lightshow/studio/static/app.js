@@ -352,7 +352,7 @@
   async function jamSave(say) {
     const J = S.jam, d = J.doc, p = P(); if (!d || !p) return false;
     const sig = sectionsSig(), seen = J.secsSeen && J.secsSeen.key === J.key ? J.secsSeen.sig : null, key = J.key;
-    if (sig === seen) { if (say) toast('Nothing to keep: in a jam only section changes are kept'); return false; }
+    if (sig === seen) { if (say) toast('Nothing to keep: during a party only section changes are kept'); return false; }
     const label = (d.track && d.track.name) || d.project || 'this song';
     const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     try {
@@ -455,7 +455,7 @@
     const mine = clipSig() !== R.clips;
     if (mine !== !!R.custom) {
       R.custom = mine; draw();
-      toast(mine ? `${S.name}: your own show now. It is saved as you go, and the jam plays it.` : `${S.name}: back to the jam's own show`);
+      toast(mine ? `${S.name}: your own show now. It is saved as you go, and the party plays it.` : `${S.name}: back to the show the app made`);
     }
     if (mine || R.savedAs) { clearTimeout(R.saveT); R.saveT = setTimeout(reviewSaveCustom, 1200); }
   }
@@ -531,7 +531,7 @@
     busy('Finding learned songs…');
     let songs = [];
     try { songs = (await (await fetch('/api/review/songs')).json()).songs || []; } catch (e) { /* none */ } finally { busy(null); }
-    if (!songs.length) { toast('No learned songs to review: a song needs its copy kept (Jam settings) and no saved show.', true); return; }
+    if (!songs.length) { toast('No learned songs to review: a song needs its copy kept (Settings › This app) and no saved show.', true); return; }
     let last = null; try { last = localStorage.getItem('lss-review'); } catch (e) { /* none */ }
     // the first song not yet reviewed (the list puts the most doubted first); else where the last review left off
     let i = songs.findIndex(s => !s.reviewed); if (i < 0) i = songs.findIndex(s => s.id === last); if (i < 0) i = 0;
@@ -611,7 +611,7 @@
   function stopSource() { const a = S.audio; if (a.source) { try { a.source.onended = null; a.source.stop(); } catch (e) { } a.source = null; } }
   function stopPlayback() { pause(); S.audio.pos = 0; }
   function seek(t) { if ((S.jam && S.jam.live) || (S.cue && S.cue.live)) return; t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
-  function togglePlay() { if (S.cue && S.cue.live) return toast('A cue is playing: tap it on the Party Hub to end it'); if (S.jam && S.jam.live) return jamPlayPause(); S.audio.playing ? pause() : play(); }
+  function togglePlay() { if (S.cue && S.cue.live) return toast('A moment is playing: press it again on the Party screen to end it'); if (S.jam && S.jam.live) return jamPlayPause(); S.audio.playing ? pause() : play(); }
   /** In a jam, play and pause are Spotify's, as on the Party Hub (the user: pausing here did nothing). */
   function jamPlayPause() {
     const st = S.jam.state || {}, playing = st.room ? st.room.playing : !st.paused;
@@ -635,7 +635,7 @@
     const c = S.cast, jam = S.jam && S.jam.live;
     if (c.active && st.connected === false) {
       castGone();
-      if (jam) toast('The Cast speaker stopped playing, so the jam is on this PC now. Press Cast to try it again.', true);
+      if (jam) toast('The speaker stopped playing, so the party is on this computer now.', true);
       else { S.audio.playing = false; updateTransport(); toast('The Cast speaker disconnected.', true); }
       return;
     }
@@ -1569,7 +1569,7 @@
     pctx.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
     pctx.fillStyle = CV.room; pctx.fillRect(0, 0, w, h);
     if (mappedHouse()) { drawHouse(frame || [], w, h); return; }      // (the house, even before a light is ticked)
-    if (!frame || !frame.length) { pctx.fillStyle = '#555'; pctx.font = '12px system-ui'; pctx.fillText('No lights selected — tick a light on the left to preview.', 12, 20); return; }
+    if (!frame || !frame.length) { pctx.fillStyle = '#555'; pctx.font = '12px system-ui'; pctx.fillText('No lights to preview: switch a room on, in Party.', 12, 20); return; }
     const rowH = Math.min(36, (h - 8) / frame.length);
     frame.forEach((fr, r) => {
       const y = 6 + r * rowH; const n = fr.px.length / 3; const x0 = 110, x1 = w - 12; const pw = (x1 - x0) / n;
@@ -4154,7 +4154,7 @@
   $('#btnOpen').onclick = () => $('#fileInput').click(); $('#fileInput').onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ''; };
   $('#btnPath').onclick = () => { const v = $('#pathInput').value.trim(); if (v) openPath(v); }; $('#pathInput').onkeydown = e => { if (e.key === 'Enter') $('#btnPath').click(); };
   $('#recent').addEventListener('input', e => { if (!e.inputType || e.inputType === 'insertReplacementText') openNamed(e.target.value); });   // picked from the list
-  $('#recent').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); openNamed(e.target.value) || toast('No show or jam song by that name', true); } if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); } });
+  $('#recent').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); openNamed(e.target.value) || toast('No song by that name', true); } if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); } });
   $('#recent').addEventListener('focus', () => refreshRecent());
   $('#btnReview').onclick = reviewStart;
   $('#revPrev').onclick = () => reviewOpen(S.review.i - 1);

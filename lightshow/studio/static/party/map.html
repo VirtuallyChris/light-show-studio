@@ -72,7 +72,7 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
 </head>
 <body>
 <div class="main">
-  <div class="top"><a class="back" href="/party">&lsaquo; Hub</a><h1>House map</h1><span id="saved" class="muted"></span></div>
+  <div class="top"><a class="back" href="/party#editrooms">&lsaquo; Rooms</a><h1>House map</h1><span id="saved" class="muted"></span></div>
 
   <div class="card">
     <div class="planwrap" id="wrap">
@@ -318,7 +318,7 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
       b.onclick = () => { S.sel = l; S.seg = 0; S.tube = 0; setTool(null); stopLights(); renderChips(); renderEditor(); draw(); };
       el.appendChild(b);
     }
-    if (!S.lights.length) el.innerHTML = '<span class="muted">No lights in the party rooms (set the rooms on the hub first).</span>';
+    if (!S.lights.length) el.innerHTML = '<span class="muted">No lights in the party rooms (add rooms first).</span>';
   }
   const esc = x => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   function ensureMap(l) {
@@ -595,7 +595,7 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
     }
     // the Party Hub's rooms, each on the map or left off it (a room away from the party, say an office with a test strip)
     $('#onmap').innerHTML = S.rooms.map((r, i) => `<button class="chip ${r.map !== false ? 'on' : ''}" data-i="${i}">${esc(r.name)}</button>`).join('')
-      || '<span class="muted">No rooms yet: add them on the Party Hub (Settings, More settings, Rooms).</span>';
+      || '<span class="muted">No rooms yet: add them first (Home › Rooms on the computer, or Rooms › Edit rooms on your phone).</span>';
     for (const b of $('#onmap').querySelectorAll('[data-i]')) b.onclick = async () => {
       const r = S.rooms[+b.dataset.i];
       if (r.map === false) delete r.map; else r.map = false;

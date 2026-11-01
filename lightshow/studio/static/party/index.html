@@ -3,24 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Party Hub</title>
+<title>Light Show Studio</title>
 <meta name="description" content="The Light Show Studio's jam, from your phone: what is playing, what comes next and its colors, play and pause, and how hard the lights go.">
 <meta name="theme-color" content="#f4f4f8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0e0f14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Party Hub">
+<meta name="apple-mobile-web-app-title" content="Light Show">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="/party/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/static/party/apple-touch-icon.png">
 <link rel="icon" href="/static/party/icon-192.png">
-<script>
-if (navigator.standalone) document.documentElement.classList.add('standalone');   // (on iOS's home screen: the full height)
-// appearance: Auto (the phone's), Light or Dark, kept on this phone; set before the page draws
-(() => { let t = 'auto'; try { t = localStorage.getItem('party-look') || 'auto'; } catch (e) { /* no storage: Auto */ }
-  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
-</script>
+
 <style>
   :root {
     color-scheme: light;
@@ -177,6 +172,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   /* the party's colors: their set, their mode, the colors themselves */
   #themeEdit .set-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
   #themeEdit select { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  #themeToggle, #roomsEdit { font: inherit; font-size: 13px; font-weight: 600; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 9px; padding: 7px 11px; min-height: 36px; }
   #themeEdit .mini { font: inherit; font-size: 13px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; white-space: nowrap; }
   #themeEdit .mini:disabled { opacity: .4; }
   #themeEdit .mini.del { color: var(--muted); padding: 7px 9px; }
@@ -313,24 +309,28 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .seg { display: flex; background: var(--card2); border: 1px solid var(--line); border-radius: 11px; padding: 2px; gap: 3px; }
   .seg button { min-height: 32px; padding: 0 12px; border: 0; background: none; border-radius: 9px; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 650; }
   .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+  .start-party { margin-top: 14px; min-height: 52px; padding: 0 28px; border: 0; border-radius: 14px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; font-size: 17px; }
+  .stop-party { min-height: 52px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text); font: inherit; font-weight: 650; }
+  .room-line { display: flex; align-items: center; gap: 12px; }
+  .room-vol { flex: 1; min-width: 0; }
   @media (max-width: 380px) { .topbar h1 { font-size: 26px; } }
 </style>
 </head>
 <body>
 <nav class="nav" aria-label="Sections">
   <button class="nav-btn" data-tab="now" type="button" aria-current="page">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.6v6.8l5.4-3.4z"/></svg><span>Now Playing</span></button>
-  <button class="nav-btn" data-tab="lights" type="button">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.1v.1h5v-.1c0-.8.4-1.6 1.1-2.1A6 6 0 0 0 12 3z"/></svg><span>Lights</span></button>
-  <button class="nav-btn" data-tab="settings" type="button">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.6v6.8l5.4-3.4z"/></svg><span>Now</span></button>
+  <button class="nav-btn" data-tab="moments" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg><span>Moments</span></button>
+  <button class="nav-btn" data-tab="rooms" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/></svg><span>Rooms</span></button>
 </nav>
 
 <div class="scroller" id="scroller">
 <main class="main">
-<header class="topbar"><h1 id="title">Now Playing</h1><span id="status" class="pill" role="status">connecting…</span></header>
+<header class="topbar"><h1 id="title">Now</h1><span id="status" class="pill" role="status">connecting…</span></header>
 
-<!-- ======================================================== NOW PLAYING -->
+<!-- ======================================================== NOW -->
 <section class="tab" id="tab-now">
   <section class="card hero" id="nowCard">
     <div id="now"></div>
@@ -339,111 +339,65 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     <div class="label">Up next</div>
     <div id="next"></div>
   </section>
-  <section class="card" id="cuesCard" hidden>
-    <div class="label">Cues</div>
-    <div class="cues" id="cues"></div>
-  </section>
-  <section class="card" id="modesCard" hidden>
-    <div class="cues" id="modes"></div>
-    <div id="modeColors"></div>
+  <section class="card" id="themeCard" hidden>
+    <div class="theme-row"><div class="label">Colors tonight</div><button class="mini" id="themeToggle" type="button">Edit colors</button></div>
+    <div class="modes" id="colorSource" role="group" aria-label="Where every song's colors come from"><button data-s="album">Album art</button><button data-s="party">Your colors</button><button data-s="wild">No limits</button></div>
+    <div class="hint" id="themeHint"></div>
+    <div class="theme-sw" id="themeSw"></div>
+    <div id="themeEdit" hidden></div>
   </section>
 </section>
 
-<!-- ======================================================== LIGHTS -->
-<section class="tab" id="tab-lights" hidden>
+<!-- ======================================================== MOMENTS -->
+<section class="tab" id="tab-moments" hidden>
+  <section class="card" id="momentsEmpty" hidden><div class="empty">No moments yet. Make them on the computer, in Party.</div></section>
+  <section class="card" id="modesCard" hidden>
+    <div class="label">Hold a color</div>
+    <div class="cues" id="modes"></div>
+    <div id="modeColors"></div>
+  </section>
+  <section class="card" id="cuesCard" hidden>
+    <div class="label">Play a show</div>
+    <div class="cues" id="cues"></div>
+  </section>
+  <button class="stop-party" id="stopParty" type="button" hidden>Stop the party</button>
+</section>
+
+<!-- ======================================================== ROOMS -->
+<section class="tab" id="tab-rooms" hidden>
+  <section class="card">
+    <div class="party-row"><div class="label">Energy</div><div class="party-val" id="partyVal">100%</div></div>
+    <input id="party" type="range" min="0" max="100" step="1" value="100" aria-label="Energy" title="How intense the lights are: 100% is the full concert; lower, the strobes, flashes and one-shots fade out and the show calms into a background in the song's colors.">
+    <div class="hint" id="partyHint">The full show.</div>
+    <div class="pre-buttons"><button class="chip" id="rampBtn" type="button" hidden></button></div>
+  </section>
+
+  <section class="card" id="roomsCard">
+    <div class="theme-row"><div class="label">Rooms</div><button class="mini" id="roomsEdit" type="button">Edit rooms</button></div>
+    <div id="speakers"><div class="empty">Looking for rooms and speakers…</div></div>
+  </section>
+  <section class="card" id="bulbCard" hidden>
+    <div class="label">Bulb Studio</div>
+    <div id="bulbShows"></div>
+  </section>
+
   <section class="card rv-card">
-    <button class="rv-open" id="rvOpen" type="button"><span>Open Room View</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+    <button class="rv-open" id="rvOpen" type="button"><span>See the lights live</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
     <div class="rv-wrap" id="rvWrap" hidden>
       <button class="rv-btn" id="rvClose" type="button" aria-label="Close the room view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
   </section>
 
-  <section class="card">
-    <div class="party-row"><div class="label">Party level</div><div class="party-val" id="partyVal">100%</div></div>
-    <input id="party" type="range" min="0" max="100" step="1" value="100" aria-label="Party level" title="How intense the lights are: 100% is the full concert; lower, the strobes, flashes and one-shots fade out and the show calms into a background in the song's colors.">
-    <div class="hint" id="partyHint">The full show.</div>
-    <div class="pre-buttons"><button class="chip" id="rampBtn" type="button" hidden></button></div>
-  </section>
-
-  <section class="card" id="roomsCard" hidden>
-    <div class="label">Rooms</div>
-    <div id="rooms"></div>
-  </section>
-
-  <section class="card" id="bulbCard" hidden>
-    <div class="label">Bulb Shows</div>
-    <div id="bulbShows"></div>
-  </section>
-
-  <section class="card" id="themeCard" hidden>
-    <div class="label">Colors</div>
-    <div class="modes" id="colorSource" role="group" aria-label="Where every song's colors come from"><button data-s="album">Album art</button><button data-s="party">Party colors</button><button data-s="wild">No Limits</button></div>
-    <div class="hint" id="themeHint"></div>
-    <div class="theme-sw" id="themeSw"></div>
-    <div id="themeEdit"></div>
-  </section>
-
 </section>
 
-<!-- ======================================================== SETTINGS -->
-<section class="tab" id="tab-settings" hidden>
-  <section class="card">
-    <div class="label">Cast volume</div>
-    <div id="castVol"><div class="empty">…</div></div>
-    <div class="theme-row even-row" title="Quiet songs turned up and the loudest a little down, each as a whole, so the volume needs no changing between songs. Nothing is compressed."><span>Even out song volume</span>
-      <label class="switch"><input type="checkbox" id="evenOn" aria-label="Even out song volume"><span></span></label></div>
-  </section>
-  <section class="card">
-    <div class="label">Speakers by room</div>
-    <div id="speakers"><div class="empty">Looking for speakers…</div></div>
-  </section>
+<!-- ======================================================== EDIT ROOMS (from Rooms) -->
+<section class="tab" id="tab-editrooms" hidden>
   <section class="card rv-card">
-    <button class="rv-open" type="button" id="moreOpen"><span>More settings</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
-  </section>
-</section>
-
-<!-- ======================================================== MORE SETTINGS (from Settings) -->
-<section class="tab" id="tab-more" hidden>
-  <section class="card rv-card">
-    <button class="rv-open" type="button" id="moreBack" style="justify-content:flex-start;gap:6px"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Settings</span></button>
+    <button class="rv-open" type="button" id="roomsBack" style="justify-content:flex-start;gap:6px"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Rooms</span></button>
   </section>
   <section class="card">
-    <div class="label">Cues</div>
-    <div id="cueEdit"><div class="empty">…</div></div>
-  </section>
-  <section class="card">
-    <div class="label">Modes</div>
-    <div class="hint">Buttons that hold the party for a moment: every light one color, the music turned down or paused.</div>
-    <div id="modeEdit"><div class="empty">…</div></div>
-  </section>
-  <section class="card pre">
-    <div class="label">Pre-listen</div>
-    <div class="hint">Learns a playlist's songs ahead of the party, silently, so each gets its full show from the first beat. It takes as long as the songs do.</div>
-    <input type="text" id="preLink" placeholder="Spotify playlist link" autocomplete="off" aria-label="Spotify playlist link">
-    <div class="pre-buttons"><button class="chip" id="preGo">Learn this playlist</button><button class="chip" id="preQueue">Learn the queue</button><button class="chip" id="preStop" hidden>Stop</button></div>
-    <div class="state" id="preState"></div>
-  </section>
-  <section class="card">
-    <div class="label">Add-ons</div>
-    <div id="addonList"><div class="empty">…</div></div>
-  </section>
-  <section class="card bell" id="bellCard" hidden>
-    <div class="theme-row"><div class="label">Doorbell</div>
-      <label class="switch"><input type="checkbox" id="bellOn" aria-label="Doorbell rings a cue"><span></span></label></div>
-    <input type="text" id="bellHost" placeholder="Doorbell address (like 192.168.1.50)" autocomplete="off" inputmode="decimal" aria-label="Doorbell address">
-    <input type="text" id="bellUser" placeholder="Username" autocomplete="off" aria-label="Doorbell username">
-    <input type="password" id="bellPass" placeholder="Password" autocomplete="new-password" aria-label="Doorbell password">
-    <select id="bellCue" aria-label="Cue the doorbell rings"></select>
-    <div class="state" id="bellState"></div>
-  </section>
-  <section class="card">
-    <div class="label">Rooms</div>
     <div id="roomEdit"><div class="empty">…</div></div>
     <a href="/party/map" style="display:inline-block;margin-top:2px;padding:8px 0;color:var(--accent);font-weight:600;text-decoration:none" title="Where every light stands in the house: pin each segment, pole and tube on the floor plan">Map the house &rsaquo;</a>
-  </section>
-  <section class="card">
-    <div class="theme-row"><div class="label">Appearance</div>
-      <div class="seg" id="lookSeg" role="group" aria-label="Appearance"><button type="button" data-look="auto">Auto</button><button type="button" data-look="light">Light</button><button type="button" data-look="dark">Dark</button></div></div>
   </section>
 </section>
 </main>
@@ -453,7 +407,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   const $ = s => document.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const fmt = t => (t == null || !isFinite(t)) ? '0:00' : `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  let state = null, shown = '', clock = null, settingsOpen = false, moreOpen = false, lightsOpen = false, evenBusy = 0;
+  let state = null, shown = '', clock = null, roomsOpen = false;
   const api = async (path, body) => {
     const r = await fetch('/api/party/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(r.status);
@@ -524,7 +478,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Primary color"></button>
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="a" style="background:${esc(a)}" aria-label="Secondary color"></button>
       ${t.only ? '<span class="only-tag" title="Just these two colors">2</span>' : ''}
-      ${st.theme_on !== false || t.colors ? chip : ''}${t.own ? '<button class="reset" title="Back to the jam’s colors" aria-label="Back to the jam’s colors">&#8634;</button>' : ''}`}</div>`;
+      ${st.theme_on !== false || t.colors ? chip : ''}${t.own ? '<button class="reset" title="Back to tonight’s colors" aria-label="Back to tonight’s colors">&#8634;</button>' : ''}`}</div>`;
   }
   // A song's colors, all on one sheet: tap anywhere on the song and its primary and secondary (sixteen solid
   // colors each, the ones the lights show well) and "just these two" come up together. Every tap takes
@@ -555,7 +509,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     // party colors or its album art's, at the top (the row's little chip does the same)
     const theme = sheet.querySelector('.sx-theme');
     theme.hidden = !box.dataset.theme;
-    theme.querySelector('[data-t="party"]').textContent = (state || {}).color_source === 'wild' ? 'No Limits' : 'Party colors';
+    theme.querySelector('[data-t="party"]').textContent = (state || {}).color_source === 'wild' ? 'No limits' : 'Your colors';
     const showTheme = () => { for (const b of theme.querySelectorAll('button')) b.classList.toggle('on', b.dataset.t === box.dataset.theme); };
     for (const b of theme.querySelectorAll('button')) b.onclick = async () => {
       if (b.dataset.t === box.dataset.theme) return;
@@ -676,7 +630,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
       cuesShown = html; $('#cues').innerHTML = html;
       for (const b of $('#cues').querySelectorAll('.cue')) b.onclick = async () => {
         const c = cues.find(x => x.id === b.dataset.id); if (!c) return;
-        if (!c.show) { goTab('more'); return; }                         // no show yet: pick one in More settings
+        if (!c.show) { alert(`Pick a show for ${c.name} on the computer, in Party.`); return; }
         if (b.classList.contains('running')) { await fetch('/api/cues/stop', { method: 'POST' }).catch(() => {}); poll(); return; }
         const r = await fetch('/api/cues/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(x => x.json()).catch(() => ({}));
         if (r.error) alert(r.error);
@@ -693,102 +647,6 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     }
   }
 
-  // settings: each cue's shows
-  let cueDoc = null;
-  async function loadCueEdit() {
-    try { cueDoc = await (await fetch('/api/cues')).json(); } catch (e) { $('#cueEdit').innerHTML = '<div class="empty">Couldn’t load the cues.</div>'; return; }
-    renderCueEdit();
-  }
-  async function saveCues(cues) {
-    try { const r = await (await fetch('/api/cues', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cues }) })).json(); cueDoc.cues = r.cues; } catch (e) { /* shown on the next load */ }
-    renderCueEdit(); cuesShown = ''; poll();
-  }
-  function renderCueEdit() {
-    if (!cueDoc) return;
-    const cues = cueDoc.cues.map(c => ({ ...c })), shows = cueDoc.shows || [];
-    const len = n => { const s = shows.find(x => x.name === n); return s && s.length ? ` (${Math.floor(s.length / 60)}:${String(Math.round(s.length % 60)).padStart(2, '0')})` : ''; };
-    $('#cueEdit').innerHTML = cues.map((c, i) => `<div class="cue-edit" data-i="${i}">
-        <div class="top"><input type="text" value="${esc(c.name)}" maxlength="30" aria-label="Cue name"><button class="del" aria-label="Delete ${esc(c.name)}">&times;</button></div>
-        <div class="show-pick" role="group" aria-label="Shows" title="Tick one show, or several: each time, one at random, and none again until every one has played">${shows.map(s => { const on = (c.shows || []).includes(s.name); return `<label class="${on ? 'on' : ''}"><input type="checkbox" value="${esc(s.name)}" ${on ? 'checked' : ''}><span>${esc(s.name)}${len(s.name)}</span></label>`; }).join('') || '<div class="empty">No saved shows yet.</div>'}</div>
-        </div>`).join('')
-      + `<button class="add" id="addCue">+ Add cue</button>`;
-    $('#addCue').onclick = () => saveCues([...cues, { name: `Cue ${cues.length + 1}`, show: '', shows: [] }]);
-    for (const el of $('#cueEdit').querySelectorAll('.cue-edit')) {
-      const c = cues[+el.dataset.i];
-      el.querySelector('input[type=text]').onchange = e => { c.name = e.target.value.trim() || c.name; saveCues(cues); };
-      for (const box of el.querySelectorAll('.show-pick input')) box.onchange = () => {   // its shows, in the list's order
-        c.shows = [...el.querySelectorAll('.show-pick input:checked')].map(x => x.value); c.show = c.shows[0] || ''; saveCues(cues); };
-      el.querySelector('.del').onclick = () => { if (confirm(`Delete ${c.name}?`)) { cues.splice(+el.dataset.i, 1); saveCues(cues); } };
-    }
-  }
-
-  // ---- pre-listen: a playlist learned ahead of the party
-  const hm = s => { s = Math.max(0, Math.round(s || 0)); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} h ${m} min` : `${m} min`; };
-  let preMsg = '';                                                 // the last thing the studio said, kept on screen
-  function showPre(p) {
-    p = p || {}; const run = !!p.running;
-    $('#preGo').hidden = run; $('#preQueue').hidden = run; $('#preStop').hidden = !run; $('#preLink').disabled = run;
-    $('#preState').innerHTML = run
-      ? `Learning ${esc(p.source)}: ${p.learned} of ${p.total} learned, about ${hm(p.remaining_s)} to go.${p.current ? `<br>Now: ${esc(p.current)}` : ''}<div class="bar"><div style="width:${p.total ? 100 * p.learned / p.total : 0}%"></div></div>`
-      : esc(p.note || preMsg);
-  }
-  async function preCall(path, body) {
-    try { const r = await (await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })).json();
-      preMsg = r.error ? r.error.replace(/^\w+(Error|Exception): /, '') : ''; showPre(r.error ? {} : r);
-    } catch (e) { preMsg = 'Couldn’t reach the studio.'; showPre({}); }
-  }
-  $('#preGo').onclick = () => { const v = $('#preLink').value.trim(); if (!v) return $('#preLink').focus(); preCall('/api/prelisten', { source: v }); };
-  $('#preQueue').onclick = () => preCall('/api/prelisten', { source: 'queue' });
-  $('#preStop').onclick = () => preCall('/api/prelisten/stop');
-
-  // ---- the doorbell: a Reolink doorbell's press runs one of the cues
-  let bell = null;
-  const ago = t => { const s = Math.round(Date.now() / 1000 - t); return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
-  function showBell() {
-    if (!bell) return;
-    const busy = document.activeElement && document.activeElement.closest && document.activeElement.closest('.bell');
-    if (!busy) {
-      $('#bellOn').checked = bell.on; $('#bellHost').value = bell.host || ''; $('#bellUser').value = bell.username || '';
-      $('#bellPass').value = ''; $('#bellPass').placeholder = bell.has_password ? 'Password (saved)' : 'Password';
-      const cues = (cueDoc && cueDoc.cues) || (state && state.cues) || [];
-      $('#bellCue').innerHTML = cues.map(c => `<option value="${esc(c.id)}" ${c.id === bell.cue ? 'selected' : ''}>Rings ${esc(c.name)}</option>`).join('');
-    }
-    const st = $('#bellState');
-    st.className = 'state' + (bell.connected ? ' ok' : '');
-    st.textContent = !bell.host ? 'Enter the doorbell’s address, user and password.' : !bell.on ? 'Off.'
-      : !bell.has_password ? 'Add the doorbell’s password.' : bell.live === false ? 'This copy of the studio does not connect to the doorbell.'
-      : bell.connected ? `Listening${bell.name ? ' to ' + bell.name : ''}.` + (bell.last_ring ? ` Last rang ${ago(bell.last_ring)}.` : '') + (bell.note ? ` (${bell.note})` : '')
-      : bell.error ? `Can’t reach it: ${bell.error}` : 'Connecting…';
-  }
-  async function loadBell() { try { bell = await (await fetch('/api/doorbell')).json(); } catch (e) { return; } showBell(); }
-  // ---- add-ons (the doorbell, Bulb Shows): each off until switched on here; on, its card shows (Bulb Shows on the Lights tab)
-  let addonList = [];
-  function showAddons() {
-    const on = id => (addonList.find(a => a.id === id) || {}).on;
-    $('#bellCard').hidden = !on('doorbell');
-    if (!on('bulbshow')) $('#bulbCard').hidden = true;
-    $('#addonList').innerHTML = addonList.map(a => `<div class="room-row addon"><div><div class="rname">${esc(a.name)}</div>
-        <div class="rsub">${esc(a.on && a.missing ? a.missing : a.about)}</div></div>
-        <label class="switch"><input type="checkbox" data-addon="${esc(a.id)}" ${a.on ? 'checked' : ''} aria-label="${esc(a.name)} add-on"><span></span></label></div>`).join('')
-      || '<div class="empty">None</div>';
-    for (const sw of $('#addonList').querySelectorAll('input[data-addon]')) sw.onchange = async () => {
-      try { addonList = (await (await fetch('/api/addons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sw.dataset.addon, on: sw.checked }) })).json()).addons || addonList; }
-      catch (e) { sw.checked = !sw.checked; return; }
-      showAddons();
-      if (sw.dataset.addon === 'doorbell' && sw.checked) loadBell();
-      if (sw.dataset.addon === 'bulbshow' && sw.checked) { bulbShown = ''; loadBulbShows(); }
-    };
-  }
-  async function loadAddons() { try { addonList = (await (await fetch('/api/addons')).json()).addons || []; } catch (e) { return; } showAddons(); }
-  async function saveBell(extra = {}) {
-    const body = { on: $('#bellOn').checked, host: $('#bellHost').value.trim(), username: $('#bellUser').value.trim(), cue: $('#bellCue').value, ...extra };
-    const pw = $('#bellPass').value; if (pw) body.password = pw;
-    try { bell = await (await fetch('/api/doorbell', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json(); } catch (e) { /* shown next time */ }
-    $('#bellPass').value = ''; document.activeElement && document.activeElement.blur(); showBell();
-  }
-  for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
-  setInterval(() => { if (moreOpen && !document.hidden) loadBell(); }, 3000);
-  $('#evenOn').onchange = e => { evenBusy = performance.now() + 4000; api('even', { on: e.target.checked }).catch(() => { evenBusy = 0; }); };
   // the modes (each one the user's): a button each; on, every light takes its color and the music goes down or pauses.
   // One that asks first asks twice (an accidental tap stops the party); off is at once. While one is on its color can
   // be picked; each time it turns on it starts at its own.
@@ -834,38 +692,6 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     }
   }
 
-  // ---- More settings: the modes, each made and changed here (kept on the computer, for every phone)
-  let modeDoc = null, modeEditShown = '';
-  function loadModeEdit() { if (state && state.modes) { modeDoc = state.modes.map(m => ({ ...m, color: m.own || m.color })); renderModeEdit(); } }
-  const saveModes = async () => {
-    try { const st = await api('modes', { modes: modeDoc }); if (st && st.modes) { state.modes = st.modes; modeDoc = st.modes.map(m => ({ ...m, color: m.own || m.color })); } } catch (e) { /* shown next time */ }
-    renderModeEdit(); showModes((state && state.modes) || []);
-  };
-  function renderModeEdit() {
-    const el = $('#modeEdit'); if (!modeDoc) return;
-    if (el.contains(document.activeElement) && document.activeElement.matches('input[type=text], input[type=range]')) return;   // never under the finger
-    const FADES = [[0, 'At once'], [1, '1 second'], [2, '2 seconds'], [5, '5 seconds'], [10, '10 seconds']];
-    el.innerHTML = modeDoc.map((m, i) => `<div class="mode-edit" data-i="${i}">
-        <div class="top"><input type="text" class="m-name" value="${esc(m.name)}" aria-label="Mode name"><button class="del" aria-label="Delete ${esc(m.name)}">&times;</button></div>
-        <div class="m-row"><span>Pause the music</span><label class="switch"><input type="checkbox" class="m-pause" ${m.pause ? 'checked' : ''} aria-label="Pause the music"><span></span></label></div>
-        <div class="m-row" ${m.pause ? 'hidden' : ''}><span>Music</span><input type="range" class="m-music" min="0" max="100" step="5" value="${Math.round(m.music * 100)}" aria-label="Music level"><span class="m-val">${Math.round(m.music * 100)}%</span></div>
-        <div class="m-row"><span>Lights fade</span><select class="m-fade" aria-label="Fade">${FADES.map(([v, t]) => `<option value="${v}" ${Math.abs(m.fade - v) < 0.01 ? 'selected' : ''}>${t}</option>`).join('')}${FADES.some(([v]) => Math.abs(m.fade - v) < 0.01) ? '' : `<option value="${m.fade}" selected>${m.fade} seconds</option>`}</select></div>
-        <div class="m-row"><span>Ask before turning on</span><label class="switch"><input type="checkbox" class="m-confirm" ${m.confirm ? 'checked' : ''} aria-label="Ask before turning on"><span></span></label></div>
-        <div class="m-colors">${swatches(m.color)}</div></div>`).join('') + `<button class="add" id="modeAdd" type="button">+ Add mode</button>`;
-    for (const row of el.querySelectorAll('.mode-edit')) {
-      const m = modeDoc[+row.dataset.i], q = c => row.querySelector(c);
-      q('.m-name').onchange = e => { m.name = e.target.value.trim() || m.name; saveModes(); };
-      q('.m-pause').onchange = e => { m.pause = e.target.checked; saveModes(); };
-      q('.m-music').oninput = e => { row.querySelector('.m-val').textContent = e.target.value + '%'; };
-      q('.m-music').onchange = e => { m.music = +e.target.value / 100; saveModes(); };
-      q('.m-fade').onchange = e => { m.fade = +e.target.value; saveModes(); };
-      q('.m-confirm').onchange = e => { m.confirm = e.target.checked; saveModes(); };
-      for (const sw of row.querySelectorAll('.m-colors [data-c]')) sw.onclick = () => { m.color = sw.dataset.c; saveModes(); };
-      q('.del').onclick = () => { if (confirm(`Delete ${m.name}?`)) { modeDoc.splice(+row.dataset.i, 1); saveModes(); } };
-    }
-    $('#modeAdd').onclick = () => { modeDoc.push({ name: 'New mode', music: 0.2, pause: false, fade: 5, color: '#ffaa5a', confirm: false }); saveModes(); };
-  }
-
   // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
   for (const b of document.querySelectorAll('#colorSource button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ source: b.dataset.s }); };
   // The party's colors: on or off, the named set they come from (a Halloween set...), two colors for every
@@ -902,7 +728,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     for (const b of $('#themeEdit').querySelectorAll('.modes button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ mode: b.dataset.m }); };
     for (const el of $('#themeEdit').querySelectorAll('.pair-ed')) {
       const i = +el.dataset.i;
-      for (const sw of el.querySelectorAll('.sw')) sw.onclick = () => openPairSheet(mode === 'mix' ? `Pair ${i + 1}` : 'Party colors', pairs[i][0], pairs[i][1], (a, b) => {
+      for (const sw of el.querySelectorAll('.sw')) sw.onclick = () => openPairSheet(mode === 'mix' ? `Pair ${i + 1}` : 'Your colors', pairs[i][0], pairs[i][1], (a, b) => {
         for (const x of el.querySelectorAll('.sw')) x.style.background = x.dataset.k === 'a' ? a : b;
         if (mode === 'mix') { const next = pairs.map((p, j) => j === i ? [a, b] : p); pairs[i] = [a, b]; api('theme', { pairs: next }).then(st => { state = st; }).catch(() => {}); }
         else api('theme', { primary: a, secondary: b }).then(st => { state = st; }).catch(() => {});
@@ -930,7 +756,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     const st = state;
     const status = $('#status');
     const micOff = st.running && st.sync_warning;
-    status.textContent = !st.running ? 'jam not running' : st.paused ? 'paused' : micOff ? 'mic muted? sync check can’t hear' : st.streaming ? `live · ${Math.round(st.delay || 0)} s behind` : 'filling the buffer…';
+    status.textContent = !st.running ? 'not playing' : st.paused ? 'paused' : micOff ? 'mic muted? sync check can’t hear' : st.streaming ? `live · ${Math.round(st.delay || 0)} s behind` : 'filling the buffer…';
     status.title = micOff ? st.sync_warning : '';
     status.className = 'pill' + (st.running && st.streaming && !st.paused && !micOff ? ' live' : '');
     status.hidden = !!(st.running && st.streaming && !st.paused && !micOff);    // all is well: nothing to say (only trouble shows)
@@ -945,7 +771,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     // a skip or a step back tapped: the song it goes to, grayed, until the room gets there (a few seconds)
     if (skipping && (!r || r.id !== skipping.from || performance.now() - skipping.at > 25000)) skipping = null;
     const shownSong = skipping && skipping.to ? skipping.to : r;
-    const nowHtml = !st.running ? idle('Start a jam in the studio, then come back here.')
+    const nowHtml = !st.running ? `<div class="np idle">${artBox(null)}<div class="title">Press start, then play something on Spotify.</div><button class="start-party" id="bStart" type="button">Start the party</button></div>`
       : !r ? idle(st.streaming ? 'Between songs' : 'The room hears nothing yet')
       : `<div class="np${skipping ? ' pending' : ''}">${artBox(shownSong, true)}
           <div class="eyebrow">${skipping ? (skipping.action === 'next' ? 'Next song loading…' : 'Going back…') : r.opener ? 'Opening song' : 'In the room'}</div>
@@ -966,6 +792,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     if (html !== shown && !busy) {
       $('#now').innerHTML = nowHtml; $('#next').innerHTML = nextHtml; shown = html;
       wireColors($('#now')); wireColors($('#next'));
+      const startBtn = $('#bStart'); if (startBtn) startBtn.onclick = startParty;
       const play = $('#bPlay');
       if (play) play.onclick = () => api('playback', { action: r.playing ? 'pause' : 'resume' }).then(poll).catch(() => {});
       for (const [id, action] of [['#bPrev', 'previous'], ['#bNext', 'next']]) { const b = $(id); if (b) b.onclick = () => {
@@ -978,10 +805,10 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
         api('playback', { action }).then(poll).catch(() => { skipping = null; shown = ''; render(); });
       }; }
     }
-    renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
-    if (performance.now() > evenBusy) $('#evenOn').checked = st.even_levels !== false;
+    renderTheme(st); renderCues(st);
     showModes(st.modes || []);
-    if (moreOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
+    $('#momentsEmpty').hidden = !!((st.modes || []).length || (st.cues || []).length);
+    $('#stopParty').hidden = !st.running;
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
   }
@@ -993,30 +820,32 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   }
   setInterval(tickClock, 250);
 
+  const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then(r => r.json());
+  // with the settings the party was last set up with on the computer, which has to be open: it drives the lights
+  async function startParty() {
+    const btn = $('#bStart'); if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+    try {
+      const jam = await (await fetch('/api/jam/state')).json(), last = jam.last || {};
+      if (!(jam.spotify || {}).signed_in) { alert('Connect Spotify on the computer first, in Settings.'); return; }
+      if (last.speakers === 'cast' && jam.cast_device && !(jam.speaker_connected && jam.speaker === jam.cast_device)) await postJson('/api/cast/connect', { name: jam.cast_device }).catch(() => {});
+      const r = await postJson('/api/jam/start', { saved: true });
+      if (r && r.error) alert(r.error);
+    } catch (e) { alert('Couldn’t reach the computer.'); }
+    shown = ''; poll();
+  }
+  $('#stopParty').onclick = async () => {
+    if (!confirm('Stop the party? The music and the lights stop.')) return;
+    await postJson('/api/jam/stop', {}).catch(() => {});
+    shown = ''; poll();
+  };
+  $('#themeToggle').onclick = () => { const box = $('#themeEdit'); box.hidden = !box.hidden; $('#themeToggle').textContent = box.hidden ? 'Edit colors' : 'Done'; };
+
   async function poll() {
     if (document.hidden) return;
     try { state = await api('state'); render(); }
     catch (e) { $('#status').textContent = 'can’t reach the studio'; $('#status').className = 'pill'; $('#status').hidden = false; }
   }
   setInterval(poll, 1500);
-
-  // ---- rooms: switch one off (karaoke in the living room) and its lights fade back to how they were and
-  // its speakers mute; switch it on and the lights fade back in and the speakers unmute
-  let roomsShown = '', roomBusy = 0;
-  function renderRooms(rooms) {
-    $('#roomsCard').hidden = !rooms.length;
-    if (performance.now() < roomBusy) return;                         // a switch just flipped: wait for the studio
-    const html = rooms.map(r => `<div class="room-row"><div><div class="rname">${esc(r.name)}</div>
-        <div class="rsub">${r.on ? 'In the party' : 'Lights back to normal, speakers muted'}</div></div>
-        <label class="switch"><input type="checkbox" data-id="${esc(r.id)}" ${r.on ? 'checked' : ''} aria-label="${esc(r.name)} in the party"><span></span></label></div>`).join('');
-    if (html === roomsShown) return;
-    roomsShown = html; $('#rooms').innerHTML = html;
-    for (const sw of $('#rooms').querySelectorAll('input[data-id]')) sw.onchange = async () => {
-      roomBusy = performance.now() + 2500;
-      sw.closest('.room-row').querySelector('.rsub').textContent = sw.checked ? 'Fading in…' : 'Fading out…';
-      try { await fetch('/api/rooms/on', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sw.dataset.id, on: sw.checked }) }); } catch (e) { /* the next poll shows the truth */ }
-    };
-  }
 
   // ---- Bulb Shows: Bulb Show's own looping shows (one sound, one speaker, one bulb each), on or off from here;
   // switching one on starts Bulb Show if it is not open
@@ -1042,7 +871,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
       if (bulbNote[id]) setTimeout(() => { delete bulbNote[id]; bulbShown = ''; loadBulbShows(); }, 6000);
     };
   }
-  setInterval(() => { if (lightsOpen && !document.hidden) loadBulbShows(); }, 4000);
+  setInterval(() => { if (roomsOpen && !document.hidden) loadBulbShows(); }, 4000);
   loadBulbShows();
 
   // ---- the room view: the house and every light as it plays (roomview.html, its frames passed on by the studio),
@@ -1078,7 +907,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   let roomsDoc = null;
   async function saveRooms(rooms) {
     try { roomsDoc = await (await fetch('/api/rooms?devices=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rooms }) })).json(); } catch (e) { /* shown below */ }
-    renderRoomEdit(); roomsShown = ''; poll(); loadVolumes();
+    renderRoomEdit(); poll(); volShown = '';
   }
   async function loadRoomEdit() {
     try { roomsDoc = await (await fetch('/api/rooms?devices=1')).json(); } catch (e) { $('#roomEdit').innerHTML = '<div class="empty">Couldn’t load the rooms.</div>'; return; }
@@ -1130,7 +959,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   const mixOpen = new Set();
   function roomVolumes(root, devs) {
     for (const box of root.querySelectorAll('.vroom')) {
-      const names = JSON.parse(box.dataset.names), r = box.querySelector(':scope > .vol input[type=range]');
+      const names = JSON.parse(box.dataset.names), r = box.querySelector('.room-line .vol input[type=range]');
       let base = null, t = null;
       const levelsFor = v => {
         const top = Math.max(...names.map(n => base[n] || 0));
@@ -1139,87 +968,78 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
       const send = () => { if (base) api('volume', { levels: levelsFor(+r.value / 100) }).catch(() => {}); };
       r.addEventListener('input', () => {
         if (!base) base = Object.fromEntries(names.map(n => [n, (devs.find(d => d.name === n) || {}).volume || 0]));
-        box.querySelector(':scope > .vol .vv').textContent = r.value + '%';
+        box.querySelector('.room-line .vol .vv').textContent = r.value + '%';
         const lv = levelsFor(+r.value / 100);                         // the mix below follows along
         for (const m of box.querySelectorAll('.mix input[type=range]')) { const v = Math.round((lv[m.dataset.key] || 0) * 100); m.value = v; m.parentElement.querySelector('.vv').textContent = v + '%'; }
         clearTimeout(t); t = setTimeout(send, 150);
       });
       r.addEventListener('change', () => { clearTimeout(t); if (!base) return; send(); for (const n of names) { const d = devs.find(x => x.name === n); if (d) d.volume = levelsFor(+r.value / 100)[n]; } base = null; });
       const btn = box.querySelector('.mixbtn'), mix = box.querySelector('.mix');
-      if (btn) btn.onclick = () => { const open = mix.hidden; mix.hidden = !open; btn.textContent = open ? 'Hide mix' : 'Edit mix'; open ? mixOpen.add(box.dataset.room) : mixOpen.delete(box.dataset.room); };
+      if (btn) btn.onclick = () => { const open = mix.hidden; mix.hidden = !open; btn.textContent = open ? 'Hide each speaker' : 'Each speaker’s volume'; open ? mixOpen.add(box.dataset.room) : mixOpen.delete(box.dataset.room); };
       for (const m of mix.querySelectorAll('input[type=range]')) m.addEventListener('change', () => { const d = devs.find(x => x.name === m.dataset.key); if (d) d.volume = +m.value / 100;
-        const top = Math.max(...names.map(n => (devs.find(x => x.name === n) || {}).volume || 0)); r.value = Math.round(top * 100); box.querySelector(':scope > .vol .vv').textContent = r.value + '%'; });
+        const top = Math.max(...names.map(n => (devs.find(x => x.name === n) || {}).volume || 0)); r.value = Math.round(top * 100); box.querySelector('.room-line .vol .vv').textContent = r.value + '%'; });
     }
   }
   // While Settings is open the levels are read again every 5 s, so one changed in person (on the speaker, in the
   // Google Home app) shows here and a room's slider moves from it, not from a level gone stale; never while a
   // slider is in hand, and drawn again only when something changed.
   let volShown = '', volTouchedAt = 0, volHeld = false;
-  for (const ev of ['pointerdown', 'input']) document.addEventListener(ev, e => { if (e.target.closest && e.target.closest('#castVol, #speakers')) { volTouchedAt = performance.now(); if (ev === 'pointerdown') volHeld = true; } }, true);
+  for (const ev of ['pointerdown', 'input']) document.addEventListener(ev, e => { if (e.target.closest && e.target.closest('#speakers')) { volTouchedAt = performance.now(); if (ev === 'pointerdown') volHeld = true; } }, true);
   document.addEventListener('pointerup', () => { volHeld = false; }, true);
-  setInterval(() => { if (settingsOpen && !document.hidden && !volHeld && performance.now() - volTouchedAt > 4000) loadVolumes(true); }, 5000);
+  setInterval(() => { if (roomsOpen && !document.hidden && !volHeld && performance.now() - volTouchedAt > 4000) loadVolumes(true); }, 5000);
+  let roomBusy = 0;
   async function loadVolumes(quiet) {
-    try {
-      const v = await (await fetch('/api/party/volumes')).json();
-      if (v.error) throw new Error(v.error);
-      const sig = JSON.stringify([v, (state && state.rooms) || (roomsDoc && roomsDoc.rooms) || []]);
-      if (quiet && sig === volShown) return;                           // nothing changed: left as it is
-      if (quiet && (volHeld || performance.now() - volTouchedAt < 4000)) return;   // (a slider taken in hand meanwhile)
-      volShown = sig;
-      $('#castVol').innerHTML = v.cast ? volRow(v.cast.name, v.cast.volume, '', false) : '<div class="empty">Not casting right now.</div>';
-      const devs = v.devices || [], rooms = (state && state.rooms) || (roomsDoc && roomsDoc.rooms) || [];
-      const placed = new Set(), html = [];
-      for (const rm of rooms) {
-        const mine = devs.filter(d => rm.speakers.includes(d.name));
-        if (!mine.length) continue;
-        mine.forEach(d => placed.add(d.name));
-        const known = mine.filter(d => d.volume != null), top = known.length ? Math.max(...known.map(d => d.volume)) : null;
-        const open = mixOpen.has(rm.id);
-        html.push(`<div class="vroom" data-room="${esc(rm.id)}" data-names="${esc(JSON.stringify(known.map(d => d.name)))}">
-          ${volRow(rm.name, top, '', false, !rm.on).replace('data-key=""', 'data-room-level="1"')}
-          ${mine.length > 1 ? `<button class="mixbtn">${open ? 'Hide mix' : 'Edit mix'}</button>` : ''}
-          <div class="mix" ${open && mine.length > 1 ? '' : 'hidden'}>${mine.map(d => volRow(d.name, d.volume, d.name, false, d.muted, d.bulb_show)).join('')}</div></div>`);
-      }
-      const rest = devs.filter(d => !placed.has(d.name));
-      if (rest.length) html.push(`${html.length ? '<div class="eyebrow" style="margin-top:14px">Not in a room</div>' : ''}${rest.map(d => volRow(d.name, d.volume, d.name, d.type === 'group', d.muted, d.bulb_show)).join('')}`);
-      $('#speakers').innerHTML = html.join('') || '<div class="empty">No speakers found.</div>';
-      wireVols($('#castVol'));
-      roomVolumes($('#speakers'), devs);
-      wireVols($('#speakers'));
-    } catch (e) { if (quiet) return; console.error(e); $('#speakers').innerHTML = '<div class="empty">Couldn’t reach the speakers.</div>'; }
+    let v = { devices: [] };
+    try { const got = await (await fetch('/api/party/volumes')).json(); if (!got.error) v = got; } catch (e) { /* the rooms still show, without their speakers */ }
+    const rooms = (state && state.rooms) || [], devs = v.devices || [], sig = JSON.stringify([devs, rooms]);
+    if (quiet && (sig === volShown || volHeld || performance.now() - volTouchedAt < 4000 || performance.now() < roomBusy)) return;
+    volShown = sig;
+    const placed = new Set(), html = [];
+    const roomSwitch = rm => `<label class="switch"><input type="checkbox" data-id="${esc(rm.id)}" ${rm.on ? 'checked' : ''} aria-label="${esc(rm.name)} in the party"><span></span></label>`;
+    for (const rm of rooms) {
+      const mine = devs.filter(d => rm.speakers.includes(d.name));
+      mine.forEach(d => placed.add(d.name));
+      if (!mine.length) { html.push(`<div class="room-row"><div><div class="rname">${esc(rm.name)}</div><div class="rsub">No speakers</div></div>${roomSwitch(rm)}</div>`); continue; }
+      const known = mine.filter(d => d.volume != null), top = known.length ? Math.max(...known.map(d => d.volume)) : null, open = mixOpen.has(rm.id);
+      html.push(`<div class="vroom" data-room="${esc(rm.id)}" data-names="${esc(JSON.stringify(known.map(d => d.name)))}">
+        <div class="room-line"><div class="room-vol">${volRow(rm.name, top, '', false, !rm.on).replace('data-key=""', 'data-room-level="1"')}</div>${roomSwitch(rm)}</div>
+        ${mine.length > 1 ? `<button class="mixbtn">${open ? 'Hide each speaker' : 'Each speaker’s volume'}</button>` : ''}
+        <div class="mix" ${open && mine.length > 1 ? '' : 'hidden'}>${mine.map(d => volRow(d.name, d.volume, d.name, false, d.muted, d.bulb_show)).join('')}</div></div>`);
+    }
+    const rest = devs.filter(d => !placed.has(d.name));
+    if (rest.length) html.push(`${html.length ? '<div class="eyebrow" style="margin-top:14px">Not in a room</div>' : ''}${rest.map(d => volRow(d.name, d.volume, d.name, d.type === 'group', d.muted, d.bulb_show)).join('')}`);
+    const box = $('#speakers');
+    box.innerHTML = html.join('') || '<div class="empty">No rooms yet: add them with Edit rooms.</div>';
+    roomVolumes(box, devs);
+    wireVols(box);
+    for (const sw of box.querySelectorAll('input[data-id]')) sw.onchange = async () => {
+      roomBusy = performance.now() + 2500;
+      try { await postJson('/api/rooms/on', { id: sw.dataset.id, on: sw.checked }); } catch (e) { sw.checked = !sw.checked; }
+      setTimeout(() => { poll(); loadVolumes(true); }, 2600);
+    };
   }
 
-  // ---- appearance: Auto (the phone's), Light or Dark; the status bar follows the page
+  // ---- the phone's own light or dark look; the status bar follows the page
   const syncBar = () => { const c = getComputedStyle(document.body).backgroundColor; for (const m of document.querySelectorAll('meta[name="theme-color"]')) m.content = c; };
-  function setLook(t, keep) {
-    if (keep) try { localStorage.setItem('party-look', t); } catch (e) { /* this visit only */ }
-    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
-    for (const b of document.querySelectorAll('#lookSeg button')) b.classList.toggle('on', b.dataset.look === t);
-    syncBar();
-  }
-  for (const b of document.querySelectorAll('#lookSeg button')) b.onclick = () => setLook(b.dataset.look, true);
-  setLook(document.documentElement.dataset.theme || 'auto');
+  syncBar();
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', syncBar);
 
-  // ---- tabs: Now Playing, Lights, Settings (one per #hash, so the phone's back gesture works)
-  // (More settings is a page of Settings: its own #hash so the back gesture returns to Settings, Settings lit below)
-  const TABS = { now: 'Now Playing', lights: 'Lights', settings: 'Settings', more: 'More Settings' };
+  // ---- tabs: Now, Moments, Rooms (one per #hash, so the phone's back gesture works); Edit rooms is a page of Rooms
+  const TABS = { now: 'Now', moments: 'Moments', rooms: 'Rooms', editrooms: 'Edit rooms' };
   function showTab() {
-    const h = location.hash.slice(1), tab = TABS[h] ? h : 'now', was = settingsOpen, wasMore = moreOpen, navTab = tab === 'more' ? 'settings' : tab;
-    for (const t in TABS) $('#tab-' + t).hidden = t !== tab;
+    const h = location.hash.slice(1), tab = TABS[h] ? h : 'now', was = roomsOpen, navTab = tab === 'editrooms' ? 'rooms' : tab;
+    for (const k in TABS) $('#tab-' + k).hidden = k !== tab;
     for (const b of document.querySelectorAll('.nav-btn')) b.dataset.tab === navTab ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current');
     $('#title').textContent = TABS[tab]; $('#scroller').scrollTop = 0;
-    settingsOpen = tab === 'settings'; moreOpen = tab === 'more';
-    if (tab === 'lights' && !lightsOpen) loadBulbShows();
-    lightsOpen = tab === 'lights';
-    if (!lightsOpen) roomView(false);
-    if (settingsOpen && !was) loadVolumes();
-    if (moreOpen && !wasMore) { loadCueEdit(); loadModeEdit(); loadAddons(); loadBell(); loadRoomEdit(); if (state) showPre(state.prelisten); }
+    roomsOpen = tab === 'rooms';
+    if (roomsOpen && !was) { loadBulbShows(); loadVolumes(); }
+    if (!roomsOpen) roomView(false);
+    if (tab === 'editrooms') loadRoomEdit();
   }
-  function goTab(t) { const h = t === 'now' ? '' : t; if (location.hash.slice(1) === h) showTab(); else location.hash = h; }
+  function goTab(k) { const h = k === 'now' ? '' : k; if (location.hash.slice(1) === h) showTab(); else location.hash = h; }
   for (const b of document.querySelectorAll('.nav-btn')) b.onclick = () => goTab(b.dataset.tab);
-  $('#moreOpen').onclick = () => goTab('more');
-  $('#moreBack').onclick = () => goTab('settings');
+  $('#roomsEdit').onclick = () => goTab('editrooms');
+  $('#roomsBack').onclick = () => goTab('rooms');
   window.addEventListener('hashchange', showTab);
   showTab();
 
@@ -1231,7 +1051,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   <div class="sheet" role="dialog" aria-label="Song colors">
     <div class="grab" aria-hidden="true"></div>
     <div class="sx-head"><span class="sx-title">Colors</span></div>
-    <div class="sx-theme song-only" role="group" aria-label="Its colors"><button data-t="party">Party colors</button><button data-t="cover">Album art</button></div>
+    <div class="sx-theme song-only" role="group" aria-label="Its colors"><button data-t="party">Your colors</button><button data-t="cover">Album art</button></div>
     <!-- (the stored secondary, k "b", is on the bright hits and shows most: it is the one called Primary) -->
     <div class="sx-label">Primary</div>
     <div class="sx-grid" data-k="b"></div>
@@ -1242,7 +1062,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     <div class="sx-label song-only">Genre</div>
     <div class="sx-vibes sx-genres song-only" role="group" aria-label="Genre"></div>
     <div class="sx-only song-only"><span>Just these two colors</span><label class="switch"><input type="checkbox" id="sxOnly" aria-label="Just these two colors: no accents in other colors and no rainbow drops"><span></span></label></div>
-    <button class="sx-reset song-only" hidden>Back to the jam’s colors</button>
+    <button class="sx-reset song-only" hidden>Back to tonight’s colors</button>
   </div>
 </div>
 </body>

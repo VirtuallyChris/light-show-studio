@@ -15,6 +15,23 @@ times a second, with no fade.
 (The original microphone light show, `lightshow run`, and its `audio`, `test` and `probe` commands
 were retired once the studio did all of it.)
 
+## Where everything is
+
+The app has five places, on the left rail, and the phone has the first of them in your pocket. Older parts of this
+guide may still say Jam (now the party), Party Hub (the phone remote), Party level (Energy) or Cues and Modes (Moments).
+
+| Place | What it holds |
+|---|---|
+| **Party** | Start and stop, where it plays, the song and its colors, vibe and genre, up next, colors for the night, Moments, Energy, rooms and their volumes, Bulb Studio's switches. Get started shows here until your home is ready. |
+| **Shows** | Every song, saved or learned. Click one for the timeline editor. Review goes through what the app learned, and Learn a playlist studies songs ahead of the party. |
+| **Home** | The map of your home, beside your lights (name, LED count, direction, Philips Hue), rooms and speakers. |
+| **Add-ons** | Bulb Studio, the Reolink doorbell and Home Assistant, each set up on its own card. |
+| **Settings** | Spotify, your phone's QR code, AI models and kept song copies, updates, and **Fine tuning**: timing, the delay, sound devices, the silent demo and the log. |
+
+The **phone remote** has three tabs: **Now** (the song, up next, colors), **Moments**, and **Rooms** (Energy, rooms and
+volumes, the live view, and Edit rooms). Set up everything else on the computer, which has to be open during a party,
+because it drives the lights.
+
 ## Setup
 
 1. In the **Govee Home** app open each light -> settings (gear) -> turn on
@@ -89,9 +106,8 @@ mbedTLS (the library the bridge runs).
 
 ### Add-ons
 
-Features for one kind of home are add-ons, off until you switch them on (Party
-Hub: Settings, More settings, **Add-ons**). While one is off its card stays
-hidden and it does nothing in the background.
+Features for one kind of home are add-ons, off until you add them in **Add-ons**.
+While one is off it does nothing in the background.
 
 - **Doorbell.** A Reolink video doorbell rings a cue (see **The doorbell rings a
   cue**). Needs `requirements-addons.txt`.
