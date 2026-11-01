@@ -91,6 +91,19 @@ class BulbShows:
         except Exception:  # noqa: BLE001 - not open
             return False
 
+    def open_window(self) -> dict:
+        """Bulb Show running, for its window to open in the studio (started with no window of its own if it is
+        not: its window keeps it running, and it quits once no show runs and no window is open). {ok, url, error}."""
+        try:
+            self.http("GET", self.base + "/api/settings", timeout=1.0)
+        except Exception:  # noqa: BLE001 - not open yet
+            if not self.launch:
+                return {"ok": False, "url": "", "error": "Bulb Show is not open (a test copy never starts it)"}
+            self._start_app()
+            if not self._wait_open():
+                return {"ok": False, "url": "", "error": "Bulb Show did not start"}
+        return {"ok": True, "url": f"http://127.0.0.1:{self.port}/", "error": ""}
+
     # -- switching one ------------------------------------------------------------------
     def _start_app(self) -> None:
         exe = sys.executable

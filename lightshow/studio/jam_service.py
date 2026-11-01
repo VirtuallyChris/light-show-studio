@@ -155,6 +155,7 @@ class JamService:
             web.post("/api/party/volume", self.party_volume),
             web.get("/api/party/bulbshows", self.party_bulbshows),
             web.post("/api/party/bulbshows", self.party_bulbshow_set),
+            web.post("/api/bulbshow/open", self.bulbshow_open),
             web.post("/api/party/even", self.party_even),
             web.post("/api/prelisten", self.prelisten_start),
             web.post("/api/prelisten/stop", self.prelisten_stop),
@@ -1244,6 +1245,15 @@ class JamService:
         if bulbs is None:
             return web.json_response({"open": False, "shows": []})
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.list))
+
+    async def bulbshow_open(self, request):
+        """The studio's Bulb Shows button: Bulb Show running, and the address of its window ({ok, url, error})."""
+        if not self._local(request):
+            raise web.HTTPForbidden()
+        bulbs = self._bulbshows()
+        if bulbs is None:
+            return web.json_response({"ok": False, "url": "", "error": "the Bulb Shows add-on is off"})
+        return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.open_window))
 
     async def party_bulbshow_set(self, request):
         """Switch a bulb show on or off ({id, on}). Never on the speaker the party plays on."""

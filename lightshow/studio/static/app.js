@@ -2402,6 +2402,20 @@
   for (const id of ['#gridMenu', '#settingsMenu', '#helpPop', '#roomsPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
   $('#btnRooms').onclick = e => { e.stopPropagation(); openRooms(); };
   $('#railRooms').onclick = e => { e.stopPropagation(); openRooms($('#railRooms')); };
+  // Bulb Shows (an add-on): its button shows while the add-on is on, and opens Bulb Show in a window of its own (the
+  // window opens at once, so it is never taken for a pop-up, and goes to Bulb Show once it is running)
+  async function showAddons() {
+    try { const d = await (await fetch('/api/addons')).json(); $('#railBulbs').hidden = !(d.addons || []).some(a => a.id === 'bulbshow' && a.on); } catch (e) { /* as it was */ }
+  }
+  showAddons(); addEventListener('focus', showAddons);
+  $('#railBulbs').onclick = async e => {
+    e.stopPropagation();
+    const win = window.open('', 'lss-bulbshow', 'width=1280,height=800');
+    try {
+      const r = await (await fetch('/api/bulbshow/open', { method: 'POST' })).json();
+      if (r.ok && win) win.location = r.url; else { if (win) win.close(); toast(r.error || 'Bulb Show did not open', true); }
+    } catch (err) { if (win) win.close(); toast('Bulb Show did not open', true); }
+  };
   document.addEventListener('mousedown', closeMenus);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
   // narrow windows: the library is a drawer

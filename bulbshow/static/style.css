@@ -94,3 +94,28 @@ label { color: var(--muted); }
 .menu .row { display: flex; justify-content: space-between; align-items: center; }
 .toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); background: var(--bg3); border: 1px solid var(--line2); border-radius: var(--radius); padding: 0.6rem 1rem; box-shadow: var(--shadow); z-index: 30; max-width: 36rem; }
 .toast.bad { border-color: var(--bad); }
+
+/* ---------- Stage: the same look as Light Show Studio ---------------------------------------- */
+:root {
+  --bg: #0c0d12; --bg2: #0f1017; --bg3: #161822; --bg4: #1f2230; --line: #1d1f29; --line2: #262936;
+  --text: #e8e9f0; --muted: #9599ab; --dim: #6b6f82;
+  --accent: #8b5cf6; --accent2: #ec4899; --accent-soft: #1f1b33; --accent-text: #c4b5fd;
+}
+button.accent { background: var(--accent); border: none; color: #fff; font-weight: 700; }
+button.accent:hover { filter: brightness(1.1); }
+button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+button { border-radius: .6rem; }
+input:focus, select:focus { box-shadow: 0 0 0 2px rgba(139, 92, 246, .25); }
+.topbar { min-height: 3.9rem; padding: .45rem .9rem; gap: .6rem; }
+.brand { background: none; color: var(--text); -webkit-text-fill-color: currentColor; display: inline-flex; align-items: center; gap: .55rem; font-weight: 800; }
+.brand::before { content: ''; width: .8rem; height: .8rem; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 .3rem rgba(139, 92, 246, .25); }
+.group { border-left-color: var(--line2); }
+.cards { padding: 1.4rem; gap: 1rem; }
+.card { border-radius: .9rem; padding: 1rem; background: var(--bg2); }
+.card:hover { border-color: var(--accent); }
+.card.running { border-color: rgba(139, 92, 246, .6); box-shadow: 0 0 0 1px rgba(139, 92, 246, .25) inset; }
+.palette, .inspector { background: var(--bg2); }
+.tile { border-radius: .6rem; background: var(--bg3); }
+.tile:hover { border-color: var(--accent); }
+.inspector h3 { color: var(--text); text-transform: none; letter-spacing: 0; font-size: 1rem; font-weight: 700; }
+.menu { border-radius: .9rem; }

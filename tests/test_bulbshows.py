@@ -91,6 +91,19 @@ class TestBulbShows(unittest.TestCase):
         self.assertEqual(b.started, 1)
         self.assertIn(("POST", "/api/run/witch"), app.calls)
 
+    def test_its_window_from_the_studio_starts_it_when_closed(self):
+        app = FakeApp(open_=False)
+        b = self.make(app)
+        self.assertEqual(b.open_window(), {"ok": True, "url": "http://127.0.0.1:8770/", "error": ""})
+        self.assertEqual(b.started, 1)
+        self.assertEqual(b.open_window()["ok"], True)
+        self.assertEqual(b.started, 1)                                   # open already: not started again
+
+    def test_a_test_copy_opens_no_window_it_would_have_to_start(self):
+        b = self.make(FakeApp(open_=False), launch=False)
+        self.assertFalse(b.open_window()["ok"])
+        self.assertEqual(b.started, 0)
+
     def test_a_test_copy_never_starts_bulb_show(self):
         b = self.make(FakeApp(open_=False), launch=False)
         self.assertFalse(b.set("witch", True)["ok"])
