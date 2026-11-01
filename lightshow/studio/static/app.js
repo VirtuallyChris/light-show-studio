@@ -24,7 +24,14 @@
   updateUI(); window.addEventListener('resize', updateUI);
   const TW = () => tl.clientWidth / UI, TH = () => tl.clientHeight / UI;
   const SECTION_TYPES = ['intro', 'verse', 'buildup', 'drop', 'breakdown', 'outro'];
-  const SECTION_COLORS = { intro: '#4b5563', verse: '#3b82f6', buildup: '#f59e0b', drop: '#ef4444', breakdown: '#8b5cf6', outro: '#6b7280' };
+  const SECTION_COLORS = { intro: '#4b5563', verse: '#3b82f6', buildup: '#f59e0b', drop: '#ec4899', breakdown: '#14b8a6', outro: '#6b7280' };
+  /** The canvases' own colors, from the stylesheet (style.css --canvas-*): a new look is changed in one place. */
+  function canvasColors() {
+    const cs = getComputedStyle(document.documentElement), v = (k, d) => cs.getPropertyValue('--canvas-' + k).trim() || d;
+    return { room: v('room', '#07080b'), wall: v('room-wall', '#2a2d3a'), name: v('room-name', '#5d6175'), lane: v('lane', '#10121a'),
+      laneAlt: v('lane-alt', '#0e1017'), laneHidden: v('lane-hidden', '#0b0c10'), overview: v('overview', '#0f1017'), rule: v('rule', '#1d1f29') };
+  }
+  const CV = canvasColors();
   const DEFAULT_LANES = 4;
   const newLane = () => ({ name: '', clips: [] });
 
@@ -1064,10 +1071,10 @@
       roomsDoc = await r.json(); S.rooms = roomsDoc.rooms; renderRooms(); renderLights(); sendSelect(); saveSelection(); S.forceSend = true;
     } catch (e) { toast('Could not save the rooms', true); }
   }
-  async function openRooms() {
+  async function openRooms(anchor) {
     const pop = $('#roomsPop');
     closeMenus(); pop.hidden = false;
-    const r = $('#btnSettings').getBoundingClientRect(); pop.style.top = (r.bottom + 6) + 'px'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
+    placePop(pop, anchor || $('#btnSettings'));
     if (!roomsDoc) pop.innerHTML = '<div class="hint">Looking for lights and speakers…</div>';
     try { roomsDoc = await (await fetch('/api/rooms?devices=1')).json(); S.rooms = roomsDoc.rooms; } catch (e) { pop.innerHTML = '<div class="hint">Could not load the rooms.</div>'; return; }
     renderRooms();
@@ -1560,7 +1567,8 @@
     if (pv.width !== W || pv.height !== H) { pv.width = W; pv.height = H; }
     const w = pv.clientWidth / UI, h = pv.clientHeight / UI;
     pctx.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
-    pctx.fillStyle = '#0b0c0f'; pctx.fillRect(0, 0, w, h);
+    pctx.fillStyle = CV.room; pctx.fillRect(0, 0, w, h);
+    if (mappedHouse()) { drawHouse(frame || [], w, h); return; }      // (the house, even before a light is ticked)
     if (!frame || !frame.length) { pctx.fillStyle = '#555'; pctx.font = '12px system-ui'; pctx.fillText('No lights selected — tick a light on the left to preview.', 12, 20); return; }
     const rowH = Math.min(36, (h - 8) / frame.length);
     frame.forEach((fr, r) => {
@@ -1575,6 +1583,38 @@
       pctx.globalAlpha = 1;
     });
   }
+  /** The room view: the house plan, each light glowing in its own colors where it stands on the house map (a pole's
+   *  segments, all at one spot, as one glow of their mean color). */
+  function drawHouse(frame, w, h) {
+    const H = house(), sh = (S.space.plan && S.space.plan.shapes) || {}, pad = 16;
+    const s = Math.min((w - pad * 2) / H.w, (h - pad * 2) / H.d), ox = (w - H.w * s) / 2, oy = (h - H.d * s) / 2;
+    const at = (x, y) => [ox + x * s, oy + y * s];
+    pctx.lineWidth = 2; pctx.strokeStyle = CV.wall; pctx.lineJoin = 'round';
+    for (const r of sh.rooms || []) { pctx.beginPath(); r.poly.forEach(([x, y], i) => { const [px, py] = at(x, y); i ? pctx.lineTo(px, py) : pctx.moveTo(px, py); }); pctx.closePath(); pctx.stroke(); }
+    pctx.fillStyle = CV.name; pctx.font = '700 9px system-ui';
+    for (const r of H.rooms) { const ys = r.poly.map(q => q[1]); const [px, py] = at(r.x0 + 0.6, Math.max(...ys) - 0.6); pctx.fillText(r.name.toUpperCase(), px, py); }
+    const dot = (x, y, r, g, b, a) => {
+      if (r + g + b < 12) return;
+      pctx.globalCompositeOperation = 'lighter'; pctx.fillStyle = `rgba(${r},${g},${b},${0.2 * a})`; pctx.beginPath(); pctx.arc(x, y, 9, 0, 7); pctx.fill();
+      pctx.globalCompositeOperation = 'source-over'; pctx.fillStyle = `rgba(${r},${g},${b},${a})`; pctx.beginPath(); pctx.arc(x, y, 2.6, 0, 7); pctx.fill();
+    };
+    for (const fr of frame) {
+      const pos = spaceOf(fr.light).pos, n = fr.px.length / 3, a = roomOff(fr.light) ? 0.3 : 1;
+      for (let i = 0; i < n;) {
+        const p = pos[i]; let j = i, r = 0, g = 0, b = 0;
+        while (j < n && pos[j] && p && pos[j][0] === p[0] && pos[j][1] === p[1]) { r += fr.px[j * 3]; g += fr.px[j * 3 + 1]; b += fr.px[j * 3 + 2]; j++; }
+        if (!p) { i++; continue; }
+        const k = j - i, [x, y] = at(p[0], p[1]); dot(x, y, Math.round(r / k), Math.round(g / k), Math.round(b / k), a); i = j;
+      }
+    }
+    pctx.globalCompositeOperation = 'source-over';
+  }
+  /** The line under the song's name: its tempo, its show style, its length. */
+  function songMeta() {
+    const p = P(); if (!p || !S.analysis) return '';
+    const g = S.analysis.genre, st = (p.settings && p.settings.style) || (g && g.style), d = Math.round(duration() || 0);
+    return [p.bpm ? `${Math.round(p.bpm)} BPM` : '', STYLE_NAMES[st] || '', d ? `${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}` : ''].filter(Boolean).join(' · ');
+  }
   // Each frame redraws only what changed: while nothing moves (paused, no drag or hover) the timeline and the
   // overview are left as they are, and the light preview refreshes ~5 times a second (the lights' own paused rate),
   // so a paused studio no longer redraws everything 60 times a second.
@@ -1587,6 +1627,7 @@
     if (S.audio.playing && S.view.follow !== false) followPlayhead(t);
     setText('timeDisplay', fmtTime(t));
     setText('barDisplay', 'bar ' + barLabel(timeToBeat(t)));
+    setText('songMeta', songMeta());
     const v = S.view, d = v.hoverDrop, m = v.drag && v.drag.type === 'marquee' ? v.drag : null;
     const key = [t.toFixed(4), v.scroll, v.pps, v.vscroll, tl.clientWidth, tl.clientHeight, ov.clientWidth, ov.clientHeight,
       d ? [d.x, d.y, d.w, d.h, d.replace].join() : '', m ? [m.x0, m.y0, m.x, m.y].join() : ''].join('|');
@@ -1682,7 +1723,7 @@
     if (tl.width !== W || tl.height !== H) { tl.width = W; tl.height = H; }
     if (off.width !== W || off.height !== H) { off.width = W; off.height = H; }
     const g = octx; g.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
-    g.fillStyle = '#121317'; g.fillRect(0, 0, w, h);
+    g.fillStyle = CV.lane; g.fillRect(0, 0, w, h);
     const p = P(), a = S.analysis; const t0 = tOf(HEADER), t1 = tOf(w);
     const beatPx = S.view.pps * 60 / p.bpm;
 
@@ -1735,7 +1776,7 @@
     // lanes (scrollable region under the fixed rows)
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
-      const y = laneTop(li); g.fillStyle = lane.hidden ? '#0c0d10' : li % 2 ? '#14161b' : '#121317'; g.fillRect(HEADER, y, w, ROW.lane); g.strokeStyle = '#2f333d'; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
+      const y = laneTop(li); g.fillStyle = lane.hidden ? CV.laneHidden : li % 2 ? CV.laneAlt : CV.lane; g.fillRect(HEADER, y, w, ROW.lane); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
       // a hidden layer is greyed out as a whole: its clips in grey, faded
       // (a jam song under review whose lights are the jam's own, untouched: every layer at half, until a change to
       // the lights makes it your own show; undone back to the jam's, half again)
@@ -1770,7 +1811,7 @@
     if (xe < w) { const x0 = Math.max(HEADER, xe); g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(x0, 0, w - x0, h);
       if (xe >= HEADER) { g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(xe, 0, 1, h); g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText('end', xe + 5, ROW.ruler - 7); } }
     // lane headers
-    g.fillStyle = '#1a1c22'; g.fillRect(0, 0, HEADER, h); g.strokeStyle = '#2f333d'; g.beginPath(); g.moveTo(HEADER - 0.5, 0); g.lineTo(HEADER - 0.5, h); g.stroke();
+    g.fillStyle = CV.overview; g.fillRect(0, 0, HEADER, h); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER - 0.5, 0); g.lineTo(HEADER - 0.5, h); g.stroke();
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
       const ly = laneTop(li);
@@ -1858,7 +1899,7 @@
   function drawOverviewStatic(w, h) {
     const g = ovOffCtx, p = P(), a = S.analysis;
     g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    g.fillStyle = '#14161b'; g.fillRect(0, 0, w, h);
+    g.fillStyle = CV.overview; g.fillRect(0, 0, w, h);
     const top = 7;                                    // section ribbon height
     for (const s of p.sections) {
       const x0 = ovX(s.start), x1 = ovX(s.end);
@@ -2346,7 +2387,13 @@
     const open = menu.hidden; closeMenus(); if (!open) return;
     if (fill) menu.innerHTML = fill;
     menu.hidden = false; btn.classList.add('on');
-    if (menu.classList.contains('popover')) { const r = btn.getBoundingClientRect(); menu.style.top = (r.bottom + 6) + 'px'; menu.style.right = Math.max(8, innerWidth - r.right) + 'px'; }
+    if (menu.classList.contains('popover')) placePop(menu, btn);
+  }
+  /** A popover beside its button: under it, right-aligned, in the top bar; to its right on the side rail. */
+  function placePop(pop, btn) {
+    const r = btn.getBoundingClientRect();
+    if (btn.closest('.rail')) { pop.style.right = 'auto'; pop.style.left = (r.right + 8) + 'px'; pop.style.top = Math.max(8, Math.min(r.top, innerHeight - pop.offsetHeight - 8)) + 'px'; }
+    else { pop.style.left = 'auto'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px'; pop.style.top = (r.bottom + 6) + 'px'; }
   }
   function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnSettings', '#settingsMenu'], ['#btnHelp', '#helpPop'], ['#btnSettings', '#roomsPop']]) { $(m).hidden = true; $(b).classList.remove('on'); } }
   $('#btnGridMenu').onclick = e => { e.stopPropagation(); toggleMenu($('#btnGridMenu'), $('#gridMenu')); };
@@ -2354,11 +2401,32 @@
   $('#btnHelp').onclick = e => { e.stopPropagation(); toggleMenu($('#btnHelp'), $('#helpPop'), SHORTCUTS); };
   for (const id of ['#gridMenu', '#settingsMenu', '#helpPop', '#roomsPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
   $('#btnRooms').onclick = e => { e.stopPropagation(); openRooms(); };
+  $('#railRooms').onclick = e => { e.stopPropagation(); openRooms($('#railRooms')); };
   document.addEventListener('mousedown', closeMenus);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
   // narrow windows: the library is a drawer
   $('#btnLib').onclick = e => { e.stopPropagation(); document.body.classList.toggle('lib-open'); };
-  document.addEventListener('mousedown', e => { if (document.body.classList.contains('lib-open') && !e.target.closest('.library') && !e.target.closest('#btnLib')) document.body.classList.remove('lib-open'); });
+  document.addEventListener('mousedown', e => { if (document.body.classList.contains('lib-open') && !e.target.closest('.library') && !e.target.closest('#btnLib, .rail')) { document.body.classList.remove('lib-open'); railShown(); } });
+  // the side rail: Lights or Effects beside it, one at a time; the same button again folds it away. A wide window
+  // keeps the choice for next time; a narrow one slides the panel out over the timeline instead.
+  const narrowWindow = () => matchMedia('(max-width: 1150px)').matches;
+  function railShown() {
+    const p = document.body.dataset.panel || '', open = narrowWindow() ? document.body.classList.contains('lib-open') : !!p;
+    for (const b of document.querySelectorAll('.rail-btn[data-panel]')) b.classList.toggle('on', open && b.dataset.panel === p);
+  }
+  function showPanel(name) {
+    if (narrowWindow()) {
+      const open = !(document.body.classList.contains('lib-open') && document.body.dataset.panel === name);
+      document.body.dataset.panel = name; document.body.classList.toggle('lib-open', open);
+    } else {
+      document.body.dataset.panel = document.body.dataset.panel === name ? '' : name;
+      try { localStorage.setItem('lss-panel', document.body.dataset.panel); } catch (e) { /* not kept: fine */ }
+    }
+    railShown();
+  }
+  for (const b of document.querySelectorAll('.rail-btn[data-panel]')) b.onclick = e => { e.stopPropagation(); showPanel(b.dataset.panel); };
+  { let p = 'effects'; try { p = localStorage.getItem('lss-panel') ?? 'effects'; } catch (e) { /* the default */ }
+    document.body.dataset.panel = narrowWindow() ? (p || 'effects') : p; railShown(); }
 
   // ------------------------------------------------------------------ inspector
   function inspector() {

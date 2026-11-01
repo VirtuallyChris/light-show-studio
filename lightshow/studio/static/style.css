@@ -350,3 +350,100 @@ h3.with-switch .toggle { text-transform: none; letter-spacing: 0; }
 .jam-pairs .jam-pair { margin-left: .3rem; gap: .15rem; }
 .jam-source { display: inline-flex; gap: .25rem; margin-left: .4rem; }
 .jam-source button.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+/* ======================================================================================
+   Stage: the room view across the top, a side rail with one panel at a time, the clip on the right
+   ====================================================================================== */
+:root {
+  --bg: #0c0d12; --bg2: #0f1017; --bg3: #161822; --bg4: #1f2230; --line: #1d1f29; --line2: #262936;
+  --text: #e8e9f0; --muted: #9599ab; --dim: #6b6f82;
+  --accent: #8b5cf6; --accent2: #ec4899; --accent-soft: #1f1b33; --accent-text: #c4b5fd;
+  --intro: #4b5563; --verse: #3b82f6; --buildup: #f59e0b; --drop: #ec4899; --breakdown: #14b8a6; --outro: #6b7280;
+  /* the canvases read these (app.js canvasColors) */
+  --canvas-room: #07080b; --canvas-room-wall: #2a2d3a; --canvas-room-name: #5d6175;
+  --canvas-lane: #10121a; --canvas-lane-alt: #0e1017; --canvas-lane-hidden: #0b0c10; --canvas-overview: #0f1017; --canvas-rule: #1d1f29;
+}
+body { background: var(--bg); }
+button.accent { background: var(--accent); border: none; color: #fff; font-weight: 700; box-shadow: none; }
+button.accent:hover { filter: brightness(1.1); }
+button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+input:focus, select:focus { box-shadow: 0 0 0 2px rgba(139, 92, 246, .25); }
+
+/* the top bar: the song on the left, the transport in the middle, building and playing out on the right */
+.topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: .5rem 1rem;
+  min-height: 3.9rem; padding: .45rem .9rem; background: var(--bg2); border-bottom: 1px solid var(--line); }
+.top-left, .top-right { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.top-right { justify-content: flex-end; }
+.topbar .group { background: none; padding: 0; border: none; gap: .4rem; }
+.topbar .mark { width: 1.9rem; height: 1.9rem; flex: none; fill: var(--accent); stroke: var(--accent); stroke-opacity: .35; }
+.title-block { display: flex; flex-direction: column; min-width: 0; margin-right: .35rem; }
+.title-block .project-name { width: clamp(9rem, 16vw, 19rem); min-height: 0; padding: 1px .3rem; margin-left: -.3rem; background: transparent;
+  border-color: transparent; font-weight: 700; font-size: 1.1rem; }
+.title-block .project-name:hover { border-color: var(--line2); }
+.title-block .project-name:focus { background: var(--bg); border-color: var(--accent); }
+.song-meta { color: var(--muted); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-meta:empty { display: none; }
+.transport { justify-self: center; gap: .55rem; }
+.transport button.icon { width: 2.4rem; height: 2.4rem; border-radius: .7rem; background: var(--bg3); border-color: var(--line2); color: #c9ccda; }
+.transport button.icon svg { width: 1rem; height: 1rem; fill: currentColor; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+#btnPlay.play { width: 2.9rem; height: 2.9rem; border-radius: 50%; background: #f2f3f8; color: var(--bg); border: none; font-size: 1.05rem; }
+#btnPlay.play:hover { background: #fff; }
+.clock .time { font-weight: 600; }
+#btnSettings svg { width: 1.15rem; height: 1.15rem; fill: none; stroke: currentColor; stroke-width: 1.8; }
+#btnCast.on, #btnJam.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+
+/* the side rail, and one panel beside it at a time (the same button again folds it away) */
+main { grid-template-columns: 3.75rem auto minmax(0, 1fr) clamp(15.5rem, 19vw, 21rem); }
+main > .rail { grid-column: 1; } main > .library { grid-column: 2; } main > .workspace { grid-column: 3; } main > .inspector { grid-column: 4; }   /* (a folded panel leaves its column empty) */
+.rail { display: flex; flex-direction: column; align-items: center; gap: .4rem; padding: .75rem 0; background: var(--bg2); border-right: 1px solid var(--line); min-height: 0; }
+.rail-gap { flex: 1; }
+.rail-btn { width: 2.75rem; height: 2.75rem; min-height: 0; padding: 0; border-radius: .8rem; border: none; background: transparent; color: var(--dim);
+  display: grid; place-items: center; font-weight: 700; font-size: 1.05rem; }
+.rail-btn:hover { background: var(--bg3); color: var(--text); }
+.rail-btn.on { background: var(--accent-soft); color: var(--accent-text); }
+.rail-btn svg { width: 1.3rem; height: 1.3rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.library { width: 17rem; padding: .9rem .85rem; gap: 0; border-right: 1px solid var(--line); }
+body:not([data-panel="lights"]):not([data-panel="effects"]) .library { display: none; }
+body[data-panel="lights"] .library > .panel[data-panel="effects"],
+body[data-panel="effects"] .library > .panel[data-panel="lights"] { display: none; }
+.library > .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: none; border: none; padding: 0; }
+.library > .panel:nth-child(2) { min-height: 0; }
+.library h3 { color: var(--text); font-size: 1rem; text-transform: none; letter-spacing: 0; font-weight: 700; margin-bottom: .7rem; }
+.library .light-list { overflow-y: auto; min-height: 0; }
+.library .search { margin-bottom: .75rem; background: var(--bg3); }
+.effect-list { flex: 1 1 0; min-height: 0; }
+.cat { color: var(--dim); font-size: .72rem; font-weight: 700; letter-spacing: .08em; margin: .85rem 0 .35rem; }
+.effect-card { background: var(--bg3); border-color: var(--line2); border-radius: .6rem; }
+.effect-card:hover { transform: none; border-color: var(--accent); }
+
+/* the room view: the house and its lights, live, across the top */
+.preview-wrap { height: clamp(9rem, 30vh, 19rem); background: var(--canvas-room); }
+.room-view-btn { top: .5rem; right: .6rem; }
+.empty { inset: calc(clamp(9rem, 30vh, 19rem) + 2.7rem) 0 0 0; }
+.tl-bar { background: var(--bg); padding: .4rem .9rem; }
+#overview { background: var(--canvas-overview); }
+
+/* the clip (or the song) on the right */
+.inspector { padding: 1rem; gap: 1rem; }
+.inspector .title { font-size: 1.35rem; font-weight: 800; }
+.inspector .desc { font-size: .85rem; }
+
+/* narrower windows: the panel slides out beside the rail */
+@media (max-width: 1150px) {
+  main { grid-template-columns: 3.75rem minmax(0, 1fr) clamp(14rem, 26vw, 19rem); }
+  main > .workspace { grid-column: 2; } main > .inspector { grid-column: 3; }
+  .library { left: 3.75rem; width: min(18rem, 80vw); transform: translateX(calc(-100% - 3.75rem)); }
+  body.lib-open .library { transform: none; display: flex; }
+  body:not(.lib-open) .library { display: flex; }
+  .narrow-only { display: none !important; }
+  .top-right .group.build #btnRedetect { display: none; }
+}
+@media (max-width: 760px) {
+  main { grid-template-columns: 3.25rem minmax(0, 1fr); }
+  main > .inspector { grid-column: auto; }
+  .rail-btn { width: 2.5rem; height: 2.5rem; }
+  .library { left: 3.25rem; }
+  .topbar { grid-template-columns: minmax(0, 1fr); }
+  .transport { justify-self: start; }
+  .top-right { justify-content: flex-start; flex-wrap: wrap; }
+}
