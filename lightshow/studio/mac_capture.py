@@ -115,18 +115,21 @@ def read_tap(command: list[str], sr: int, channels: int, stop, restart=lambda: F
         rate, ch = int(info["rate"]), int(info["channels"])
         size = ch * 4
         resampler = Resampler(rate, sr)
-        while not stop() and not restart():
-            if not select.select([fd], [], [], 0.25)[0]:
-                continue
-            chunk = os.read(fd, 65536)
-            if not chunk:
-                return
-            spare += chunk
-            usable = len(spare) // size * size
-            if not usable:
-                continue
+        ended = False
+        while not ended and not stop() and not restart():
+            usable = len(spare) // size * size           # (first, whatever came with the first line)
+            if usable:
+                frames = resampler.feed(to_frames(spare[:usable], ch, channels))
+                spare = spare[usable:]
+                if len(frames):
+                    yield (np.clip(frames, -1, 1) * 32767).astype(np.int16)
+            if select.select([fd], [], [], 0.25)[0]:
+                chunk = os.read(fd, 65536)
+                spare += chunk
+                ended = not chunk
+        usable = len(spare) // size * size               # (what it sent just before it ended)
+        if ended and usable:
             frames = resampler.feed(to_frames(spare[:usable], ch, channels))
-            spare = spare[usable:]
             if len(frames):
                 yield (np.clip(frames, -1, 1) * 32767).astype(np.int16)
     finally:

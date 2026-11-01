@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from lightshow.studio import setup
+from lightshow.studio import player_browser, setup
 
 
 def studio(**kw):
@@ -15,9 +15,43 @@ def studio(**kw):
 
 
 class TestSetup(unittest.TestCase):
+    def setUp(self):
+        # as on Windows, whatever this runs on: an output has to exist for Spotify to play into
+        p = mock.patch.object(player_browser, "own_hidden_output", lambda: False)
+        p.start()
+        self.addCleanup(p.stop)
+
     def make(self, cfg=None, **kw):
         self.cfg = dict(cfg or {})
         return setup.HomeSetup(studio(**kw), lambda: dict(self.cfg), lambda c: (self.cfg.clear(), self.cfg.update(c)), 8765)
+
+    def sound(self, outputs, default="", cfg=None):
+        with mock.patch.object(setup, "_outputs", return_value=(outputs, default)):
+            return next(i for i in self.make(cfg).checklist() if i["id"] == "sound")
+
+    def test_a_second_output_is_all_a_home_needs(self):
+        item = self.sound(["Speakers", "Digital Audio (S/PDIF)"], "Speakers")
+        self.assertTrue(item["done"])
+        self.assertEqual(item["detail"], "Set up by itself")
+
+    def test_a_single_output_says_what_to_install(self):
+        item = self.sound(["Speakers"], "Speakers")
+        self.assertFalse(item["done"])
+        self.assertIn("VB-Cable", item["detail"])
+
+    def test_an_output_named_in_settings_must_be_there(self):
+        self.assertTrue(self.sound(["Speakers", "Digital Audio (S/PDIF)"], "Speakers", {"jam_hidden_output": "S/PDIF"})["done"])
+        self.assertFalse(self.sound(["Speakers"], "Speakers", {"jam_hidden_output": "S/PDIF"})["done"])
+
+    def test_mac_and_linux_have_nothing_to_set_up(self):
+        with mock.patch.object(player_browser, "own_hidden_output", lambda: True), mock.patch.object(player_browser, "hidden_problem", lambda: ""):
+            item = self.sound([], "")
+        self.assertTrue(item["done"])
+        self.assertEqual(item["detail"], "Set up by itself")
+        with mock.patch.object(player_browser, "own_hidden_output", lambda: True), mock.patch.object(player_browser, "hidden_problem", lambda: "needs macOS 14.2"):
+            item = self.sound([], "")
+        self.assertFalse(item["done"])
+        self.assertIn("14.2", item["detail"])
 
     def test_a_new_home_has_steps_to_do(self):
         with mock.patch.object(setup, "_outputs", return_value=([], "")):
