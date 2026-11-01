@@ -46,6 +46,15 @@ class PopenOutsideTest(unittest.TestCase):
         popen.assert_called_once_with(["x"], cwd="y")
 
 
+class PreparePackagedTest(unittest.TestCase):
+    def test_brings_its_certificates_and_tells_the_models_where_the_data_is(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"LSS_DATA_DIR": d}):
+            os.environ.pop("SSL_CERT_FILE", None)
+            entry.prepare_packaged()
+            self.assertTrue(os.path.exists(os.environ["SSL_CERT_FILE"]))
+            self.assertEqual(os.environ["LSS_DATA_DIR"], d)
+
+
 class DispatchTest(unittest.TestCase):
     def test_run_module(self):
         with mock.patch("runpy.run_module") as run, mock.patch.object(sys, "argv", ["x"]):
@@ -54,7 +63,7 @@ class DispatchTest(unittest.TestCase):
             self.assertEqual(sys.argv, ["bulbshow", "--no-browser"])
 
     def test_packaged_double_click_opens_the_studio(self):
-        with mock.patch("lightshow.cli.main", return_value=0) as main, mock.patch.object(sys, "frozen", True, create=True):
+        with mock.patch("lightshow.cli.main", return_value=0) as main, mock.patch.object(sys, "frozen", True, create=True),                 mock.patch.object(entry, "prepare_packaged"):       # (it sets the environment for everything after)
             entry.dispatch([])
             main.assert_called_once_with(["studio"])
 
