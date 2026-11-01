@@ -8,3 +8,5 @@ pychromecast>=14
 soundcard>=0.4.3
 scikit-learn>=1.5
 xgboost>=3.0
+pycryptodomex>=3.20
+segno>=1.6

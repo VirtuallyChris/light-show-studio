@@ -645,7 +645,7 @@ class JamService:
     def _run_sync(self) -> dict:
         """Listen to the room, measure how late the Cast speaker really is, and keep a confident answer."""
         from .calibrate import relay_sync_check
-        r = relay_sync_check(self.engine, log=lambda *a: None)
+        r = relay_sync_check(self.engine, mic_device=self.load_config().get("mic_device") or None, log=lambda *a: None)
         # a muted microphone hears pure silence: said on screen and on the phone until a check hears the room
         self.sync_warning = "The sync check heard nothing from the microphone. Is it muted?" if r.get("mic_silent") else ""
         name = self.studio.cast.name

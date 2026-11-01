@@ -192,23 +192,33 @@
     const running = !!st.running;
     let html = '';
     if (!running) {
-      html += `<div class="jam-sec"><h4>1 · Spotify</h4>
-        <div class="jam-row"><label>Client ID</label><input id="jamClient" value="${esc(sp.client_id || '')}" placeholder="from your app at developer.spotify.com" spellcheck="false"></div>
-        <div class="hint">In your Spotify app's settings, add this Redirect URI exactly: <code>${esc(st.redirect_uri || '')}</code></div>
-        <div class="jam-row"><span>${sp.signed_in ? '<b class="ok">Signed in</b>' : 'Not signed in'}</span>
-          <span><button id="jamSignIn" class="small">${sp.signed_in ? 'Sign in again' : 'Sign in to Spotify'}</button>${sp.signed_in ? ' <button id="jamSignOut" class="small">Sign out</button>' : ''}</span></div></div>
+      // signed in: one line; not yet: the steps, in order, with the links and the address to copy
+      html += (sp.signed_in ? `<div class="jam-sec"><h4>1 · Spotify</h4>
+        <div class="jam-row"><span><b class="ok">Signed in</b></span>
+          <span><button id="jamSignIn" class="small">Sign in again</button> <button id="jamSignOut" class="small">Sign out</button></span></div></div>`
+        : `<div class="jam-sec"><h4>1 · Connect Spotify</h4>
+        <ol class="jam-steps">
+          <li>You need <b>Spotify Premium</b>: Spotify only lets Premium accounts play through apps like this one.</li>
+          <li><a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Open the Spotify developer dashboard</a>, sign in, and press <b>Create app</b> (any name and description).</li>
+          <li>Under <b>Redirect URIs</b>, add this address exactly: <span class="jam-copy"><code>${esc(st.redirect_uri || '')}</code><button id="jamCopyUri" class="small">Copy</button></span></li>
+          <li>Tick <b>Web API</b> and <b>Web Playback SDK</b>, then <b>Save</b>.</li>
+          <li>In the app's <b>User Management</b>, add the email of every Spotify account that will sign in here.</li>
+          <li>Copy the app's <b>Client ID</b> and paste it here:
+            <input id="jamClient" value="${esc(sp.client_id || '')}" placeholder="Client ID" spellcheck="false"></li>
+          <li><button id="jamSignIn" class="accent small" ${sp.client_id ? '' : 'disabled'}>Sign in to Spotify</button></li>
+        </ol></div>`) + `
       <div class="jam-sec"><h4>2 · Where Spotify plays</h4>
         <div class="jam-row"><label>Spotify plays in</label><select id="jamSource">
           <option value="studio">The studio itself</option>
           <option value="app">The Spotify app on this PC</option></select></div>
         <div id="jamPlayerBox">
           <div class="jam-row"><span>${playerLine(st)}</span><span>${st.player && st.player.ready ? '<button id="jamPlayerHere" class="small">Play here</button>' : ''}</span></div>
-          <div class="hint">While the studio is open it is a Spotify speaker called <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. It plays in a hidden Microsoft Edge whose sound goes to <b>${esc(((st.player || {}).hidden_output) || 'S/PDIF')}</b>, where nobody hears it; the room hears the studio's delayed copy on your default output.</div>
+          <div class="hint">While the studio is open it is a Spotify speaker called <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. It plays in a hidden Microsoft Edge whose sound goes to <b>${esc(((st.player || {}).hidden_output) || 'CABLE Input')}</b>, where nobody hears it; the room hears the studio's delayed copy on your default output.</div>
           <label class="jam-check"><input id="jamAuto" type="checkbox" ${st.auto ? 'checked' : ''}> Start the jam by itself when music starts playing on Light Show Studio, with these settings</label>
           ${st.auto_error ? `<div class="warn">The jam could not start by itself: ${esc(st.auto_error)}</div>` : ''}
           ${sp.signed_in && !sp.can_stream ? '<div class="warn">Sign in to Spotify again: the studio player needs a permission the earlier sign-in did not ask for.</div>' : ''}
         </div>
-        <div class="hint" id="jamAppHint">In Windows' Volume mixer, set the Spotify app's output to <b>${esc(((st.player || {}).hidden_output) || 'S/PDIF')}</b>. The house hears it through the studio, late.</div></div>
+        <div class="hint" id="jamAppHint">In Windows' Volume mixer, set the Spotify app's output to <b>${esc(((st.player || {}).hidden_output) || 'CABLE Input')}</b>. The house hears it through the studio, late.</div></div>
       <div class="jam-sec"><h4>3 · Where the house hears it</h4>
         <div class="jam-row"><label>Play on</label><select id="jamWhere">
           <option value="cast" ${st.speaker_connected ? '' : 'disabled'}>Cast: ${st.speaker_connected ? esc(st.speaker) : 'press Cast first'}</option>
@@ -338,7 +348,9 @@
     on('jamPlayerHere', async () => { await api('jam/player/transfer', {}); toast('Spotify is now playing on Light Show Studio'); });
     const dev = $('#jamDevice');
     if (dev) { dev.innerHTML = '<option value="">Default output</option>' + (J.outputs || []).filter(o => o.name).map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.default ? ' (default)' : ''}</option>`).join(''); if (keep.jamDevice) dev.value = keep.jamDevice; }
-    const cid = $('#jamClient'); if (cid) cid.onchange = () => api('spotify/client', { client_id: cid.value.trim() }).then(s => { J.state = { ...J.state, ...s }; render(); }).catch(e => toast(e.message, true));
+    on('jamCopyUri', async () => { try { await navigator.clipboard.writeText((J.state || {}).redirect_uri || ''); toast('Copied'); } catch (e) { toast('Select the address and copy it', true); } });
+    const cid = $('#jamClient'); if (cid) cid.oninput = () => { const b = $('#jamSignIn'); if (b) b.disabled = !cid.value.trim(); };
+    if (cid) cid.onchange = () => api('spotify/client', { client_id: cid.value.trim() }).then(s => { J.state = { ...J.state, ...s }; render(); }).catch(e => toast(e.message, true));
     on('jamSignIn', async () => { if (cid && cid.value.trim() !== ((J.state.spotify || {}).client_id || '')) await api('spotify/client', { client_id: cid.value.trim() }); window.open('/api/spotify/login', 'spotify', 'width=520,height=760'); });
     on('jamSignOut', async () => { J.state = await api('spotify/signout', {}); render(); });
     const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 90, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, skip_jumps: (($('#jamOnSkip') || {}).value) === 'jump', source: (source && source.value) || 'studio', speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });

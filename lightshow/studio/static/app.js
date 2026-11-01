@@ -2427,6 +2427,8 @@
   function railShown() {
     const p = document.body.dataset.panel || '', open = narrowWindow() ? document.body.classList.contains('lib-open') : !!p;
     for (const b of document.querySelectorAll('.rail-btn[data-panel]')) b.classList.toggle('on', open && b.dataset.panel === p);
+    for (const el of document.querySelectorAll('.library > .panel[data-panel]')) el.hidden = el.dataset.panel !== p;
+    if (open) document.dispatchEvent(new CustomEvent('lss-panel', { detail: p }));     // (setup.js fills in Setup and Party)
   }
   function showPanel(name) {
     if (narrowWindow()) {
@@ -2440,6 +2442,7 @@
   }
   for (const b of document.querySelectorAll('.rail-btn[data-panel]')) b.onclick = e => { e.stopPropagation(); showPanel(b.dataset.panel); };
   { let p = 'effects'; try { p = localStorage.getItem('lss-panel') ?? 'effects'; } catch (e) { /* the default */ }
+    if (p === 'setup' || p === 'party') p = 'effects';                     // (those open when asked for, or by setup.js)
     document.body.dataset.panel = narrowWindow() ? (p || 'effects') : p; railShown(); }
 
   // ------------------------------------------------------------------ inspector
@@ -4242,6 +4245,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, showPanel, openRooms, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

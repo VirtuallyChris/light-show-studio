@@ -403,7 +403,9 @@ main > .rail { grid-column: 1; } main > .library { grid-column: 2; } main > .wor
 .rail-btn.on { background: var(--accent-soft); color: var(--accent-text); }
 .rail-btn svg { width: 1.3rem; height: 1.3rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .library { width: 17rem; padding: .9rem .85rem; gap: 0; border-right: 1px solid var(--line); }
-body:not([data-panel="lights"]):not([data-panel="effects"]) .library { display: none; }
+body[data-panel=""] .library, body:not([data-panel]) .library { display: none; }
+body[data-panel="setup"] .library { width: 24rem; }
+body[data-panel="party"] .library { width: 26rem; padding: 0; }
 body[data-panel="lights"] .library > .panel[data-panel="effects"],
 body[data-panel="effects"] .library > .panel[data-panel="lights"] { display: none; }
 .library > .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; background: none; border: none; padding: 0; }
@@ -447,3 +449,33 @@ body[data-panel="effects"] .library > .panel[data-panel="lights"] { display: non
   .transport { justify-self: start; }
   .top-right { justify-content: flex-start; flex-wrap: wrap; }
 }
+
+/* the Setup panel: a checklist, each step with its button; the sound devices, the phone and the add-ons open below */
+.setup-list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: .5rem; padding-right: .2rem; }
+.setup-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .2rem; }
+.setup-step { background: var(--bg3); border: 1px solid var(--line2); border-radius: .75rem; padding: .65rem .7rem; }
+.setup-step.done { background: transparent; }
+.setup-row { display: flex; align-items: center; gap: .6rem; }
+.setup-n { width: 1.7rem; height: 1.7rem; flex: none; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .85rem;
+  background: var(--bg4); color: var(--muted); }
+.setup-step.done .setup-n { background: rgba(74, 222, 128, .15); color: var(--ok); }
+.setup-t { flex: 1; min-width: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.setup-more { margin-top: .6rem; display: flex; flex-direction: column; gap: .55rem; }
+.setup-field { display: flex; flex-direction: column; align-items: stretch; gap: .25rem; color: var(--muted); font-size: .85rem; white-space: normal; }
+.setup-field select { width: 100%; }
+.setup-field .small { align-self: flex-start; }
+.setup-phone { flex-direction: row; align-items: center; gap: .7rem; }
+.setup-phone svg { flex: none; width: 7.5rem; height: 7.5rem; background: #0c0d12; border-radius: .5rem; }
+.setup-phone code { font-size: .8rem; user-select: all; word-break: break-all; }
+.setup-addon { display: flex; align-items: center; justify-content: space-between; gap: .6rem; color: var(--text); white-space: normal; }
+.setup-addon .toggle input { appearance: none; -webkit-appearance: none; width: 2.308rem; height: 1.308rem; border-radius: .6923rem; background: var(--line2); position: relative; margin: 0; cursor: pointer; }
+.setup-addon .toggle input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 1rem; height: 1rem; border-radius: 50%; background: #fff; transition: left .15s; }
+.setup-addon .toggle input:checked { background: var(--accent); }
+.setup-addon .toggle input:checked::after { left: 1.154rem; }
+/* the Party panel: the Party Hub itself */
+.party-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--bg); }
+/* Spotify, step by step */
+.jam-steps { margin: .2rem 0 .4rem; padding-left: 1.3rem; display: flex; flex-direction: column; gap: .5rem; color: var(--muted); font-size: .9rem; line-height: 1.4; }
+.jam-steps b { color: var(--text); }
+.jam-steps input { width: 100%; margin-top: .3rem; }
+.jam-copy { display: inline-flex; align-items: center; gap: .3rem; flex-wrap: wrap; margin-top: .2rem; }

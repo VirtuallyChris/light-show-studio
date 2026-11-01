@@ -56,6 +56,34 @@ measured delays, your Spotify sign-in, the add-ons' settings. Other settings you
 may set there: `jam_opener` (a saved show the Jam opens with when it is not
 learning ahead) and `jam_hidden_output` (see **Jam mode**).
 
+### Philips Hue
+
+Hue lights play alongside the Govee lights, streamed in real time through the
+Hue Bridge (the Hue Entertainment API, the one the Hue Sync apps use).
+
+1. **Set up an Entertainment area** in the Hue app (Settings, Entertainment
+   areas) with the lights you want in shows. Each light in it is one light in
+   the studio, named as in the Hue app; a gradient strip's zones are its
+   segments. Lights in no area are listed greyed out, with a hint to add them.
+   A bridge with no Entertainment area at all still plays every light, but
+   slowly (about ten changes a second for the whole bridge), so set one up.
+2. **Pair once.** The studio finds the bridge on the network by itself and lists
+   it as "Hue Bridge: press its button". Press the round button on top of the
+   bridge with the studio open and nothing playing: within half a minute (the
+   studio looks for lights that often) it pairs, and its lights appear. The
+   studio keeps the bridge's key in `config.json` under `hue`; you never pair
+   again.
+3. Tick the Hue lights like any other. When a show lets them go, the Hue app's
+   own colors come back.
+
+With several Entertainment areas the studio plays the one with the most lights;
+put `"area": "<its id>"` under the bridge in `config.json` to choose another
+(`/api/hue` lists them). `"hue": {"scan": false}` turns the Hue side off.
+
+Not yet tried on real Hue hardware: written against the Hue API documentation
+and tested against a fake bridge, with the encrypted stream checked against
+mbedTLS (the library the bridge runs).
+
 ### Add-ons
 
 Features for one kind of home are add-ons, off until you switch them on (Party
@@ -333,6 +361,32 @@ the studio once went days with no genre, stems or sections.)
 A model that will not start is tried again every 2 minutes, and why goes to
 `studio.log` and `models.log`.
 Without it, the built-in detector below is used.
+
+**AI models on any machine.** The steps above are for an NVIDIA card on Windows. The
+studio can also install the model environment itself (`lightshow/studio/model_setup.py`,
+behind the setup screen's "Install AI models"): it downloads a standalone Python 3.12
+(python-build-standalone, checksum-verified) into `models-env/` in the project folder
+(the app's data folder in a packaged app), then pip-installs the requirements file for
+the machine:
+
+| Machine | File | PyTorch |
+|---|---|---|
+| NVIDIA card (Windows, Linux) | `requirements-models-cuda.txt` | CUDA 12.6 |
+| AMD card on Linux | `requirements-models-rocm.txt` | ROCm 7.2 |
+| AMD or Intel Arc card on Windows | `requirements-models-directml.txt` | 2.4.1 + torch-directml (best effort) |
+| Mac with Apple Silicon | `requirements-models-mps.txt` | PyPI (Metal) |
+| Anything else | `requirements-models-cpu.txt` | CPU (slower) |
+
+Each brings PyTorch and includes `requirements-models-common.txt`. `LSS_MODELS_VARIANT`
+picks a file by hand. Intel Macs and Windows on ARM get no models (no PyTorch builds).
+A hand-made `.venv-songformer` is still found first. Every model runs on the best device
+(`lightshow/studio/devices.py`): CUDA (ROCm reports as CUDA too), then Apple's MPS, then
+DirectML, then the CPU. A model known not to run on DirectML (its spectrogram needs
+complex numbers) stays on the CPU, and on Apple, DirectML or AMD a model whose load or
+warm-up fails there moves to the CPU for the rest of the run. Whisper runs on an NVIDIA
+card or else on the CPU (int8), and the section labeler's XGBoost uses the card only
+when it was built with CUDA and an NVIDIA card is present. `LSS_MODELS_DEVICE=cpu` puts
+every model on the CPU. Only the NVIDIA path has run on real hardware so far.
 
 **Lyrics, word by word (data only for now).** `lyrics.py` gives a song its lyrics with
 the time each word is sung, for light moments on color words, big words and the hook

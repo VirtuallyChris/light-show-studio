@@ -20,7 +20,7 @@ import webbrowser
 
 from aiohttp import web
 
-from .. import govee_lan
+from .. import govee_lan, hue
 from . import webjson
 from .analysis import analyze_cached
 from .winpaths import local_appdata
@@ -249,7 +249,8 @@ class LightOutput:
         dropped ones back and, mid-show, take the added ones over (both wait on the network)."""
         by_ip = {d.ip: d for d in known}
         old = {d.ip: d for d in self.devices}
-        self.devices = [old.get(ip) or by_ip.get(ip) or govee_lan.GoveeDevice(ip=ip) for ip in ips]
+        self.devices = [old.get(ip) or by_ip.get(ip) or govee_lan.GoveeDevice(ip=ip) for ip in ips
+                        if ip in old or ip in by_ip or not hue.is_key(ip)]      # (a Hue row that is not a light: none)
         new = {d.ip for d in self.devices}
         for ip in list(self.arriving):
             if ip not in new:
@@ -445,6 +446,9 @@ class LightOutput:
             return
         if self.saved and not off:
             self.restore()
+            for d in self.devices:
+                if isinstance(d, hue.HueDevice):         # (never in saved: stopping its area gives it back)
+                    d.razer(False)
             self.active = False
             return
         for d in self.devices:
@@ -559,7 +563,8 @@ class Studio:
         self.room_last: str | None = None                # the latest frame, for a phone that just opened it
         self._watch_task = None
         self.last_client = 0.0
-        self.known: list[govee_lan.GoveeDevice] = []
+        self.known: list[govee_lan.GoveeDevice] = []    # (and hue.HueDevice: the same methods)
+        self.hue = hue.HueManager(load_config, save_config)
         self.scan_lock = asyncio.Lock()                  # one scan at a time: they all listen on the same UDP port
         self.output = LightOutput(enabled=lights)
         # The frame rate follows the Wi-Fi: pings while a show plays, between 15 and 60 frames a second
@@ -573,8 +578,10 @@ class Studio:
             # each kind of light where it can keep up: a light pole (a dozen segments or fewer) at 15 frames a
             # second, a strip at 30 (the ceiling), down to 15 when the Wi-Fi struggles
             self.link = LinkMonitor(self.output, 15, ceiling,
-                                    range_for=lambda ip: (15, 15, 15) if self._light_segments(ip) <= 12 or self._light_fixed_fps(ip)
+                                    range_for=lambda ip: hue.FPS if hue.is_key(ip)
+                                    else (15, 15, 15) if self._light_segments(ip) <= 12 or self._light_fixed_fps(ip)
                                     else (15, ceiling, 30))
+            self.link.ping = hue.via_bridge(self.link.ping)     # a Hue light's pings go to its bridge
             self.output.max_fps = self.link.governor.fps
             self.link.start()
         self.cast = CastManager(govee_lan.local_ip())
@@ -602,6 +609,8 @@ class Studio:
         self.jam.player_enabled = player
         if lights:                                       # the real studio (a test copy loads no models of its own)
             self.jam.warm_ahead()
+        from .setup import HomeSetup
+        self.setup = HomeSetup(self, load_config, save_config, port)
         self.app.add_routes([
             web.get("/", self.index),
             web.get("/api/devices", self.devices),
@@ -612,6 +621,8 @@ class Studio:
             web.post("/api/devices/order", self.set_order),
             web.post("/api/devices/name", self.set_name),
             web.post("/api/devices/selected", self.set_selected),
+            web.get("/api/hue", self.hue_get),
+            web.post("/api/hue/pair", self.hue_pair),
             web.get("/api/rooms", self.rooms_get),
             web.post("/api/rooms", self.rooms_set),
             web.post("/api/rooms/on", self.rooms_on),
@@ -650,6 +661,7 @@ class Studio:
             *self.jam.routes(),
             *self.review.routes(),
             *self.space.routes(),
+            *self.setup.routes(),
             web.static("/static", STATIC),
         ])
         if self.quit_when_closed:
@@ -867,7 +879,7 @@ class Studio:
         if devices:
             names = load_config().get("light_names", {})
             doc["lights"] = [{"key": d.mac or d.device_id or d.ip, "ip": d.ip, "sku": d.sku,
-                              "name": names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""} for d in self.known]
+                              "name": names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or getattr(d, "name", "")} for d in self.known]
             doc["speakers"] = sorted({c.cast_info.friendly_name for c in self.cast.casts if c.cast_info.cast_type != "group"}
                                      | {s for r in doc["rooms"] for s in r["speakers"]}, key=str.lower)
         return doc
@@ -1006,32 +1018,38 @@ class Studio:
 
     async def _devices(self, rescan: bool):
         loop = asyncio.get_running_loop()
-        if rescan or not self.known:
-            self.known = await loop.run_in_executor(None, govee_lan.discover, 2.0)
+        govee = [d for d in self.known if not isinstance(d, hue.HueDevice)]     # (Hue lights: from self.hue, below)
+        if rescan or not govee:
+            # Hue bridges are looked for alongside (a rescan waits for both; otherwise Hue looks on its own)
+            govee, _ = await asyncio.gather(loop.run_in_executor(None, govee_lan.discover, 2.0),
+                                            loop.run_in_executor(None, self.hue.refresh, rescan))
+            self.known = govee + self.hue.devices()
+        else:
+            self.hue.refresh_soon()
         cfg = load_config()
         remembered = cfg.get("known_devices", {})
         before = json.dumps(remembered, sort_keys=True)
         # (arp is a subprocess with a 5 s timeout: in a worker thread, not on the event loop)
-        arp = await loop.run_in_executor(None, govee_lan.arp_table) if any(not d.mac for d in self.known) else {}
-        for d in self.known:
+        arp = await loop.run_in_executor(None, govee_lan.arp_table) if any(not d.mac for d in govee) else {}
+        for d in govee:
             # The MAC comes from the ARP cache, which is empty now and then. A blank
             # must never replace a MAC we already know: the segment count is keyed by
             # it, and losing it silently drops a 50 LED strip to the 10 zone default.
             d.mac = d.mac or arp.get(d.ip, "") or remembered.get(d.ip, {}).get("mac", "")
             remembered[d.ip] = {"mac": d.mac, "sku": d.sku or remembered.get(d.ip, {}).get("sku", ""),
                                 "device_id": d.device_id or remembered.get(d.ip, {}).get("device_id", "")}
-        if self.known and json.dumps(remembered, sort_keys=True) != before:   # the page scans every half minute: write only news
+        if govee and json.dumps(remembered, sort_keys=True) != before:   # the page scans every half minute: write only news
             cfg["known_devices"] = remembered
             try:
                 save_config(cfg)
             except OSError:
                 pass
-        online = {d.ip for d in self.known}
+        online = {d.ip for d in govee}
         missing = []
         for ip, info in remembered.items():
             if ip not in online:
                 d = govee_lan.GoveeDevice(ip=ip, device_id=info.get("device_id", ""), sku=info.get("sku", ""), mac=info.get("mac", ""))
-                self.known.append(d)
+                govee.append(d)
                 missing.append(d)
         # A light that ignores the multicast scan usually still answers when asked
         # directly, so ask before calling it offline. One at a time: every probe
@@ -1040,7 +1058,9 @@ class Studio:
             return [d.ip for d in missing if d.status(timeout=0.8)]
         if missing:
             online |= set(await loop.run_in_executor(None, probe_all))
-        self.known.sort(key=lambda d: tuple(int(p) for p in d.ip.split(".")))
+        hues = self.hue.devices()
+        online |= {d.ip for d in hues if d.online}
+        self.known = sorted(govee + hues, key=lambda d: hue.sort_key(d.ip))
         seg = cfg.get("segments", {})
         # Govee keeps the names given in its app in its cloud; the LAN protocol never
         # reports them, and the lights announce no hostname. So names are given here,
@@ -1055,8 +1075,8 @@ class Studio:
         for d in self.known:
             if not d.mac:   # ARP may not have the entry yet; use what we remembered
                 d.mac = remembered.get(d.ip, {}).get("mac", "")
-            n = seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10
-            name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""
+            n = getattr(d, "segments", 0) or seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10
+            name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or getattr(d, "name", "")
             flip = bool(flipped.get(d.mac) or flipped.get(d.device_id) or flipped.get(d.ip))
             out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online, "flip": flip,
                         "default": bool(default) and d.mac.upper() == default,
@@ -1066,7 +1086,24 @@ class Studio:
         order = cfg.get("light_order", [])
         rank = lambda d: next((order.index(k) for k in (d["mac"], d["device_id"], d["ip"]) if k and k in order), len(order))
         out.sort(key=rank)
+        out += self.hue.extras()           # Hue bridges to pair and lights in no Entertainment area (hints, not lights)
         return web.json_response(out)
+
+    # TODO(ui): a "Pair" button on a light-list row with "hue": "pair" (POST /api/hue/pair {"bridge": id},
+    # then GET /api/hue for its "pairing" state); today a bridge pairs when found or rescanned and its button pressed.
+    async def hue_get(self, request):
+        """Hue bridges (found, paired, pairing), their Entertainment area and lights, and lights in no area."""
+        return web.json_response(self.hue.status())
+
+    async def hue_pair(self, request):
+        """Start pairing a found bridge: its button pressed within 30 s pairs it. {"bridge": id}"""
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        bid = str((await request.json()).get("bridge", ""))
+        st = self.hue.pair(bid)
+        if st.get("state") == "unknown":
+            raise web.HTTPNotFound(text="no such Hue bridge found")
+        return web.json_response(st)
 
     async def set_order(self, request):
         """Remember the order the lights stand in around the room: a list of keys (MAC, else IP)."""
@@ -1142,7 +1179,7 @@ class Studio:
         if d is None:
             return 50
         seg = load_config().get("segments", {})
-        return int(seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10)
+        return int(getattr(d, "segments", 0) or seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10)
 
     async def set_segments(self, request):
         body = await request.json()
@@ -1377,7 +1414,7 @@ class Studio:
 
         def run():
             result = live_sync_check(self.cast, os.path.join(pdir, song[0]), float(body.get("seconds", 8.0)),
-                                     repeats=int(body.get("repeats", 2)))
+                                     mic_device=load_config().get("mic_device") or None, repeats=int(body.get("repeats", 2)))
             # The speaker is always handed a stream that already starts in the right
             # place, so what is measured is the speaker's own fixed delay. Worth
             # keeping: it holds for every song and every start point.
