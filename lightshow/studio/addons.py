@@ -7,6 +7,8 @@ asked about or started).
                requirements-addons.txt)
     bulbshow   Bulb Show's looping shows (bulbshow/, an app of its own: Govee bulbs over Govee's cloud, a sound
                on a speaker), switched on and off from the Lights tab (bulbshows.py)
+    homeassistant  Home Assistant is told when the studio plays on the lights, so its automations leave them be
+               (homeassistant.py: a webhook, and a state for a RESTful sensor)
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 ADDONS = {
     "doorbell": {"name": "Doorbell", "about": "A Reolink video doorbell rings a cue: the music dips and its show plays."},
     "bulbshow": {"name": "Bulb Shows", "about": "Bulb Show's looping shows on Govee bulbs, switched on and off from the Lights tab."},
+    "homeassistant": {"name": "Home Assistant", "about": "Tells Home Assistant when the show has your lights, so its automations leave their brightness alone."},
 }
 
 
@@ -26,6 +29,8 @@ def installed(addon: str) -> str:
     """'' when the add-on can run on this computer, else what it is missing."""
     if addon == "doorbell":
         return "" if importlib.util.find_spec("reolink_aio") is not None else "needs reolink_aio: pip install -r requirements-addons.txt"
+    if addon == "homeassistant":
+        return ""
     if addon == "bulbshow":
         return "" if os.path.isdir(os.path.join(ROOT, "bulbshow")) else "Bulb Show is not in this copy"
     return "no such add-on"

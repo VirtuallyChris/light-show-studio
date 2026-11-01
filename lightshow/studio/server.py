@@ -611,6 +611,9 @@ class Studio:
             self.jam.warm_ahead()
         from .setup import HomeSetup
         self.setup = HomeSetup(self, load_config, save_config, port)
+        # the Home Assistant add-on: told when the show has the lights (a test copy never tells it anything)
+        from .homeassistant import HomeAssistantLink
+        self.homeassistant = HomeAssistantLink(self, load_config, save_config, live=lights)
         self.app.add_routes([
             web.get("/", self.index),
             web.get("/api/devices", self.devices),
@@ -662,6 +665,7 @@ class Studio:
             *self.review.routes(),
             *self.space.routes(),
             *self.setup.routes(),
+            *self.homeassistant.routes(),
             web.static("/static", STATIC),
         ])
         if self.quit_when_closed:
@@ -669,6 +673,10 @@ class Studio:
         self.app.on_startup.append(self._rooms_at_start)
         self.app.on_startup.append(self._doorbell_at_start)
         self.app.on_shutdown.append(self._close_player)
+        self.app.on_startup.append(self._homeassistant_at_start)
+
+    async def _homeassistant_at_start(self, app):
+        self.homeassistant.start()
 
     async def _close_player(self, app):
         """Any orderly exit: Edge's sound goes back to the default output, the hidden player closes,
@@ -687,6 +695,10 @@ class Studio:
             pass
         try:
             await self.doorbell.close()
+        except Exception:  # noqa: BLE001
+            pass
+        try:                                              # Home Assistant has the lights back at once
+            await asyncio.get_running_loop().run_in_executor(None, self.homeassistant.release)
         except Exception:  # noqa: BLE001
             pass
 
@@ -936,6 +948,10 @@ class Studio:
         def shut():
             try:                                          # Bulb Show goes too: it stops its shows and puts its bulbs back
                 self.bulbshows.quit()
+            except Exception:  # noqa: BLE001
+                pass
+            try:                                          # Home Assistant has the lights back
+                self.homeassistant.release()
             except Exception:  # noqa: BLE001
                 pass
             try:                                          # the music first: held at once, then the speakers stopped

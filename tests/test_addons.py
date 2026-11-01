@@ -15,7 +15,7 @@ class TestAddons(unittest.TestCase):
     def test_off_until_switched_on_and_kept(self):
         cfg = {}
         self.assertFalse(addons.enabled(cfg, "doorbell"))
-        self.assertEqual([a["id"] for a in addons.status(cfg)], ["doorbell", "bulbshow"])
+        self.assertEqual([a["id"] for a in addons.status(cfg)], ["doorbell", "bulbshow", "homeassistant"])
         self.assertTrue(all(not a["on"] for a in addons.status(cfg)))
         store = {}
         addons.switch(lambda: dict(store), store.update, "doorbell", True)
