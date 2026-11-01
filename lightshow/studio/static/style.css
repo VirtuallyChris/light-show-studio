@@ -282,6 +282,11 @@ main { grid-template-columns: clamp(17.5rem, 17vw, 21rem) minmax(0, 1fr) clamp(1
   main { grid-template-columns: minmax(0, 1fr); }
   .inspector { position: fixed; right: 0; bottom: 0; top: auto; max-height: 45vh; width: 100%; z-index: 35; border-left: none; border-top: 1px solid var(--line); }
   .brand { display: none; }
+  /* a phone: the top bar's groups wrap instead of running off the edge, and so does the empty page */
+  .topbar .group { flex-wrap: wrap; }
+  .empty { padding: 0 1rem; text-align: center; }
+  .empty .path-open { flex-wrap: wrap; justify-content: center; max-width: 100%; }
+  .empty .path-open input { width: min(26.15rem, 100%); }
 }
 
 /* the timeline's strip: tempo, grid, snap, zoom and undo, right above what they act on */

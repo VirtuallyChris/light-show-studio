@@ -137,6 +137,7 @@ class JamService:
             web.post("/api/jam/colors", self.colors),
             # the Party Hub: a phone app on the home network (Jam mode)
             web.get("/party", self.party_page),
+            web.get("/party/", self.party_slash),
             web.get("/party/manifest.webmanifest", self.party_manifest),
             web.get("/api/party/state", self.party_state),
             web.post("/api/party/colors", self.party_colors),
@@ -979,6 +980,10 @@ class JamService:
         resp = web.FileResponse(os.path.join(os.path.dirname(__file__), "static", "party", "index.html"))
         resp.headers["Cache-Control"] = "no-store"
         return resp
+
+    async def party_slash(self, request):
+        """/party/ typed by hand (or a bookmark with the slash): the Party Hub, not a 404."""
+        raise web.HTTPFound("/party")
 
     async def party_manifest(self, request):
         return web.json_response({

@@ -123,6 +123,23 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .np .art { width: min(100%, 248px); aspect-ratio: 1; margin: 2px auto 16px; border-radius: 18px; box-shadow: var(--art-shadow); }
   .np.idle .art { opacity: .45; box-shadow: none; }
   .np .title { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin-top: 2px; }
+  .np:not(.idle) .title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }   /* a long title on two lines, not cut to a few words */
+  @media (orientation: portrait) and (max-height: 720px) { .np .art { width: min(100%, 196px); } }   /* an SE: play/pause above the tab bar */
+  /* a phone on its side: the cover beside the song, so the title and play/pause are on screen without scrolling */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .np:not(.idle) { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 1fr repeat(7, auto) 1fr; column-gap: 20px; }
+    .np:not(.idle) > .art { grid-column: 1; grid-row: 1 / -1; align-self: center; width: min(200px, calc(100vh - 170px)); margin: 0; }
+    .np:not(.idle) > :not(.art) { grid-column: 2; }
+    .np:not(.idle) > :nth-child(2) { grid-row: 2; } .np:not(.idle) > :nth-child(3) { grid-row: 3; } .np:not(.idle) > :nth-child(4) { grid-row: 4; }
+    .np:not(.idle) > :nth-child(5) { grid-row: 5; } .np:not(.idle) > :nth-child(6) { grid-row: 6; } .np:not(.idle) > :nth-child(7) { grid-row: 7; }
+    .np:not(.idle) > :nth-child(8) { grid-row: 8; }
+    .np:not(.idle) .title { -webkit-line-clamp: 1; }
+    .np:not(.idle) .bar { margin-top: 10px; }
+    .np:not(.idle) .controls { margin-top: 4px; }
+    .topbar { min-height: 34px; margin-bottom: 6px; }
+    .topbar h1 { font-size: 24px; }
+    .hero { padding-top: 12px; padding-bottom: 12px; }
+  }
   .np .artist { font-size: 15px; }
   .np.idle .title { color: var(--text-2); font-weight: 600; font-size: 18px; text-align: center; white-space: normal; }
   .title { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -220,7 +237,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .pre .bar { height: 4px; border-radius: 2px; margin-top: 8px; }
   /* party colors */
   .colors[data-bare] { display: none; }
-  .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; }
+  .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; min-height: 32px; }
   .theme-chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .theme-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .even-row { margin-top: 14px; }
@@ -229,7 +246,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .theme-sw .pair { display: flex; gap: 2px; }
   .theme-sw .pair span { width: 20px; height: 20px; border-radius: 6px; }
   .tag { font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
-  .reset { border: none; background: none; color: var(--muted); font-size: 18px; padding: 4px 6px; }
+  .reset { border: none; background: none; color: var(--muted); font-size: 18px; padding: 4px 6px; min-width: 36px; min-height: 36px; }
   /* up next */
   .row { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
   .row:first-of-type { border-top: none; padding-top: 2px; }
@@ -254,7 +271,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .vroom:first-of-type { border-top: none; }
   .vroom > .vol { border-top: none; padding: 0; }
   .vroom > .vol .vname { font-weight: 650; font-size: 16px; }
-  .mixbtn { border: none; background: none; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; padding: 4px 0; }
+  .mixbtn { border: none; background: none; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; padding: 10px 12px 10px 0; margin: -6px 0; }   /* (a finger-sized target, the same room around it) */
   .mix { margin: 2px 0 0 12px; padding-left: 12px; border-left: 2px solid var(--line); }
   .mix .vol .vname { font-size: 14px; }
   /* rooms */
@@ -272,7 +289,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .room-edit:first-of-type { border-top: none; }
   .room-edit .top { display: flex; align-items: center; gap: 10px; }
   .room-edit .top input[type=text] { flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-  .room-edit .del, .cue-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; }
+  .room-edit .del, .cue-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; min-width: 40px; min-height: 40px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .chips .kind { width: 100%; font-size: 12px; color: var(--muted); }
   .chip { font: inherit; font-size: 14px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; }
@@ -403,7 +420,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   <section class="card">
     <div class="label">Rooms</div>
     <div id="roomEdit"><div class="empty">…</div></div>
-    <a href="/party/map" style="display:inline-block;margin-top:10px;color:var(--accent);font-weight:600;text-decoration:none" title="Where every light stands in the house: pin each segment, pole and tube on the floor plan">Map the house &rsaquo;</a>
+    <a href="/party/map" style="display:inline-block;margin-top:2px;padding:8px 0;color:var(--accent);font-weight:600;text-decoration:none" title="Where every light stands in the house: pin each segment, pole and tube on the floor plan">Map the house &rsaquo;</a>
   </section>
   <section class="card">
     <div class="theme-row"><div class="label">Appearance</div>
