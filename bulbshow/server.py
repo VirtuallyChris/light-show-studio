@@ -541,12 +541,18 @@ def _already_running(url: str) -> bool:
         return False
 
 
+def keeps_log(open_browser: bool, stay: bool) -> bool:
+    """Started without a console (the .vbs launcher), or by the studio with no window (the Party Hub switching
+    a show on: its output goes nowhere, so a party's lost speakers left no trace): keep bulbshow.log."""
+    return sys.stdout is None or not (open_browser or stay)
+
+
 def run(host: str = "0.0.0.0", port: int = 8770, open_browser: bool = True, stay: bool = False,
         lights: bool = True, cast: bool = True) -> None:
-    if sys.stdout is None:                      # started without a console (the .vbs launcher): keep a log
+    if keeps_log(open_browser, stay):
         log = open(os.path.join(HERE, "bulbshow.log"), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
-        print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} Bulb Show starting")
+        print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} Bulb Show starting" + ("" if open_browser else " (no window)"))
     url = f"http://127.0.0.1:{port}/"
     if open_browser and _already_running(url):
         if open_app_window(url):

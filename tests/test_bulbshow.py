@@ -3,6 +3,7 @@ Virtual speakers and bulbs only: nothing on the network is touched, nothing play
 
 import asyncio
 import io
+import itertools
 import os
 import shutil
 import tempfile
@@ -218,24 +219,59 @@ class RunnerTest(unittest.TestCase):
         self.assertAlmostEqual(r.base, 1.25)
         self.assertIsNone(r.reader_for(first))                         # the old stream is gone for good
 
-    def test_a_speaker_taken_over_stops_the_show(self):
+    def wait_for(self, cond, clock=None, step=0.0):
+        for _ in range(500):
+            if cond():
+                return True
+            if clock is not None:
+                clock.t += step
+            time.sleep(0.01)
+        return cond()
+
+    def playing_runner(self):
         r = self.runner()
-        r.TICK = 0.001
+        r.TICK, r.RETRY_S = 0.001, 0.01
         clock = Clock()
         r.clock = clock
         r.start()
-        for _ in range(200):
-            if r.state == "playing":
-                break
-            time.sleep(0.01)
+        self.addCleanup(r.stop, True)
+        self.assertTrue(self.wait_for(lambda: r.state == "playing"))
+        return r, clock
+
+    def test_a_speaker_taken_over_is_taken_back(self):
+        # the party (2026-10-30): a show whose speaker was taken (a doorbell cue, the party's group, a Wi-Fi drop)
+        # ended, and Bulb Show, started from the Party Hub, then quit; the show was switched on again by hand
+        r, clock = self.playing_runner()
+        first = r.speakers.opened[0]
+        first.state = "IDLE"
+        self.assertTrue(self.wait_for(lambda: len(r.speakers.opened) > 1, clock, 4))
+        self.assertTrue(r.active)                                     # still on
+        self.assertEqual(first.state, "IDLE")
+        self.assertTrue(self.wait_for(lambda: r.state == "playing" and r.speakers.opened[-1].url.endswith(f"{r.sid}.wav")))
+        self.wait_for(lambda: r.error == "")
+        self.assertEqual(r.error, "")
+
+    def test_a_speaker_another_app_plays_on_is_left_to_it(self):
+        r, clock = self.playing_runner()
+        r.speakers.held["Office Home 2"] = "Spotify"
         r.speakers.opened[0].state = "IDLE"
-        for _ in range(300):
-            if not r.active:
-                break
-            clock.t += 4
-            time.sleep(0.01)
-        self.assertEqual(r.state, "error")
-        self.assertIn("stopped playing", r.error)
+        self.assertTrue(self.wait_for(lambda: "Spotify" in r.error, clock, 4))
+        self.assertTrue(r.active)
+        self.assertEqual(r.state, "waiting")
+        self.assertTrue(self.wait_for(lambda: len(r.speakers.opened) > 3))
+        self.assertTrue(all(c.url == "" for c in r.speakers.opened[1:]))   # nothing played over Spotify
+        del r.speakers.held["Office Home 2"]
+        self.assertTrue(self.wait_for(lambda: r.state == "playing"))
+
+    def test_switched_off_while_waiting_for_its_speaker(self):
+        r, clock = self.playing_runner()
+        r.speakers.held["Office Home 2"] = "Spotify"
+        r.speakers.opened[0].state = "IDLE"
+        self.assertTrue(self.wait_for(lambda: r.state == "waiting", clock, 4))
+        r.stop(wait=True)
+        self.assertFalse(r.active)
+        self.assertEqual(r.state, "stopped")
+        self.assertEqual(r.bulb.color, (0, 0, 0))                     # put back
 
 
 class FakeClient:
@@ -533,6 +569,24 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         await self.client.post(f"/api/stop/{sid}")
         await asyncio.wait_for(quit.wait(), 10)
 
+    async def test_started_from_the_party_hub_it_stays_when_its_speaker_is_taken(self):
+        sid = await self.make("Witch", "Office Home 2")
+        self.app.quit_when_idle = True
+        quit = await self.start_watch()
+        self.assertTrue((await (await self.client.post(f"/api/run/{sid}", json={})).json())["ok"])
+        runner = self.app.runners[sid]
+        runner.RETRY_S = 0.05
+        for _ in range(200):
+            if runner.state == "playing":
+                break
+            await asyncio.sleep(0.02)
+        runner.clock = itertools.count(0, 5).__next__                 # (its idle count runs out at once)
+        self.app.speakers.opened[0].state = "IDLE"
+        await asyncio.sleep(0.8)
+        self.assertFalse(quit.is_set())                               # the show is still on: Bulb Show stays
+        self.assertGreater(len(self.app.speakers.opened), 1)          # its speaker taken back
+        self.assertTrue((await (await self.client.get("/api/shows")).json())[0]["running"])
+
     async def test_with_its_window_open_it_stays(self):
         self.app.quit_when_idle = True
         quit = await self.start_watch()
@@ -651,6 +705,45 @@ class SpeakersTest(unittest.TestCase):
             sp = Speakers()
             first, second = sp._zeroconf(), sp._zeroconf()
         self.assertIsNot(first, second)
+
+
+class LogTest(unittest.TestCase):
+    def test_started_hidden_by_the_studio_it_keeps_a_log(self):
+        from bulbshow.server import keeps_log
+        self.assertTrue(keeps_log(open_browser=False, stay=False))          # the Party Hub's start: output to nowhere
+        self.assertFalse(keeps_log(open_browser=True, stay=False))          # in a console with its window
+        self.assertFalse(keeps_log(open_browser=False, stay=True))          # a launch config (the test copy)
+
+
+class ShowCastTest(unittest.TestCase):
+    def cast_playing(self, content_id, app_id="CC1AD845"):
+        from unittest import mock
+        from bulbshow.speakers import ShowCast
+        sc = ShowCast(None, browser=mock.MagicMock())
+        dev = mock.MagicMock()
+        dev.status.app_id, dev.status.display_name = app_id, "Spotify"
+        dev.media_controller.status.content_id = content_id
+        sc.cast, sc.media_url = dev, "http://pc/api/loop/abc.wav"
+        return sc, dev
+
+    def test_letting_go_stops_only_the_show_s_own_stream(self):
+        sc, dev = self.cast_playing("http://pc/api/loop/abc.wav")
+        sc.disconnect()
+        dev.media_controller.stop.assert_called_once()
+        dev.disconnect.assert_called_once()
+
+    def test_a_speaker_taken_over_is_left_playing(self):
+        sc, dev = self.cast_playing("http://pc:8765/api/jam/stream/7")      # the party's group, a doorbell cue
+        sc.disconnect()
+        dev.media_controller.stop.assert_not_called()
+        dev.disconnect.assert_called_once()
+        self.assertIsNone(sc.cast)
+
+    def test_spotify_on_it_is_another_app(self):
+        sc, dev = self.cast_playing("spotify:track:1", app_id="CC32E753")
+        self.assertEqual(sc.held_by(), "Spotify")
+        sc.disconnect()
+        dev.media_controller.stop.assert_not_called()
 
 
 class TaskbarTest(unittest.TestCase):

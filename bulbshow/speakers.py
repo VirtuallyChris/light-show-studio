@@ -12,6 +12,7 @@ import time
 
 from lightshow import govee_lan
 from lightshow.studio.cast import CastManager
+from lightshow.studio.rooms import OURS_OR_IDLE
 
 
 class Speakers:
@@ -71,10 +72,30 @@ class ShowCast(CastManager):
         self.show_browser = browser
 
     def disconnect(self) -> None:
+        """Let the speaker go. It is stopped only while it still plays the show: one taken over (a doorbell cue,
+        the party's group, Spotify) is left playing that (CastManager's own disconnect would stop it too)."""
         was = self.cast is not None              # (connect() calls this first, before there is a speaker: keep looking then)
+        if was and not self.playing_ours():
+            cast, self.cast = self.cast, None
+            self._stop_poll.set()
+            try:
+                cast.disconnect(timeout=3)
+            except Exception:  # noqa: BLE001
+                pass
         super().disconnect()
         if was:
             self.stop_browser()
+
+    def playing_ours(self) -> bool:
+        st = getattr(getattr(self.cast, "media_controller", None), "status", None)
+        return bool(self.media_url) and getattr(st, "content_id", None) == self.media_url and not self.held_by()
+
+    def held_by(self) -> str:
+        """The app another sender is playing on the speaker ("" when it is free, showing its backdrop, or in
+        the Default Media Receiver, where the show and the studio play)."""
+        st = getattr(self.cast, "status", None)
+        app = getattr(st, "app_id", None)
+        return "" if app in OURS_OR_IDLE else str(getattr(st, "display_name", None) or "another app")
 
     def stop_browser(self) -> None:
         browser, self.show_browser = self.show_browser, None
@@ -94,6 +115,10 @@ class FakeCast:
         self.t0 = None
         self.url = ""
         self.state = "IDLE"
+        self.holder = ""             # another app playing on it ("" when free)
+
+    def held_by(self) -> str:
+        return self.holder
 
     def play_stream(self, url, content_type, title):
         self.url, self.t0, self.state = url, self.clock(), "PLAYING"
@@ -115,6 +140,7 @@ class FakeSpeakers:
     def __init__(self, names=("Office Home 2", "Kitchen Home", "Game Home")):
         self.names = list(names)
         self.opened: list[FakeCast] = []
+        self.held: dict[str, str] = {}   # speaker -> another app playing on it
 
     def list(self, fresh: bool = False):
         return [{"name": n, "model": "virtual", "group": False} for n in self.names]
@@ -123,5 +149,6 @@ class FakeSpeakers:
         if name not in self.names:
             raise LookupError(f"{name} is not on the network right now")
         c = FakeCast(name)
+        c.holder = self.held.get(name, "")
         self.opened.append(c)
         return c

@@ -8,6 +8,10 @@ worth sending (a cloud bulb only sends changes, within Govee's allowance).
 
 Several runners run at once, one per show, each with its own speaker and bulb.
 
+A speaker that stops playing the show (a doorbell cue or the party's group cast taking it over, or a Wi-Fi
+drop) does not end it: the show stays on, lets the speaker go, and takes it back RETRY_S later, from where
+the room was. Only while another app (Spotify, YouTube...) is playing on it does the show wait for it.
+
 A preview on this PC (`here`) is the same with no speaker: the editor plays the sound itself and the runner
 keeps time with a clock that starts when the bulb is ready (the page starts the sound on that clock).
 """
@@ -23,9 +27,14 @@ from .sound import LoopReader, Sound
 from .speakers import FakeCast
 
 
+class SpeakerLost(RuntimeError):
+    """The speaker is not playing the show (taken over, gone from the Wi-Fi, or busy with another app)."""
+
+
 class ShowRunner:
     TICK = 0.02
     RECONNECT_AFTER_S = 3.0        # a speaker that had played less of its stream than this was only starting it
+    RETRY_S = 15.0                 # a speaker lost mid-show is tried again this often, for as long as the show is on
 
     def __init__(self, show_id: str, show: dict, sound: Sound, speakers, bulb, url_for, cast_offset_s: float = 0.0,
                  start_at: float = 0.0, clock=time.monotonic, log=print, here: bool = False):
@@ -125,51 +134,78 @@ class ShowRunner:
         return (self.base + heard + lead) % self.sound.duration
 
     def _run(self) -> None:
-        idle_since, played = None, False
         try:
             self.state = "connecting"
             self.bulb.begin()
-            if self._stop.is_set():
-                return
-            self.cast = FakeCast(self.speaker, self.clock) if self.here else self.speakers.open(self.speaker)
-            if self._stop.is_set():
-                return
-            self._new_stream(self.start_at)
-            self.state = "buffering"
-            while not self._stop.wait(self.TICK):
-                st = self.cast.status()
-                state = str(st.get("state") or "")
-                now = self.clock()
-                if state == "PLAYING":
-                    idle_since, played = None, True
-                    pos = float(st.get("position") or 0)
-                    t = self.moment(pos)
-                    if t is not None:
-                        self.heard_t = (self.base + pos - self.cast_offset) % self.sound.duration
-                        self.loop_t = t
-                        self.bulb.apply(effects.state(self.show, t, cloud=self.cloud))
-                        self.state = "playing"
-                elif state in ("BUFFERING", "PAUSED"):
-                    idle_since = None
-                    self.state = state.lower()
-                else:
-                    idle_since = idle_since or now
-                    if now - idle_since > (10 if played else 30):
-                        raise RuntimeError(f"{self.speaker} stopped playing (another app may have taken it over)")
-                self.error = self.bulb.error           # (a cloud hiccup clears once a command gets through)
+            at, again, said = self.start_at, False, ""
+            while not self._stop.is_set():
+                try:
+                    self._play(at, again)
+                except Exception as e:  # noqa: BLE001 - the speaker, not the show: try it again
+                    if self.here or self._stop.is_set():
+                        raise
+                    why = str(e) or e.__class__.__name__
+                    self.error, self.state = why, "waiting"
+                    if why != said:
+                        self.log(f"{self.show.get('name')}: {why}; trying again every {self.RETRY_S:.0f} s")
+                    said = why
+                self._let_go()
+                at = self.loop_t if self.loop_t is not None else at
+                again = True
+                if self._stop.wait(self.RETRY_S):
+                    break
         except Exception as e:  # noqa: BLE001 - one show failing never stops the others
             self.error = str(e) or e.__class__.__name__
             self.log(f"{self.show.get('name')}: {self.error}")
         finally:
             self.state = "error" if self.error and not self._stop.is_set() else "stopped"
-            cast, self.cast = self.cast, None
-            if cast is not None:
-                try:
-                    cast.disconnect()
-                except Exception:  # noqa: BLE001
-                    pass
+            self._let_go()
             try:
                 self.bulb.end()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _play(self, at: float, again: bool) -> None:
+        """Open the speaker and play the show on it from `at` until the show is switched off, or raise
+        SpeakerLost once the speaker stops playing it. Taken `again` (the show lost it before), a speaker
+        another app is playing on is left to it."""
+        self.state = "connecting"
+        self.cast = FakeCast(self.speaker, self.clock) if self.here else self.speakers.open(self.speaker)
+        if self._stop.is_set():
+            return
+        held = self.cast.held_by() if again else ""
+        if held:
+            raise SpeakerLost(f"{self.speaker} is playing {held}; the show waits for it")
+        self._new_stream(at)
+        self.state = "buffering"
+        idle_since, played = None, False
+        while not self._stop.wait(self.TICK):
+            st = self.cast.status()
+            state = str(st.get("state") or "")
+            now = self.clock()
+            if state == "PLAYING":
+                idle_since, played = None, True
+                pos = float(st.get("position") or 0)
+                t = self.moment(pos)
+                if t is not None:
+                    self.heard_t = (self.base + pos - self.cast_offset) % self.sound.duration
+                    self.loop_t = t
+                    self.bulb.apply(effects.state(self.show, t, cloud=self.cloud))
+                    self.state = "playing"
+            elif state in ("BUFFERING", "PAUSED"):
+                idle_since = None
+                self.state = state.lower()
+            else:
+                idle_since = idle_since or now
+                if now - idle_since > (10 if played else 30):
+                    raise SpeakerLost(f"{self.speaker} stopped playing (another app may have taken it over)")
+            self.error = self.bulb.error           # (a cloud hiccup clears once a command gets through)
+
+    def _let_go(self) -> None:
+        cast, self.cast = self.cast, None
+        if cast is not None:
+            try:
+                cast.disconnect()
             except Exception:  # noqa: BLE001
                 pass
 
