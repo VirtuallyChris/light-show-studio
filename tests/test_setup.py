@@ -35,7 +35,8 @@ class TestSetup(unittest.TestCase):
         self.assertEqual(item["detail"], "Set up by itself")
 
     def test_a_single_output_says_what_to_install(self):
-        item = self.sound(["Speakers"], "Speakers")
+        with mock.patch.object(setup, "hidden_output_help", lambda: {"name": "CABLE Input", "url": "", "label": "VB-Cable (free)"}):
+            item = self.sound(["Speakers"], "Speakers")
         self.assertFalse(item["done"])
         self.assertIn("VB-Cable", item["detail"])
 
