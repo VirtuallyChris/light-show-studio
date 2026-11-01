@@ -1125,7 +1125,7 @@
     ws.onclose = () => { S.wsOpen = false; S.outputActive = false; setTimeout(connectWs, 2000); };
     ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'started') S.outputActive = true; if (m.type === 'stopped') S.outputActive = false;
       if (m.type === 'roomview_watchers') S.roomViewRemote = m.n > 0;     // (a phone has the room view open: sendRoomView)
-      if (m.type === 'cover') setCover(m.name, m.state); };              // (costume contest, stop party: told at once)
+      if (m.type === 'cover') setCover(m.name, m.state); };              // (a party mode: told at once)
     ws.addEventListener('close', () => { S.roomViewRemote = false; });
     S.ws = ws;
   }
@@ -1467,20 +1467,18 @@
   function crossfadeLights(seconds) {
     S.lightBlend = { t0: performance.now(), dur: Math.max(0.2, seconds) * 1000, from: Object.fromEntries(Object.entries(LAST).map(([k, m]) => [k, new Map(m)])) };
   }
-  /** The Party Hub's two cover switches (the server says, at once over /ws and in the jam state each second):
-   *  costume contest mode fades every light to one color at full brightness over 5 s and back to the show (the music
-   *  fades with it, in the stream, once the speakers have their fresh stream: a second or so); stop party turns them
-   *  one color at once and back at once (Spotify paused meanwhile), over the contest's if both are on. Each has its
-   *  color (orange, warm white, or one picked on the phone while it is on: the contest's moves to it over a second,
-   *  stop party's at once). Seen within a second or two of the switch a fade starts now, with the music, not with a
+  /** The Party Hub's modes (the user makes them; the server says, at once over /ws and in the jam state each second):
+   *  each fades every light to its color at full brightness over its own time and back to the show (the music fades
+   *  with it in the stream, or pauses). The one switched on last is on top. A color picked while one is on moves to it
+   *  over up to a second. Seen within a second or two of the switch a fade starts now, with the music, not with a
    *  jump; seen later (the studio opened mid-fade) it is where the fade has got to. Turned around mid-fade, it goes
    *  back from where it got to. */
-  const COVER_DEFAULT = { contest: '#ff6000', stop: '#ffaa5a' };   // (the party colors' orange; warm white, ~2700 K)
+  const COVER_DEFAULT = '#ffaa5a';                    // (warm white, ~2700 K)
   const hexRgb = h => { const v = parseInt(String(h).slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
   S.cover = {};                                       // name -> { on, t0, dur, from, color, rgb, rgbFrom, c0, cdur }
   function setCover(name, c) {
     if (!c) return;
-    const cur = S.cover[name], color = /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color.toLowerCase() : COVER_DEFAULT[name];
+    const cur = S.cover[name], color = /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color.toLowerCase() : COVER_DEFAULT;
     if (!!c.on === !!(cur && cur.on)) {
       if (cur && cur.on && color !== cur.color) {      // a color picked while it is on
         Object.assign(cur, { rgbFrom: coverRgb(name), rgb: hexRgb(color), color, c0: performance.now(), cdur: Math.max(1, Math.min(1, c.fade ?? 5) * 1000) });
@@ -1504,7 +1502,7 @@
   }
   const coverFading = () => { const now = performance.now(); return Object.values(S.cover).some(c => now - c.t0 < c.dur || now - c.c0 < c.cdur); };
   function coverOver(frame) {
-    for (const name of ['contest', 'stop']) {
+    for (const name of Object.keys(S.cover).sort((a, b) => S.cover[a].t0 - S.cover[b].t0)) {
       const k = coverOf(name); if (k <= 0) continue;
       const rgb = coverRgb(name);
       for (const f of frame) f.px = f.px.map((v, i) => Math.round(v + (rgb[i % 3] - v) * k));

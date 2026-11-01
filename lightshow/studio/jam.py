@@ -1490,7 +1490,7 @@ class JamEngine:
         return True
 
     def duck_music(self, to: float, seconds: float) -> str:
-        """The music turned down (costume contest mode) or back up, fading over `seconds` from what the room hears
+        """The music turned down (a party mode) or back up, fading over `seconds` from what the room hears
         now, the speakers' own volume left alone. They hold up to 20 s already sent, so playing they get a fresh
         stream from where the room is with the fade in it, as the music comes back after a doorbell. With the room
         held (a cue, a pause) nothing is heard: the music is simply at its new level when it plays again."""

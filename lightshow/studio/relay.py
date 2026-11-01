@@ -49,7 +49,7 @@ class Relay:
         # Each song's volume (loudness.py): [capture frame, gain] from where each song begins, every stream
         # applying it as it reads, so a song is evened out on Cast, on this PC, and after any restart alike.
         self.levels: list[list] = []
-        # The music turned down for a while (costume contest mode): (from capture frame, frames, gain from, gain to),
+        # The music turned down for a while (a party mode): (from capture frame, frames, gain from, gain to),
         # a fade on the capture timeline, so every stream (a skip, a restart) plays it the same; the speakers' own
         # volume is left alone (they chime on every change)
         self.duck: tuple = (0, 1, 1.0, 1.0)

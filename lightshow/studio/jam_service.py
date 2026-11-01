@@ -78,11 +78,9 @@ class JamService:
         # Built up to 100% over a while (the Party Hub's button under the slider): {from, start (epoch s), minutes, song}.
         # Kept in the config, so a restart carries on with it.
         self.party_ramp: dict | None = load_config().get("party_ramp") or None
-        # Costume contest mode (a switch on the Party Hub): the music down to a fifth in the stream, the lights all
-        # orange at full, both fading over 5 s each way. {on, at (monotonic s)}; not kept over a restart.
-        self.contest = {"on": False, "at": -1e9}
-        # Stop party (the other switch): the lights warm white at full at once, Spotify paused until it is off. {on, at, paused}
-        self.stop_party = {"on": False, "at": -1e9, "paused": False}
+        # the party modes switched on (Party Hub buttons the user makes): {mode id: {on, at (monotonic s), color, paused}};
+        # not kept over a restart
+        self.mode_on: dict[str, dict] = {}
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
@@ -149,8 +147,8 @@ class JamService:
             web.post("/api/party/playback", self.party_playback),
             web.post("/api/party/level", self.party_level_set),
             web.post("/api/party/ramp", self.party_ramp_set),
-            web.post("/api/party/contest", self.party_contest_set),
-            web.post("/api/party/stop", self.party_stop_set),
+            web.post("/api/party/mode", self.party_mode_set),
+            web.post("/api/party/modes", self.party_modes_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
             web.get("/api/party/bulbshows", self.party_bulbshows),
@@ -264,8 +262,8 @@ class JamService:
         genre_fn = WORKER.classify_audio if WORKER.available() else None
         segment_fn = structure_model.run_audio if structure_model.available() else None
         self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
-        if self.contest["on"]:
-            relay.set_duck(0.0, 0.0, self.CONTEST_GAIN)          # (started during the costume contest: down from the start)
+        if self._music_gain() < 1.0:
+            relay.set_duck(0.0, 0.0, self._music_gain())         # (started while a mode has the music down: down from the start)
         self.runner = JamRunner(self.engine, file_status=self._file_status)
         if ahead:
             self.engine.on_queue = lambda tracks, now=None: self.fetch.submit(tracks, first=True, now=now)
@@ -552,7 +550,7 @@ class JamService:
                 "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
                 "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "track_styles": self.library.styles(),
                 "track_genres": self.library.genres(), "genre_choices": self._genre_choices(),
-                "party_level": self.party_level, "contest": self.contest_status(), "stop_party": self.stop_status(),
+                "party_level": self.party_level, "modes": self.modes_status(),
                 "cue": self._room_cue(),
                 "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice(),
                 "fetch": {**self.fetch.status(), "on": self._fetch_on(),
@@ -1041,8 +1039,7 @@ class JamService:
                 "sync_warning": st.get("sync_warning", ""),
                 "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
                 "party_ramp": getattr(self, "ramp_status", lambda: None)(),
-                "contest": getattr(self, "contest_status", lambda: None)(),
-                "stop_party": getattr(self, "stop_status", lambda: None)(),
+                "modes": getattr(self, "modes_status", lambda: [])(),
                 "even_levels": bool(getattr(self, "load_config", dict)().get("jam_even_levels", True)),
                 "color_source": "album" if not jc.get("on", True) else "wild" if jc.get("wild") else "album" if jc.get("mode") not in ("pick", "mix") else "party",
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
@@ -1348,13 +1345,17 @@ class JamService:
         self._save_level()
         return web.json_response({"party_level": self.party_level, "party_ramp": self.ramp_status()})
 
-    # -- costume contest mode ---------------------------------------------------------------
-    # The switch on the Party Hub (the user): the music down to 20% of itself in the stream (the speakers stay at
-    # their volume), the lights all one color at full brightness (the studio page; orange unless another is picked
-    # while it is on), both fading over 5 s, and back.
-    CONTEST_GAIN = 0.2
-    CONTEST_FADE_S = 5.0
-    COVER_DEFAULT = {"contest": "#ff6000", "stop": "#ffaa5a"}          # (the party colors' orange; warm white)
+    # -- party modes -------------------------------------------------------------------------------
+    # Buttons on the Party Hub that hold the party for a moment, each one made by the user (Party Hub: More settings,
+    # Modes): every light one color at full brightness (the studio page draws it), and the music turned down in the
+    # stream (the speakers stay at their volume) or paused, fading in and out over the mode's own time. A mode may
+    # ask twice before it turns on (an accidental tap would stop the party). Its color can be changed while it is on;
+    # each time it turns on it starts at its own.
+    DEFAULT_MODES = [
+        {"id": "announce", "name": "Announcement", "music": 0.2, "pause": False, "fade": 5.0, "color": "#ffaa5a", "confirm": False},
+        {"id": "stop", "name": "Stop the party", "music": 0.0, "pause": True, "fade": 0.0, "color": "#ffaa5a", "confirm": True},
+    ]
+    MAX_MODES = 12
 
     @staticmethod
     def _cover_color(c) -> str | None:
@@ -1362,77 +1363,117 @@ class JamService:
         c = str(c or "").strip().lower()
         return c if len(c) == 7 and c[0] == "#" and all(ch in "0123456789abcdef" for ch in c[1:]) else None
 
-    def contest_status(self) -> dict:
-        """On or off, its color, and how long ago it was switched (the studio page fades the lights from then)."""
-        return {"on": self.contest["on"], "age": round(max(0.0, time.monotonic() - self.contest["at"]), 2), "fade": self.CONTEST_FADE_S,
-                "color": self.contest.get("color") or self.COVER_DEFAULT["contest"]}
+    @classmethod
+    def clean_modes(cls, modes) -> list[dict]:
+        """Modes as kept: {id, name, music (0..1 of itself), pause, fade (s), color, confirm}, checked."""
+        import uuid
+        out, ids = [], set()
+        for m in modes if isinstance(modes, list) else []:
+            if not isinstance(m, dict):
+                continue
+            mid = re.sub(r"[^a-z0-9_-]", "", str(m.get("id") or "").lower())[:40]
+            while not mid or mid in ids:
+                mid = uuid.uuid4().hex[:8]
+            ids.add(mid)
+            num = lambda k, d, lo, hi: max(lo, min(hi, float(m.get(k, d) if m.get(k) is not None else d)))
+            out.append({"id": mid, "name": str(m.get("name") or "").strip()[:40] or "Mode", "music": round(num("music", 0.2, 0.0, 1.0), 3),
+                        "pause": bool(m.get("pause")), "fade": round(num("fade", 5.0, 0.0, 30.0), 2),
+                        "color": cls._cover_color(m.get("color")) or "#ffaa5a", "confirm": bool(m.get("confirm", True))})
+        return out[:cls.MAX_MODES]
 
-    def _contest(self, on: bool | None, color: str | None = None) -> dict:
-        """Switched on (its color back to orange, or the one asked for) or off, or only its color changed."""
-        if on is not None and on != self.contest["on"]:
-            keep = self.contest.get("color")
-            self.contest = {"on": on, "at": time.monotonic(), "color": (color or self.COVER_DEFAULT["contest"]) if on else keep}
-            if self.engine is not None:
-                self.engine.duck_music(self.CONTEST_GAIN if on else 1.0, self.CONTEST_FADE_S)
-        elif color:
-            self.contest["color"] = color
-        return {"contest": self.contest_status()}
+    def modes(self) -> list[dict]:
+        cfg = self.load_config()
+        return self.clean_modes(cfg["party_modes"]) if "party_modes" in cfg else [dict(m) for m in self.DEFAULT_MODES]
 
-    async def party_contest_set(self, request):
-        """The switch: {on}, and/or {color} (#rrggbb)."""
-        if not self._lan(request):
-            raise web.HTTPForbidden()
-        body = await request.json()
-        resp = await self._run(self._contest, bool(body["on"]) if "on" in body else None, self._cover_color(body.get("color")))
-        await self._tell_studio("contest", self.contest_status())
-        return resp
+    def modes_status(self) -> list[dict]:
+        """Every mode, on or off, its color now, and how long ago it was switched (the studio page fades from then)."""
+        now, out = time.monotonic(), []
+        for m in self.modes():
+            st = self.mode_on.get(m["id"]) or {"on": False, "at": -1e9}
+            out.append({**m, "own": m["color"], "on": bool(st["on"]), "age": round(max(0.0, now - st["at"]), 2), "color": st.get("color") or m["color"]})
+        return out
 
-    async def _tell_studio(self, name: str, state: dict) -> None:
-        tell = getattr(self.studio, "tell_studio", None)
-        if tell is not None:
-            await tell({"type": "cover", "name": name, "state": state})
-
-    # -- stop party ----------------------------------------------------------------------------
-    # The other switch (the user): every light one color at full at once (warm white unless another is picked while
-    # it is on), and the music stopped (Spotify paused) while it is on; off, the music plays on (if it was playing)
-    # and the show comes back at once.
-    def stop_status(self) -> dict:
-        return {"on": self.stop_party["on"], "age": round(max(0.0, time.monotonic() - self.stop_party["at"]), 2), "fade": 0,
-                "color": self.stop_party.get("color") or self.COVER_DEFAULT["stop"]}
+    def _music_gain(self) -> float:
+        """The music's level with the modes that are on: the quietest one asks for (1: none on)."""
+        ms = {m["id"]: m for m in self.modes()}
+        on = getattr(self, "mode_on", {})
+        return min([ms[i]["music"] for i, st in on.items() if st.get("on") and i in ms and not ms[i]["pause"]] or [1.0])
 
     def _music_playing(self) -> bool:
         now = getattr(self.engine, "now", None) if self.engine is not None else None
         return bool(now.playing) if now is not None and now.track is not None else self.engine is not None
 
-    def _stop_party(self, on: bool | None, color: str | None = None) -> dict:
-        if on is not None and on != self.stop_party["on"]:
-            if on:
-                was = self._music_playing()
-                self.stop_party = {"on": True, "at": time.monotonic(), "paused": was, "color": color or self.COVER_DEFAULT["stop"]}
-                if was:
-                    self._playback_fn("pause")()
+    def _mode(self, mid: str, on: bool | None, color: str | None = None) -> dict:
+        """Switch a mode on (its own color, or the one asked for) or off, or only change its color."""
+        m = next((x for x in self.modes() if x["id"] == mid), None)
+        if m is None:
+            raise ValueError(f"no mode {mid!r}")
+        st = self.mode_on.setdefault(mid, {"on": False, "at": -1e9, "paused": False})
+        if on is not None and on != st["on"]:
+            if m["pause"]:
+                if on:
+                    was = self._music_playing()
+                    st.update(on=True, at=time.monotonic(), paused=was, color=color or m["color"])
+                    if was:
+                        self._playback_fn("pause")()
+                else:
+                    paused = st.get("paused")
+                    st.update(on=False, at=time.monotonic(), paused=False)
+                    if paused:
+                        self._playback_fn("resume")()          # (only what it paused: music paused already stays paused)
             else:
-                paused = self.stop_party["paused"]
-                self.stop_party = {"on": False, "at": time.monotonic(), "paused": False, "color": self.stop_party.get("color")}
-                if paused:
-                    self._playback_fn("resume")()          # (only what it paused: music paused already stays paused)
+                st.update(on=on, at=time.monotonic(), color=(color or m["color"]) if on else st.get("color"))
+                if self.engine is not None:
+                    self.engine.duck_music(self._music_gain(), m["fade"])
         elif color:
-            self.stop_party["color"] = color
-        return {"stop_party": self.stop_status()}
+            st["color"] = color
+        return {"modes": self.modes_status()}
 
-    async def party_stop_set(self, request):
-        """The switch: {on}, and/or {color} (#rrggbb). The lights are told first: they change as Spotify is asked
-        to pause."""
+    async def party_mode_set(self, request):
+        """A mode's button: {id, on?, color? (#rrggbb)}. The studio page is told first, so the lights change as the
+        music does (a pause asks Spotify, which takes a moment)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        on, color = (bool(body["on"]) if "on" in body else None), self._cover_color(body.get("color"))
-        was = self.stop_status()
-        ahead = {**was, "age": 0} if on is None or on == was["on"] else {"on": on, "age": 0, "fade": 0, "color": color or self.COVER_DEFAULT["stop"] if on else was["color"]}
+        mid, on, color = str(body.get("id") or ""), (bool(body["on"]) if "on" in body else None), self._cover_color(body.get("color"))
+        was = next((x for x in self.modes_status() if x["id"] == mid), None)
+        if was is None:
+            return web.json_response({"error": f"no mode {mid!r}"}, status=404)
+        ahead = {**was, "age": 0} if on is None or on == was["on"] else {**was, "on": on, "age": 0, "color": (color or (was["color"] if not on else next(
+            m["color"] for m in self.modes() if m["id"] == mid)))}
         if on is None and color:
             ahead["color"] = color
-        await self._tell_studio("stop", ahead)
-        return await self._run(self._stop_party, on, color)
+        await self._tell_studio(mid, ahead)
+        return await self._run(self._mode, mid, on, color)
+
+    def _set_modes(self, modes) -> dict:
+        """Keep the modes as edited on the Party Hub; one taken away while it is on is switched off first."""
+        new = self.clean_modes(modes)
+        keep, before = {m["id"] for m in new}, self._music_gain()
+        for mid, st in list(self.mode_on.items()):
+            if st.get("on") and mid not in keep:
+                self._mode(mid, False)
+        cfg = self.load_config()
+        cfg["party_modes"] = new
+        self.save_config(cfg)
+        for mid in list(self.mode_on):
+            if mid not in keep:
+                del self.mode_on[mid]
+        if self.engine is not None and self._music_gain() != before:
+            self.engine.duck_music(self._music_gain(), 1.0)       # (a mode on, edited to a new level: over a second)
+        return {"modes": self.modes_status()}
+
+    async def party_modes_set(self, request):
+        """The modes as edited: {modes: [{id?, name, music, pause, fade, color, confirm}]}."""
+        if not self._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        return await self._run(self._set_modes, body.get("modes"))
+
+    async def _tell_studio(self, name: str, state: dict) -> None:
+        tell = getattr(self.studio, "tell_studio", None)
+        if tell is not None:
+            await tell({"type": "cover", "name": name, "state": state})
 
     async def colors(self, request):
         """Set the jam's colors ({mode, primary, secondary}), or one track's ({track_id, primary,

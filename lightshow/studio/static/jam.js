@@ -375,7 +375,7 @@
       const st = await api('jam/state'); const was = J.state && J.state.running;
       J.state = st;
       if (typeof st.party_level === 'number' && st.party_level !== S.partyLevel) { S.partyLevel = st.party_level; S.forceSend = true; }
-      St.setCover('contest', st.contest); St.setCover('stop', st.stop_party);     // (the Party Hub's cover switches)
+      for (const m of st.modes || []) St.setCover(m.id, m);                         // (the Party Hub's modes)
       if (J.live && J.doc && J.doc.kind !== 'custom' && J.colorSig !== undefined && colorSig() !== J.colorSig) recolor();   // changed on the phone: at once
       if (st.running && !was && st.auto_started) toast('Music started on Light Show Studio: the jam started by itself');
       await cueTick(st.cue);

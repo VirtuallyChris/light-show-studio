@@ -213,6 +213,19 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .cue:disabled { opacity: .45; }
   .cue.mode[aria-pressed="true"] { color: var(--on-text, #fff); border-color: transparent; background: var(--on, #ff6000); }
   .cover-colors { margin-top: 16px; }
+  .mode-edit { padding: 12px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+  .mode-edit:first-of-type { border-top: none; }
+  .mode-edit .top { display: flex; align-items: center; gap: 10px; }
+  .mode-edit .top input[type=text] { flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 16px; }
+  .mode-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; min-width: 40px; min-height: 40px; }
+  .m-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
+  .m-row > span:first-child { color: var(--text-2); }
+  .m-row input[type=range] { flex: 1; height: 28px; }
+  .m-row .m-val { min-width: 3.2em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .m-row select { font: inherit; font-size: 16px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+  .m-colors { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+  .m-colors button { aspect-ratio: 1; border-radius: 8px; border: 2px solid transparent; padding: 0; min-height: 28px; }
+  .m-colors button.on { border-color: var(--text); }
   .cover-colors .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-top: 8px; }
   .cover-colors .grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
   .cover-colors .grid button.on { border-color: var(--text); }
@@ -330,13 +343,9 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     <div class="label">Cues</div>
     <div class="cues" id="cues"></div>
   </section>
-  <section class="card">
-    <div class="cues">
-      <button class="cue mode" id="contestOn" type="button" aria-pressed="false" title="The music down to 20% (the speakers stay at their volume) and every light orange at full brightness, fading over 5 seconds. Tap again to fade back.">Costume contest</button>
-      <button class="cue mode" id="stopOn" type="button" aria-pressed="false" title="Every light warm white at full brightness at once, and the music paused. Tap again to play on.">STOP PARTY</button>
-    </div>
-    <div class="cover-colors" id="contestColors" hidden><div class="label">Costume contest color</div><div class="grid"></div></div>
-    <div class="cover-colors" id="stopColors" hidden><div class="label">STOP PARTY color</div><div class="grid"></div></div>
+  <section class="card" id="modesCard" hidden>
+    <div class="cues" id="modes"></div>
+    <div id="modeColors"></div>
   </section>
 </section>
 
@@ -401,6 +410,11 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   <section class="card">
     <div class="label">Cues</div>
     <div id="cueEdit"><div class="empty">…</div></div>
+  </section>
+  <section class="card">
+    <div class="label">Modes</div>
+    <div class="hint">Buttons that hold the party for a moment: every light one color, the music turned down or paused.</div>
+    <div id="modeEdit"><div class="empty">…</div></div>
   </section>
   <section class="card pre">
     <div class="label">Pre-listen</div>
@@ -775,39 +789,82 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   for (const id of ['#bellOn', '#bellHost', '#bellUser', '#bellPass', '#bellCue']) $(id).addEventListener('change', () => saveBell());
   setInterval(() => { if (moreOpen && !document.hidden) loadBell(); }, 3000);
   $('#evenOn').onchange = e => { evenBusy = performance.now() + 4000; api('even', { on: e.target.checked }).catch(() => { evenBusy = 0; }); };
-  // the two cover switches: on only after asking twice (an accidental tap stops the party), off at once. While one is
-  // on, its color can be picked (each starts at its own: orange, warm white); the lights take it at once.
+  // the modes (each one the user's): a button each; on, every light takes its color and the music goes down or pauses.
+  // One that asks first asks twice (an accidental tap stops the party); off is at once. While one is on its color can
+  // be picked; each time it turns on it starts at its own.
   const COVER_COLORS = [['#ffaa5a', 'Warm white', '#ffdcae'], ['#ffffff', 'White'], ['#ff0000', 'Red'], ['#ff6000', 'Orange'],
     ['#ffbf00', 'Amber'], ['#ffff00', 'Yellow'], ['#80ff00', 'Lime'], ['#00ff00', 'Green'], ['#00ff80', 'Mint'], ['#00ffff', 'Cyan'],
     ['#0080ff', 'Sky blue'], ['#0000ff', 'Blue'], ['#4000ff', 'Indigo'], ['#8000ff', 'Purple'], ['#ff00ff', 'Magenta'], ['#ff0080', 'Pink']];
-  const coverSwitch = (id, colorsId, path, sure, surer) => {
-    let busy = 0, colorBusy = 0;
-    const b = $(id), box = $(colorsId), grid = box.querySelector('.grid');
-    const set = on => { b.setAttribute('aria-pressed', on ? 'true' : 'false'); box.hidden = !on; };
-    // (the lit button wears the color the lights show, dark lettering on a light one)
-    const pick = c => {
-      for (const s of grid.children) s.classList.toggle('on', s.dataset.c === c);
-      const col = COVER_COLORS.find(x => x[0] === c), shown = col ? col[2] || col[0] : c, v = parseInt(shown.slice(1), 16);
-      b.style.setProperty('--on', shown);
-      b.style.setProperty('--on-text', 0.299 * (v >> 16) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255) > 150 ? '#2a1c0c' : '#fff');
-    };
-    grid.innerHTML = COVER_COLORS.map(([c, name, shown]) => `<button type="button" data-c="${c}" style="background:${shown || c}" aria-label="${name}" title="${name}"></button>`).join('');
-    for (const s of grid.children) s.onclick = () => { colorBusy = performance.now() + 4000; pick(s.dataset.c); api(path, { color: s.dataset.c }).catch(() => { colorBusy = 0; }); };
-    pick(path === 'stop' ? '#ffaa5a' : '#ff6000');
-    b.onclick = () => {
-      const on = b.getAttribute('aria-pressed') !== 'true';
-      if (on && !(confirm(sure) && confirm(surer))) return;
-      busy = performance.now() + 4000; set(on);
-      if (on) pick(path === 'stop' ? '#ffaa5a' : '#ff6000');          // (each time on, it starts at its own color)
-      api(path, { on }).catch(() => { busy = 0; set(!on); });
-    };
-    return st => {
-      if (performance.now() > busy) set(st && st.on);
-      if (st && performance.now() > colorBusy) pick(st.color);
-    };
+  const shownColor = c => { const col = COVER_COLORS.find(x => x[0] === c); return col ? col[2] || col[0] : c; };
+  const inkOn = c => { const v = parseInt(shownColor(c).slice(1), 16); return 0.299 * (v >> 16) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255) > 150 ? '#2a1c0c' : '#fff'; };
+  const swatches = (picked) => COVER_COLORS.map(([c, name]) => `<button type="button" data-c="${c}" class="${c === picked ? 'on' : ''}" style="background:${shownColor(c)}" aria-label="${name}" title="${name}"></button>`).join('');
+  let modesShown = '', modeBusy = {}, modeColorBusy = {};
+  function showModes(modes) {
+    $('#modesCard').hidden = !modes.length;
+    const sig = modes.map(m => m.id + '|' + m.name + '|' + m.confirm).join(',');
+    if (sig !== modesShown) {
+      modesShown = sig;
+      $('#modes').innerHTML = modes.map(m => `<button class="cue mode" type="button" data-mode="${esc(m.id)}" aria-pressed="false">${esc(m.name)}</button>`).join('');
+      for (const b of $('#modes').querySelectorAll('[data-mode]')) b.onclick = () => {
+        const m = ((state && state.modes) || []).find(x => x.id === b.dataset.mode); if (!m) return;
+        const on = b.getAttribute('aria-pressed') !== 'true';
+        if (on && m.confirm && !(confirm(`Turn on ${m.name}?`) && confirm(`Are you sure? ${m.name} starts now.`))) return;
+        modeBusy[m.id] = performance.now() + 4000; b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        if (on) paint(b, m.own || m.color);
+        api('mode', { id: m.id, on }).then(st => { if (st && st.modes) state.modes = st.modes; showModes(state.modes); }).catch(() => { modeBusy[m.id] = 0; });
+      };
+    }
+    const paint = (b, c) => { b.style.setProperty('--on', shownColor(c)); b.style.setProperty('--on-text', inkOn(c)); };
+    for (const m of modes) {
+      const b = $('#modes').querySelector(`[data-mode="${CSS.escape(m.id)}"]`); if (!b) continue;
+      if (performance.now() > (modeBusy[m.id] || 0)) b.setAttribute('aria-pressed', m.on ? 'true' : 'false');
+      if (performance.now() > (modeColorBusy[m.id] || 0)) paint(b, m.color);
+    }
+    // the colors of the ones that are on
+    const on = modes.filter(m => m.on), box = $('#modeColors'), osig = on.map(m => m.id + m.color).join(',');
+    if (box.dataset.sig !== osig && !on.some(m => performance.now() < (modeColorBusy[m.id] || 0))) {
+      box.dataset.sig = osig;
+      box.innerHTML = on.map(m => `<div class="cover-colors" data-for="${esc(m.id)}"><div class="label">${esc(m.name)} color</div><div class="grid">${swatches(m.color)}</div></div>`).join('');
+      for (const g of box.querySelectorAll('[data-for]')) for (const sw of g.querySelectorAll('[data-c]')) sw.onclick = () => {
+        const id = g.dataset.for; modeColorBusy[id] = performance.now() + 4000;
+        for (const x of g.querySelectorAll('[data-c]')) x.classList.toggle('on', x === sw);
+        const b = $('#modes').querySelector(`[data-mode="${CSS.escape(id)}"]`); if (b) paint(b, sw.dataset.c);
+        api('mode', { id, color: sw.dataset.c }).catch(() => { modeColorBusy[id] = 0; });
+      };
+    }
+  }
+
+  // ---- More settings: the modes, each made and changed here (kept on the computer, for every phone)
+  let modeDoc = null, modeEditShown = '';
+  function loadModeEdit() { if (state && state.modes) { modeDoc = state.modes.map(m => ({ ...m, color: m.own || m.color })); renderModeEdit(); } }
+  const saveModes = async () => {
+    try { const st = await api('modes', { modes: modeDoc }); if (st && st.modes) { state.modes = st.modes; modeDoc = st.modes.map(m => ({ ...m, color: m.own || m.color })); } } catch (e) { /* shown next time */ }
+    renderModeEdit(); showModes((state && state.modes) || []);
   };
-  const showContest = coverSwitch('#contestOn', '#contestColors', 'contest', 'Turn on costume contest mode? The music goes down to 20% and every light turns orange.', 'Are you sure? Costume contest mode starts now.');
-  const showStop = coverSwitch('#stopOn', '#stopColors', 'stop', 'STOP PARTY? The music pauses and every light turns warm white at once.', 'Are you sure? The party stops now.');
+  function renderModeEdit() {
+    const el = $('#modeEdit'); if (!modeDoc) return;
+    if (el.contains(document.activeElement) && document.activeElement.matches('input[type=text], input[type=range]')) return;   // never under the finger
+    const FADES = [[0, 'At once'], [1, '1 second'], [2, '2 seconds'], [5, '5 seconds'], [10, '10 seconds']];
+    el.innerHTML = modeDoc.map((m, i) => `<div class="mode-edit" data-i="${i}">
+        <div class="top"><input type="text" class="m-name" value="${esc(m.name)}" aria-label="Mode name"><button class="del" aria-label="Delete ${esc(m.name)}">&times;</button></div>
+        <div class="m-row"><span>Pause the music</span><label class="switch"><input type="checkbox" class="m-pause" ${m.pause ? 'checked' : ''} aria-label="Pause the music"><span></span></label></div>
+        <div class="m-row" ${m.pause ? 'hidden' : ''}><span>Music</span><input type="range" class="m-music" min="0" max="100" step="5" value="${Math.round(m.music * 100)}" aria-label="Music level"><span class="m-val">${Math.round(m.music * 100)}%</span></div>
+        <div class="m-row"><span>Lights fade</span><select class="m-fade" aria-label="Fade">${FADES.map(([v, t]) => `<option value="${v}" ${Math.abs(m.fade - v) < 0.01 ? 'selected' : ''}>${t}</option>`).join('')}${FADES.some(([v]) => Math.abs(m.fade - v) < 0.01) ? '' : `<option value="${m.fade}" selected>${m.fade} seconds</option>`}</select></div>
+        <div class="m-row"><span>Ask before turning on</span><label class="switch"><input type="checkbox" class="m-confirm" ${m.confirm ? 'checked' : ''} aria-label="Ask before turning on"><span></span></label></div>
+        <div class="m-colors">${swatches(m.color)}</div></div>`).join('') + `<button class="add" id="modeAdd" type="button">+ Add mode</button>`;
+    for (const row of el.querySelectorAll('.mode-edit')) {
+      const m = modeDoc[+row.dataset.i], q = c => row.querySelector(c);
+      q('.m-name').onchange = e => { m.name = e.target.value.trim() || m.name; saveModes(); };
+      q('.m-pause').onchange = e => { m.pause = e.target.checked; saveModes(); };
+      q('.m-music').oninput = e => { row.querySelector('.m-val').textContent = e.target.value + '%'; };
+      q('.m-music').onchange = e => { m.music = +e.target.value / 100; saveModes(); };
+      q('.m-fade').onchange = e => { m.fade = +e.target.value; saveModes(); };
+      q('.m-confirm').onchange = e => { m.confirm = e.target.checked; saveModes(); };
+      for (const sw of row.querySelectorAll('.m-colors [data-c]')) sw.onclick = () => { m.color = sw.dataset.c; saveModes(); };
+      q('.del').onclick = () => { if (confirm(`Delete ${m.name}?`)) { modeDoc.splice(+row.dataset.i, 1); saveModes(); } };
+    }
+    $('#modeAdd').onclick = () => { modeDoc.push({ name: 'New mode', music: 0.2, pause: false, fade: 5, color: '#ffaa5a', confirm: false }); saveModes(); };
+  }
 
   // ---- where every song's colors come from: its album art, the party's colors, or No Limits (each section its own)
   for (const b of document.querySelectorAll('#colorSource button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ source: b.dataset.s }); };
@@ -923,7 +980,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     }
     renderRooms(st.rooms || []); renderTheme(st); renderCues(st);
     if (performance.now() > evenBusy) $('#evenOn').checked = st.even_levels !== false;
-    showContest(st.contest); showStop(st.stop_party);
+    showModes(st.modes || []);
     if (moreOpen && document.activeElement !== $('#preLink')) showPre(st.prelisten);
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
@@ -1157,7 +1214,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     lightsOpen = tab === 'lights';
     if (!lightsOpen) roomView(false);
     if (settingsOpen && !was) loadVolumes();
-    if (moreOpen && !wasMore) { loadCueEdit(); loadAddons(); loadBell(); loadRoomEdit(); if (state) showPre(state.prelisten); }
+    if (moreOpen && !wasMore) { loadCueEdit(); loadModeEdit(); loadAddons(); loadBell(); loadRoomEdit(); if (state) showPre(state.prelisten); }
   }
   function goTab(t) { const h = t === 'now' ? '' : t; if (location.hash.slice(1) === h) showTab(); else location.hash = h; }
   for (const b of document.querySelectorAll('.nav-btn')) b.onclick = () => goTab(b.dataset.tab);

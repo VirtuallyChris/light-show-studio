@@ -1,4 +1,4 @@
-"""Costume contest mode (the Party Hub's switch): the music down to 20% in the room's stream, fading over 5 s and
+"""The Party Hub's modes: the music down in the room's stream (or paused), fading over each mode's own time and
 back, the speakers' own volume left alone. Fakes only: nothing is played, no lights are driven.
 Run with  .venv\\Scripts\\python -m unittest tests.test_contest -v"""
 
@@ -90,73 +90,86 @@ class TestEngineDuck(unittest.TestCase):
         self.assertAlmostEqual(self.sim.relay.duck[0] / SR, e.held_at, delta=0.05)   # the music after it comes back down
 
 
-class TestContestSwitch(unittest.TestCase):
-    def service(self):
+MODES = [{"id": "contest", "name": "Costume contest", "music": 0.2, "pause": False, "fade": 5.0, "color": "#ff6000", "confirm": True},
+         {"id": "stop", "name": "STOP PARTY", "music": 0.0, "pause": True, "fade": 0.0, "color": "#ffaa5a", "confirm": True},
+         {"id": "quiet", "name": "Speeches", "music": 0.5, "pause": False, "fade": 2.0, "color": "#ffffff", "confirm": False}]
+
+
+class TestModes(unittest.TestCase):
+    """The Party Hub's modes, each the user's own: its music level (or a pause), its fade, its color."""
+
+    def service(self, playing=True, modes=MODES):
         calls = []
-        s = SimpleNamespace(contest={"on": False, "at": -1e9}, CONTEST_GAIN=0.2, CONTEST_FADE_S=5.0, COVER_DEFAULT=JamService.COVER_DEFAULT,
-                            engine=SimpleNamespace(duck_music=lambda to, secs: calls.append((to, secs))))
-        s.contest_status = lambda: JamService.contest_status(s)
-        s.set = lambda on, color=None: JamService._contest(s, on, color)
+        self.cfg = {"party_modes": [dict(m) for m in modes]}
+        now = SimpleNamespace(track=object(), playing=playing)
+        s = SimpleNamespace(mode_on={}, MAX_MODES=JamService.MAX_MODES, DEFAULT_MODES=JamService.DEFAULT_MODES,
+                            load_config=lambda: dict(self.cfg), save_config=lambda c: self.cfg.update(c),
+                            engine=SimpleNamespace(now=now, duck_music=lambda to, secs: calls.append(("duck", to, secs))))
+        s._cover_color, s.clean_modes = JamService._cover_color, JamService.clean_modes
+        for f in ("modes", "modes_status", "_music_gain", "_music_playing", "_mode", "_set_modes"):
+            setattr(s, f, getattr(JamService, f).__get__(s))
+        s._playback_fn = lambda action: (lambda: calls.append(action))
         return s, calls
 
-    def test_on_and_off_turn_the_music_down_and_up(self):
-        s, calls = self.service()
-        self.assertTrue(s.set(True)["contest"]["on"])
-        s.set(True)                                                     # (again: nothing more)
-        s.set(False)
-        self.assertEqual(calls, [(0.2, 5.0), (1.0, 5.0)])
-        self.assertFalse(s.contest_status()["on"])
-        self.assertLess(s.contest_status()["age"], 1.0)                 # (the studio page fades the lights from then)
+    def status(self, s, mid):
+        return next(m for m in s.modes_status() if m["id"] == mid)
 
-    def test_without_a_jam_it_is_only_remembered(self):
+    def test_a_mode_turns_the_music_down_to_its_own_level_over_its_own_fade(self):
         s, calls = self.service()
-        s.engine = None
-        self.assertTrue(s.set(True)["contest"]["on"])
+        s._mode("contest", True)
+        s._mode("contest", True)                                        # (again: nothing more)
+        s._mode("contest", False)
+        self.assertEqual(calls, [("duck", 0.2, 5.0), ("duck", 1.0, 5.0)])
 
-    def test_orange_until_another_color_is_picked_and_orange_again_next_time(self):
+    def test_two_on_the_quietest_wins_and_the_other_level_comes_back(self):
         s, calls = self.service()
-        self.assertEqual(s.set(True)["contest"]["color"], "#ff6000")
-        st = s.set(None, "#8000ff")["contest"]                          # picked while on: the music is left alone
-        self.assertEqual((st["on"], st["color"], calls), (True, "#8000ff", [(0.2, 5.0)]))
-        self.assertEqual(s.set(False)["contest"]["color"], "#8000ff")   # (fades back from the color it shows)
-        self.assertEqual(s.set(True)["contest"]["color"], "#ff6000")
+        s._mode("quiet", True)
+        s._mode("contest", True)
+        s._mode("contest", False)
+        self.assertEqual(calls, [("duck", 0.5, 2.0), ("duck", 0.2, 5.0), ("duck", 0.5, 5.0)])
+
+    def test_a_pause_mode_pauses_and_plays_on_only_what_it_paused(self):
+        s, calls = self.service()
+        st = s._mode("stop", True)["modes"][1]
+        self.assertEqual((st["on"], st["fade"], st["color"]), (True, 0.0, "#ffaa5a"))
+        s._mode("stop", False)
+        self.assertEqual(calls, ["pause", "resume"])
+        s, calls = self.service(playing=False)
+        s._mode("stop", True); s._mode("stop", False)
+        self.assertEqual(calls, [])
+
+    def test_its_own_color_each_time_and_another_picked_while_on(self):
+        s, calls = self.service()
+        self.assertEqual(s._mode("contest", True)["modes"][0]["color"], "#ff6000")
+        s._mode("contest", None, "#8000ff")
+        self.assertEqual((self.status(s, "contest")["color"], self.status(s, "contest")["own"]), ("#8000ff", "#ff6000"))
+        self.assertEqual(calls, [("duck", 0.2, 5.0)])                   # (a color alone leaves the music be)
+        s._mode("contest", False)
+        self.assertEqual(s._mode("contest", True)["modes"][0]["color"], "#ff6000")
+
+    def test_modes_are_made_changed_and_taken_away_on_the_hub(self):
+        s, calls = self.service()
+        s._mode("quiet", True)
+        out = s._set_modes([MODES[0], MODES[1], {"name": "Toast", "music": 0.3, "color": "#FF0000"}])["modes"]
+        self.assertEqual([m["name"] for m in out], ["Costume contest", "STOP PARTY", "Toast"])
+        self.assertEqual((out[2]["color"], out[2]["confirm"], out[2]["fade"]), ("#ff0000", True, 5.0))
+        self.assertNotIn("quiet", s.mode_on)                             # (taken away while on: switched off first)
+        self.assertEqual(calls[-1], ("duck", 1.0, 1.0))
+
+    def test_a_new_home_starts_with_two_plain_modes(self):
+        s, _ = self.service()
+        self.cfg.pop("party_modes")
+        self.assertEqual([m["id"] for m in s.modes()], ["announce", "stop"])
 
     def test_only_a_real_color_is_taken(self):
         self.assertEqual(JamService._cover_color(" #80FF00 "), "#80ff00")
         for bad in ("red", "#12345", "#gggggg", None, "javascript:x"):
             self.assertIsNone(JamService._cover_color(bad))
 
-
-class TestStopParty(unittest.TestCase):
-    def service(self, playing):
-        calls = []
-        now = SimpleNamespace(track=object(), playing=playing)
-        s = SimpleNamespace(stop_party={"on": False, "at": -1e9, "paused": False}, engine=SimpleNamespace(now=now), COVER_DEFAULT=JamService.COVER_DEFAULT)
-        s._playback_fn = lambda action: (lambda: calls.append(action))
-        s._music_playing = lambda: JamService._music_playing(s)
-        s.stop_status = lambda: JamService.stop_status(s)
-        s.set = lambda on, color=None: JamService._stop_party(s, on, color)
-        return s, calls
-
-    def test_the_music_pauses_while_it_is_on_and_plays_on_after(self):
-        s, calls = self.service(playing=True)
-        st = s.set(True)["stop_party"]
-        self.assertEqual((st["on"], st["fade"], st["color"]), (True, 0, "#ffaa5a"))   # (the lights: warm white at once)
-        s.set(True)
-        s.set(False)
-        self.assertEqual(calls, ["pause", "resume"])
-
-    def test_a_color_picked_while_on_leaves_the_music_paused(self):
-        s, calls = self.service(playing=True)
-        s.set(True)
-        self.assertEqual(s.set(None, "#ff0000")["stop_party"]["color"], "#ff0000")
-        self.assertEqual(calls, ["pause"])
-
-    def test_music_paused_already_stays_paused_after(self):
-        s, calls = self.service(playing=False)
-        s.set(True)
-        s.set(False)
-        self.assertEqual(calls, [])
+    def test_levels_and_fades_are_kept_in_range(self):
+        m = JamService.clean_modes([{"id": "A B!", "music": 7, "fade": -2}, {"id": "a-b"}])
+        self.assertEqual((m[0]["id"], m[0]["music"], m[0]["fade"]), ("ab", 1.0, 0.0))
+        self.assertNotEqual(m[1]["id"], "a-b") if m[0]["id"] == "a-b" else None
 
 
 if __name__ == "__main__":
