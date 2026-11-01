@@ -39,6 +39,7 @@ import time
 from . import audio_route, linux_audio, mac_capture
 from .winpaths import local_appdata
 from .updates import clean_env
+from ..appdirs import popen_outside
 
 HOME = os.path.join(local_appdata(), "lanlightshow")
 PROFILE = os.path.join(HOME, "player-browser")
@@ -301,7 +302,7 @@ class HiddenPlayer:
                 "--autoplay-policy=no-user-gesture-required", "--disable-features=Translate,TranslateUI",
                 f"--user-agent={user_agent(exe)}", self.url]
         try:
-            self.proc = subprocess.Popen(args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            self.proc = popen_outside(args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.error = ""
         except OSError as e:

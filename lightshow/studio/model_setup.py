@@ -190,13 +190,15 @@ class Installer:
 
     def run(self, cmd: list[str], on_line) -> int:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+        self.proc = model_worker.popen_outside(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=model_worker.child_env(),
                                      text=True, encoding="utf-8", errors="replace", creationflags=flags)
         for line in self.proc.stdout:
             on_line(line.rstrip())
         return self.proc.wait()
 
     def warm(self) -> None:
+        if not model_worker.HOST.connect():
+            raise RuntimeError(f"the models would not start: {model_worker.HOST.error or 'see models.log'}")
         model_worker.HOST.warm_all()        # the weights download as each model loads; /api/models shows it
 
     def status(self) -> dict:
@@ -329,10 +331,33 @@ class Installer:
         self._check()
         if code != 0:
             raise RuntimeError(f"pip could not install the packages (exit {code}): {self.line}")
+        # Installed is not the same as working: a missing system library only shows when PyTorch loads
+        self.step = "Checking that PyTorch runs"
+        code = self.run([py, "-I", "-c", "import torch; torch.zeros(1)"], on_line)
+        self._check()
+        if code != 0:
+            raise RuntimeError(f"PyTorch installed but will not run on this computer: {self.line}")
         self.fraction = 1.0
 
 
 INSTALLER = Installer()
+MIN_FREE_GB = 15                         # PyTorch and the models' weights, with room to spare
+
+
+def install_on_first_run(load_config, packaged: bool, live: bool, installer=None, free_gb=None) -> bool:
+    """A downloaded app installs the models by itself, in the background, the first time it opens (and again next time if
+    that didn't finish). Not from source, not in a test copy, not after Cancel, and not on a nearly full disk: then the
+    button in Settings is still there. The app works meanwhile, with its own analysis."""
+    installer = installer or INSTALLER
+    if not packaged or not live or load_config().get("models_auto_install", True) is False or installed():
+        return False
+    if installer.detect()[0] is None:
+        return False
+    free = shutil.disk_usage(model_worker.data_dir()).free / 1e9 if free_gb is None else free_gb
+    if free < MIN_FREE_GB:
+        model_worker.note(f"[models-setup] not installing by itself: {free:.0f} GB free, needs {MIN_FREE_GB}")
+        return False
+    return installer.start()
 
 
 def status() -> dict:

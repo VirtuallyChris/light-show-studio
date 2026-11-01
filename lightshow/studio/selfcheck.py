@@ -4,8 +4,9 @@ to the rules, an update that cannot be checked just opens the old version, so a 
 
 import sys
 import time
+import urllib.request
 
-from . import labeler, updates
+from . import labeler
 
 if __name__ == "__main__":
     if not labeler._bundled():
@@ -13,7 +14,8 @@ if __name__ == "__main__":
     print("the bundled section labeler loads")
     for attempt in range(3):
         try:
-            with updates._open("https://github.com/", 20) as r:
+            # (plainly, as Spotify's sign-in and every download do: it relies on the certificates the app set up for itself)
+            with urllib.request.urlopen("https://github.com/", timeout=20) as r:
                 print(f"reaches GitHub: {r.status}")
             break
         except OSError as e:

@@ -202,6 +202,49 @@ class TestModelFallsBackToCpu(Fresh):
         self.assertFalse(devices.pinned("fake"))
 
 
+class StandInInstaller:
+    def __init__(self, variant="cuda"):
+        self.variant, self.started = variant, 0
+
+    def detect(self):
+        return self.variant, "why"
+
+    def start(self):
+        self.started += 1
+        return True
+
+
+class TestInstallOnFirstRun(unittest.TestCase):
+    def go(self, cfg=None, packaged=True, live=True, variant="cuda", free=100, is_installed=False):
+        fake = StandInInstaller(variant)
+        with mock.patch.object(ms, "installed", lambda: is_installed), mock.patch.object(mw, "note", lambda line: None):
+            result = ms.install_on_first_run(lambda: cfg or {}, packaged, live, installer=fake, free_gb=free)
+        self.assertEqual(result, fake.started == 1)
+        return result
+
+    def test_a_downloaded_app_installs_them_when_it_first_opens(self):
+        self.assertTrue(self.go())
+
+    def test_never_from_source_where_the_models_are_set_up_by_hand(self):
+        self.assertFalse(self.go(packaged=False))
+
+    def test_never_in_a_test_copy(self):
+        self.assertFalse(self.go(live=False))
+
+    def test_not_again_once_installed(self):
+        self.assertFalse(self.go(is_installed=True))
+
+    def test_not_after_cancel(self):
+        self.assertFalse(self.go(cfg={"models_auto_install": False}))
+
+    def test_not_where_the_models_cannot_run(self):
+        self.assertFalse(self.go(variant=None))
+
+    def test_not_on_a_nearly_full_disk(self):
+        self.assertFalse(self.go(free=ms.MIN_FREE_GB - 1))
+        self.assertTrue(self.go(free=ms.MIN_FREE_GB + 1))
+
+
 class TestEnvLayouts(unittest.TestCase):
     def test_venv_and_standalone_pythons_per_os(self):
         self.assertEqual(mw.venv_python("C:\\v", "win32"), "C:\\v\\Scripts\\python.exe")

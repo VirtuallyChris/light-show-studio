@@ -21,11 +21,21 @@ import time
 
 import numpy as np
 
-from ..appdirs import data_dir
+from ..appdirs import FROZEN, code_dir, data_dir, popen_outside
 from .priority import POPEN_BELOW_NORMAL
 from .winpaths import local_appdata
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Where the models' own Python finds the lightshow package. From source, the project folder. In a packaged app, a folder of
+# just that: the app's own folder is full of libraries built for its Python, which would be imported instead of the models'.
+ROOT = os.path.join(code_dir(), "models_src") if FROZEN else os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def child_env() -> dict:
+    """The environment for the models' own Python: without a packaged app's library paths, which would break it."""
+    if FROZEN:
+        from .updates import clean_env
+        return clean_env()
+    return dict(os.environ)
 
 
 def models_env_dir() -> str:
@@ -198,7 +208,7 @@ class ModelHost:
 
     def _start_host(self) -> bool:
         token = secrets.token_hex(16)
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "LSS_MODELS_TOKEN": token, "LSS_MODELS_OWNER": str(os.getpid())}
+        env = {**child_env(), "PYTHONIOENCODING": "utf-8", "LSS_MODELS_TOKEN": token, "LSS_MODELS_OWNER": str(os.getpid())}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
         try:
             err = append_only(MODELS_LOG)
@@ -219,7 +229,7 @@ class ModelHost:
             cmds.append([base[0], "-I", "-S", "-c", boot])
         cmds.append([venv_py(), "-m", "lightshow.studio.models_host"])
         for cmd in cmds:
-            proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, creationflags=flags)
+            proc = popen_outside(cmd, cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, creationflags=flags)
             box = {}
             t = threading.Thread(target=lambda: box.setdefault("line", proc.stdout.readline()), daemon=True)
             t.start()
@@ -381,7 +391,7 @@ class ModelWorker:
             self.failed_at = time.monotonic()
             note(f"[{self.name}] {self.failed}")
             return False
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8", **self.env_extra}
+        env = {**child_env(), "PYTHONIOENCODING": "utf-8", **self.env_extra}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
         try:
             err = append_only(MODELS_LOG)
@@ -389,7 +399,7 @@ class ModelWorker:
             err.flush()
         except OSError:
             err = subprocess.DEVNULL
-        self.proc = subprocess.Popen(self.command(), cwd=ROOT, env=env,
+        self.proc = popen_outside(self.command(), cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                                      creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)
         hello = self._read(self.start_timeout)          # the first run downloads the model

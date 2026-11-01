@@ -41,7 +41,8 @@ def load_model(device: str = "auto"):
     os.environ["SONGFORMER_LOCAL_DIR"] = local_dir
     # model.py imports `msaf` (evaluation metrics only, never used at inference); msaf's
     # old dependency pins fight modern numpy/librosa, so satisfy the import with a stub
-    stubs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_stubs")
+    # (next to this file from source; a packaged app's folder is read-only, so its data folder)
+    stubs = os.path.join(os.environ.get("LSS_DATA_DIR") or os.path.dirname(os.path.abspath(__file__)), "_stubs")
     msaf_dir = os.path.join(stubs, "msaf")
     os.makedirs(msaf_dir, exist_ok=True)
     stub_files = {

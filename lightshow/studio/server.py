@@ -32,7 +32,7 @@ from .review import Review
 from .cues import CueRunner, LiveHooks
 from . import addons
 from .doorbell import Doorbell
-from ..appdirs import data_dir
+from ..appdirs import data_dir, popen_outside
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -683,6 +683,9 @@ class Studio:
     async def _homeassistant_at_start(self, app):
         self.homeassistant.start()
         self.updates.start()
+        from . import model_setup
+        from .updates import version
+        model_setup.install_on_first_run(load_config, packaged=bool(version()), live=self.homeassistant.live)
 
     async def _close_player(self, app):
         """Any orderly exit: Edge's sound goes back to the default output, the hidden player closes,
@@ -952,6 +955,9 @@ class Studio:
         loop = asyncio.get_running_loop()
 
         def shut():
+            from . import model_setup
+            if model_setup.INSTALLER.state == "running":  # an install stops with the app (it starts over next time)
+                model_setup.INSTALLER.cancel()
             try:                                          # Bulb Show goes too: it stops its shows and puts its bulbs back
                 self.bulbshows.quit()
             except Exception:  # noqa: BLE001
@@ -1658,7 +1664,8 @@ def open_app_window(url: str) -> subprocess.Popen | None:
             "--no-default-browser-check", "--disable-features=Translate,TranslateUI",
             "--autoplay-policy=no-user-gesture-required", "--start-maximized"]
     try:
-        return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        from .updates import clean_env
+        return popen_outside(args, env=clean_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         return None
 

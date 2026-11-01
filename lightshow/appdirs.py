@@ -14,7 +14,9 @@ LSS_DATA_DIR overrides it (the release smoke test uses a scratch folder).
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import threading
 
 FROZEN = bool(getattr(sys, "frozen", False))
 SOURCE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +43,26 @@ def data_dir() -> str:
     path = os.environ.get("LSS_DATA_DIR") or (user_data_dir() if FROZEN else SOURCE_ROOT)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+_DLL_LOCK = threading.Lock()
+
+
+def popen_outside(cmd: list[str], **kwargs) -> subprocess.Popen:
+    """subprocess.Popen for a program outside a packaged app (a browser, the AI models' Python, an installer). On Windows a
+    packaged app searches its own folder for DLLs, and a program it starts inherits that: PyTorch then loaded the app's older
+    C++ runtime and would not start. So the search goes back to normal for the moment the program starts."""
+    if not (FROZEN and sys.platform == "win32"):
+        return subprocess.Popen(cmd, **kwargs)
+    import ctypes
+    set_dir = ctypes.windll.kernel32.SetDllDirectoryW
+    set_dir.argtypes = [ctypes.c_wchar_p]
+    with _DLL_LOCK:
+        set_dir(None)
+        try:
+            return subprocess.Popen(cmd, **kwargs)
+        finally:
+            set_dir(sys._MEIPASS)
 
 
 def self_command(module: str, *args: str, frozen: bool = FROZEN, exe: str | None = None) -> list[str]:

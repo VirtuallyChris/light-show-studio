@@ -39,6 +39,13 @@ class SelfCommandTest(unittest.TestCase):
                          ["app", "--run-module", "bulbshow", "--port", "1"])
 
 
+class PopenOutsideTest(unittest.TestCase):
+    def test_from_source_it_is_plain_popen(self):
+        with mock.patch.object(appdirs.subprocess, "Popen", return_value="proc") as popen:
+            self.assertEqual(appdirs.popen_outside(["x"], cwd="y"), "proc")
+        popen.assert_called_once_with(["x"], cwd="y")
+
+
 class DispatchTest(unittest.TestCase):
     def test_run_module(self):
         with mock.patch("runpy.run_module") as run, mock.patch.object(sys, "argv", ["x"]):

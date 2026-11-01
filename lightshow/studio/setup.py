@@ -59,6 +59,14 @@ class HomeSetup:
         self.studio, self.load_config, self.save_config, self.port = studio, load_config, save_config, port
 
     @staticmethod
+    def _models_note(installed: bool) -> str:
+        from . import model_setup
+        i = model_setup.INSTALLER
+        if i.state == "running":
+            return f"Installing by itself: {round(100 * i.status()['progress'])}%"
+        return "Installed" if installed else "Optional: better beats, sections and drums"
+
+    @staticmethod
     def _auto_output(outs: list[str], default_out: str, cfg: dict) -> str:
         from .player_browser import pick_hidden_output
         return pick_hidden_output(outs, default_out, cfg.get("jam_room_output") or "")[0]
@@ -92,7 +100,12 @@ class HomeSetup:
         if request.remote not in ("127.0.0.1", "::1"):
             raise web.HTTPForbidden()
         from . import model_setup
-        body, code = model_setup.post(await request.json())
+        asked = await request.json()
+        if (asked or {}).get("action") == "cancel":       # cancelled by hand: it doesn't start again by itself
+            cfg = self.load_config()
+            cfg["models_auto_install"] = False
+            self.save_config(cfg)
+        body, code = model_setup.post(asked)
         return web.json_response(body, status=code)
 
     # -- the phone ------------------------------------------------------------------------------
@@ -152,7 +165,7 @@ class HomeSetup:
                  f"{casts} Cast speakers found" if casts else ("Speakers in your rooms" if room_speakers else "Find your Google Cast speakers")),
             item("spotify", "Spotify", signed_in, "Signed in" if signed_in else ("Sign in to finish" if client else "Connect your Spotify Premium account")),
             item("sound", "Sound devices", hidden_found, self._sound_note(hidden, hidden_found)),
-            item("models", "AI models", models, "Installed" if models else "Optional: better beats, sections and drums"),
+            item("models", "AI models", models, self._models_note(models)),
             item("phone", "Your phone", True, self.link()),
             item("addons", "Add-ons", True, ", ".join(on) if on else "None switched on"),
         ]

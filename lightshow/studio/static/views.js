@@ -205,7 +205,7 @@
     try { setup = await get('/api/setup'); } catch (e) { setup = null; }
     const by = Object.fromEntries(((setup && setup.items) || []).map(i => [i.id, i]));
     const note = { start: setup ? `${setup.items.filter(i => i.done).length} of ${setup.items.length} done` : '', lights: by.lights && by.lights.detail.split(':')[0],
-      rooms: by.rooms && by.rooms.done ? by.rooms.detail : '', spotify: by.spotify && by.spotify.detail, models: by.models && (by.models.done ? 'Installed' : 'Optional') };
+      rooms: by.rooms && by.rooms.done ? by.rooms.detail : '', spotify: by.spotify && by.spotify.detail, models: by.models && (by.models.done ? 'Installed' : by.models.detail.startsWith('Installing') ? by.models.detail.replace(' by itself:', '') : 'Optional') };
     $('#stNav').innerHTML = SECTIONS.map(([id, name, icon]) => `<button class="st-item ${id === section ? 'on' : ''}" data-s="${id}"><span class="st-icon">${icon}</span><span class="st-name">${name}</span><span class="st-note">${esc(note[id] || '')}</span></button>`).join('');
     for (const b of $('#stNav').querySelectorAll('[data-s]')) b.onclick = () => showSection(b.dataset.s);
   }
@@ -225,7 +225,7 @@
     spotify: 'The jam plays what Spotify plays. It needs Spotify Premium and a free developer app of your own.',
     moments: 'Buttons that hold the party for a moment (every light one color, the music down or paused) and cues that play a show of their own.',
     addons: 'Features for one kind of home. Each does nothing until it is switched on.',
-    models: 'Optional: AI models that hear beats, sections and drums better. A few GB, downloaded once, on NVIDIA, AMD, Apple or the CPU.',
+    models: 'AI models that hear beats, sections and drums better, on NVIDIA, AMD, Apple or the CPU. A few GB, downloaded once: a downloaded app installs them by itself the first time it opens, and works without them meanwhile.',
     updates: 'A new version installs by itself when you open the app. Nothing restarts while it is open unless you ask.',
     phone: 'Run the party from your phone: the Party Hub works in any phone browser on the same Wi-Fi.',
   };

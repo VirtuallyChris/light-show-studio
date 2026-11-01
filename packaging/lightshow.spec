@@ -1,6 +1,7 @@
 # PyInstaller spec for the downloads: pyinstaller packaging/lightshow.spec
 # Built by .github/workflows/release.yml on Windows, macOS and Linux. One folder (not one file): the app starts
 # fast and its helper processes (analysis, Bulb Show) start from the same executable.
+import glob
 import os
 import platform
 import sys
@@ -47,6 +48,10 @@ version_file = os.path.join(workpath, "VERSION")
 with open(version_file, "w", encoding="utf-8") as fh:
     fh.write(VERSION)
 datas += [(version_file, "lightshow")] + collect_data_files("certifi")
+# What the AI models' installer installs from (lightshow/studio/model_setup.py), found next to the packages
+datas += [(path, "models_src") for path in glob.glob(os.path.join(ROOT, "requirements-models-*.txt"))]
+# The package again, for the models' own Python, in a folder without the app's libraries (model_worker.ROOT)
+datas += [(src, os.path.join("models_src", dest)) for src, dest in tree("lightshow") if "static" not in dest.split(os.sep)]
 hidden = modules("lightshow") + modules("bulbshow") + collect_submodules("pychromecast")
 # The AI models run in the model environment, not in the app: never pull them in
 excludes = ["torch", "torchaudio", "torchvision", "transformers", "ctranslate2", "faster_whisper", "demucs",

@@ -28,7 +28,7 @@ import time
 import urllib.request
 import webbrowser
 
-from ..appdirs import FROZEN, code_dir, data_dir
+from ..appdirs import FROZEN, code_dir, data_dir, popen_outside
 
 LATEST_URL = "https://api.github.com/repos/VirtuallyChris/light-show-studio/releases/latest"
 CHECK_AT_LAUNCH_S = 4.0                  # the longest opening waits to hear whether there is a new version
@@ -194,7 +194,7 @@ def install(path: str, target: str, plat: str = sys.platform) -> None:
         script = os.path.join(folder, "install.cmd")
         with open(script, "w", encoding="utf-8", newline="") as fh:
             fh.write(windows_script(path, target, os.path.join(folder, "install.log")))
-        subprocess.Popen(["cmd", "/c", script], env=clean_env(), cwd=folder, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        popen_outside(["cmd", "/c", script], env=clean_env(), cwd=folder, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
     elif plat == "darwin":
         script = os.path.join(folder, "install.sh")
@@ -286,7 +286,7 @@ class Splash:
         exe = _browser()
         if exe:
             try:
-                self.proc = subprocess.Popen([exe, f"--app={url}", f"--user-data-dir={os.path.join(updates_dir(), 'window')}", "--no-first-run",
+                self.proc = popen_outside([exe, f"--app={url}", f"--user-data-dir={os.path.join(updates_dir(), 'window')}", "--no-first-run",
                                               "--no-default-browser-check", "--window-size=440,270"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return
             except OSError:
