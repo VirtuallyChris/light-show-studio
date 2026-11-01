@@ -2393,13 +2393,12 @@
     if (btn.closest('.rail')) { pop.style.right = 'auto'; pop.style.left = (r.right + 8) + 'px'; pop.style.top = Math.max(8, Math.min(r.top, innerHeight - pop.offsetHeight - 8)) + 'px'; }
     else { pop.style.left = 'auto'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px'; pop.style.top = (r.bottom + 6) + 'px'; }
   }
-  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnSettings', '#settingsMenu'], ['#btnHelp', '#helpPop'], ['#btnSettings', '#roomsPop']]) { $(m).hidden = true; $(b).classList.remove('on'); } }
+  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnSettings', '#settingsMenu'], ['#btnHelp', '#helpPop'], ['#btnSettings', '#roomsPop']]) { if ($(m).closest('#viewSettings')) continue; $(m).hidden = true; $(b).classList.remove('on'); } }
   $('#btnGridMenu').onclick = e => { e.stopPropagation(); toggleMenu($('#btnGridMenu'), $('#gridMenu')); };
   $('#btnSettings').onclick = e => { e.stopPropagation(); toggleMenu($('#btnSettings'), $('#settingsMenu')); };
   $('#btnHelp').onclick = e => { e.stopPropagation(); toggleMenu($('#btnHelp'), $('#helpPop'), SHORTCUTS); };
   for (const id of ['#gridMenu', '#settingsMenu', '#helpPop', '#roomsPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
   $('#btnRooms').onclick = e => { e.stopPropagation(); openRooms(); };
-  $('#railRooms').onclick = e => { e.stopPropagation(); openRooms($('#railRooms')); };
   // Bulb Shows (an add-on): its button shows while the add-on is on, and opens Bulb Show in a window of its own (the
   // window opens at once, so it is never taken for a pop-up, and goes to Bulb Show once it is running)
   async function showAddons() {
@@ -2418,30 +2417,24 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
   // narrow windows: the library is a drawer
   $('#btnLib').onclick = e => { e.stopPropagation(); document.body.classList.toggle('lib-open'); };
-  document.addEventListener('mousedown', e => { if (document.body.classList.contains('lib-open') && !e.target.closest('.library') && !e.target.closest('#btnLib, .rail')) { document.body.classList.remove('lib-open'); railShown(); } });
-  // the side rail: Lights or Effects beside it, one at a time; the same button again folds it away. A wide window
-  // keeps the choice for next time; a narrow one slides the panel out over the timeline instead.
+  document.addEventListener('mousedown', e => { if (document.body.classList.contains('lib-open') && !e.target.closest('.library') && !e.target.closest('#btnLib, .views-rail')) { document.body.classList.remove('lib-open'); railShown(); } });
+  // the library's tabs: Lights or Effects (kept for next time). A narrow window slides the library out over the
+  // timeline instead (the ☰ button), the tab picked inside it.
   const narrowWindow = () => matchMedia('(max-width: 1150px)').matches;
   function railShown() {
-    const p = document.body.dataset.panel || '', open = narrowWindow() ? document.body.classList.contains('lib-open') : !!p;
-    for (const b of document.querySelectorAll('.rail-btn[data-panel]')) b.classList.toggle('on', open && b.dataset.panel === p);
+    const p = document.body.dataset.panel || 'effects';
+    for (const b of document.querySelectorAll('.lib-tab[data-panel]')) { b.classList.toggle('on', b.dataset.panel === p); b.setAttribute('aria-selected', b.dataset.panel === p); }
     for (const el of document.querySelectorAll('.library > .panel[data-panel]')) el.hidden = el.dataset.panel !== p;
-    if (open) document.dispatchEvent(new CustomEvent('lss-panel', { detail: p }));     // (setup.js fills in Setup and Party)
   }
   function showPanel(name) {
-    if (narrowWindow()) {
-      const open = !(document.body.classList.contains('lib-open') && document.body.dataset.panel === name);
-      document.body.dataset.panel = name; document.body.classList.toggle('lib-open', open);
-    } else {
-      document.body.dataset.panel = document.body.dataset.panel === name ? '' : name;
-      try { localStorage.setItem('lss-panel', document.body.dataset.panel); } catch (e) { /* not kept: fine */ }
-    }
+    document.body.dataset.panel = name;
+    if (narrowWindow()) document.body.classList.add('lib-open');
+    try { localStorage.setItem('lss-panel', name); } catch (e) { /* not kept: fine */ }
     railShown();
   }
-  for (const b of document.querySelectorAll('.rail-btn[data-panel]')) b.onclick = e => { e.stopPropagation(); showPanel(b.dataset.panel); };
-  { let p = 'effects'; try { p = localStorage.getItem('lss-panel') ?? 'effects'; } catch (e) { /* the default */ }
-    if (p === 'setup' || p === 'party') p = 'effects';                     // (those open when asked for, or by setup.js)
-    document.body.dataset.panel = narrowWindow() ? (p || 'effects') : p; railShown(); }
+  for (const b of document.querySelectorAll('.lib-tab[data-panel]')) b.onclick = e => { e.stopPropagation(); showPanel(b.dataset.panel); };
+  { let p = 'effects'; try { p = localStorage.getItem('lss-panel') || 'effects'; } catch (e) { /* the default */ }
+    document.body.dataset.panel = p === 'lights' ? 'lights' : 'effects'; railShown(); }
 
   // ------------------------------------------------------------------ inspector
   function inspector() {
@@ -4243,6 +4236,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, showPanel, openRooms, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, showPanel, openRooms, showAddons, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

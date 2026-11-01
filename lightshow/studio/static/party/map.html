@@ -11,6 +11,7 @@
 <script>
 (() => { let t = 'auto'; try { t = localStorage.getItem('party-look') || 'auto'; } catch (e) { /* no storage: Auto */ }
   if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
+if (window.self !== window.top) document.documentElement.classList.add('embedded');   // (inside the studio's Settings: no header of its own)
 </script>
 <style>
   :root {
@@ -39,6 +40,8 @@
   .main { max-width: 1100px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 10px) 16px calc(env(safe-area-inset-bottom) + 24px); display: grid; gap: 12px; }
   .main > * { min-width: 0; }                          /* (the row of lights scrolls, never widens the page) */
   .top { display: flex; align-items: center; gap: 10px; }
+  .embedded .top { display: none; }
+  .embedded .main { padding-top: 0; }
   .top h1 { font-size: 24px; margin: 0; flex: 1; }
   a.back { color: var(--accent); text-decoration: none; font-weight: 600; padding: 10px 8px 10px 0; margin: -10px 0; }   /* (a finger-sized target) */
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px; }

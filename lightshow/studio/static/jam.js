@@ -850,6 +850,7 @@
     }
   }
   $('#btnJam').onclick = () => toggle();
+  window.Jam = { toggle, state: () => J.state };        // (views.js: the Party view holds the panel)
   $('#jamClose').onclick = () => toggle(false);
   window.addEventListener('focus', () => { if (J.open) tick(); });     // back from the Spotify sign-in window
   J.timer = setInterval(tick, 1000);
