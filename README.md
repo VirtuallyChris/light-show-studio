@@ -69,11 +69,11 @@ Scan a QR code and your phone is the remote. Add it to your home screen and it o
 
 | | What you get |
 |---|---|
-| ▶️ **Now Playing** | Skip and pause, on a screen that glows in the song's colors |
-| 🎨 **Up next** | Every queued song with the two colors it will play in. Tap one to change it, or set its vibe and genre |
-| 🎚️ **Party level** | One slider calms the whole home down or lets it go all out |
-| 🚪 **Rooms** | Switch any room in or out of the party |
-| 🎭 **Party modes** | Big buttons for the moments the party stops for: an announcement, a toast, cake. Name your own and pick how the music and lights respond |
+| ▶️&nbsp;**Now&nbsp;Playing** | Skip and pause, on a screen that glows in the song's colors |
+| 🎨&nbsp;**Up&nbsp;next** | Every queued song with the two colors it will play in. Tap one to change it, or set its vibe and genre |
+| 🎚️&nbsp;**Party&nbsp;level** | One slider calms the whole home down or lets it go all out |
+| 🚪&nbsp;**Rooms** | Switch any room in or out of the party |
+| 🎭&nbsp;**Party&nbsp;modes** | Big buttons for the moments the party stops for: an announcement, a toast, cake. Name your own and pick how the music and lights respond |
 
 ## Spotify picks the music, the lights keep up
 
@@ -83,7 +83,7 @@ Scan a QR code and your phone is the remote. Add it to your home screen and it o
 
 Run a Spotify Jam and let everyone add songs all night. **Jam mode** follows along, so each track gets its own show.
 
-- **The room runs slightly behind.** Spotify plays on your computer, and the studio relays that audio to your Google speakers. That gap lets it know what's coming before anyone hears it.
+- **The room runs a little behind Spotify.** Spotify plays on your computer, and the studio relays that audio to your Google speakers. That gap lets it know what's coming before anyone hears it.
 - **It learns ahead.** With the optional learn-ahead set up, each queued song is studied before it plays and the room is only seconds behind. It fetches a temporary copy to study, then deletes it ([details, including YouTube's terms](docs/GUIDE.md#jam-mode-someone-else-picks-the-music)). Without it, the room runs about 90 seconds behind instead.
 - **Spotify's audio is never saved.** It only exists in a rolling buffer in memory.
 - **What you need.** Spotify Premium, a free Spotify developer app (the studio walks you through it), and Windows for now.
@@ -98,11 +98,11 @@ Every show is built automatically, and every part of it can be changed. Open the
 
 | | Also included |
 |---|---|
-| ✅ **Guided setup** | **Get started** finds your lights and speakers, helps you draw the map and gives you a QR code for your phone |
-| 🧠 **Optional AI models** | One click installs models for sections, drums and bass, beats and genre, built for your NVIDIA, AMD, Intel Arc or Apple Silicon graphics. Without them, the built-in analysis still finds the beats, sections and drops |
-| 🔔 **Doorbell add-on** | A Reolink video doorbell rings a cue: the music dips and the show you picked plays |
-| 💡 **Bulb Shows add-on** | Looping shows on Govee bulbs, with a sound on a speaker |
-| 🏠 **Home Assistant add-on** | Tells Home Assistant when the show has your lights, so its automations leave them alone |
+| ✅&nbsp;**Guided&nbsp;setup** | **Get started** finds your lights and speakers, helps you draw the map and gives you a QR code for your phone |
+| 🧠&nbsp;**Optional&nbsp;AI&nbsp;models** | One click installs models for sections, drums and bass, beats and genre, built for your NVIDIA, AMD, Intel Arc or Apple Silicon graphics. Without them, the built-in analysis still finds the beats, sections and drops |
+| 🔔&nbsp;**Doorbell&nbsp;add-on** | A Reolink video doorbell rings a cue: the music dips and the show you picked plays |
+| 💡&nbsp;**Bulb&nbsp;Shows&nbsp;add-on** | Looping shows on Govee bulbs, with a sound on a speaker |
+| 🏠&nbsp;**Home&nbsp;Assistant&nbsp;add-on** | Tells Home Assistant when the show has your lights, so its automations leave them alone |
 
 ## It runs on your computer
 
