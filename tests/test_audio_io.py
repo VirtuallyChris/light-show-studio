@@ -83,17 +83,21 @@ class TestProcessCapture(unittest.TestCase):
         cap = ProcessCapture(relay, FAKE_SOURCE)
         try:
             with Busy():
+                t0 = time.monotonic()                    # (before it starts: it records from before start() returns)
                 cap.start()
                 self.assertIsNone(cap.error)
-                t0 = time.monotonic()
-                time.sleep(6.0)
+                time.sleep(2.0)
+                first, t1 = relay.capture_time, time.monotonic()
+                time.sleep(4.0)
             time.sleep(0.3)
-            elapsed = time.monotonic() - t0
+            second, t2 = relay.capture_time, time.monotonic()
             x = relay.frames(0.0, relay.capture_time)[:, 0].astype(np.int64)
             steps = np.diff(x)
             broken = int(np.sum((steps != 1) & (steps != -29999)))      # the ramp wraps at 30000
             self.assertEqual(broken, 0, f"{broken} breaks in the recording")
-            self.assertAlmostEqual(relay.capture_time, elapsed, delta=0.6)
+            self.assertAlmostEqual(second - first, t2 - t1, delta=0.5, msg="the recording ran at the wrong speed")
+            # never ahead of the clock by more than the recorder's own 0.25 s margin
+            self.assertLess(second, t2 - t0 + 0.3)
             self.assertEqual(cap.lost, 0.0)
         finally:
             cap.stop()
