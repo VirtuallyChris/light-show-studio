@@ -2,6 +2,7 @@
 # Built by .github/workflows/release.yml on Windows, macOS and Linux. One folder (not one file): the app starts
 # fast and its helper processes (analysis, Bulb Show) start from the same executable.
 import os
+import platform
 import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
@@ -52,6 +53,13 @@ else:
 
 a = Analysis([os.path.join(SPECPATH, "entry.py")], pathex=[ROOT], datas=datas, binaries=collect_dynamic_libs("xgboost"), hiddenimports=hidden,
              excludes=excludes, noarchive=False)
+INTEL_MAC = sys.platform == "darwin" and platform.machine() == "x86_64"
+if INTEL_MAC:
+    # XGBoost and scikit-learn both link libomp, and the app keeps one copy. On Intel Macs that copy is scikit-learn's,
+    # too old for XGBoost (no ___kmpc_dispatch_deinit), and the section labeler will not load: ship Homebrew's instead.
+    omp = os.path.realpath("/usr/local/opt/libomp/lib/libomp.dylib")
+    a.binaries = [(dest, omp if kind != "SYMLINK" and os.path.basename(dest) == "libomp.dylib" else src, kind)
+                  for dest, src, kind in a.binaries]
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=NAME, icon=icon,
           console=sys.platform.startswith("linux"),     # Windows and macOS: no console window
@@ -65,7 +73,7 @@ if sys.platform == "darwin":
                      "CFBundleName": "Light Show Studio",
                      "CFBundleDisplayName": "Light Show Studio",
                      "CFBundleShortVersionString": VERSION,
-                     "LSMinimumSystemVersion": "12.0",
+                     "LSMinimumSystemVersion": "14.0" if INTEL_MAC else "12.0",     # (Homebrew's libomp, above)
                      "NSHighResolutionCapable": True,
                      "NSMicrophoneUsageDescription": "Light Show Studio listens to measure your speakers' delay and to follow the music.",
                      "NSLocalNetworkUsageDescription": "Light Show Studio finds and drives the lights and speakers on your network.",

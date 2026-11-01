@@ -26,7 +26,7 @@
   <sub>Or run it from source with Python 3.11+: <code>pip install -r requirements.txt</code>, then <code>python -m lightshow studio</code> (<a href="docs/GUIDE.md#setup">details</a>).</sub>
 </p>
 
-> **Where it stands.** Windows is the fully working system, proven on Govee lights and Google speakers. The Mac and Linux apps build, but they haven't been tried on real machines yet, and capturing Spotify's audio, which Jam mode runs on, isn't done there. The Mac app is unsigned, so right-click it and choose Open. Philips Hue is built and tested against a simulated bridge, but has never run on real Hue lights.
+> **Where it stands.** Windows is the fully working system, proven on Govee lights and Google speakers. The Mac and Linux apps build, but they haven't been tried on real machines yet, and capturing Spotify's audio, which Jam mode runs on, isn't done there. The Mac app is unsigned, so right-click it and choose Open; the Intel version needs macOS 14 or later. Philips Hue is built and tested against a simulated bridge, but has never run on real Hue lights.
 
 ---
 
