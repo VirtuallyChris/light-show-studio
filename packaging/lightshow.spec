@@ -4,7 +4,7 @@
 import os
 import sys
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 NAME = "LightShowStudio"
@@ -39,7 +39,7 @@ def modules(pkg):
     return out
 
 
-datas = tree("lightshow") + tree("bulbshow") + collect_data_files("soundcard") + collect_data_files("librosa")
+datas = tree("lightshow") + tree("bulbshow") + collect_data_files("soundcard") + collect_data_files("librosa") + collect_data_files("xgboost")
 hidden = modules("lightshow") + modules("bulbshow") + collect_submodules("pychromecast")
 # The AI models run in the model environment, not in the app: never pull them in
 excludes = ["torch", "torchaudio", "torchvision", "transformers", "ctranslate2", "faster_whisper", "demucs",
@@ -50,7 +50,7 @@ if sys.platform == "win32":
 else:
     icon = os.path.join(ROOT, "lightshow", "studio", "static", "icon-512.png")   # (Pillow turns it into .icns)
 
-a = Analysis([os.path.join(SPECPATH, "entry.py")], pathex=[ROOT], datas=datas, hiddenimports=hidden,
+a = Analysis([os.path.join(SPECPATH, "entry.py")], pathex=[ROOT], datas=datas, binaries=collect_dynamic_libs("xgboost"), hiddenimports=hidden,
              excludes=excludes, noarchive=False)
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=NAME, icon=icon,

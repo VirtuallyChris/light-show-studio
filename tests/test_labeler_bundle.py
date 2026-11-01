@@ -59,6 +59,14 @@ class TestBundledLabeler(unittest.TestCase):
         self.assertIsNotNone(meta, "lightshow/studio/data/section_labeler is missing")
         self.assertGreaterEqual(meta["songs"], 100)
 
+    def test_a_library_that_will_not_load_only_means_no_labeler(self):
+        class LibraryNotFound(Exception):                # (XGBoost's own, which is no ImportError or ValueError)
+            pass
+        broken = mock.Mock()
+        broken.Booster.side_effect = LibraryNotFound("no xgboost.dll")
+        with mock.patch.dict("sys.modules", {"xgboost": broken}):
+            self.assertIsNone(labeler_bundle.load(5))
+
 
 if __name__ == "__main__":
     unittest.main()

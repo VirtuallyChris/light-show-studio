@@ -35,7 +35,10 @@ jobs:
       - name: Linux audio libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libportaudio2 libsndfile1 libpulse0
-      - run: pip install -r requirements.txt -r requirements-addons.txt
+      - name: Mac OpenMP library (XGBoost needs it)
+        if: runner.os == 'macOS'
+        run: brew install libomp
+      - run: pip install --prefer-binary -r requirements.txt -r requirements-addons.txt
       - run: python -m unittest discover -s tests
 
   build:
@@ -65,10 +68,15 @@ jobs:
       - name: Linux audio libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libportaudio2 libsndfile1 libpulse0 libfuse2
+      - name: Mac OpenMP library (XGBoost needs it; PyInstaller copies it into the app)
+        if: runner.os == 'macOS'
+        run: brew install libomp
       - name: Install
         shell: bash
         run: |
-          pip install -r requirements.txt -r requirements-addons.txt pyinstaller pillow
+          # --prefer-binary: a newest version with no prebuilt package for this system (llvmlite on Intel Macs)
+          # would otherwise be compiled from source, and fail
+          pip install --prefer-binary -r requirements.txt -r requirements-addons.txt pyinstaller pillow
           echo "LSS_VERSION=${LSS_VERSION#v}" >> "$GITHUB_ENV"
       - name: Build the app
         run: pyinstaller --noconfirm --clean packaging/lightshow.spec
@@ -92,6 +100,8 @@ jobs:
       - name: Package (macOS disk image)
         if: runner.os == 'macOS'
         run: |
+          echo "Oldest macOS the bundled OpenMP library runs on:"
+          otool -l "$(find "dist/Light Show Studio.app" -name libomp.dylib | head -1)" | grep -A3 LC_BUILD_VERSION | grep minos
           mkdir -p dmg && cp -R "dist/Light Show Studio.app" dmg/ && ln -s /Applications dmg/Applications
           hdiutil create -volname "Light Show Studio" -srcfolder dmg -ov -format UDZO "dist/${{ matrix.asset }}"
       - name: Package (Linux AppImage)

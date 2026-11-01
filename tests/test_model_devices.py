@@ -221,6 +221,7 @@ class TestEnvLayouts(unittest.TestCase):
         with mock.patch.object(mw, "data_dir", return_value="/data"):          # (a packaged app's data folder)
             self.assertEqual(mw.models_env_dir(), os.path.join("/data", "models-env"))
 
+    @unittest.skipUnless(sys.platform == "win32", "real Windows paths")
     def test_base_python_windows_layout(self):
         with tempfile.TemporaryDirectory() as d:
             home, venv = os.path.join(d, "Python312"), os.path.join(d, "venv")

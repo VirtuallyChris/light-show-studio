@@ -68,7 +68,8 @@ def load(n_types: int, src: str = BUNDLED) -> dict | None:
         booster = xgb.Booster()
         booster.load_model(os.path.join(src, "model.ubj"))
         z = np.load(os.path.join(src, "pca.npz"))
-    except (OSError, ValueError, ImportError):
+    except Exception as e:  # noqa: BLE001 - XGBoost has error types of its own when its library will not load: the rules take over
+        print(f"[labeler] the bundled labeler did not load: {type(e).__name__}: {e}")
         return None
     return {**meta, "bundled": True, "model": Model(booster, meta["classes"], n_types),
             "pcas": (PCA(z["r_mean"], z["r_comp"]), PCA(z["c_mean"], z["c_comp"]))}
