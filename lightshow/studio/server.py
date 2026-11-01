@@ -30,6 +30,7 @@ from .jam_service import JamService
 from .rooms import Rooms, FADE_S
 from .review import Review
 from .cues import CueRunner, LiveHooks
+from . import addons
 from .doorbell import Doorbell
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +39,6 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 SHOWS_DIR = os.path.join(ROOT, "shows")
 CONFIG_PATH = os.path.join(ROOT, "config.json")
 AUDIO_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".opus"}
-DEFAULT_LIGHT_MAC = "5C:E7:53:E9:C7:FE"
 
 
 # config.json is read and saved by several threads (the jam, learn ahead, rooms, the web handlers). Saved whole
@@ -622,6 +622,8 @@ class Studio:
             web.get("/api/cues/now", self.cues_now),
             web.get("/api/doorbell", self.doorbell_get),
             web.post("/api/doorbell", self.doorbell_set),
+            web.get("/api/addons", self.addons_get),
+            web.post("/api/addons", self.addons_set),
             web.post("/api/song", self.upload_song),
             web.post("/api/open", self.open_path),
             web.get("/api/audio/{project}", self.audio),
@@ -790,9 +792,35 @@ class Studio:
         return web.json_response(self.cues.stop())
 
     # -- the doorbell --------------------------------------------------------------------
+    def _doorbell_wanted(self) -> bool:
+        """The doorbell is listened to: a real studio (not a test copy) with the doorbell add-on on."""
+        return self.doorbell_live and addons.enabled(load_config(), "doorbell")
+
     async def _doorbell_at_start(self, app):
-        if self.doorbell_live:
+        if self._doorbell_wanted():
             self.doorbell.start()
+
+    # -- add-ons (addons.py): the doorbell, Bulb Shows ------------------------------------------
+    async def addons_get(self, request):
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        return web.json_response({"addons": addons.status(load_config())})
+
+    async def addons_set(self, request):
+        """Switch an add-on on or off ({id, on}): its card shows on the Party Hub, and it starts (or stops) at once."""
+        if not JamService._lan(request):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        try:
+            addons.switch(load_config, save_config, str(body.get("id")), bool(body.get("on")))
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        if body.get("id") == "doorbell":
+            if self._doorbell_wanted():
+                self.doorbell.start()
+            else:
+                await self.doorbell.close()
+        return web.json_response({"addons": addons.status(load_config())})
 
     async def doorbell_get(self, request):
         if not JamService._lan(request):
@@ -804,7 +832,7 @@ class Studio:
         if not JamService._lan(request):
             raise web.HTTPForbidden()
         self.doorbell.save(await request.json())
-        if self.doorbell_live:
+        if self._doorbell_wanted():
             self.doorbell.start()
         return web.json_response({**self.doorbell.status(), "live": self.doorbell_live})
 
@@ -1022,6 +1050,7 @@ class Studio:
         # Which lights the shows play on is a property of the room, not of a song: one
         # selection, kept here, that every show, the preview and Jam mode all use.
         chosen = cfg.get("selected_lights")
+        default = str(cfg.get("default_light") or "").upper()
         out = []
         for d in self.known:
             if not d.mac:   # ARP may not have the entry yet; use what we remembered
@@ -1030,8 +1059,9 @@ class Studio:
             name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or ""
             flip = bool(flipped.get(d.mac) or flipped.get(d.device_id) or flipped.get(d.ip))
             out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online, "flip": flip,
-                        "default": d.mac.upper() == DEFAULT_LIGHT_MAC,
-                        "on": (d.mac in chosen or d.device_id in chosen) if chosen is not None else d.mac.upper() == DEFAULT_LIGHT_MAC})
+                        "default": bool(default) and d.mac.upper() == default,
+                        # none ticked yet: config.json default_light, or every light (a home set up for the first time)
+                        "on": (d.mac in chosen or d.device_id in chosen) if chosen is not None else (d.mac.upper() == default if default else True)})
         # in the order they stand around the room (set by dragging them in the studio); new ones last
         order = cfg.get("light_order", [])
         rank = lambda d: next((order.index(k) for k in (d["mac"], d["device_id"], d["ip"]) if k and k in order), len(order))

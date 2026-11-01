@@ -5,5 +5,11 @@
   "cast_offsets": {
     "Living Room speaker": 300
   },
-  "cast_offset_ms": 250
+  "cast_offset_ms": 250,
+  "addons": {
+    "doorbell": false,
+    "bulbshow": false
+  },
+  "jam_hidden_output": "CABLE Input",
+  "jam_opener": ""
 }

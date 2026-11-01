@@ -62,7 +62,7 @@ def _shapes(sh: dict) -> dict:
 def clean(doc: dict) -> dict:
     """A map as sent by the page, checked and tidied (ValueError if it is not one)."""
     plan = doc.get("plan") or {}
-    out = {"version": 1, "plan": {"image": str(plan.get("image") or ""), "width_ft": _num(plan.get("width_ft") or 41, 1, 1000),
+    out = {"version": 1, "plan": {"image": str(plan.get("image") or ""), "width_ft": _num(plan.get("width_ft") or 30, 1, 1000),
                                   **({"depth_ft": _num(plan["depth_ft"], 1, 1000)} if plan.get("depth_ft") else {}),
                                   **({"shapes": _shapes(plan["shapes"])} if plan.get("shapes") else {})},
            "lights": {}}
@@ -292,7 +292,7 @@ class Space:
                 return json.load(fh)
         except (OSError, ValueError):
             plan = next((f for f in ("plan.png", "plan.jpg", "plan.webp") if os.path.exists(os.path.join(self.dir, f))), "")
-            return {"version": 1, "plan": {"image": plan, "width_ft": 41}, "lights": {}}
+            return {"version": 1, "plan": {"image": plan, "width_ft": 30, "depth_ft": 20}, "lights": {}}
 
     def save(self, doc: dict) -> dict:
         doc = clean(doc)
@@ -332,7 +332,8 @@ class Space:
         ]
 
     async def h_page(self, request):
-        return web.FileResponse(os.path.join(os.path.dirname(__file__), "static", "party", "map.html"))
+        # (never cached, like the Party Hub's page: a phone kept the map from before an update)
+        return web.FileResponse(os.path.join(os.path.dirname(__file__), "static", "party", "map.html"), headers={"Cache-Control": "no-store"})
 
     async def h_get(self, request):
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self.load))

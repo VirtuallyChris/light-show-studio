@@ -12,7 +12,7 @@ import torch.nn as nn
 
 HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_jam", "features", "trials")
 os.makedirs(HERE, exist_ok=True)
-sys.path.insert(0, r"C:\Users\chris\Documents\light-show-studio")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lightshow.studio.labeler import smooth  # noqa: E402
 
 torch.manual_seed(0); np.random.seed(0)

@@ -27,7 +27,8 @@ OURS_OR_IDLE = {None, "", "E8C28D3C", "CC1AD845"}
 
 def clean(rooms) -> list[dict]:
     """Rooms as saved: a name, on or off, and their lights (by MAC or device id) and speakers (by
-    name). A light or a speaker stands in one room only: the first that claims it keeps it."""
+    name). A light or a speaker stands in one room only: the first that claims it keeps it. "map": false
+    leaves a room off the house map (a room away from the party, say an office with a test strip)."""
     out, lights_seen, speakers_seen, ids = [], set(), set(), set()
     for r in rooms if isinstance(rooms, list) else []:
         if not isinstance(r, dict):
@@ -41,7 +42,8 @@ def clean(rooms) -> list[dict]:
         lights_seen |= set(lights)
         speakers_seen |= set(speakers)
         name = str(r.get("name") or "").strip()[:40] or f"Room {len(out) + 1}"
-        out.append({"id": rid, "name": name, "on": bool(r.get("on", True)), "lights": lights, "speakers": speakers})
+        out.append({"id": rid, "name": name, "on": bool(r.get("on", True)), "lights": lights, "speakers": speakers,
+                    **({} if r.get("map", True) else {"map": False})})
     return out
 
 
@@ -108,8 +110,8 @@ class Rooms:
 
     # -- whose speakers they are -----------------------------------------------------------------------
     # The studio only ever changes a speaker's volume or mute while it is casting (to it, or to a group it is
-    # in: "Everywhere" is all of them), and never one someone else is casting to: the user's wife was casting
-    # to the office speaker, the jam played on this PC, and switching the Office on in the Party Hub unmuted
+    # in: a whole-house group is all of them), and never one someone else is casting to: someone else in the house
+    # was casting to the office speaker, the jam played on this PC, and switching the Office on in the Party Hub unmuted
     # it under her. When the studio lets go of the speakers, every one it muted plays again (Rooms.unmute_all,
     # from CastManager.disconnect), so none is left muted for whoever casts next.
     def casting(self) -> bool:

@@ -18,7 +18,7 @@ import torch.nn as nn
 
 HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_jam", "features", "trials")
 os.makedirs(HERE, exist_ok=True)
-REPO = r"C:\Users\chris\Documents\light-show-studio"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
 from lightshow.studio import songformer_infer as sfi  # noqa: E402
 from lightshow.studio.labeler import smooth  # noqa: E402

@@ -1174,9 +1174,11 @@ class TestOpenerService(unittest.TestCase):
         self.cfg = dict(cfg or {})
         return JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
 
-    def test_if_youre_too_shy_opens_unless_another_is_chosen(self):
+    def test_the_show_set_in_config_opens_and_none_unless_one_is(self):
         shy = "If Youre Too Shy (Let Me Know)"
         svc = self.service({shy: 245.0, "Cheerleader": 180.0, "Jingle": 20.0})
+        self.assertIsNone(svc._opener_plan({}))                 # a new home: no opening song until one is set
+        self.cfg["jam_opener"] = shy                            # (one home's choice, kept in its config.json)
         self.assertEqual(svc._opener_choice(), shy)
         self.assertEqual(svc._opener_plan({}), (shy, 245.0))
         self.cfg["jam_opener"] = "Cheerleader"
@@ -1186,7 +1188,7 @@ class TestOpenerService(unittest.TestCase):
         self.assertIsNone(svc._opener_plan({}))
         self.cfg["jam_opener"] = ""                         # none: the jam starts 90 s behind as before
         self.assertIsNone(svc._opener_plan({}))
-        self.assertIsNone(self.service({})._opener_plan({}))   # Too Shy not saved here: nothing to open with
+        self.assertIsNone(self.service({}, {"jam_opener": shy})._opener_plan({}))   # not saved here: nothing to open with
 
     def test_the_page_plays_the_opener_until_the_jam_has_the_room(self):
         import time as _time

@@ -23,7 +23,7 @@ from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 
 # the start settings remembered for next time (and for a jam that starts itself)
 LAST_KEYS = ("device", "speakers", "pc_device", "target_delay", "crossfade", "skip_jumps", "source")
-DEFAULT_OPENER = "If Youre Too Shy (Let Me Know)"     # a jam opens with this saved show, if it is there
+DEFAULT_OPENER = ""                                   # a jam opens with this saved show (config.json jam_opener), if it is there
 
 
 def extras_for(pair) -> list[str] | None:
@@ -94,9 +94,9 @@ class JamService:
                                    fetch=self.fetch if self._fetch_on() else None)
         self.player_browser = "Microsoft Edge, hidden"
         self.player_enabled = True                      # False: a test copy that must not register a Spotify speaker
-        from .player_browser import HiddenPlayer
+        from .player_browser import HIDDEN_OUTPUT, HiddenPlayer
         self.hidden = HiddenPlayer(f"http://127.0.0.1:{studio.port}/static/player.html",
-                                   load_config().get("jam_hidden_output", "S/PDIF"))
+                                   load_config().get("jam_hidden_output", HIDDEN_OUTPUT))
         self.engine: JamEngine | None = None
         self.runner: JamRunner | None = None
         self.capture = None
@@ -231,7 +231,7 @@ class JamService:
             where = "none"
         use_cast = where == "cast"
         output = self._output_for(where, hidden_name, check=not demo)
-        # A jam opens with one of your saved shows (If You're Too Shy, unless another is chosen): it plays
+        # A jam opens with one of your saved shows (config.json jam_opener, unless another is chosen): it plays
         # in the room with its lights while Spotify plays, unheard, behind it, and the room joins the jam as
         # it ends, a whole song behind. So the jam is always a song ahead: each song is heard to its end
         # before the room gets to it, and gets its full show from the first beat.
@@ -995,7 +995,10 @@ class JamService:
 
     def _doorbell_cue(self) -> str:
         """The cue the real doorbell rings, while it is set up (the Party Hub leaves its button out: the bell rings it)."""
-        bell = (getattr(self, "load_config", dict)() or {}).get("doorbell") or {}
+        cfg = getattr(self, "load_config", dict)() or {}
+        if not (cfg.get("addons") or {}).get("doorbell"):
+            return ""
+        bell = cfg.get("doorbell") or {}
         return str(bell.get("cue") or "") if bell.get("on") and bell.get("host") else ""
 
     def _party(self) -> dict:
@@ -1045,6 +1048,7 @@ class JamService:
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
                 "cues": self.studio.cues.list() if getattr(self.studio, "cues", None) else [],
                 "doorbell_cue": getattr(self, "_doorbell_cue", lambda: "")(),
+                "addons": {k: bool(v) for k, v in ((getattr(self, "load_config", dict)() or {}).get("addons") or {}).items()},
                 "prelisten": self.prelisten.status() if getattr(self, "prelisten", None) else {},
                 "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
                 "room": (self._opener_room() if hasattr(self, "_opener_room") else None) or item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
@@ -1144,7 +1148,7 @@ class JamService:
         cast = self.studio.cast
 
         rooms = getattr(self.studio, "rooms", None)
-        bulbs = getattr(self.studio, "bulbshows", None)
+        bulbs = self._bulbshows()
 
         def read():
             st = cast.status()
@@ -1227,11 +1231,16 @@ class JamService:
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
 
+    def _bulbshows(self):
+        """Bulb Show, while its add-on is on (else None: not asked about, never started)."""
+        bulbs = getattr(self.studio, "bulbshows", None)
+        return bulbs if bulbs is not None and (self.load_config().get("addons") or {}).get("bulbshow") else None
+
     async def party_bulbshows(self, request):
         """Bulb Show's shows that can run, each on or off (the Lights tab's Bulb Shows)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        bulbs = getattr(self.studio, "bulbshows", None)
+        bulbs = self._bulbshows()
         if bulbs is None:
             return web.json_response({"open": False, "shows": []})
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.list))
@@ -1241,7 +1250,7 @@ class JamService:
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        bulbs, cast = getattr(self.studio, "bulbshows", None), self.studio.cast
+        bulbs, cast = self._bulbshows(), self.studio.cast
         if bulbs is None or not body.get("id"):
             return web.json_response({"ok": False, "error": "no such bulb show"}, status=400)
         busy = {cast.name} if cast.cast is not None and cast.name else set()

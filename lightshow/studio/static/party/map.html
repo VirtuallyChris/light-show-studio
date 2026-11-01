@@ -79,8 +79,23 @@
     </div>
     <div class="row" style="margin-top:10px">
       <button class="btn" id="setCenter" title="The middle of the house: spins and spirals turn around it">Set middle</button>
+      <button class="btn" id="build" title="Draw your home: its rooms and furniture, in feet">Edit floor plan</button>
       <span class="muted" id="size"></span>
     </div>
+  </div>
+
+  <div class="card" id="builder" hidden>
+    <h2>Floor plan</h2>
+    <div class="row">
+      <button class="btn" id="addRoom" title="Then tap the plan where it goes">Add room</button>
+      <button class="btn" id="addThing" title="An island, a couch, a table: then tap the plan where it goes">Add furniture</button>
+      <button class="btn primary" id="buildDone">Done</button>
+    </div>
+    <div id="bedit" style="margin-top:10px"></div>
+    <p class="muted" style="margin:8px 0 0">Tap a room or piece of furniture to name it, drag it to move it, drag a corner to resize it.</p>
+    <h2 style="margin-top:14px">Rooms on the map</h2>
+    <div class="chips" id="onmap"></div>
+    <datalist id="roomNames"></datalist>
   </div>
 
   <div class="card">
@@ -107,7 +122,8 @@
 (() => {
   const $ = s => document.querySelector(s);
   const TUBE_SKUS = new Set(['H6821']), TUBE_COUNT = 20;
-  const S = { doc: null, img: null, lights: [], rooms: [], sel: null, tool: null, view: { s: 1, x: 0, y: 0 }, preview: null, seg: 0, tube: 0, blinking: false };
+  const S = { doc: null, img: null, lights: [], rooms: [], sel: null, tool: null, view: { s: 1, x: 0, y: 0 }, preview: null, seg: 0, tube: 0, blinking: false,
+    build: false, bsel: null, drag: null };          // (the floor plan being drawn: what is picked, what is being dragged)
   const kindOf = l => TUBE_SKUS.has(l.sku) ? 'tubes' : (l.segments || 10) <= 12 ? 'pole' : 'strip';
   const keyOf = l => l.mac || l.device_id || l.ip;
   const err = m => { $('#err').textContent = m || ''; };
@@ -120,13 +136,19 @@
     S.rooms = rooms.rooms || [];
     const all = devs.devices || devs.lights || (Array.isArray(devs) ? devs : []);
     const roomOf = l => S.rooms.find(r => (r.lights || []).some(k => [l.mac, l.device_id, l.ip].includes(k)));
-    S.lights = all.filter(l => roomOf(l) && (roomOf(l).name || '').toLowerCase() !== 'office').map(l => ({ ...l, key: keyOf(l), room: roomOf(l).name, kind: kindOf(l) }));
-    const [w, d] = bounds(); $('#size').textContent = `${w} × ${d} ft`;
+    S.all = all;
+    pickLights();
     renderChips(); fit(); draw();
+    if (!planShapes().rooms.length) setBuild(true);       // a new home: draw it first
+  }
+  function pickLights() {
+    const roomOf = l => S.rooms.find(r => (r.lights || []).some(k => [l.mac, l.device_id, l.ip].includes(k)));
+    S.lights = (S.all || []).filter(l => roomOf(l) && roomOf(l).map !== false).map(l => ({ ...l, key: keyOf(l), room: roomOf(l).name, kind: kindOf(l) }));
+    const [w, d] = bounds(); $('#size').textContent = `${w} × ${d} ft`;
   }
   // the house in feet (the plan's shapes: x across from its left wall, y down from its top wall) <-> screen
   const bounds = () => { const sh = S.doc.plan.shapes; let w = 0, d = 0;
-    if (sh) for (const r of sh.rooms) for (const [x, y] of r.poly) { w = Math.max(w, x); d = Math.max(d, y); }
+    if (sh) for (const r of sh.rooms || []) for (const [x, y] of r.poly) { w = Math.max(w, x); d = Math.max(d, y); }
     return w && d ? [w, d] : [S.doc.plan.width_ft, S.doc.plan.depth_ft || S.doc.plan.width_ft / 2.5]; };
   const depthFt = () => bounds()[1];
   const toScreen = (x, y) => [S.view.x + x * S.view.s, S.view.y + y * S.view.s];     // (S.view.s: screen pixels a foot)
@@ -191,7 +213,7 @@
   const TINTS = { dining: 265, kitchen: 32, living: 210, game: 300, office: 150 };   // a soft hue for each room's floor
   const tintOf = name => { const k = Object.keys(TINTS).find(t => name.toLowerCase().includes(t)); return k == null ? null : TINTS[k]; };
   function drawPlan() {
-    const sh = S.doc.plan.shapes; if (!sh) return;
+    const sh = planShapes();
     const dpr = devicePixelRatio, dark = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light' || document.documentElement.dataset.theme === 'dark';
     const ink = dark ? '238,240,246' : '20,20,28';
     const path = (pts, close = true) => { g.beginPath(); pts.forEach(([x, y], i) => { const [sx, sy] = toScreen(x, y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); if (close) g.closePath(); };
@@ -201,9 +223,9 @@
       const h = tintOf(r.name); path(r.poly);
       g.fillStyle = h == null ? `rgba(${ink},${dark ? 0.035 : 0.03})` : `hsla(${h}, 70%, ${dark ? 60 : 50}%, ${dark ? 0.10 : 0.09})`; g.fill();
     }
-    // where one room opens into the next
+    // where one room opens into the next (dashed, where the walls are drawn on their own)
     g.setLineDash([3 * dpr, 5 * dpr]); g.strokeStyle = `rgba(${ink},0.16)`; g.lineWidth = 1 * dpr;
-    for (const r of sh.rooms) { path(r.poly); g.stroke(); }
+    if (sh.walls.length) for (const r of sh.rooms) { path(r.poly); g.stroke(); }
     g.setLineDash([]);
     // the stairs: their steps
     for (const r of sh.rooms.filter(r => /stair/i.test(r.name))) {
@@ -228,7 +250,7 @@
     }
     // the walls
     g.strokeStyle = `rgba(${ink},${dark ? 0.82 : 0.78})`; g.lineWidth = Math.max(2.5 * dpr, 0.32 * S.view.s); g.lineJoin = 'round'; g.lineCap = 'round';
-    for (const w of sh.walls || []) { path(w, false); g.stroke(); }
+    for (const w of wallLines()) { path(w, false); g.stroke(); }
     for (const f of sh.soffits || []) { path(f.line, false); g.stroke(); }    // (drop-ceiling edges: solid, lights are mounted on them)
     // the rooms' names, in their own color
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `700 ${11 * dpr}px system-ui`;
@@ -244,7 +266,8 @@
     }
     g.textBaseline = 'alphabetic';
     // a scale: 5 feet
-    const [x0, y0] = [cv.width - 14 * dpr - 5 * S.view.s, cv.height - 14 * dpr];   // (bottom right: clear of the house) g.strokeStyle = `rgba(${ink},0.45)`; g.lineWidth = 2 * dpr; g.lineCap = 'butt';
+    const [x0, y0] = [cv.width - 14 * dpr - 5 * S.view.s, cv.height - 14 * dpr];   // (bottom right: clear of the house)
+    g.strokeStyle = `rgba(${ink},0.45)`; g.lineWidth = 2 * dpr; g.lineCap = 'butt';
     g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + 5 * S.view.s, y0); g.moveTo(x0, y0 - 4 * dpr); g.lineTo(x0, y0 + 4 * dpr); g.moveTo(x0 + 5 * S.view.s, y0 - 4 * dpr); g.lineTo(x0 + 5 * S.view.s, y0 + 4 * dpr); g.stroke();
     g.fillStyle = `rgba(${ink},0.55)`; g.font = `600 ${10 * dpr}px system-ui`; g.textAlign = 'left'; g.fillText('5 ft', x0, y0 - 8 * dpr);
   }
@@ -252,6 +275,7 @@
     g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
     if (!S.doc) return;                                  // (not loaded yet)
     drawPlan();
+    if (S.build) { drawBuild(); return; }               // (drawing the plan: the lights stay out of the way)
     const dpr = devicePixelRatio, t = S.preview ? (performance.now() - S.preview.t0) / 1000 : 0;
     for (const l of S.lights) {
       const m = mapOf(l), pos = positions(m, l.segments); if (!m) continue;
@@ -352,12 +376,12 @@
   addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/space/stop'); } catch (e) { /* closing */ } });
 
   // -- tapping the plan -------------------------------------------------------------------------
-  const HINTS = { pin: 'Tap the plan where this segment is', place: 'Tap the plan where it is', center: 'Tap the middle of the house', near: 'Tap a spot: the lights within 3 ft of it light up', ripple: 'Tap where the ripple starts' };
+  const HINTS = { room: 'Tap the plan where the room goes', thing: 'Tap the plan where it goes', pin: 'Tap the plan where this segment is', place: 'Tap the plan where it is', center: 'Tap the middle of the house', near: 'Tap a spot: the lights within 3 ft of it light up', ripple: 'Tap where the ripple starts' };
   /** A strip pin onto the wall or drop-ceiling edge it was tapped beside (within about half a foot), into the corner
    *  when two meet there: strips are mounted on them. (Poles and tubes stay where they are tapped: they stand out.) */
   function snapToWall(x, y, near = 0.6) {
-    const sh = S.doc.plan.shapes || {}, lines = [];
-    for (const w of sh.walls || []) for (let i = 1; i < w.length; i++) lines.push([w[i - 1], w[i]]);
+    const sh = planShapes(), lines = [];
+    for (const w of wallLines()) for (let i = 1; i < w.length; i++) lines.push([w[i - 1], w[i]]);
     for (const f of sh.soffits || []) for (let i = 1; i < f.line.length; i++) lines.push([f.line[i - 1], f.line[i]]);
     const proj = ([ax, ay], [bx, by]) => { const dx = bx - ax, dy = by - ay, k = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1))), q = [ax + dx * k, ay + dy * k]; return { q, d: Math.hypot(x - q[0], y - q[1]) }; };
     const c = lines.map(l => ({ l, ...proj(...l) })).filter(r => r.d <= near).sort((r, s) => r.d - s.d);
@@ -385,24 +409,151 @@
   }
   // drag to pan, pinch or buttons to zoom, a tap (little movement) places
   const pts = new Map(); let downAt = null, moved = 0, pinch = null;
-  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 1) { downAt = [e.clientX, e.clientY]; moved = 0; } else pinch = null; });
+  const feetAt = e => { const r = cv.getBoundingClientRect(); return toFeet((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); };
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 1) { downAt = [e.clientX, e.clientY]; moved = 0; S.drag = S.build && !S.tool ? grab(...feetAt(e)) : null; } else { pinch = null; S.drag = null; } });
   cv.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return; const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
     const dpr = devicePixelRatio;
-    if (pts.size === 1) { S.view.x += (e.clientX - prev[0]) * dpr; S.view.y += (e.clientY - prev[1]) * dpr; moved += Math.abs(e.clientX - prev[0]) + Math.abs(e.clientY - prev[1]); draw(); }
+    if (pts.size === 1 && S.drag) { moved += Math.abs(e.clientX - prev[0]) + Math.abs(e.clientY - prev[1]); if (moved >= 8) { dragTo(...feetAt(e)); draw(); } }
+    else if (pts.size === 1) { S.view.x += (e.clientX - prev[0]) * dpr; S.view.y += (e.clientY - prev[1]) * dpr; moved += Math.abs(e.clientX - prev[0]) + Math.abs(e.clientY - prev[1]); draw(); }
     else if (pts.size === 2) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch) zoomAt(d / pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); pinch = d; moved = 99; }
   });
   cv.addEventListener('pointerup', e => {
     pts.delete(e.pointerId); if (pts.size) return; pinch = null;
+    const dragged = S.drag && moved >= 8; S.drag = null;
+    if (dragged) { save(); pickLights(); draw(); renderBuilder(); return; }
+    if (moved < 8 && S.build) { buildTap(...feetAt(e)); return; }
     if (moved < 8 && S.tool) { const r = cv.getBoundingClientRect(), [fx, fy] = toFeet((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); tap(fx, fy); }
   });
-  cv.addEventListener('pointercancel', e => { pts.delete(e.pointerId); pinch = null; });
+  cv.addEventListener('pointercancel', e => { pts.delete(e.pointerId); pinch = null; if (S.drag && moved >= 8) save(); S.drag = null; });
   cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX, e.clientY, r); }, { passive: false });
   function zoomAt(k, cx, cy) { const r = cv.getBoundingClientRect(), x = (cx - r.left) * devicePixelRatio, y = (cy - r.top) * devicePixelRatio; S.view.x = x - (x - S.view.x) * k; S.view.y = y - (y - S.view.y) * k; S.view.s *= k; draw(); }
   $('#zin').onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(1.3, r.left + r.width / 2, r.top + r.height / 2); };
   $('#zout').onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(1 / 1.3, r.left + r.width / 2, r.top + r.height / 2); };
   $('#zfit').onclick = () => { fit(true); draw(); };
   addEventListener('resize', () => { if (S.doc) { fit(); draw(); } });   // (not before the map has loaded)
+
+  // -- the floor plan, drawn here in feet: rooms and furniture as rectangles (anyone's home). A plan drawn another
+  //    way, with walls of its own and rooms of any shape, keeps them; its rooms can still be named, moved and deleted.
+  function planShapes() {
+    const sh = S.doc.plan.shapes || (S.doc.plan.shapes = {});
+    for (const k of ['rooms', 'fixtures', 'walls', 'soffits']) sh[k] = sh[k] || [];
+    return sh;
+  }
+  /** The walls as lines: those drawn, else every room's outline (a plan made here draws no walls of its own). */
+  function wallLines() {
+    const sh = planShapes();
+    return sh.walls.length ? sh.walls : sh.rooms.map(r => [...r.poly, r.poly[0]]);
+  }
+  const snapFt = v => Math.round(v * 2) / 2;                     // half a foot
+  const boxOf = pts => { const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)]; };
+  const corners = ([x, y, w, d]) => [[x, y], [x + w, y], [x + w, y + d], [x, y + d]];
+  const isBox = poly => { if (poly.length !== 4) return false; const [x, y, w, d] = boxOf(poly); return poly.every(([px, py]) => (px === x || px === x + w) && (py === y || py === y + d)); };
+  const itemOf = it => it && (it.type === 'room' ? planShapes().rooms[it.i] : planShapes().fixtures[it.i]);
+  const pointsOf = f => f.rect ? corners(f.rect) : f.poly;
+  const boxOfItem = it => { const f = itemOf(it); return f.rect ? f.rect.slice() : boxOf(f.poly); };
+  const resizable = it => { const f = itemOf(it); return !!f.rect || isBox(f.poly); };
+  const inPoly = (x, y, poly) => { let inside = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside; } return inside; };
+  function hitItem(x, y) {                                       // furniture first (it stands in a room), then the smallest room
+    const sh = planShapes();
+    for (let i = sh.fixtures.length - 1; i >= 0; i--) if (inPoly(x, y, pointsOf(sh.fixtures[i]))) return { type: 'fixture', i };
+    const area = r => { const [, , w, d] = boxOf(r.poly); return w * d; };
+    const rooms = sh.rooms.map((r, i) => ({ i, a: area(r) })).filter(r => inPoly(x, y, sh.rooms[r.i].poly)).sort((p, q) => p.a - q.a);
+    return rooms.length ? { type: 'room', i: rooms[0].i } : null;
+  }
+  /** A press in the builder: a corner of the one picked (resize), a room or piece of furniture (move), or nothing (pan). */
+  function grab(x, y) {
+    if (itemOf(S.bsel) && resizable(S.bsel)) {
+      const reach = 16 * devicePixelRatio / S.view.s, c = corners(boxOfItem(S.bsel)).findIndex(([cx, cy]) => Math.hypot(cx - x, cy - y) <= reach);
+      if (c >= 0) return { kind: 'resize', it: S.bsel, corner: c, box: boxOfItem(S.bsel) };
+    }
+    const it = hitItem(x, y); if (!it) return null;
+    const f = itemOf(it);
+    return { kind: 'move', it, from: [x, y], pts: pointsOf(f).map(p => p.slice()), label: f.label ? f.label.slice() : null };
+  }
+  function setPoints(it, pts) { const f = itemOf(it); if (f.rect) f.rect = boxOf(pts); else f.poly = pts; }
+  function dragTo(x, y) {
+    const d = S.drag; S.bsel = d.it;
+    if (d.kind === 'move') {
+      const dx = snapFt(x - d.from[0]), dy = snapFt(y - d.from[1]);
+      setPoints(d.it, d.pts.map(([px, py]) => [+(px + dx).toFixed(2), +(py + dy).toFixed(2)]));
+      if (d.label) itemOf(d.it).label = [d.label[0] + dx, d.label[1] + dy];
+    } else {                                                    // the opposite corner stays put; at least a foot each way
+      const opp = corners(d.box)[(d.corner + 2) % 4], nx = snapFt(x), ny = snapFt(y);
+      const x0 = Math.min(opp[0], nx), x1 = Math.max(opp[0], nx), y0 = Math.min(opp[1], ny), y1 = Math.max(opp[1], ny);
+      setPoints(d.it, corners([x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)]));
+    }
+  }
+  function buildTap(x, y) {
+    const sh = planShapes();
+    if (S.tool === 'room' || S.tool === 'thing') {
+      const first = !sh.rooms.length, [w, d] = S.tool === 'room' ? [12, 10] : [4, 3], x0 = snapFt(x - w / 2), y0 = snapFt(y - d / 2);
+      if (S.tool === 'room') {                                  // named after the next Party Hub room not drawn yet
+        const used = new Set(sh.rooms.map(r => r.name.toLowerCase())), next = S.rooms.map(r => r.name).find(n => !used.has(n.toLowerCase()));
+        sh.rooms.push({ name: next || `Room ${sh.rooms.length + 1}`, poly: corners([x0, y0, w, d]) });
+        S.bsel = { type: 'room', i: sh.rooms.length - 1 };
+      } else {
+        sh.fixtures.push({ name: '', rect: [x0, y0, w, d] });
+        S.bsel = { type: 'fixture', i: sh.fixtures.length - 1 };
+      }
+      setTool(null); save(); pickLights();
+      if (first) fit(true);
+    } else S.bsel = hitItem(x, y);
+    renderBuilder(); draw();
+  }
+  function drawBuild() {
+    const f = itemOf(S.bsel); if (!f) return;
+    const dpr = devicePixelRatio;
+    g.strokeStyle = '#ec4899'; g.lineWidth = 2.5 * dpr; g.setLineDash([]); g.beginPath();
+    pointsOf(f).forEach(([x, y], i) => { const [sx, sy] = toScreen(x, y); i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.closePath(); g.stroke();
+    if (resizable(S.bsel)) for (const [x, y] of corners(boxOfItem(S.bsel))) { const [sx, sy] = toScreen(x, y); g.fillStyle = '#ec4899'; g.fillRect(sx - 7 * dpr, sy - 7 * dpr, 14 * dpr, 14 * dpr); }
+  }
+  function setBuild(on) {
+    S.build = on; S.bsel = null; setTool(null);
+    if (on) stopLights();
+    $('#builder').hidden = !on; $('#build').classList.toggle('active', on);
+    for (const c of document.querySelectorAll('.card')) if (c.querySelector('#lights, [data-p]')) c.hidden = on;   // (the lights' cards wait)
+    if (on) renderBuilder(); else { pickLights(); renderChips(); renderEditor(); }
+    draw();
+  }
+  function renderBuilder() {
+    const el = $('#bedit'), it = itemOf(S.bsel) ? S.bsel : null;
+    $('#roomNames').innerHTML = S.rooms.map(r => `<option value="${esc(r.name)}">`).join('');
+    if (!it) el.innerHTML = `<span class="muted">${planShapes().rooms.length ? 'Pick a room or piece of furniture to change it.' : 'Start with Add room, then tap the plan.'}</span>`;
+    else {
+      const f = itemOf(it), [, , w, d] = boxOfItem(it), box = resizable(it), room = it.type === 'room';
+      el.innerHTML = `<div class="row"><input id="bname" type="text" ${room ? 'list="roomNames"' : ''} placeholder="${room ? 'Room name' : 'Name (island, couch…)'}" value="${esc(f.name || '')}" aria-label="Name"
+          style="flex:1;min-width:150px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--text);font-size:16px">
+        ${box ? `<label class="muted">W <input id="bw" type="number" min="1" step="0.5" value="${w}" aria-label="Width in feet"></label><label class="muted">D <input id="bd" type="number" min="1" step="0.5" value="${d}" aria-label="Depth in feet"></label><span class="muted">ft</span>` : ''}
+        <button class="btn" id="bdel">Delete</button></div>`;
+      $('#bname').onchange = e => { f.name = e.target.value.trim().slice(0, 40); save(); draw(); };
+      if (box) for (const id of ['#bw', '#bd']) $(id).onchange = () => {
+        const [x, y] = boxOfItem(it), nw = Math.max(1, snapFt(+$('#bw').value || w)), nd = Math.max(1, snapFt(+$('#bd').value || d));
+        setPoints(it, corners([x, y, nw, nd])); save(); draw(); renderBuilder();
+      };
+      $('#bdel').onclick = () => {
+        if (!confirm(`Delete ${f.name || (room ? 'this room' : 'this')}?`)) return;
+        (room ? planShapes().rooms : planShapes().fixtures).splice(it.i, 1); S.bsel = null; save(); pickLights(); renderBuilder(); draw();
+      };
+    }
+    // the Party Hub's rooms, each on the map or left off it (a room away from the party, say an office with a test strip)
+    $('#onmap').innerHTML = S.rooms.map((r, i) => `<button class="chip ${r.map !== false ? 'on' : ''}" data-i="${i}">${esc(r.name)}</button>`).join('')
+      || '<span class="muted">No rooms yet: add them on the Party Hub (Settings, More settings, Rooms).</span>';
+    for (const b of $('#onmap').querySelectorAll('[data-i]')) b.onclick = async () => {
+      const r = S.rooms[+b.dataset.i];
+      if (r.map === false) delete r.map; else r.map = false;
+      renderBuilder();
+      try {
+        const doc = await (await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rooms: S.rooms }) })).json();
+        if (doc.rooms) S.rooms = doc.rooms;
+      } catch (e) { err('The rooms were not saved'); }
+      pickLights();
+    };
+  }
+  $('#build').onclick = () => setBuild(!S.build);
+  $('#buildDone').onclick = () => setBuild(false);
+  $('#addRoom').onclick = () => setTool('room');
+  $('#addThing').onclick = () => setTool('thing');
 
   // -- settings and the preview buttons ---------------------------------------------------------
   $('#setCenter').onclick = () => setTool('center');

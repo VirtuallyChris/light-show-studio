@@ -233,6 +233,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
   .pre input[type=text] { margin-top: 10px; }
   .bell .state, .pre .state { font-size: 13px; color: var(--muted); margin-top: 10px; }
   .bell .state.ok { color: var(--ok); }
+  .addon .rsub { white-space: normal; }
   .pre-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .pre .bar { height: 4px; border-radius: 2px; margin-top: 8px; }
   /* party colors */
@@ -408,7 +409,11 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     <div class="pre-buttons"><button class="chip" id="preGo">Learn this playlist</button><button class="chip" id="preQueue">Learn the queue</button><button class="chip" id="preStop" hidden>Stop</button></div>
     <div class="state" id="preState"></div>
   </section>
-  <section class="card bell">
+  <section class="card">
+    <div class="label">Add-ons</div>
+    <div id="addonList"><div class="empty">…</div></div>
+  </section>
+  <section class="card bell" id="bellCard" hidden>
     <div class="theme-row"><div class="label">Doorbell</div>
       <label class="switch"><input type="checkbox" id="bellOn" aria-label="Doorbell rings a cue"><span></span></label></div>
     <input type="text" id="bellHost" placeholder="Doorbell address (like 192.168.1.50)" autocomplete="off" inputmode="decimal" aria-label="Doorbell address">
@@ -742,6 +747,25 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
       : bell.error ? `Can’t reach it: ${bell.error}` : 'Connecting…';
   }
   async function loadBell() { try { bell = await (await fetch('/api/doorbell')).json(); } catch (e) { return; } showBell(); }
+  // ---- add-ons (the doorbell, Bulb Shows): each off until switched on here; on, its card shows (Bulb Shows on the Lights tab)
+  let addonList = [];
+  function showAddons() {
+    const on = id => (addonList.find(a => a.id === id) || {}).on;
+    $('#bellCard').hidden = !on('doorbell');
+    if (!on('bulbshow')) $('#bulbCard').hidden = true;
+    $('#addonList').innerHTML = addonList.map(a => `<div class="room-row addon"><div><div class="rname">${esc(a.name)}</div>
+        <div class="rsub">${esc(a.on && a.missing ? a.missing : a.about)}</div></div>
+        <label class="switch"><input type="checkbox" data-addon="${esc(a.id)}" ${a.on ? 'checked' : ''} aria-label="${esc(a.name)} add-on"><span></span></label></div>`).join('')
+      || '<div class="empty">None</div>';
+    for (const sw of $('#addonList').querySelectorAll('input[data-addon]')) sw.onchange = async () => {
+      try { addonList = (await (await fetch('/api/addons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: sw.dataset.addon, on: sw.checked }) })).json()).addons || addonList; }
+      catch (e) { sw.checked = !sw.checked; return; }
+      showAddons();
+      if (sw.dataset.addon === 'doorbell' && sw.checked) loadBell();
+      if (sw.dataset.addon === 'bulbshow' && sw.checked) { bulbShown = ''; loadBulbShows(); }
+    };
+  }
+  async function loadAddons() { try { addonList = (await (await fetch('/api/addons')).json()).addons || []; } catch (e) { return; } showAddons(); }
   async function saveBell(extra = {}) {
     const body = { on: $('#bellOn').checked, host: $('#bellHost').value.trim(), username: $('#bellUser').value.trim(), cue: $('#bellCue').value, ...extra };
     const pw = $('#bellPass').value; if (pw) body.password = pw;
@@ -1133,7 +1157,7 @@ if (navigator.standalone) document.documentElement.classList.add('standalone'); 
     lightsOpen = tab === 'lights';
     if (!lightsOpen) roomView(false);
     if (settingsOpen && !was) loadVolumes();
-    if (moreOpen && !wasMore) { loadCueEdit(); loadBell(); loadRoomEdit(); if (state) showPre(state.prelisten); }
+    if (moreOpen && !wasMore) { loadCueEdit(); loadAddons(); loadBell(); loadRoomEdit(); if (state) showPre(state.prelisten); }
   }
   function goTab(t) { const h = t === 'now' ? '' : t; if (location.hash.slice(1) === h) showTab(); else location.hash = h; }
   for (const b of document.querySelectorAll('.nav-btn')) b.onclick = () => goTab(b.dataset.tab);

@@ -1,0 +1,48 @@
+"""Add-ons: features for one kind of home, off until they are switched on (Party Hub > Settings > More settings >
+Add-ons). Each is kept in config.json as {"addons": {"doorbell": true, ...}}; while one is off, its card stays
+hidden on the Party Hub and it does nothing in the background (the doorbell is not listened to, Bulb Show is not
+asked about or started).
+
+    doorbell   a Reolink video doorbell rings a Party Hub cue (doorbell.py; needs reolink_aio, in
+               requirements-addons.txt)
+    bulbshow   Bulb Show's looping shows (bulbshow/, an app of its own: Govee bulbs over Govee's cloud, a sound
+               on a speaker), switched on and off from the Lights tab (bulbshows.py)
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+ADDONS = {
+    "doorbell": {"name": "Doorbell", "about": "A Reolink video doorbell rings a cue: the music dips and its show plays."},
+    "bulbshow": {"name": "Bulb Shows", "about": "Bulb Show's looping shows on Govee bulbs, switched on and off from the Lights tab."},
+}
+
+
+def installed(addon: str) -> str:
+    """'' when the add-on can run on this computer, else what it is missing."""
+    if addon == "doorbell":
+        return "" if importlib.util.find_spec("reolink_aio") is not None else "needs reolink_aio: pip install -r requirements-addons.txt"
+    if addon == "bulbshow":
+        return "" if os.path.isdir(os.path.join(ROOT, "bulbshow")) else "Bulb Show is not in this copy"
+    return "no such add-on"
+
+
+def enabled(cfg: dict, addon: str) -> bool:
+    return bool((cfg.get("addons") or {}).get(addon))
+
+
+def status(cfg: dict) -> list[dict]:
+    return [{"id": k, **v, "on": enabled(cfg, k), "missing": installed(k)} for k, v in ADDONS.items()]
+
+
+def switch(load_config, save_config, addon: str, on: bool) -> dict:
+    if addon not in ADDONS:
+        raise ValueError(f"no add-on {addon!r}")
+    cfg = load_config()
+    cfg.setdefault("addons", {})[addon] = bool(on)
+    save_config(cfg)
+    return cfg

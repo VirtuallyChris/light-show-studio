@@ -31,7 +31,7 @@ from .winpaths import local_appdata
 
 HOME = os.path.join(local_appdata(), "lanlightshow")
 PROFILE = os.path.join(HOME, "player-browser")
-HIDDEN_OUTPUT = "S/PDIF"                               # part of the output's name; config can change it
+HIDDEN_OUTPUT = "CABLE Input"                          # part of the output's name (VB-Cable's, by default); config.json jam_hidden_output
 
 
 def edge() -> str | None:

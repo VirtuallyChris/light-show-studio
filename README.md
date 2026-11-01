@@ -29,6 +29,45 @@ were retired once the studio did all of it.)
    you. `config.json` holds your network's addresses, so it stays out of git,
    as do the songs you drop in; the show designs saved next to them
    (`shows/<song>/project.json`) are kept.
+4. Optional: add-ons (see **Add-ons** below) may need a little more. The doorbell
+   needs `.venv\Scripts\python -m pip install -r requirements-addons.txt`.
+
+### Set up your home
+
+1. **Lights.** Open the studio: it finds every Govee light with LAN Control on.
+   Name each one in the Lights panel and set its LED count. Until you tick some,
+   every light found plays (`default_light` in `config.json` starts with just
+   that one instead).
+2. **Rooms.** On the Party Hub (your phone, see **Party Hub**): Settings, More
+   settings, **Rooms**. Add a room for each part of the house and tap the lights
+   and speakers that stand in it.
+3. **The house map.** Under the rooms, **Map the house**: tap **Edit floor
+   plan**, then **Add room** and tap the plan for each room (named after your
+   Party Hub rooms, in turn). Drag a room to move it, drag a corner to resize
+   it, or type its width and depth in feet. Add furniture the same way (an
+   island, a couch) to find your way around. **Rooms on the map** leaves a room
+   off it (an office with a test strip, say). Then **Done**, and place each light
+   where it stands: pin a strip's first and last segments and every corner, put
+   each pole where it stands. A new home opens the floor plan by itself.
+
+Everything about your home stays in `config.json` and `shows/` on your computer,
+never in git: the lights and their addresses, the rooms, the map, the speakers'
+measured delays, your Spotify sign-in, the add-ons' settings. Other settings you
+may set there: `jam_opener` (a saved show the Jam opens with when it is not
+learning ahead) and `jam_hidden_output` (see **Jam mode**).
+
+### Add-ons
+
+Features for one kind of home are add-ons, off until you switch them on (Party
+Hub: Settings, More settings, **Add-ons**). While one is off its card stays
+hidden and it does nothing in the background.
+
+- **Doorbell.** A Reolink video doorbell rings a cue (see **The doorbell rings a
+  cue**). Needs `requirements-addons.txt`.
+- **Bulb Shows.** Bulb Show (`bulbshow/`, an app of its own: looping shows on
+  Govee bulbs over Govee's cloud, with a sound on a speaker) switched on and off
+  from the Party Hub's Lights tab. Bulb Show needs your own Govee API key; see
+  `bulbshow/README.md`.
 
 **Naming lights.** Click a light's name in the Lights panel (it shows the model,
 like H608D, until named) and type. The name is used in the preview and in each
@@ -554,8 +593,8 @@ with nothing touched. Cues have not yet been tried on the real speakers.
 
 ## The doorbell rings a cue
 
-A Reolink doorbell can ring a cue by itself: in the Party Hub's **Settings**,
-**Doorbell**, enter its address on the home network, its username and password
+A Reolink doorbell can ring a cue by itself (the **Doorbell** add-on: switch it
+on under **Add-ons** first): in the Party Hub's **Settings**, **Doorbell**, enter its address on the home network, its username and password
 (the ones its Reolink app uses) and which cue it rings (Doorbell to start), and
 switch it on. The studio logs in to the doorbell and listens to its own event
 push over the home network (reolink_aio, the library Home Assistant's Reolink
@@ -720,16 +759,17 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
    - **The studio itself** (recommended). While the studio is open it is a
      Spotify speaker called **Light Show Studio**. It runs Spotify's official
      player (the Web Playback SDK) in Microsoft Edge with no window at all, and
-     sends Edge's sound to **Digital Audio (S/PDIF)**, an output nobody listens
-     to. The studio records that output and plays it to the room late on your
+     sends Edge's sound to an output nobody listens to: **CABLE Input**, a
+     free virtual audio cable (VB-Cable), unless `jam_hidden_output` names
+     another (a PC's unused **Digital Audio (S/PDIF)** works too). The studio records that output and plays it to the room late on your
      default output. There is nothing to route by hand and nothing in the
      taskbar. Pick Light Show Studio from your phone, or host a Jam with it and
      let others join and queue songs. It needs a sign-in made after this was
      added (the Jam panel says if yours is older).
 
-     While the studio runs, every Edge window plays into S/PDIF, so Edge you
+     While the studio runs, every Edge window plays into that output, so Edge you
      open yourself is silent too. When the studio closes it hands Edge back to
-     your default output. If the studio crashes, Edge stays on S/PDIF until the
+     your default output. If the studio crashes, Edge stays on it until the
      studio next closes normally, or until you change it back in Windows' sound
      settings (App volume and device preferences).
 
@@ -743,9 +783,9 @@ Each track is one of three kinds, shown as a badge in the panel and the queue:
      phone is all it takes. After **Stop jam** it waits for the music to be
      paused or started again before it starts one by itself.
    - **The Spotify app on this PC.** In Windows' Volume mixer, set the Spotify
-     app's output to Digital Audio (S/PDIF).
-   To use another hidden output instead of S/PDIF, set `jam_hidden_output` in
-   `config.json` to part of its name (a virtual audio cable works well).
+     app's output to the hidden output (CABLE Input).
+   To use another hidden output, set `jam_hidden_output` in `config.json` to part
+   of its name (`"S/PDIF"` for a PC's unused digital output).
 5. Under **Play on**, choose where the delayed music is heard: the **Cast**
    speakers (press Cast first), **This PC**, or nowhere, to watch the show
    build without sound. This PC plays on Windows' default output (set

@@ -8,7 +8,7 @@ import sys
 
 import numpy as np
 
-ROOT = r"C:\Users\chris\Documents\light-show-studio"
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 from lightshow.studio import labeler  # noqa: E402
 from lightshow.studio.jam import JamLibrary  # noqa: E402

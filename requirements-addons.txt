@@ -1,0 +1,3 @@
+# Add-ons (Party Hub > Settings > More settings > Add-ons): only what the ones you switch on need
+# Doorbell: a Reolink video doorbell rings a cue
+reolink_aio>=0.21
