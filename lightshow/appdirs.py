@@ -65,6 +65,27 @@ def popen_outside(cmd: list[str], **kwargs) -> subprocess.Popen:
             set_dir(sys._MEIPASS)
 
 
+def run_outside(cmd: list[str], timeout: float | None = None, check: bool = False, capture_output: bool = False, **kwargs) -> subprocess.CompletedProcess:
+    """subprocess.run for such a program, without a packaged app's library paths either."""
+    if not FROZEN:
+        return subprocess.run(cmd, timeout=timeout, check=check, capture_output=capture_output, **kwargs)
+    if "env" not in kwargs:
+        from .studio.updates import clean_env
+        kwargs["env"] = clean_env()
+    if capture_output:
+        kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
+    proc = popen_outside(cmd, **kwargs)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise
+    if check and proc.returncode:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, out, err)
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+
+
 def self_command(module: str, *args: str, frozen: bool = FROZEN, exe: str | None = None) -> list[str]:
     """How to start one of the app's own modules in a new process: `python -m module` from source; the
     packaged app's own executable with --run-module, which lightshow/__main__.py hands to that module."""

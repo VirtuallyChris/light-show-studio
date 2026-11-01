@@ -732,11 +732,12 @@ channel (their "Topic" channel first, which carries the album audio), never a li
 take, a cover or a remix; the full analysis runs on it, in a process of its own at below-normal priority
 on at most four cores (the models on the GPU), so the lights and the music always
 come first (about 45 s for a 3-minute song, while
-the next one downloads), and the copy is deleted the moment it is done: only the
-analysis is kept, with the songs the jam learned by listening (`shows/_jam/learned`).
-Set `"jam_keep_youtube_copies": true` in `config.json` (off by default) to keep each
-copy instead, in `shows/_jam/copies`: a song learned again (after an analysis
-update) is then learned from its kept copy, with no download.
+the next one downloads). The copy is then kept in `shows/_jam/copies`, so its show can
+be reviewed and fixed later, and a song learned again (after an analysis update) is
+learned from it with no download. Copies take up disk space: Settings › AI models shows
+how much, can delete them, and can stop keeping them
+(`"jam_keep_youtube_copies": false`), leaving only the analysis, with the songs the jam
+learned by listening (`shows/_jam/learned`).
 A copy whose length is not within 4 seconds of Spotify's is another version and is
 not used. The speakers only ever play Spotify's own audio, relayed as always; the
 copy is never heard, so a music video's intro never reaches the room.
@@ -788,8 +789,8 @@ py -3.12 -m venv .venv-spotdl
 ```
 
 Spotify's own audio is never downloaded: spotDL reads only a song's details from
-Spotify. The copies come from YouTube, whose terms do not allow downloading; each
-exists only for as long as its analysis takes.
+Spotify. The copies come from YouTube, whose terms do not allow downloading.
+A downloaded app sets all of this up by itself; from source, it is the steps above.
 
 Recording and playback each run in a small process of their own, handing audio
 to the studio through shared memory. The analysis is heavy Python work, and when

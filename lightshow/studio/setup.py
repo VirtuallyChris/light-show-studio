@@ -89,6 +89,8 @@ class HomeSetup:
             web.get("/api/party/link", self.h_link),
             web.get("/api/models/setup", self.h_models),
             web.post("/api/models/setup", self.h_models_set),
+            web.get("/api/songs/copies", self.h_copies),
+            web.post("/api/songs/copies", self.h_copies_set),
         ]
 
     # -- the AI models --------------------------------------------------------------------------
@@ -109,6 +111,37 @@ class HomeSetup:
         return web.json_response(body, status=code)
 
     # -- the phone ------------------------------------------------------------------------------
+    # -- the song copies kept, for fixing shows later ---------------------------------------------
+    def _copies_dir(self) -> str | None:
+        fetch = getattr(getattr(self.studio, "jam", None), "fetch", None)
+        return fetch.copies_dir() if fetch else None
+
+    def copies(self) -> dict:
+        folder = self._copies_dir()
+        names = os.listdir(folder) if folder and os.path.isdir(folder) else []
+        size = sum(os.path.getsize(os.path.join(folder, n)) for n in names if os.path.isfile(os.path.join(folder, n)))
+        return {"count": len(names), "gb": round(size / 1e9, 2), "keep": self.load_config().get("jam_keep_youtube_copies", True) is not False}
+
+    async def h_copies(self, request):
+        return web.json_response(self.copies())
+
+    async def h_copies_set(self, request):
+        """{keep?, clear?}: from this computer only. Clearing leaves the shows: only Review needs a song's copy."""
+        if request.remote not in ("127.0.0.1", "::1"):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        if "keep" in body:
+            cfg = self.load_config()
+            cfg["jam_keep_youtube_copies"] = bool(body["keep"])
+            self.save_config(cfg)
+        folder = self._copies_dir()
+        if body.get("clear") and folder and os.path.isdir(folder):
+            for name in os.listdir(folder):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    os.remove(path)
+        return web.json_response(self.copies())
+
     def link(self) -> str:
         ip = govee_lan.local_ip() or "127.0.0.1"
         return f"http://{ip}:{self.port}/party"

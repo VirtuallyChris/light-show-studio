@@ -157,7 +157,7 @@ class Cancelled(Exception):
 class Installer:
     """One install at a time, on a thread of its own; status() is where it stands."""
 
-    PHASES = {"python": (0.0, 0.08), "packages": (0.08, 0.92), "models": (0.92, 1.0)}   # share of the bar
+    PHASES = {"python": (0.0, 0.08), "packages": (0.08, 0.84), "songs": (0.84, 0.92), "models": (0.92, 1.0)}   # share of the bar
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -171,6 +171,7 @@ class Installer:
         self.state = "idle"                  # idle | running | done | failed | cancelled
         self.variant, self.why = None, ""
         self.phase, self.step, self.line, self.error = "", "", "", ""
+        self.songs_error = ""                # song learning would not install; the models still work
         self.fraction = 0.0                  # of the current phase
         self.started = self.finished = 0.0
 
@@ -206,7 +207,7 @@ class Installer:
         progress = 1.0 if self.state == "done" else lo + (hi - lo) * min(1.0, self.fraction)
         variant, why = (self.variant, self.why) if self.variant else self.detect()
         return {"state": self.state, "installed": installed(), "variant": variant, "why": why,
-                "phase": self.phase, "step": self.step, "line": self.line, "error": self.error,
+                "phase": self.phase, "step": self.step, "line": self.line, "error": self.error, "songs_error": self.songs_error,
                 "progress": round(progress, 3), "where": models_env_dir(), "python": model_worker.venv_py(),
                 "seconds": round((self.finished or time.time()) - self.started, 1) if self.started else 0}
 
@@ -258,6 +259,7 @@ class Installer:
                 shutil.rmtree(final)
             os.replace(work, final)
             model_worker.note(f"[models-setup] installed ({self.variant}) in {final}")
+            self._songs(standalone_python(final))
             self.phase, self.step, self.fraction = "models", "Loading the models (their weights download now)", 0.0
             self.warm()
             self.fraction, self.state = 1.0, "done"
@@ -271,6 +273,68 @@ class Installer:
             self.finished = time.time()
             if self.state != "done":
                 shutil.rmtree(work, ignore_errors=True)
+
+    def start_songs(self) -> bool:
+        """Only the song learning (a computer that has the models already)."""
+        with self.lock:
+            if self.state == "running":
+                return False
+            self._set_idle()
+            self.state, self.started = "running", time.time()
+            self.cancel_flag.clear()
+            self.thread = threading.Thread(target=self._install_songs, daemon=True, name="songs-setup")
+            self.thread.start()
+            return True
+
+    def _install_songs(self) -> None:
+        try:
+            self._songs(model_worker.venv_py())
+            self.fraction, self.state = 1.0, "done"
+        except Cancelled:
+            self.state, self.step = "cancelled", "Cancelled"
+        finally:
+            self.proc = None
+            self.finished = time.time()
+
+    def _songs(self, py: str) -> None:
+        """What learning songs ahead needs: spotDL in an environment of its own, with Deno and ffmpeg. If this fails the
+        models still work, and songs are learned as they play, so it only says so."""
+        from . import fetch_ahead
+        self.phase, self.step, self.fraction = "songs", "Setting up song learning", 0.0
+        venv = os.path.dirname(os.path.dirname(fetch_ahead.SPOTDL))
+        scripts = os.path.dirname(fetch_ahead.SPOTDL)
+        python = model_worker.venv_python(venv)
+        steps = [("the environment", [py, "-I", "-m", "venv", venv]),
+                 ("spotDL", [python, "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--progress-bar", "off", f"spotdl=={SPOTDL_VERSION}"])]
+        home = fetch_ahead.SPOTDL_HOME
+        exe = ".exe" if os.name == "nt" else ""
+        # (each asks before replacing a copy it already has, and there is nobody to answer)
+        if not os.path.isfile(os.path.join(home, "deno" + exe)):
+            steps.append(("Deno", [fetch_ahead.SPOTDL, "--download-deno"]))
+        if not fetch_ahead.ffmpeg_path():
+            steps.append(("ffmpeg", [fetch_ahead.SPOTDL, "--download-ffmpeg"]))
+        try:
+            for i, (name, cmd) in enumerate(steps):
+                self.fraction = i / len(steps)
+                self._check()
+                code = self.run(cmd, self._song_line)
+                self._check()
+                if code != 0:
+                    raise RuntimeError(f"{name} would not install (exit {code}): {self.line}")
+            if not fetch_ahead.available():
+                raise RuntimeError(f"spotDL or ffmpeg is missing after installing (looked in {scripts} and {home})")
+            model_worker.note("[models-setup] song learning installed")
+        except Cancelled:
+            raise
+        except Exception as e:  # noqa: BLE001 - said on the setup screen
+            self.songs_error = f"{type(e).__name__}: {e}"
+            model_worker.note(f"[models-setup] song learning: {self.songs_error}")
+        self.fraction = 1.0
+
+    def _song_line(self, line: str) -> None:
+        self._check()
+        if line:
+            self.line = line[-300:]
 
     def _python(self, root: str, work: str) -> str:
         """Download, check and unpack the standalone Python into work; its interpreter."""
@@ -341,6 +405,7 @@ class Installer:
 
 
 INSTALLER = Installer()
+SPOTDL_VERSION = "4.5.2"
 MIN_FREE_GB = 15                         # PyTorch and the models' weights, with room to spare
 
 
@@ -349,8 +414,11 @@ def install_on_first_run(load_config, packaged: bool, live: bool, installer=None
     that didn't finish). Not from source, not in a test copy, not after Cancel, and not on a nearly full disk: then the
     button in Settings is still there. The app works meanwhile, with its own analysis."""
     installer = installer or INSTALLER
-    if not packaged or not live or load_config().get("models_auto_install", True) is False or installed():
+    if not packaged or not live or load_config().get("models_auto_install", True) is False:
         return False
+    if installed():                       # (from a version before song learning came with the models)
+        from . import fetch_ahead
+        return False if fetch_ahead.available() else installer.start_songs()
     if installer.detect()[0] is None:
         return False
     free = shutil.disk_usage(model_worker.data_dir()).free / 1e9 if free_gb is None else free_gb

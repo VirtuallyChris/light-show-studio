@@ -245,6 +245,56 @@ class TestInstallOnFirstRun(unittest.TestCase):
         self.assertTrue(self.go(free=ms.MIN_FREE_GB + 1))
 
 
+class TestSongLearningSetup(unittest.TestCase):
+    def installer(self, code=0, tools_there=True):
+        inst = ms.Installer()
+        inst.cmds = []
+
+        def run(cmd, on_line):
+            inst.cmds.append(cmd)
+            on_line("a line")
+            return code
+        inst.run = run
+        return inst
+
+    def test_installs_spotdl_and_fetches_only_what_is_missing(self):
+        inst = self.installer()
+        with mock.patch("lightshow.studio.fetch_ahead.available", lambda: True), mock.patch("lightshow.studio.fetch_ahead.ffmpeg_path", lambda: None),                 mock.patch("os.path.isfile", lambda p: False):
+            inst._songs("py")
+        joined = [" ".join(c) for c in inst.cmds]
+        self.assertTrue(any("venv" in c for c in joined))
+        self.assertTrue(any(f"spotdl=={ms.SPOTDL_VERSION}" in c for c in joined))
+        self.assertTrue(any("--download-deno" in c for c in joined))
+        self.assertTrue(any("--download-ffmpeg" in c for c in joined))
+        self.assertEqual(inst.songs_error, "")
+
+    def test_never_asks_to_replace_a_copy_it_has(self):
+        inst = self.installer()
+        with mock.patch("lightshow.studio.fetch_ahead.available", lambda: True), mock.patch("lightshow.studio.fetch_ahead.ffmpeg_path", lambda: "/x/ffmpeg"),                 mock.patch("os.path.isfile", lambda p: True):
+            inst._songs("py")
+        joined = " ".join(" ".join(c) for c in inst.cmds)
+        self.assertNotIn("--download-deno", joined)
+        self.assertNotIn("--download-ffmpeg", joined)
+
+    def test_a_failure_is_said_and_leaves_the_models_alone(self):
+        inst = self.installer(code=1)
+        inst._songs("py")                                 # no exception: the models still work
+        self.assertIn("would not install", inst.songs_error)
+
+    def test_a_computer_with_models_but_no_song_learning_gets_just_that(self):
+        class Fake:
+            started = 0
+
+            def start_songs(self):
+                Fake.started += 1
+                return True
+        with mock.patch.object(ms, "installed", lambda: True), mock.patch("lightshow.studio.fetch_ahead.available", lambda: False):
+            self.assertTrue(ms.install_on_first_run(lambda: {}, True, True, installer=Fake()))
+        self.assertEqual(Fake.started, 1)
+        with mock.patch.object(ms, "installed", lambda: True), mock.patch("lightshow.studio.fetch_ahead.available", lambda: True):
+            self.assertFalse(ms.install_on_first_run(lambda: {}, True, True, installer=Fake()))
+
+
 class TestEnvLayouts(unittest.TestCase):
     def test_venv_and_standalone_pythons_per_os(self):
         self.assertEqual(mw.venv_python("C:\\v", "win32"), "C:\\v\\Scripts\\python.exe")

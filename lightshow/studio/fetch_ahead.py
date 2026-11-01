@@ -29,7 +29,7 @@ import threading
 import time
 from collections import deque
 
-from ..appdirs import data_dir, self_command
+from ..appdirs import data_dir, run_outside, self_command
 from .model_worker import ModelWorker
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,8 +43,22 @@ RETRY_DOWNLOAD_S = 5 * 60       # one whose download failed (YouTube refuses now
 DOWNLOAD_TRIES = 3              # and before that it is tried again at once, a few seconds apart
 
 
+def ffmpeg_path() -> str | None:
+    """ffmpeg: on the system, or the copy the app's setup fetched with `spotdl --download-ffmpeg`."""
+    own = os.path.join(SPOTDL_HOME, "ffmpeg" + (".exe" if os.name == "nt" else ""))
+    return shutil.which("ffmpeg") or (own if os.path.isfile(own) else None)
+
+
 def available() -> bool:
-    return os.path.isfile(SPOTDL) and shutil.which("ffmpeg") is not None
+    return os.path.isfile(SPOTDL) and ffmpeg_path() is not None
+
+
+def _tools_env() -> dict:
+    """For spotDL and YouTube's downloader: Deno and ffmpeg's folder first on the path."""
+    from .model_worker import child_env
+    env = child_env()
+    env["PATH"] = SPOTDL_HOME + os.pathsep + env.get("PATH", "")
+    return env
 
 
 def _download(track, folder: str) -> str:
@@ -52,8 +66,8 @@ def _download(track, folder: str) -> str:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
     # Deno (installed with `spotdl --download-deno`) lets YouTube's downloader get the copies that need it
     # ("made for kids" ones among them): its folder goes first on the path spotDL sees.
-    env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
-    r = subprocess.run([SPOTDL, "download", f"https://open.spotify.com/track/{track.id}", "--output",
+    env = _tools_env()
+    r = run_outside([SPOTDL, "download", f"https://open.spotify.com/track/{track.id}", "--output",
                         os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
                         "--lyrics", "--skip-album-art",      # (no lyrics searched, no art: not needed, and seconds a song)
                         "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
@@ -122,7 +136,7 @@ def _search_ytmusic(track) -> list[dict]:
     import json
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     q = f"{track.artists[0] if track.artists else ''} {track.name}".strip()
-    r = subprocess.run([_spotdl_python(), "-c", YTMUSIC_SEARCH, q], capture_output=True, text=True, timeout=60, creationflags=flags)
+    r = run_outside([_spotdl_python(), "-c", YTMUSIC_SEARCH, q], capture_output=True, text=True, timeout=60, creationflags=flags, env=_tools_env())
     try:
         return json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -159,7 +173,7 @@ def _search_youtube(track) -> list[dict]:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
     q = f"{track.artists[0] if track.artists else ''} {track.name}".strip()
-    r = subprocess.run([_spotdl_python(), "-m", "yt_dlp", "--flat-playlist", "--no-warnings", "--print",
+    r = run_outside([_spotdl_python(), "-m", "yt_dlp", "--flat-playlist", "--no-warnings", "--print",
                         "%(id)s\t%(duration)s\t%(channel)s\t%(title)s", f"ytsearch12:{q}"],
                        capture_output=True, text=True, timeout=90, creationflags=flags, env=env)
     out = []
@@ -181,7 +195,7 @@ def _download_from(track, folder: str, url: str) -> str:
     # Deno (installed with `spotdl --download-deno`) lets YouTube's downloader get the copies that need it
     env = {**os.environ, "PATH": SPOTDL_HOME + os.pathsep + os.environ.get("PATH", "")}
     try:
-        subprocess.run([_spotdl_python(), "-m", "yt_dlp", "-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist", "--no-progress", "-q",
+        run_outside([_spotdl_python(), "-m", "yt_dlp", "-f", "bestaudio[ext=m4a]/bestaudio", "--no-playlist", "--no-progress", "-q",
                         "-o", os.path.join(folder, track.id + ".%(ext)s"), url],
                        capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
     except (OSError, subprocess.SubprocessError):
@@ -191,7 +205,7 @@ def _download_from(track, folder: str, url: str) -> str:
         return got[0]
     for p in glob.glob(os.path.join(folder, track.id + ".*")):
         os.remove(p)
-    r = subprocess.run([SPOTDL, "download", f"{url}|https://open.spotify.com/track/{track.id}", "--output",
+    r = run_outside([SPOTDL, "download", f"{url}|https://open.spotify.com/track/{track.id}", "--output",
                         os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
                         "--lyrics", "--skip-album-art", "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
     got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
@@ -205,7 +219,7 @@ def _to_flac(src: str) -> str:
     """The analysis reads FLAC (not m4a): converted losslessly, in well under a second."""
     out = os.path.splitext(src)[0] + ".flac"
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, out], check=True, timeout=120, creationflags=flags)
+    run_outside([ffmpeg_path() or "ffmpeg", "-v", "error", "-y", "-i", src, out], check=True, timeout=120, creationflags=flags)
     return out
 
 
@@ -291,8 +305,8 @@ class FetchAhead:
         self.lyrics = lyrics
         # labeler.learn_features: SongFormer's features for the learned section labeler, from the copy (None: none)
         self.features = features
-        # config jam_keep_youtube_copies (off by default): keep each copy after it is learned, in
-        # shows/_jam/copies, and learn from it again instead of downloading it (a relearn, a new analysis)
+        # config jam_keep_youtube_copies (on by default): keep each copy after it is learned, in shows/_jam/copies,
+        # so a show can be reviewed and fixed later, and learn from it again instead of downloading it
         self.keep = keep
         self.download, self.to_flac, self.length, self.analyze = download, to_flac, length, analyze
         self.search, self.download_from, self.search_music = search, download_from, search_music

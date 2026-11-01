@@ -65,11 +65,11 @@ class JamService:
         # learn ahead: queued songs learned before they play, from a copy found on YouTube (fetch_ahead)
         from . import labeler, lyrics
         from .fetch_ahead import FetchAhead
-        self.fetch = FetchAhead(self.library, keep=lambda: bool(self.load_config().get("jam_keep_youtube_copies", False)),
+        self.fetch = FetchAhead(self.library, keep=lambda: bool(self.load_config().get("jam_keep_youtube_copies", True)),
                                 lyrics=lyrics.learn, features=labeler.learn_features)
         cfg = self.load_config()
         if cfg and "jam_keep_youtube_copies" not in cfg:     # written in, so the setting is there to see and change
-            cfg["jam_keep_youtube_copies"] = False
+            cfg["jam_keep_youtube_copies"] = True
             self.save_config(cfg)
         self._assigned: dict[str, int] = {}                  # track id -> the pair it got in "mix"
         self._moods: dict[str, dict | None] = {}             # track id -> its learned mood (or None)

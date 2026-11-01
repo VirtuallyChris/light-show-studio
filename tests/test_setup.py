@@ -1,6 +1,7 @@
 """Setting up a home (setup.py): the checklist, the sound devices picked into the config, the phone's address and QR
 code. Stand-ins only: no lights, speakers or microphone are touched."""
 
+import os
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -53,6 +54,36 @@ class TestSetup(unittest.TestCase):
             item = self.sound([], "")
         self.assertFalse(item["done"])
         self.assertIn("14.2", item["detail"])
+
+    def test_kept_song_copies_are_counted_cleared_and_can_stop(self):
+        import asyncio
+        import tempfile
+
+        class Req:
+            remote = "127.0.0.1"
+            def __init__(self, body): self.body = body
+            async def json(self): return self.body
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "a.flac"), "wb") as fh:
+                fh.write(b"x" * 1000)
+            s = self.make(jam=SimpleNamespace(fetch=SimpleNamespace(copies_dir=lambda: d), spotify=None))
+            self.assertEqual(s.copies()["count"], 1)
+            self.assertTrue(s.copies()["keep"])              # kept by default: shows can be fixed later
+            asyncio.run(s.h_copies_set(Req({"keep": False})))
+            self.assertFalse(s.copies()["keep"])
+            self.assertEqual(s.copies()["count"], 1)         # stopping keeps what is there
+            asyncio.run(s.h_copies_set(Req({"clear": True})))
+            self.assertEqual(s.copies()["count"], 0)
+
+    def test_kept_song_copies_are_only_cleared_from_this_computer(self):
+        import asyncio
+        from aiohttp import web
+
+        class Req:
+            remote = "192.168.1.50"
+            async def json(self): return {"clear": True}
+        with self.assertRaises(web.HTTPForbidden):
+            asyncio.run(self.make().h_copies_set(Req()))
 
     def test_a_new_home_has_steps_to_do(self):
         with mock.patch.object(setup, "_outputs", return_value=([], "")):
