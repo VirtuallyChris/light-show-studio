@@ -1,5 +1,6 @@
 """All the studio's models in one process: SongFormer (sections), Demucs (stems), the genre model,
-Beat This (beats) and ADTOF (drum hits), in the model environment (CUDA PyTorch).
+Beat This (beats) and ADTOF (drum hits), in the model environment (PyTorch on the graphics card where
+there is one it can use, see devices.py, else on the CPU).
 
 Each model used to be a process of its own, and the learn-ahead process started its own set again:
 with the venv's launcher and a console host for every one, Task Manager showed a couple of dozen
@@ -36,6 +37,8 @@ import threading
 import time
 import traceback
 
+from . import devices
+
 
 def _log(msg: str) -> None:
     print(f"[models] {msg}", file=sys.stderr, flush=True)
@@ -53,27 +56,48 @@ class Model:
     def _load(self):
         if self.state is not None:
             return True
-        t0 = time.time()
-        try:
-            with LOAD_LOCK:                              # one load at a time: two threads importing the same
-                self.state = LOADERS[self.name]()        # library at once (transformers) break each other
-                CARD.set_cap()
-            _log(f"{self.name} loaded in {time.time() - t0:.1f} s")
-            self.load_error = ""
-            self.phase = "warming"
-            self._warm_up()
-            self.phase = "ready"
-            return True
-        except Exception as e:  # noqa: BLE001
-            self.load_error = f"{type(e).__name__}: {e}"
-            self.phase = "failed"
-            _log(f"{self.name} would not load: {self.load_error}\n{traceback.format_exc()}")
-            return False
+        while True:
+            t0 = time.time()
+            try:
+                with LOAD_LOCK:                          # one load at a time: two threads importing the same
+                    self.state = LOADERS[self.name]()    # library at once (transformers) break each other
+                    CARD.set_cap()
+                _log(f"{self.name} loaded in {time.time() - t0:.1f} s ({devices.best_device(self.name)})")
+                self.load_error = ""
+                self.phase = "warming"
+                failed = self._warm_up()
+                if failed is not None and self._to_cpu(failed):
+                    self.state = None
+                    _free()
+                    continue
+                self.phase = "ready"
+                return True
+            except Exception as e:  # noqa: BLE001
+                self.state = None
+                if self._to_cpu(e):
+                    continue
+                self.load_error = f"{type(e).__name__}: {e}"
+                self.phase = "failed"
+                _log(f"{self.name} would not load: {self.load_error}\n{traceback.format_exc()}")
+                return False
 
-    def _warm_up(self):
+    def _to_cpu(self, e: BaseException) -> bool:
+        """A model that failed on its card is pinned to the CPU and loaded again there (True). Not for want of
+        memory or of a package (that fails on the CPU too), and not on an NVIDIA card, where every model is
+        known to run: a passing CUDA error there must not leave a model on the CPU, many times slower."""
+        if _out_of_memory(e) or isinstance(e, ImportError) or not devices.may_fall_back():
+            return False
+        was = devices.best_device(self.name)
+        if not devices.pin_to_cpu(self.name):
+            return False
+        _log(f"{self.name} failed on {was} ({type(e).__name__}: {e}): on the CPU from now on")
+        return True
+
+    def _warm_up(self) -> BaseException | None:
         """One practice run on a few seconds of quiet noise, right after loading: a GPU model's first run or
         two pay the card's setting up (kernels chosen, memory laid out), 8-12 s for SongFormer where a warm
-        run takes 2.5, and that used to land on the first songs learned after the studio opened."""
+        run takes 2.5, and that used to land on the first songs learned after the studio opened. It also
+        finds a model that does not run on this card (Apple, DirectML, an AMD card): the error, else None."""
         import numpy as np
         sr, secs = WARM_AUDIO.get(self.name, (22050, 10))
         y = (0.01 * np.random.default_rng(0).standard_normal(int(sr * secs))).astype(np.float32)
@@ -81,8 +105,10 @@ class Model:
         try:
             HANDLERS[self.name](self.state, {"samples": len(y), "sr": sr}, y.tobytes())
             _log(f"{self.name} warmed up in {time.time() - t0:.1f} s")
-        except Exception as e:  # noqa: BLE001 - a warm-up that fails costs nothing
+            return None
+        except Exception as e:  # noqa: BLE001 - a warm-up that fails costs nothing (on an NVIDIA card)
             _log(f"{self.name} warm-up skipped: {type(e).__name__}: {e}")
+            return e
 
     def _run(self):
         while True:

@@ -1,0 +1,24 @@
+# The AI models' packages on every machine, pinned to a set known to work together (the NVIDIA setup
+# the models were built on). Not installed on its own: each requirements-models-<variant>.txt brings
+# PyTorch for its kind of machine and then includes this file. The in-app installer
+# (lightshow/studio/model_setup.py) picks the variant; see the README, "AI models on any machine".
+transformers==4.51.1
+huggingface_hub==0.36.2
+numpy==2.5.3
+scipy==1.18.1
+librosa==1.0.0
+soundfile==0.14.0
+tqdm==4.70.1
+einops==0.8.2
+loguru==0.7.3
+omegaconf==2.3.1
+ema-pytorch==0.8.3
+x-transformers==2.28.4
+nnAudio==0.3.4
+muq==0.1.0
+demucs==4.1.0
+beat_this==1.1.0
+# ADTOF's PyTorch port is not on PyPI: the pinned commit's archive (no git needed)
+adtof-pytorch @ https://github.com/xavriley/ADTOF-pytorch/archive/85c192e78f716ea0b111cc8a5ee4a8f6a3a4f8a9.zip
+faster-whisper==1.2.1
+ctranslate2==4.8.3

@@ -74,10 +74,11 @@ def windows(y, sr: int, window_s: float = WINDOW_S, most: int = MAX_WINDOWS):
 
 def load_model():
     """MAEST, or AST where MAEST cannot load: ("maest" | "ast", extractor, model, keep, device)."""
-    import torch
     from transformers import ASTFeatureExtractor, ASTForAudioClassification, AutoFeatureExtractor
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    from . import devices
+
+    device = devices.device_for("genre_infer")
     try:
         extractor = AutoFeatureExtractor.from_pretrained(MAEST, revision=MAEST_REVISION, trust_remote_code=True)
         model = ASTForAudioClassification.from_pretrained(MAEST, revision=MAEST_REVISION).to(device).eval()

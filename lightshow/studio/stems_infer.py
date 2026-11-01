@@ -30,11 +30,13 @@ OUT_SR = 22050
 FPS = 30
 
 
-def load_model():
-    import torch
+def load_model(device=None):
     from demucs.pretrained import get_model
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    from . import devices
+
+    if device is None:
+        device = devices.device_for("stems_infer")
     model = get_model(MODEL)
     model.to(device).eval()
     return model, device

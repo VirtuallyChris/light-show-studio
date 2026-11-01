@@ -1,0 +1,8 @@
+# The AI models on an AMD (or Intel Arc) card under Windows, best effort: torch-directml, which needs
+# PyTorch 2.4.1. Models DirectML cannot run (no complex numbers: no STFT on the card) and any that fail
+# there run on the CPU instead (lightshow/studio/devices.py). Whisper runs on the CPU.
+torch==2.4.1
+torchaudio==2.4.1
+torchvision==0.19.1
+torch-directml==0.2.5.dev240914
+-r requirements-models-common.txt

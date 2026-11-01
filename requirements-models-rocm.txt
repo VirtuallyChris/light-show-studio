@@ -1,0 +1,7 @@
+# The AI models on an AMD card under Linux: PyTorch for ROCm 7.2 (it reports the card as "cuda").
+# Whisper (CTranslate2) has no ROCm build and runs on the CPU.
+--extra-index-url https://download.pytorch.org/whl/rocm7.2
+torch==2.14.0+rocm7.2
+torchaudio==2.11.0+rocm7.2
+torchvision==0.29.0+rocm7.2
+-r requirements-models-common.txt

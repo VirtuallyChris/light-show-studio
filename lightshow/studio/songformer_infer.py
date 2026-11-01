@@ -28,8 +28,10 @@ def load_model(device: str = "auto"):
     from huggingface_hub import snapshot_download
     from transformers import AutoModel
 
+    from . import devices
+
     if device == "auto":
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = devices.device_for("songformer_infer")
     local_dir = snapshot_download(repo_id=REPO, repo_type="model", ignore_patterns=["SongFormer.pt", "SongFormer.safetensors"])
     # The remote code imports its sibling files as top-level modules (model, musicfm, ...)
     # and finds its config through the working directory, so the working directory moves.
@@ -97,7 +99,7 @@ def features(model, y, out_dir: str, name: str) -> dict:
 
     dev = next(model.parameters()).device
     audio = torch.tensor(np.asarray(y, dtype=np.float32)).to(dev)
-    ec = (lambda: torch.cuda.empty_cache()) if dev.type == "cuda" else (lambda: None)
+    ec = {"cuda": lambda: torch.cuda.empty_cache(), "mps": lambda: torch.mps.empty_cache()}.get(dev.type, lambda: None)
     t0 = time.time()
     for win in (420, 150):
         try:

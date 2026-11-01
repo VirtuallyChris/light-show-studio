@@ -3,6 +3,8 @@ r"""The learned section labeler (lightshow/studio/labeler.py), by hand:
     .venv\Scripts\python tools\section_labeler.py eval      the rules against the labeler, leaving one song out at a time
     .venv\Scripts\python tools\section_labeler.py train     fit it on every reviewed song (shows/_jam/labeler.joblib) and
                                                           rank the songs to review next (review_order.json)
+    .venv\Scripts\python tools\section_labeler.py export    this home's trained labeler becomes the one the app ships
+                                                          (lightshow/studio/data/section_labeler, for everyone)
 
 The studio retrains it by itself as songs are reviewed (review.py). SongFormer's features for the songs learned
 before they were saved as each song is learned: .venv-songformer\Scripts\python tools\songformer_features.py
@@ -23,4 +25,9 @@ if __name__ == "__main__":
     if "--fresh" in sys.argv and os.path.isdir(labeler.CACHE):
         for f in os.listdir(labeler.CACHE):
             os.remove(os.path.join(labeler.CACHE, f))
-    {"eval": labeler.evaluate, "train": labeler.train}[cmd](lib)
+    if cmd == "export":
+        import joblib
+        from lightshow.studio import labeler_bundle
+        print(labeler_bundle.export(joblib.load(labeler.MODEL)))
+    else:
+        {"eval": labeler.evaluate, "train": labeler.train}[cmd](lib)

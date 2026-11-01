@@ -31,3 +31,6 @@ Desktop.ini
 bulbshow/shows/
 bulbshow/config.json
 bulbshow/bulbshow.log
+
+# The AI models' environment the in-app installer makes (lightshow/studio/model_setup.py)
+models-env/

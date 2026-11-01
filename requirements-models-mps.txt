@@ -1,0 +1,6 @@
+# The AI models on a Mac with Apple Silicon: PyTorch from PyPI runs on the GPU through Metal (MPS).
+# Operations Metal lacks fall back to the CPU (PYTORCH_ENABLE_MPS_FALLBACK). Whisper runs on the CPU.
+torch==2.14.0
+torchaudio==2.11.0
+torchvision==0.29.0
+-r requirements-models-common.txt

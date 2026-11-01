@@ -21,11 +21,12 @@ SR = 22050
 
 
 def load_model(device: str = "auto"):
-    import torch
     from beat_this.inference import Audio2Beats
 
+    from . import devices
+
     if device == "auto":
-        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        device = devices.device_for("beats_infer")
     return Audio2Beats(checkpoint_path="final0", device=device, dbn=False), device
 
 

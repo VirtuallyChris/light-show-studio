@@ -1,0 +1,6 @@
+# The AI models on an NVIDIA card (Windows or Linux): PyTorch for CUDA 12.6.
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.14.0+cu126
+torchaudio==2.11.0+cu126
+torchvision==0.29.0+cu126
+-r requirements-models-common.txt

@@ -488,17 +488,19 @@ class Models:
     def __init__(self, device: str | None = None, whisper: str = WHISPER):
         # (Demucs here is a second copy of the stems model's, 80 MB: sharing the stems model's own would
         # mean waiting on its thread, which is busy with the songs being learned)
+        # (each on the best device it runs on: Whisper (CTranslate2) only on an NVIDIA card or the CPU)
         import torch
+        from . import devices
         self.torch = torch
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or devices.device_for("lyrics")
         from . import stems_infer
         self.stems_infer = stems_infer
-        self.demucs, _ = stems_infer.load_model()
-        if self.device == "cpu":
-            self.demucs.to("cpu")
+        self.demucs_device = self.device if device else devices.device_for("lyrics.demucs")
+        self.demucs, _ = stems_infer.load_model(self.demucs_device)
         from faster_whisper import WhisperModel
         self.whisper_name = whisper
-        self.whisper = WhisperModel(whisper, device=self.device, compute_type="float16" if self.device == "cuda" else "int8")
+        w_device, w_type = ("cpu", "int8") if device == "cpu" else devices.whisper_device()
+        self.whisper = WhisperModel(whisper, device=w_device, compute_type=w_type)
         import torchaudio
         bundle = torchaudio.pipelines.MMS_FA
         self.aligner = bundle.get_model(with_star=False).to(self.device).eval()
@@ -511,7 +513,7 @@ class Models:
         import numpy as np
         import soundfile as sf
         y, sr = sf.read(path, dtype="float32", always_2d=True)
-        stems, _ = self.stems_infer.separate(self.demucs, self.device if self.device != "cuda" else "cuda:0", y.T, sr)
+        stems, _ = self.stems_infer.separate(self.demucs, self.demucs_device, y.T, sr)
         v = librosa.resample(stems["vocals"], orig_sr=self.stems_infer.OUT_SR, target_sr=SR).astype(np.float32)
         return v, len(y) / sr
 

@@ -25,14 +25,49 @@ from .priority import POPEN_BELOW_NORMAL
 from .winpaths import local_appdata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# The model environment lives in the project folder (.venv-songformer), the folder the studio runs from,
-# and nowhere else. It used to be under AppData\Local, but a folder made there by a program Windows runs
-# as a packaged app (the Claude desktop app's terminal) is quietly redirected into that app's own storage:
-# that program and everything it starts see it, the studio started from its shortcut does not, and the
-# models were missing from the studio for days without a word.
-_CANDIDATES = [
-    os.path.join(ROOT, ".venv-songformer", "Scripts", "python.exe"),
-]
+
+
+def models_env_dir() -> str:
+    """Where the in-app installer (model_setup.py) puts the model environment: a standalone Python with the
+    models' packages, in <this>/python. The one place to change when the app's data folder moves.
+    Run from source, the project folder, like .venv-songformer (see below); a packaged app, its app data."""
+    if getattr(sys, "frozen", False):
+        return os.path.join(local_appdata(), "LightShowStudio", "models-env")
+    return os.path.join(ROOT, "models-env")
+
+
+def _paths(plat: str):
+    import ntpath
+    import posixpath
+    return ntpath if plat == "win32" else posixpath
+
+
+def venv_python(venv: str, plat: str = sys.platform) -> str:
+    """A virtual environment's Python: Scripts\\python.exe on Windows, bin/python elsewhere."""
+    p = _paths(plat)
+    return p.join(venv, "Scripts", "python.exe") if plat == "win32" else p.join(venv, "bin", "python")
+
+
+def standalone_python(home: str, plat: str = sys.platform) -> str:
+    """A standalone Python's own interpreter (python-build-standalone): python.exe at its top on Windows,
+    bin/python3 elsewhere."""
+    p = _paths(plat)
+    return p.join(home, "python.exe") if plat == "win32" else p.join(home, "bin", "python3")
+
+
+def candidates(plat: str = sys.platform) -> list[str]:
+    """Where the model environment's Python may be, in the order looked for.
+
+    First the project folder's .venv-songformer, made by hand (README), the folder the studio runs from.
+    It used to be under AppData\\Local, but a folder made there by a program Windows runs as a packaged app
+    (the Claude desktop app's terminal) is quietly redirected into that app's own storage: that program
+    and everything it starts see it, the studio started from its shortcut does not, and the models were
+    missing from the studio for days without a word. Then the one the in-app installer makes."""
+    return [venv_python(os.path.join(ROOT, ".venv-songformer"), plat),
+            standalone_python(os.path.join(models_env_dir(), "python"), plat)]
+
+
+_CANDIDATES = candidates()
 
 
 def venv_py() -> str:
@@ -105,17 +140,29 @@ def _kill_tree(p) -> None:
         p.kill()
 
 
-def _base_python() -> tuple[str, str] | None:
+def _base_python(py: str | None = None, plat: str = sys.platform) -> tuple[str, str] | None:
     """The model environment's real interpreter and its site-packages, to start the host without the
-    venv's launcher (one process, not two). None if it cannot be told."""
-    venv = os.path.dirname(os.path.dirname(venv_py()))
+    venv's launcher (one process, not two). None if it cannot be told, or the environment is not a venv
+    (the installer's standalone Python is the real interpreter already)."""
+    p = _paths(plat)
+    venv = p.dirname(p.dirname(py or venv_py()))
     try:
-        with open(os.path.join(venv, "pyvenv.cfg"), encoding="utf-8") as fh:
-            home = next(line.split("=", 1)[1].strip() for line in fh if line.split("=", 1)[0].strip() == "home")
-    except (OSError, StopIteration):
+        with open(p.join(venv, "pyvenv.cfg"), encoding="utf-8") as fh:
+            cfg = {k.strip(): v.strip() for k, _, v in (line.partition("=") for line in fh) if v}
+    except OSError:
         return None
-    exe, site_dir = os.path.join(home, "python.exe"), os.path.join(venv, "Lib", "site-packages")
-    return (exe, site_dir) if os.path.exists(exe) and os.path.isdir(site_dir) else None
+    home = cfg.get("home")
+    if not home:
+        return None
+    if plat == "win32":
+        exe, site_dir = p.join(home, "python.exe"), p.join(venv, "Lib", "site-packages")
+    else:                                              # home is the base Python's bin folder
+        mm = ".".join((cfg.get("version") or cfg.get("version_info") or "").split(".")[:2])
+        if not mm:
+            return None
+        exe = next((c for c in (p.join(home, f"python{mm}"), p.join(home, "python3")) if os.path.exists(c)), "")
+        site_dir = p.join(venv, "lib", f"python{mm}", "site-packages")
+    return (exe, site_dir) if exe and os.path.exists(exe) and os.path.isdir(site_dir) else None
 
 
 class ModelHost:

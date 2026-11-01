@@ -1,0 +1,7 @@
+# The AI models with no graphics card PyTorch can use: PyTorch for the CPU. Slower (a song takes a
+# minute or more), fine for learning songs ahead.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.0+cpu
+torchaudio==2.11.0+cpu
+torchvision==0.29.0+cpu
+-r requirements-models-common.txt

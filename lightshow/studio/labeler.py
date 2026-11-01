@@ -181,12 +181,15 @@ def matrix(s, pcas):
 
 
 class Model:
-    """XGBoost on the graphics card (300 rounds on ~7,000 bars in ~5 s), each label weighted as if equally common."""
+    """XGBoost on the graphics card (300 rounds on ~7,000 bars in ~5 s), each label weighted as if equally common.
+    On the CPU where XGBoost has no CUDA or there is no NVIDIA card (fast enough at this size)."""
 
     def __init__(self):
         from xgboost import XGBClassifier
+
+        from .devices import xgboost_device
         self.clf = XGBClassifier(n_estimators=300, learning_rate=0.05, max_depth=6, subsample=0.9, colsample_bytree=0.6,
-                                 reg_lambda=1.0, tree_method="hist", device="cuda", n_jobs=8, random_state=0)
+                                 reg_lambda=1.0, tree_method="hist", device=xgboost_device(), n_jobs=8, random_state=0)
 
     def fit(self, X, y, w=None):
         from sklearn.utils.class_weight import compute_sample_weight
@@ -259,15 +262,27 @@ _LOCK = threading.Lock()
 
 
 def _load():
+    """This home's own trained labeler, else the one that comes with the app (labeler_bundle), else None."""
     try:
         mtime = os.path.getmtime(MODEL)
     except OSError:
-        return None
+        return _bundled()
     with _LOCK:
         if _LOADED.get("mtime") != mtime:
             import joblib
             _LOADED.update(joblib.load(MODEL), mtime=mtime)
         return _LOADED
+
+
+_BUNDLED: dict = {}
+
+
+def _bundled():
+    with _LOCK:
+        if "m" not in _BUNDLED:
+            from . import labeler_bundle
+            _BUNDLED["m"] = labeler_bundle.load(len(TYPES))
+        return _BUNDLED["m"]
 
 
 def warm() -> None:
