@@ -616,6 +616,8 @@ class Studio:
         # the Home Assistant add-on: told when the show has the lights (a test copy never tells it anything)
         from .homeassistant import HomeAssistantLink
         self.homeassistant = HomeAssistantLink(self, load_config, save_config, live=lights)
+        from .updates import UpdateNotice
+        self.updates = UpdateNotice(load_config, save_config, live=lights, port=port, quit_app=self._quit)
         self.app.add_routes([
             web.get("/", self.index),
             web.get("/api/devices", self.devices),
@@ -668,6 +670,7 @@ class Studio:
             *self.space.routes(),
             *self.setup.routes(),
             *self.homeassistant.routes(),
+            *self.updates.routes(),
             web.static("/static", STATIC),
         ])
         if self.quit_when_closed:
@@ -679,6 +682,7 @@ class Studio:
 
     async def _homeassistant_at_start(self, app):
         self.homeassistant.start()
+        self.updates.start()
 
     async def _close_player(self, app):
         """Any orderly exit: Edge's sound goes back to the default output, the hidden player closes,

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Light Show Studio</title>
+<style>
+  :root { --bg: #0d0e14; --panel: #1b1c26; --text: #f3f2f8; --dim: #9a99ab; --accent: #8b5cf6; --line: #2b2c39; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 0 32px; box-sizing: border-box; text-align: center; }
+  svg { width: 44px; height: 44px; }
+  h1 { font-size: 17px; font-weight: 700; margin: 0; }
+  #what { color: var(--dim); font-size: 13px; margin: 0; min-height: 18px; }
+  .bar { width: 100%; height: 6px; border-radius: 3px; background: var(--panel); overflow: hidden; }
+  .bar div { height: 100%; width: 0; border-radius: 3px; background: var(--accent); transition: width .3s; }
+  button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 8px; padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+  button:hover { color: var(--text); }
+</style>
+</head>
+<body>
+  <svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="12" fill="none" stroke="#8b5cf6" stroke-width="2"></circle><circle cx="14" cy="14" r="5" fill="#8b5cf6"></circle></svg>
+  <h1 id="title">Updating Light Show Studio</h1>
+  <div class="bar"><div id="fill"></div></div>
+  <p id="what"></p>
+  <button id="skip" title="Open the version you have now">Skip for now</button>
+<script>
+  const $ = id => document.getElementById(id);
+  $('skip').onclick = () => { $('what').textContent = 'Opening...'; $('skip').hidden = true; fetch('/skip', { method: 'POST' }).catch(() => {}); };
+  async function tick() {
+    let s;
+    try { s = await (await fetch('/state')).json(); } catch (e) { window.close(); return; }
+    if (s.version) $('title').textContent = `Updating to version ${s.version}`;
+    $('fill').style.width = `${Math.round(100 * (s.phase === 'download' ? s.progress : 1))}%`;
+    if (s.phase === 'download' && !$('skip').hidden) $('what').textContent = `Downloading: ${Math.round(100 * s.progress)}%`;
+    if (s.phase === 'install') { $('what').textContent = 'Installing...'; $('skip').hidden = true; }
+    if (s.phase === 'done') { $('what').textContent = 'Opening...'; $('skip').hidden = true; window.close(); return; }
+    setTimeout(tick, 400);
+  }
+  tick();
+</script>
+</body>
+</html>

@@ -41,6 +41,12 @@ def modules(pkg):
 
 
 datas = tree("lightshow") + tree("bulbshow") + collect_data_files("soundcard") + collect_data_files("librosa") + collect_data_files("xgboost")
+# The version the app knows itself by (lightshow/studio/updates.py), from the release tag
+os.makedirs(workpath, exist_ok=True)
+version_file = os.path.join(workpath, "VERSION")
+with open(version_file, "w", encoding="utf-8") as fh:
+    fh.write(VERSION)
+datas += [(version_file, "lightshow")] + collect_data_files("certifi")
 hidden = modules("lightshow") + modules("bulbshow") + collect_submodules("pychromecast")
 # The AI models run in the model environment, not in the app: never pull them in
 excludes = ["torch", "torchaudio", "torchvision", "transformers", "ctranslate2", "faster_whisper", "demucs",

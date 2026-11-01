@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 from . import govee_lan
 from .appdirs import data_dir
@@ -47,6 +48,16 @@ def cmd_calibrate(args):
 
 
 def cmd_studio(args):
+    from .studio import updates
+    if args.restarted:                                     # (the copy that asked for this restart is on its way out)
+        for _ in range(100):
+            if not updates.port_busy(args.port):
+                break
+            time.sleep(0.2)
+    if args.no_update:                                     # just installed: its installer is no longer needed
+        updates.clean()
+    elif not args.no_browser and not args.no_lights:       # (a test copy, or one with no window, never updates)
+        updates.at_launch(args.port)
     from .studio.server import run
     run(host=args.host, port=args.port, open_browser=not args.no_browser,
         app_window=not args.tab, stay=args.stay, lights=not args.no_lights, player=not args.no_player)
@@ -82,6 +93,8 @@ def main(argv=None):
     st.add_argument("--stay", action="store_true", help="keep the server running after the app window is closed")
     st.add_argument("--no-lights", action="store_true", help="never drive the lights (a test copy beside the real studio)")
     st.add_argument("--no-player", action="store_true", help="do not start the hidden Spotify player")
+    st.add_argument("--no-update", action="store_true", help="open this version without looking for a newer one")
+    st.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
     st.set_defaults(fn=cmd_studio)
 
     args = p.parse_args(argv)

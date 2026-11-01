@@ -10,3 +10,4 @@ scikit-learn>=1.5
 xgboost>=3.0
 pycryptodomex>=3.20
 segno>=1.6
+certifi>=2024.2.2

@@ -190,6 +190,16 @@
     ['spotify', 'Spotify', '♪'], ['moments', 'Moments', 'M'], ['addons', 'Add-ons', '+'], ['models', 'AI models', 'AI'], ['phone', 'Your phone', 'P'],
   ];
   let section = 'start', setup = null;
+  // a downloaded app's updates (a copy run from source has none of this: git pull updates it)
+  async function askUpdate() {
+    const u = await get('/api/update').catch(() => null);
+    if (!u) return;
+    if (u.packaged && !SECTIONS.some(s => s[0] === 'updates')) SECTIONS.push(['updates', 'Updates', '↑']);
+    $('#railUpdate').hidden = !u.available;
+  }
+  $('#railUpdate').onclick = () => { showView('settings'); showSection('updates'); };
+  askUpdate();
+  setInterval(askUpdate, 30 * 60 * 1000);
   try { section = localStorage.getItem('lss-section') || 'start'; } catch (e) { /* the first */ }
   async function renderNav() {
     try { setup = await get('/api/setup'); } catch (e) { setup = null; }
@@ -216,6 +226,7 @@
     moments: 'Buttons that hold the party for a moment (every light one color, the music down or paused) and cues that play a show of their own.',
     addons: 'Features for one kind of home. Each does nothing until it is switched on.',
     models: 'Optional: AI models that hear beats, sections and drums better. A few GB, downloaded once, on NVIDIA, AMD, Apple or the CPU.',
+    updates: 'A new version installs by itself when you open the app. Nothing restarts while it is open unless you ask.',
     phone: 'Run the party from your phone: the Party Hub works in any phone browser on the same Wi-Fi.',
   };
   const card = (inner, cls = '') => `<section class="st-card ${cls}">${inner}</section>`;
@@ -380,6 +391,19 @@
         if (s.state === 'running' && section === 'models' && view === 'settings') setTimeout(draw, 1500);
       };
       draw();
+    },
+    async updates(el) {
+      const draw = async (u, busy) => {
+        el.innerHTML = card(row(u.available ? `Version ${esc(u.latest)} is ready` : 'Up to date', `You have version ${esc(u.version)}.${u.error ? ' Could not reach GitHub just now.' : ''}`,
+            u.available && u.can_install ? `<button id="stUpRestart" class="accent">Restart and update</button>`
+              : u.available ? `<a href="${esc(u.page)}" target="_blank" rel="noopener"><button class="accent">Download</button></a>`
+              : `<button id="stUpCheck" ${busy ? 'disabled' : ''}>${busy ? 'Checking...' : 'Check now'}</button>`) +
+          row('Update when the app opens', u.can_install ? 'Off: it only says here that there is a new version.' : 'This copy cannot replace itself where it is. On a Mac, move it to Applications.', toggle(`id="stUpAuto" ${u.can_install ? '' : 'disabled'}`, u.auto_update && u.can_install)));
+        $('#stUpAuto').onchange = async e => post('/api/update', { auto_update: e.target.checked });
+        if ($('#stUpCheck')) $('#stUpCheck').onclick = async () => { draw(u, true); draw(await post('/api/update', { check: true })); askUpdate(); };
+        if ($('#stUpRestart')) $('#stUpRestart').onclick = async () => { await post('/api/update', { restart: true }); St.toast('Restarting to update'); };
+      };
+      draw(await get('/api/update'));
     },
     async phone(el) {
       const link = await get('/api/party/link');

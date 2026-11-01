@@ -673,3 +673,4 @@ main > .library { grid-column: 1; } main > .workspace { grid-column: 2; } main >
 .st-mode-grid label > span, .st-inline { white-space: nowrap; }
 .st-mode .pv-swatches { grid-template-columns: repeat(16, 1.9rem); gap: .35rem; }
 .st-mode .pv-swatches button { width: 1.9rem; height: 1.9rem; }
+#railUpdate { color: var(--accent-text); }
