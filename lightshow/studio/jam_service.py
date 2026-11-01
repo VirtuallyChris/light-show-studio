@@ -558,7 +558,7 @@ class JamService:
                 "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error,
                             "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
-                "last": self._last(), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
+                "last": self._last(), "cast_device": self.load_config().get("jam_cast_device", ""), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
                 "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "track_styles": self.library.styles(),
                 "track_genres": self.library.genres(), "genre_choices": self._genre_choices(),
                 "party_level": self.party_level, "modes": self.modes_status(),
@@ -610,6 +610,10 @@ class JamService:
 
     async def start(self, request):
         body = await request.json()
+        if body.get("saved"):                                 # with the settings the party was last set up with
+            body = {**self._last(), **body}
+            if self._fetch_on():                              # (learning ahead keeps its own delay)
+                body.pop("target_delay", None)
         if self.prelisten.busy() and self.prelisten.fetch is None:   # a real jam always wins (one learning from copies needs no Spotify)
             await asyncio.get_running_loop().run_in_executor(None, self.prelisten.stop, "a jam was started")
         return await self._run(self._start, body)
@@ -1599,7 +1603,7 @@ class JamService:
         return web.Response(body=body, content_type=ctype.split(";")[0])
 
     async def prefs(self, request):
-        """Settings the panel saves as they are changed: auto-start, and where Spotify plays."""
+        """Settings saved as they are changed: where it plays, auto-start, the delay, how a skip behaves."""
         if not self._local(request):
             raise web.HTTPForbidden()
         body = await request.json()
@@ -1609,6 +1613,16 @@ class JamService:
             self.auto_armed = True
         if body.get("source") in ("studio", "app"):
             cfg["jam_last"] = {**cfg.get("jam_last", {}), "source": body["source"]}
+        for key in ("speakers", "crossfade", "skip_jumps"):
+            if key in body:
+                cfg["jam_last"] = {**cfg.get("jam_last", {}), key: body[key]}
+        if "cast_device" in body:                             # the speaker it plays on, connected when it starts
+            cfg["jam_cast_device"] = str(body["cast_device"] or "")
+        if "delay" in body:                                   # (learning ahead keeps its own)
+            if self._fetch_on():
+                cfg["jam_fetch_delay"] = float(body["delay"])
+            else:
+                cfg["jam_last"] = {**cfg.get("jam_last", {}), "target_delay": float(body["delay"])}
         if "opener" in body:                                  # the saved show every jam opens with ("" for none)
             cfg["jam_opener"] = str(body["opener"] or "")
         if "fetch" in body:                                   # learn ahead from YouTube copies

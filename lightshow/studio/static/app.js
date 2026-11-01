@@ -794,6 +794,8 @@
   // (?lights=off in the address keeps them off without changing that, for testing.)
   const LIGHTS_KEY = 'lightShowStudio.lightsOn';
   const lightsForcedOff = new URLSearchParams(location.search).get('lights') === 'off';
+  // A party's lights always play (each room's switch says which): only the address's ?lights=off holds them back.
+  function startPartyLights() { if (!lightsForcedOff) startOutput(); }
   function lightsWanted() { if (lightsForcedOff) return false; try { return localStorage.getItem(LIGHTS_KEY) !== '0'; } catch (e) { return true; } }
   function rememberLights(on) { if (lightsForcedOff) return; try { localStorage.setItem(LIGHTS_KEY, on ? '1' : '0'); } catch (e) { /* not kept: fine */ } }
   function autoLights() {
@@ -1074,7 +1076,7 @@
   async function openRooms(anchor) {
     const pop = $('#roomsPop');
     closeMenus(); pop.hidden = false;
-    placePop(pop, anchor || $('#btnSettings'));
+    if (anchor) placePop(pop, anchor);
     if (!roomsDoc) pop.innerHTML = '<div class="hint">Looking for lights and speakers…</div>';
     try { roomsDoc = await (await fetch('/api/rooms?devices=1')).json(); S.rooms = roomsDoc.rooms; } catch (e) { pop.innerHTML = '<div class="hint">Could not load the rooms.</div>'; return; }
     renderRooms();
@@ -2393,20 +2395,13 @@
     if (btn.closest('.rail')) { pop.style.right = 'auto'; pop.style.left = (r.right + 8) + 'px'; pop.style.top = Math.max(8, Math.min(r.top, innerHeight - pop.offsetHeight - 8)) + 'px'; }
     else { pop.style.left = 'auto'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px'; pop.style.top = (r.bottom + 6) + 'px'; }
   }
-  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnSettings', '#settingsMenu'], ['#btnHelp', '#helpPop'], ['#btnSettings', '#roomsPop']]) { if ($(m).closest('#viewSettings')) continue; $(m).hidden = true; $(b).classList.remove('on'); } }
+  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnHelp', '#helpPop']]) { if ($(m).closest('#viewSettings')) continue; $(m).hidden = true; $(b).classList.remove('on'); } }
   $('#btnGridMenu').onclick = e => { e.stopPropagation(); toggleMenu($('#btnGridMenu'), $('#gridMenu')); };
-  $('#btnSettings').onclick = e => { e.stopPropagation(); toggleMenu($('#btnSettings'), $('#settingsMenu')); };
   $('#btnHelp').onclick = e => { e.stopPropagation(); toggleMenu($('#btnHelp'), $('#helpPop'), SHORTCUTS); };
-  for (const id of ['#gridMenu', '#settingsMenu', '#helpPop', '#roomsPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
-  $('#btnRooms').onclick = e => { e.stopPropagation(); openRooms(); };
+  for (const id of ['#gridMenu', '#helpPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
   // Bulb Shows (an add-on): its button shows while the add-on is on, and opens Bulb Show in a window of its own (the
   // window opens at once, so it is never taken for a pop-up, and goes to Bulb Show once it is running)
-  async function showAddons() {
-    try { const d = await (await fetch('/api/addons')).json(); $('#railBulbs').hidden = !(d.addons || []).some(a => a.id === 'bulbshow' && a.on); } catch (e) { /* as it was */ }
-  }
-  showAddons(); addEventListener('focus', showAddons);
-  $('#railBulbs').onclick = async e => {
-    e.stopPropagation();
+  const openBulbs = async () => {
     const win = window.open('', 'lss-bulbshow', 'width=1280,height=800');
     try {
       const r = await (await fetch('/api/bulbshow/open', { method: 'POST' })).json();
@@ -4236,6 +4231,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, showPanel, openRooms, showAddons, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, showPanel, openRooms, openBulbs, openNamed, modelsReady, startPartyLights, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

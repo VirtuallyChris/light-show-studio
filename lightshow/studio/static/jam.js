@@ -76,82 +76,6 @@
     return themeOn() && !!jc.wild && !own; };
   /** rainbow drops for the songs that go all out, in "a different pair each song" */
   const rainbowOn = track => { const jc = (J.state || {}).jam_colors || {}; return themeOn() && jc.mode === 'mix' && !!jc.rainbow && !onlyTwo(track); };
-  function shownColors(t) {
-    const cols = colorsFor(t) || ((J.art || {})[t.image] || []).slice(0, 2);
-    if (!colorsFor(t) && t.image && J.art && J.art[t.image] === undefined) fetchArt(t);
-    return [cols[0] || '#808080', cols[1] || cols[0] || '#808080'];
-  }
-  function fetchArt(t) {
-    J.artPending = J.artPending || new Set(); if (J.artPending.has(t.image)) return;
-    J.artPending.add(t.image);
-    coverJob(t.image).then(() => {
-      if (J.art[t.image] !== undefined) J.artPending.delete(t.image);
-      else setTimeout(() => J.artPending.delete(t.image), 15000);   // not fetched: asked again in a while, not at once
-      J.shown = null; render();
-    });
-  }
-  // ------------------------------------------------------------------ the 16 colors
-  // Every color box in this panel opens these sixteen instead of the system picker: solid colors the
-  // lights show well, a click each. A song's own pair can also be kept to just its two colors.
-  const SIXTEEN = ['#ff0000', '#ff4000', '#ff8000', '#ffbf00', '#ffff00', '#80ff00', '#00ff00', '#00ff80',
-                   '#00ffff', '#0080ff', '#0000ff', '#4000ff', '#8000ff', '#ff00ff', '#ff0080', '#ffffff'];
-  function openSixteen(input) {
-    closeSixteen();
-    const pair = input.closest('.jam-pair[data-id]'), id = pair && pair.dataset.id;
-    const pop = document.createElement('div'); pop.className = 'sixteen'; pop.id = 'sixteen';
-    const cur = (input.value || '').toLowerCase();
-    pop.innerHTML = `<div class="sx-grid">${SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur ? 'on' : ''}" title="${c}"></button>`).join('')}</div>`
-      + (id ? `<label class="sx-only" title="No accents in other colors and no rainbow drops: only this song's two colors"><input type="checkbox" ${onlyTwo({ id }) ? 'checked' : ''}> Just these two colors</label>` : '');
-    document.body.appendChild(pop);
-    const r = input.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
-    pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left)) + 'px';
-    pop.style.top = (r.bottom + h + 8 > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6) + 'px';
-    for (const b of pop.querySelectorAll('[data-c]')) b.onclick = () => {
-      closeSixteen(); input.value = b.dataset.c;
-      input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
-    };
-    const only = pop.querySelector('.sx-only input');
-    if (only) only.onchange = async () => {
-      const a = pair.querySelector('.jp-a'), b = pair.querySelector('.jp-b');
-      try {
-        J.state = await api('jam/colors', { track_id: id, primary: a.value, secondary: b.value, only: only.checked });
-        if (id === roomTrackId()) recolor();
-        J.shown = null; render();
-      } catch (e) { toast(e.message, true); }
-    };
-  }
-  function closeSixteen() { const p = $('#sixteen'); if (p) p.remove(); }
-  document.addEventListener('click', e => {
-    const input = e.target.closest && e.target.closest('#jamBody input[type=color]');
-    if (input) { e.preventDefault(); openSixteen(input); return; }
-    if (!e.target.closest || !e.target.closest('#sixteen')) closeSixteen();
-  }, true);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSixteen(); });
-
-  function pairPicker(t) {
-    if (!t || !t.id || t.kind === 'custom') return '';
-    if (wildOn(t)) return '';                                        // No Limits: the show picks them, section by section
-    const [a, b] = shownColors(t), own = (J.state.track_colors || {})[t.id];
-    // (shown the way the room sees them: the stored secondary is on the bright hits and shows most, so it is
-    // the one called Primary, first; what is stored, and the show, are as before)
-    if (!themeOn()) return `<span class="jam-pair"><span class="jam-sw" style="background:${b}" title="Its album cover's colors"></span><span class="jam-sw" style="background:${a}"></span></span>`;
-    const off = !!(own && own.off);
-    return `<span class="jam-pair" data-id="${esc(t.id)}"><input type="color" class="jp-b" value="${b}" title="Primary color for this song: the one seen most (kept for next time)"><input type="color" class="jp-a" value="${a}" title="Secondary color for this song">`
-      + (['pick', 'mix'].includes((J.state.jam_colors || {}).mode) || off ? `<button class="jp-theme small ${off ? '' : 'on'}" title="${off ? 'This song plays in its album cover\'s colors. Click for the party\'s' : 'This song plays in the party\'s colors. Click for its album cover\'s'}">${off ? 'cover' : 'party'}</button>` : '')
-      + `${own && !off ? '<button class="jp-reset small" title="Back to the jam\'s colors">&#8634;</button>' : ''}</span>`;
-  }
-  function colorsSection(st) {
-    const jc = st.jam_colors || {};
-    const source = jc.on === false ? 'album' : jc.wild ? 'wild' : jc.mode !== 'pick' && jc.mode !== 'mix' ? 'album' : 'party';
-    const pick = `<div class="jam-row"><label>Colors</label><span class="jam-source" role="group">${[['album', 'Album art', 'Every song in its album cover\'s colors'], ['party', 'Party colors', 'Every song in the party\'s two colors, or a pair of them each'],
-      ['wild', 'No Limits', 'Every section its own palette: a breakdown all blue, a red drop, a rainbow, green there…']].map(([k, n, t]) => `<button class="small${source === k ? ' on' : ''}" data-src="${k}" title="${t}">${n}</button>`).join('')}</span></div>`;
-    if (source !== 'party') return `<div class="jam-sec"><h4>Colors</h4>${pick}</div>`;
-    return `<div class="jam-sec"><h4>Colors</h4>${pick}
-        <div class="jam-row"><label>Every song in</label><span class="jam-pair"><select id="jamColorMode"><option value="pick" ${jc.mode === 'pick' ? 'selected' : ''}>These two colors</option><option value="mix" ${jc.mode === 'mix' ? 'selected' : ''}>A different pair each song</option></select>${jc.mode === 'pick' ? `<input type="color" id="jamSecondary" value="${esc(jc.secondary || '#00ff00')}" title="Primary: the one seen most"><input type="color" id="jamPrimary" value="${esc(jc.primary || '#8000ff')}" title="Secondary">` : ''}</span></div>
-        ${jc.mode === 'mix' ? `<div class="jam-row"><label title="Each song gets one of these, chosen by its vibe, never the same pair twice in a row">Pairs</label><span class="jam-pairs">${(jc.pairs || []).map((p, i) => `<span class="jam-pair"><input type="color" class="mx-b" data-i="${i}" value="${esc(p[1])}"><input type="color" class="mx-a" data-i="${i}" value="${esc(p[0])}"></span>`).join('')}</span></div>
-        <div class="jam-row"><label title="A song that goes all out gets rainbow drops">Rainbow for epic songs</label><input type="checkbox" id="jamRainbow" ${jc.rainbow ? 'checked' : ''}></div>` : ''}
-        ${jc.mode === 'pick' || jc.mode === 'mix' ? `<div class="jam-row"><label title="A few of the small accents (a strike, a spark, a sweep) take two more colors now and then, picked for each song from its own two (purple and green get red and orange)">Now and then</label><span class="jam-pair"><input type="checkbox" id="jamExtras" ${jc.extras ? 'checked' : ''}></span></div>` : ''}</div>`;
-  }
   /** The song in the room got new colors (here, or on the Party Hub): build its show again in them. */
   // A vibe or a genre picked by hand for a song the analysis gets wrong. The genre gives the show the words
   // the genre effects listen for, and (the vibe left to the analysis) the vibe that goes with it.
@@ -186,188 +110,6 @@
   }
   const roomTrackId = () => J.doc && J.doc.track && J.doc.track.id;
 
-  // ------------------------------------------------------------------ the panel
-  function render() {
-    const el = $('#jamBody'); const st = J.state || {}; const sp = st.spotify || {};
-    const running = !!st.running;
-    let html = '';
-    if (!running) {
-      // signed in: one line; not yet: the steps, in order, with the links and the address to copy
-      html += (sp.signed_in ? `<div class="jam-sec"><h4>1 · Spotify</h4>
-        <div class="jam-row"><span><b class="ok">Signed in</b></span>
-          <span><button id="jamSignIn" class="small">Sign in again</button> <button id="jamSignOut" class="small">Sign out</button></span></div></div>`
-        : `<div class="jam-sec"><h4>1 · Connect Spotify</h4>
-        <ol class="jam-steps">
-          <li>You need <b>Spotify Premium</b>: Spotify only lets Premium accounts play through apps like this one.</li>
-          <li><a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Open the Spotify developer dashboard</a>, sign in, and press <b>Create app</b> (any name and description).</li>
-          <li>Under <b>Redirect URIs</b>, add this address exactly: <span class="jam-copy"><code>${esc(st.redirect_uri || '')}</code><button id="jamCopyUri" class="small">Copy</button></span></li>
-          <li>Tick <b>Web API</b> and <b>Web Playback SDK</b>, then <b>Save</b>.</li>
-          <li>In the app's <b>User Management</b>, add the email of every Spotify account that will sign in here.</li>
-          <li>Copy the app's <b>Client ID</b> and paste it here:
-            <input id="jamClient" value="${esc(sp.client_id || '')}" placeholder="Client ID" spellcheck="false"></li>
-          <li><button id="jamSignIn" class="accent small" ${sp.client_id ? '' : 'disabled'}>Sign in to Spotify</button></li>
-        </ol></div>`) + `
-      <div class="jam-sec"><h4>2 · Where Spotify plays</h4>
-        <div class="jam-row"><label>Spotify plays in</label><select id="jamSource">
-          <option value="studio">The studio itself</option>
-          <option value="app">The Spotify app on this PC</option></select></div>
-        <div id="jamPlayerBox">
-          <div class="jam-row"><span>${playerLine(st)}</span><span>${st.player && st.player.ready ? '<button id="jamPlayerHere" class="small">Play here</button>' : ''}</span></div>
-          <div class="hint">While the studio is open it is a Spotify speaker called <b>Light Show Studio</b>: pick it from the device list on your phone, or host the Jam with it. It plays hidden${(st.player || {}).own_output ? '' : ` in Microsoft Edge, whose sound goes to <b>${esc(((st.player || {}).hidden_output) || 'CABLE Input')}</b>`}, where nobody hears it; the room hears the studio's delayed copy on your default output.</div>
-          <label class="jam-check"><input id="jamAuto" type="checkbox" ${st.auto ? 'checked' : ''}> Start the jam by itself when music starts playing on Light Show Studio, with these settings</label>
-          ${st.auto_error ? `<div class="warn">The jam could not start by itself: ${esc(st.auto_error)}</div>` : ''}
-          ${sp.signed_in && !sp.can_stream ? '<div class="warn">Sign in to Spotify again: the studio player needs a permission the earlier sign-in did not ask for.</div>' : ''}
-        </div>
-        <div class="hint" id="jamAppHint">In Windows' Volume mixer, set the Spotify app's output to <b>${esc(((st.player || {}).hidden_output) || 'CABLE Input')}</b>. The house hears it through the studio, late.</div></div>
-      <div class="jam-sec"><h4>3 · Where the house hears it</h4>
-        <div class="jam-row"><label>Play on</label><select id="jamWhere">
-          <option value="cast" ${st.speaker_connected ? '' : 'disabled'}>Cast: ${st.speaker_connected ? esc(st.speaker) : 'press Cast first'}</option>
-          <option value="pc">This PC</option>
-          <option value="none">Nowhere (preview only)</option></select></div>
-        <div class="hint" id="jamPcHint">This computer plays on your default output.</div>
-        ${(st.fetch || {}).available ? `<div class="jam-row"><label title="Each queued song is found on YouTube by its Spotify details, analysed before it plays and the copy deleted, so the room needs to be only seconds behind. A song nobody queued is learned as it plays.">Learn ahead</label><label class="toggle"><input type="checkbox" id="jamFetch" ${st.fetch.on ? 'checked' : ''}></label></div>` : ''}
-        <div class="jam-row" ${(st.fetch || {}).on ? 'hidden' : ''}><label title="One of your saved shows plays in the room first, with its lights, while Spotify plays unheard behind it. The room joins the jam as it ends, a whole song behind, so each song is heard to its end before the room gets to it.">Open with</label><select id="jamOpenWith">
-          <option value="">Nothing (start ${esc(String(Math.round(((st.last || {}).target_delay) || 90)))} s behind)</option>
-          ${(J.openerShows || []).filter(s => s.length >= 60 || s.name === st.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === st.opener_choice ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
-        <div class="jam-row" ${st.opener_choice && !(st.fetch || {}).on ? 'hidden' : ''}><label>Stay behind by</label><span><input id="jamDelay" type="number" min="${(st.fetch || {}).on ? 3 : 10}" max="180" step="${(st.fetch || {}).on ? 1 : 5}" value="${(st.fetch || {}).on ? Math.round(st.fetch.delay || 5) : 90}" class="num"> s</span></div>
-        <div class="jam-row"><label title="Spotify: Settings, Playback, Crossfade. The studio cannot read it, and needs it to tell a skip from a song that simply ended.">Spotify crossfade</label><span><input id="jamXfade" type="number" min="0" max="12" step="1" value="0" class="num"> s</span></div>
-        <div class="jam-row"><label>On a skip</label><select id="jamOnSkip">
-          <option value="keep">Keep the delay</option>
-          <option value="jump">Jump right away</option></select></div>
-        <div class="hint">The lights study this much music before the room hears it. Keeping the delay, the room hears a skip that much later, and the lights see the new song coming. Jumping, the room hears it at once, but the new song starts with almost no lead, and the delay only grows back a few seconds between later songs. Play and pause follow the phone.</div></div>
-      ${colorsSection(st)}
-      <div class="jam-actions">
-        <button id="jamStart" class="accent" ${sp.signed_in ? '' : 'disabled'}>Start jam</button>
-        <button id="jamDemo" title="Synthetic songs and a pretend Spotify. No sound, no speakers, no sign-in.">Silent demo</button></div>`;
-    } else {
-      const room = st.room, ahead = st.ahead; const pct = Math.max(0, Math.min(100, 100 * (st.delay || 0) / (st.target_delay || 90)));
-      html += `<div class="jam-sec"><h4>${esc(st.mode || 'jam')}</h4>
-        <div class="jam-now"><div class="lbl">In the room</div><div class="ttl">${room ? esc(room.label) : (st.streaming ? 'between songs' : `filling the buffer… ${Math.round(st.buffered || 0)} s of ${Math.round(st.target_delay)} s`)}</div>${room ? badge(room.kind, room) + styleTag(room) + (room.project ? ` <span class="hint">${esc(room.project)}</span>` : '') + pairPicker(room) : ''}</div>
-        <div class="jam-now"><div class="lbl">On Spotify now, ${Math.round(st.delay || 0)} s ahead of the room</div><div class="ttl">${ahead ? esc(ahead.label) : '—'}</div>${ahead ? badge(ahead.kind, ahead) + styleTag(ahead) + (ahead.kind === 'live' ? ` <span class="hint">analysed to ${fmt(ahead.horizon)}</span>` : '') : ''}</div>
-        <div class="jam-meter" title="How far the room is behind Spotify"><div style="width:${pct}%"></div><span>${(st.delay || 0).toFixed(1)} s behind · aiming for ${Math.round(st.target_delay)} s</span></div>
-        ${st.paused ? '<div class="hint">Paused on the phone. The buffer is held.</div>' : ''}
-        ${st.handover ? `<div class="hint">${st.handover === 'armed' ? 'Spotify is held until your opening song is nearly over.' : 'Filling the buffer behind the opening song…'}</div>` : ''}
-        ${st.capture && st.capture.error ? `<div class="warn">Capture: ${esc(st.capture.error)}</div>` : ''}
-        ${st.output_error ? `<div class="warn">Playback: ${esc(st.output_error)}</div>` : ''}
-        ${st.sync_warning ? `<div class="warn">${esc(st.sync_warning)}</div>` : ''}
-        ${sp.error ? `<div class="warn">Spotify: ${esc(sp.error)}</div>` : ''}</div>
-      ${colorsSection(st)}
-      <div class="jam-sec"><h4>Up next${fetchLine(st)}</h4>${(st.queue || []).slice(0, 8).map(q => `<div class="jam-q"><span>${esc(q.label)}</span>${pairPicker(q)}${badge(q.kind, q)}</div>`).join('') || '<div class="hint">Nothing queued.</div>'}</div>
-      <div class="jam-sec"><h4>Log</h4><div class="jam-log">${(st.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div></div>
-      <div class="jam-actions">
-        <button id="jamStop">Stop jam</button>
-        ${st.streaming && st.output_kind === 'cast' ? '<button id="jamSync" title="Listens to the room and measures how late the speakers really are">Sync check</button>' : ''}
-        ${(st.mode || '').startsWith('demo') ? '<button id="jamSkip">Skip (demo)</button><button id="jamPause">' + (st.paused ? 'Resume' : 'Pause') + ' (demo)</button>' : ''}
-        ${room && room.kind !== 'custom' && S.name ? '' : ''}</div>`;
-    }
-    // keep what is being typed
-    const keep = {}; for (const id of ['jamClient', 'jamDelay', 'jamXfade', 'jamOnSkip', 'jamDevice', 'jamWhere', 'jamPcDevice', 'jamSource']) { const e = $('#' + id); if (e) keep[id] = e.value; }
-    // Rebuild only when something shown changed, and never under a control in use: rebuilding
-    // replaced an open dropdown with a new, closed one, so it shut half a second after opening.
-    const active = document.activeElement;
-    const busy = active && el.contains(active) && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName) && (!running || active.type === 'color' || active.tagName === 'SELECT');
-    const shown = html;
-    if (shown !== J.shown && !busy) { el.innerHTML = html; J.shown = shown; wire(keep); }
-    $('#btnJam').classList.toggle('on', running);
-    $('#btnJam').textContent = running ? (st.streaming ? 'Jam · live' : 'Jam · filling') : 'Jam';
-  }
-  const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  function playerLine(st) {
-    const p = st.player || {};
-    if (p.route_error) return `<span class="warn">Player: ${esc(p.route_error)}</span>`;
-    if (p.error) return `<span class="warn">Player: ${esc(p.error)}</span>`;
-    if (p.ready && !p.routed) return '<span class="warn">Light Show Studio is in Spotify, but its sound is not on the hidden output yet</span>';
-    if (p.ready) return `<b class="ok">Light Show Studio is in Spotify</b>${p.track ? ` · ${esc(p.track)}` : ''}`;
-    if (p.running) return 'Starting the hidden player…';
-    if (!((J.state || {}).spotify || {}).can_stream) return 'Sign in to Spotify to use the studio as a speaker';
-    return 'Connecting to Spotify…';
-  }
-
-  // the saved shows a jam can open with (a minute or longer)
-  function loadOpenerShows() {
-    if (J.loadingShows) return; J.loadingShows = true;
-    fetch('/api/cues').then(r => r.json()).then(d => { J.openerShows = d.shows || []; render(); }).catch(() => { J.openerShows = J.openerShows || []; }).finally(() => { J.loadingShows = false; });
-  }
-
-  function fetchLine(st) {
-    const f = st.fetch || {};
-    if (!f.on) return '';
-    const fails = (f.failed || []).map(x => `${x.label}: ${x.why}`).join('\n');
-    return ` <span class="hint" title="${esc(fails || 'Queued songs are learned from a copy on YouTube before they play')}">${f.working ? `learning ${esc(f.working)}` + (f.waiting ? `, ${f.waiting} more` : '') : 'learned ahead'}${(f.failed || []).length ? ` · ${f.failed.length} not found` : ''}</span>`;
-  }
-
-  function wire(keep) {
-    const on = (id, fn) => { const e = $('#' + id); if (e) e.onclick = () => fn().catch(err => toast('Jam: ' + err.message, true)); };
-    // the form starts from the settings last used, then keeps whatever is being changed
-    const last = (J.state && J.state.last) || {};
-    const fromLast = { jamDelay: ((J.state || {}).fetch || {}).on ? (J.state.fetch.delay || 5) : last.target_delay, jamXfade: last.crossfade, jamOnSkip: last.skip_jumps === undefined ? undefined : (last.skip_jumps ? 'jump' : 'keep'),
-      jamSource: last.source, jamWhere: last.speakers, jamDevice: last.device, jamPcDevice: last.pc_device };
-    for (const [id, v] of Object.entries(fromLast)) if (keep[id] === undefined && v !== undefined && v !== null) keep[id] = String(v);
-    for (const [id, v] of Object.entries(keep)) { const e = $('#' + id); if (e && v !== undefined && id !== 'jamDevice' && id !== 'jamPcDevice') e.value = v; }
-    const where = $('#jamWhere'), pcDev = $('#jamPcDevice');
-    if (where && !keep.jamWhere) where.value = J.state.speaker_connected ? 'cast' : 'pc';
-    if (pcDev) { pcDev.innerHTML = '<option value="">Default output</option>' + (J.outputs || []).filter(o => o.name).map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.default ? ' (default)' : ''}</option>`).join(''); if (keep.jamPcDevice) pcDev.value = keep.jamPcDevice; }
-    const showPc = () => { const pc = where && where.value === 'pc'; for (const id of ['jamPcRow', 'jamPcHint']) { const e = $('#' + id); if (e) e.hidden = !pc; } };
-    if (where) { where.onchange = showPc; showPc(); }
-    const source = $('#jamSource');
-    const showSource = () => { const studio = !source || source.value === 'studio'; const box = $('#jamPlayerBox'), hint = $('#jamAppHint'); if (box) box.hidden = !studio; if (hint) hint.hidden = studio; };
-    if (source) { source.onchange = () => { showSource(); api('jam/prefs', { source: source.value }).then(st => { J.state = st; }).catch(() => {}); }; showSource(); }
-    const fetchSw = $('#jamFetch');
-    if (fetchSw) fetchSw.onchange = () => api('jam/prefs', { fetch: fetchSw.checked }).then(st => { J.state = st; J.shown = null; render(); }).catch(e => toast(e.message, true));
-    const auto = $('#jamAuto'); if (auto) auto.onchange = () => api('jam/prefs', { auto: auto.checked }).then(st => { J.state = st; }).catch(() => {});
-    // colors: the jam's pair, and any track's own (saved for the next time it plays)
-    const saveJam = async body => {
-      J.state = await api('jam/colors', body);
-      recolor();
-      if (document.activeElement && el2.contains(document.activeElement)) document.activeElement.blur();
-      J.shown = null; render();
-    };
-    const el2 = $('#jamBody');
-    const mode = $('#jamColorMode');
-    if (mode) mode.onchange = () => saveJam({ mode: mode.value }).catch(e => toast(e.message, true));
-    for (const id of ['jamPrimary', 'jamSecondary']) { const e = $('#' + id); if (e) e.onchange = () => saveJam({ primary: $('#jamPrimary').value, secondary: $('#jamSecondary').value }).catch(err => toast(err.message, true)); }
-    for (const e of el2.querySelectorAll('.mx-a, .mx-b')) e.onchange = () => {
-      const pairs = [...el2.querySelectorAll('.mx-a')].map(a => [a.value, el2.querySelector(`.mx-b[data-i="${a.dataset.i}"]`).value]);
-      saveJam({ pairs }).catch(err => toast(err.message, true));
-    };
-    const rb = $('#jamRainbow'); if (rb) rb.onchange = () => saveJam({ rainbow: rb.checked }).catch(err => toast(err.message, true));
-    for (const b of el2.querySelectorAll('.jam-source button')) b.onclick = () => { if (!b.classList.contains('on')) saveJam({ source: b.dataset.src }).catch(err => toast(err.message, true)); };
-    const ex = $('#jamExtras'); if (ex) ex.onchange = () => saveJam({ extras: ex.checked }).catch(err => toast(err.message, true));
-    for (const box of el2.querySelectorAll('.jam-pair[data-id]')) {
-      const id = box.dataset.id, a = box.querySelector('.jp-a'), b = box.querySelector('.jp-b'), reset = box.querySelector('.jp-reset'), theme = box.querySelector('.jp-theme');
-      const save = async body => {
-        J.state = await api('jam/colors', { track_id: id, ...body });
-        if (id === roomTrackId()) recolor();
-        if (document.activeElement) document.activeElement.blur();
-        J.shown = null; render();
-      };
-      a.onchange = b.onchange = () => save({ primary: a.value, secondary: b.value, only: onlyTwo({ id }) }).catch(e => toast(e.message, true));
-      if (reset) reset.onclick = () => save({}).catch(e => toast(e.message, true));
-      if (theme) theme.onclick = () => save(theme.classList.contains('on') ? { theme: false } : {}).catch(e => toast(e.message, true));
-    }
-    on('jamPlayerHere', async () => { await api('jam/player/transfer', {}); toast('Spotify is now playing on Light Show Studio'); });
-    const dev = $('#jamDevice');
-    if (dev) { dev.innerHTML = '<option value="">Default output</option>' + (J.outputs || []).filter(o => o.name).map(o => `<option value="${esc(o.name)}">${esc(o.name)}${o.default ? ' (default)' : ''}</option>`).join(''); if (keep.jamDevice) dev.value = keep.jamDevice; }
-    on('jamCopyUri', async () => { try { await navigator.clipboard.writeText((J.state || {}).redirect_uri || ''); toast('Copied'); } catch (e) { toast('Select the address and copy it', true); } });
-    const cid = $('#jamClient'); if (cid) cid.oninput = () => { const b = $('#jamSignIn'); if (b) b.disabled = !cid.value.trim(); };
-    if (cid) cid.onchange = () => api('spotify/client', { client_id: cid.value.trim() }).then(s => { J.state = { ...J.state, ...s }; render(); }).catch(e => toast(e.message, true));
-    on('jamSignIn', async () => { if (cid && cid.value.trim() !== ((J.state.spotify || {}).client_id || '')) await api('spotify/client', { client_id: cid.value.trim() }); window.open('/api/spotify/login', 'spotify', 'width=520,height=760'); });
-    on('jamSignOut', async () => { J.state = await api('spotify/signout', {}); render(); });
-    const start = extra => api('jam/start', { device: dev ? dev.value : '', target_delay: parseFloat(($('#jamDelay') || {}).value) || 90, crossfade: parseFloat(($('#jamXfade') || {}).value) || 0, skip_jumps: (($('#jamOnSkip') || {}).value) === 'jump', source: (source && source.value) || 'studio', speakers: (where && where.value) || 'none', pc_device: (pcDev && pcDev.value) || '', ...extra });
-    on('jamStart', async () => { if (window.Studio && Studio.modelsReady) await Studio.modelsReady('the jam'); J.state = await start({}); render(); const op = (J.state.cue || {}).id === 'opener' ? J.state.cue : null; if (op) return toast(`Jam started: ${op.show} plays first, and the room joins the jam as it ends.`); toast({ cast: 'Jam started. The speakers join once the buffer is full.', pc: 'Jam started. This PC starts playing once the buffer is full.' }[J.state.output_kind] || 'Jam started as a preview: nothing plays.'); });
-    const openWith = $('#jamOpenWith');
-    if (openWith) {
-      if (J.openerShows === undefined) loadOpenerShows();
-      openWith.onfocus = loadOpenerShows;                        // a show saved since shows up
-      openWith.onchange = () => api('jam/prefs', { opener: openWith.value }).then(st => { J.state = st; render(); }).catch(e => toast(e.message, true));
-    }
-    on('jamDemo', async () => { J.state = await start({ demo: true, speakers: 'none', target_delay: 20 }); render(); toast('Silent demo running: synthetic songs, no sound.'); });
-    on('jamStop', async () => { J.state = await api('jam/stop', {}); leave(); render(); });
-    on('jamSkip', () => api('jam/demo/skip', {}));
-    on('jamPause', () => api('jam/demo/' + (J.state.paused ? 'resume' : 'pause'), {}));
-    on('jamSync', async () => { toast('Listening to the room…'); const r = await api('jam/synccheck', {}); toast(r.confidence >= 0.5 ? `Speakers corrected by ${r.offset_ms} ms (now ${r.speaker_offset_ms} ms)` : (r.reason || 'Could not get a clear reading; try again in a moment'), r.confidence < 0.5); });
-  }
-
   // ------------------------------------------------------------------ following the room
   async function tick() {
     if (J.fetching) return; J.fetching = true;
@@ -377,11 +119,10 @@
       if (typeof st.party_level === 'number' && st.party_level !== S.partyLevel) { S.partyLevel = st.party_level; S.forceSend = true; }
       for (const m of st.modes || []) St.setCover(m.id, m);                         // (the Party Hub's modes)
       if (J.live && J.doc && J.doc.kind !== 'custom' && J.colorSig !== undefined && colorSig() !== J.colorSig) recolor();   // changed on the phone: at once
-      if (st.running && !was && st.auto_started) toast('Music started on Light Show Studio: the jam started by itself');
+      if (st.running && !was && st.auto_started) toast('Music started on Light Show Studio: the party started by itself');
       await cueTick(st.cue);
       if (C.run) { /* a cue has the room: the jam waits */ }
       else if (st.running && st.streaming) await follow(st); else if (J.live && !(st.running)) leave();
-      if (J.open || st.running !== was) render();
     } catch (e) { /* server away */ } finally { J.fetching = false; }
   }
 
@@ -464,7 +205,7 @@
     } else C.pos = () => (performance.now() - started) / 1000;      // a silent preview: the lights only
     S.cue = { live: true, pos: () => C.pos() };
     S.audio.playing = true; St.updateTransport();
-    if ($('#outputOn').checked) St.startOutput();
+    St.startPartyLights();
     S.forceSend = true; St.zoomFit(); St.draw();
   }
   function cueEnd() {
@@ -503,7 +244,7 @@
     } catch (e) { buildFailed(room, e); }
     anchorTo(room);
     S.audio.playing = !!room.playing; St.updateTransport();
-    if ($('#outputOn').checked) St.startOutput();
+    St.startPartyLights();
     prefetch(st.ahead && st.ahead.key !== room.key ? st.ahead : null);
     // The room's state is asked for once a second, so a new song was noticed up to a second late (the
     // lights sat dark meanwhile). With the song nearly over, it is asked again right as it ends, and every
@@ -839,20 +580,8 @@
     toast('Jam stopped.');
   }
 
-  // ------------------------------------------------------------------ open / close
-  async function toggle(open) {
-    J.open = open ?? !J.open;
-    $('#jamPanel').hidden = !J.open;
-    if (J.open) {
-      try { J.state = await api('jam/state'); } catch (e) { J.state = {}; }
-      render();
-      if (!J.outputs) api('jam/outputs').then(o => { J.outputs = Array.isArray(o) ? o : []; render(); }).catch(() => { J.outputs = []; });
-    }
-  }
-  $('#btnJam').onclick = () => toggle();
-  window.Jam = { toggle, state: () => J.state };        // (views.js: the Party view holds the panel)
-  $('#jamClose').onclick = () => toggle(false);
-  window.addEventListener('focus', () => { if (J.open) tick(); });     // back from the Spotify sign-in window
+  window.Jam = { state: () => J.state };
+  window.addEventListener('focus', () => tick());       // back from the Spotify sign-in window
   J.timer = setInterval(tick, 1000);
   tick();
 })();
