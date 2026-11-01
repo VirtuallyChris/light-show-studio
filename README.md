@@ -62,7 +62,7 @@ Draw your home in a minute: add rooms of any shape, then pin each light where it
 ## Your phone runs the party
 
 <p align="center">
-  <img src="docs/images/phones.png" alt="The Party Hub on three phones: the queue with each song's two colors and the party mode buttons, Now Playing tinted in the song's colors, and the Lights tab with the party level slider and room switches" width="100%">
+  <img src="docs/images/phones.svg" alt="Three phones running the Party Hub. A song skips on the middle phone and the lights behind them change to its colors. On the left, tapping Cake time turns the room orange. On the right, the party level slider is dragged and a room joins the party." width="100%">
 </p>
 
 Scan a QR code and your phone is the remote. Add it to your home screen and it opens like an app.
