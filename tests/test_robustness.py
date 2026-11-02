@@ -175,7 +175,7 @@ class TestLearningAhead(unittest.TestCase):
             dir = tempfile.gettempdir()
 
             def has_learned(lib, track_id):
-                self.assertFalse(fetch.lock.locked(), "read the disk while holding the lock")
+                self.assertFalse(fetch.lock._is_owned(), "read the disk while holding the lock")
                 return track_id == "known"
 
             def summary(lib, track_id):
