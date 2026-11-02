@@ -269,6 +269,9 @@ class Splash:
             def do_GET(self):
                 if self.path == "/state":
                     self._send(json.dumps(splash.state).encode(), "application/json")
+                elif self.path == "/logo.png":
+                    with open(os.path.join(HERE, "static", "logo.png"), "rb") as fh:
+                        self._send(fh.read(), "image/png")
                 else:
                     with open(os.path.join(HERE, "static", "updating.html"), "rb") as fh:
                         self._send(fh.read(), "text/html; charset=utf-8")

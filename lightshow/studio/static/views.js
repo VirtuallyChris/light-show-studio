@@ -364,9 +364,9 @@
     const pct = v => v == null ? '–' : Math.round(v * 100) + '%';
     const speaker = d => `<div class="pv-vol"><span>${esc(d.name)}${d.muted ? ' <i class="hint">muted</i>' : ''}</span><input type="range" min="0" max="100" value="${d.volume == null ? 0 : Math.round(d.volume * 100)}" data-speaker="${esc(d.name)}" ${d.volume == null ? 'disabled' : ''} aria-label="${esc(d.name)} volume"><b>${pct(d.volume)}</b></div>`;
     box.innerHTML = (rooms.length ? rooms.map(r => {
-      const mine = devs.filter(d => (r.speakers || []).includes(d.name)), top = mine.length ? Math.max(...mine.map(d => d.volume || 0)) : null;
+      const mine = devs.filter(d => (r.speakers || []).includes(d.name)), known = mine.filter(d => d.volume != null), top = known.length ? Math.max(...known.map(d => d.volume)) : null;
       return `<div class="pv-room ${r.on ? '' : 'off'}" data-room="${esc(r.id)}"><div class="pv-room-top"><b>${esc(r.name)}</b>
-          ${mine.length ? `<input type="range" min="0" max="100" value="${Math.round((top || 0) * 100)}" data-roomvol aria-label="${esc(r.name)} volume"><span class="pv-volval">${pct(top)}</span>` : '<span class="grow hint">No speakers</span>'}
+          ${mine.length ? `<input type="range" min="0" max="100" value="${Math.round((top || 0) * 100)}" data-roomvol ${top == null ? 'disabled' : ''} aria-label="${esc(r.name)} volume"><span class="pv-volval">${pct(top)}</span>` : '<span class="grow hint">No speakers</span>'}
           ${toggle(`data-id="${esc(r.id)}" aria-label="${esc(r.name)} in the party"`, r.on)}</div>
         ${mixOpen.has(r.id) && mine.length > 1 ? `<div class="pv-mix">${mine.map(speaker).join('')}</div>` : ''}
         ${mine.length > 1 ? `<button class="pv-link" data-mix="${esc(r.id)}">${mixOpen.has(r.id) ? 'Hide each speaker' : 'Each speaker’s volume'}</button>` : ''}</div>`; }).join('')

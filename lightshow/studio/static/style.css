@@ -486,7 +486,7 @@ body[data-panel="effects"] .library > .panel[data-panel="lights"] { display: non
 body { flex-direction: row; }
 .views-rail { width: 4.9rem; flex: none; display: flex; flex-direction: column; align-items: center; gap: .35rem; padding: .9rem 0;
   background: var(--bg2); border-right: 1px solid var(--line); z-index: 30; }
-.views-rail .mark { width: 2rem; height: 2rem; margin-bottom: .8rem; fill: var(--accent); stroke: var(--accent); stroke-opacity: .35; }
+.views-rail .mark { width: 2.7rem; height: auto; margin-bottom: .7rem; }
 .view-btn { width: 4rem; min-height: 3.7rem; padding: .35rem 0; border: none; border-radius: .9rem; background: transparent; color: var(--dim);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem; font-size: .72rem; font-weight: 700; }
 .view-btn svg { width: 1.35rem; height: 1.35rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
