@@ -942,7 +942,7 @@ def flat_buildups(a: dict) -> list:
         if c is None:
             return None
         i0 = max(0, int(t0 * fps))
-        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else None
+        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0     # (past the curve's end: silence)
 
     def rate(t0, t1):
         return float(((snares >= t0) & (snares < t1)).sum()) / max(0.5, (t1 - t0) / beat)
@@ -1871,7 +1871,8 @@ def repeated_drops(a: dict) -> list:
 
     def profile(s):
         i0, i1 = int(s["start"] * fps), max(int(s["start"] * fps) + 1, int(s["end"] * fps))
-        return np.array([e[i0:i1].mean()] + [curves[k][i0:i1].mean() for k in _REPEAT_KEYS])
+        over = lambda c: c[i0:i1].mean() if i0 < len(c) else np.nan     # (past its end: like nothing else)
+        return np.array([over(e)] + [over(curves[k]) for k in _REPEAT_KEYS])
 
     def snare_rate(s):
         return float(((snares >= s["start"]) & (snares < s["end"])).sum()) / max(1e-6, s["end"] - s["start"])

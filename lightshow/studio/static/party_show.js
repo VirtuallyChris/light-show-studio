@@ -38,7 +38,7 @@
   }
   /** The extras (a few small accents in two more colors), picked from the track's own two colors: the
    *  hues farthest from both, either side of the middle of the wider gap between them on the color
-   *  wheel (purple and green get red and orange). The server's extras_for does the same for the phone. */
+   *  wheel (purple and green get red and orange). */
   const onlyTwo = track => !!(track && ((J.state || {}).track_colors || {})[track.id] || {}).only;
   function extrasFor(pair, track) {
     const jc = (J.state || {}).color_settings || {};

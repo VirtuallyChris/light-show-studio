@@ -136,7 +136,7 @@ class TestMacCapture(unittest.TestCase):
         self.assertEqual(frames[2, 1], int(-0.5 * 32767))
 
     def test_follows_the_players_audio_process(self):
-        asked, runs = [], []
+        runs = []
 
         def fake_read(cmd, sr, ch, stop, restart):
             runs.append(cmd)

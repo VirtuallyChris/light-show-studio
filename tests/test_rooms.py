@@ -220,7 +220,6 @@ class TestLightsLeaveAndArrive(unittest.TestCase):
         self.out.frame(show, [self.a.ip, self.b.ip])
         self.assertEqual(self.a.frames[-1], [(0, 255, 0)])            # still the show at the start
         self.out.leaving[self.a.ip]["t0"] -= 1.0                       # the fade has run
-        self.out.last_sent = 0
         self.out.frame(show, [self.a.ip, self.b.ip])
         self.assertEqual(self.a.frames[-1], [(64, 0, 0)])             # red at 25 %: how it was
         self.a.calls.clear()
@@ -236,11 +235,9 @@ class TestLightsLeaveAndArrive(unittest.TestCase):
         _, added = self.out.select([self.a.ip, self.b.ip], [self.a, self.b])
         self.out.arrive(added, 1.0)
         show = [[0, 255, 0], [0, 0, 255]]
-        self.out.last_sent = 0
         self.out.frame(show, [self.a.ip, self.b.ip])
         self.assertEqual(self.a.frames[-1], [(64, 0, 0)])             # picks up from where the fade out ended
         self.out.arriving[self.a.ip]["t0"] -= 1.0
-        self.out.last_sent = 0
         self.out.frame(show, [self.a.ip, self.b.ip])
         self.assertEqual(self.a.frames[-1], [(0, 255, 0)])
 

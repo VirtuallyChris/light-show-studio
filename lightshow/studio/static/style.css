@@ -241,7 +241,7 @@ button.icon { width: 2.1rem; padding: 0; display: inline-flex; align-items: cent
 .light-list label.drop-below { box-shadow: 0 2px 0 var(--accent); }
 
 /* ======================================================================================
-   Stage: the room view across the top, a side rail with one panel at a time, the clip on the right
+   The editor: the room view across the top, the effects on the left, the clip on the right
    ====================================================================================== */
 :root {
   --bg: #0c0d12; --bg2: #0f1017; --bg3: #161822; --bg4: #1f2230; --line: #1d1f29; --line2: #262936;

@@ -15,6 +15,7 @@ import numpy as np  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from lightshow.appdirs import data_dir  # noqa: E402
 from lightshow.studio import labeler as L  # noqa: E402
 from lightshow.studio.party import PartyLibrary  # noqa: E402
 
@@ -29,7 +30,7 @@ _OOF: dict = {}
 def _oof() -> dict:
     if not _OOF:
         try:
-            z = np.load(os.path.join(ROOT, "shows", "_party", "features", "trials", "nn_data.npz"))
+            z = np.load(os.path.join(data_dir(), "shows", "_party", "features", "trials", "nn_data.npz"))
             _OOF.update({str(z[f"id{i}"]): z[f"T{i}"] for i in range(int(z["n"])) if not int(z[f"c{i}"])})
         except (OSError, KeyError):
             _OOF["-"] = None
@@ -107,7 +108,7 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     out_dir, labels = args[0], "--labels" in args
     ids = [a for a in args[1:] if not a.startswith("--")]
-    lib = PartyLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(data_dir(), "shows"))
     if "--reviewed" in args:
         ids = sorted(k for k, v in L.truth(lib.dir).items() if isinstance(v, dict) and v.get("by") != "claude")
     os.makedirs(out_dir, exist_ok=True)

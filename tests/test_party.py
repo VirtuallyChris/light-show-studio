@@ -1544,17 +1544,6 @@ class TestPairPerSong(unittest.TestCase):
 
 
 class TestPartyHub(unittest.TestCase):
-    def test_the_extras_are_picked_from_a_tracks_two_colors(self):
-        import colorsys
-        from lightshow.studio.party_service import extras_for
-
-        hue = lambda hx: colorsys.rgb_to_hsv(*(int(hx[i:i + 2], 16) / 255 for i in (1, 3, 5)))[0] * 360
-        red, orange = extras_for(["#8000ff", "#00ff00"])           # purple and green: red and orange
-        self.assertTrue(hue(red) > 340 or hue(red) < 15)
-        self.assertTrue(20 < hue(orange) < 45)
-        self.assertEqual(extras_for(["#ffffff", "#000000"]), ["#ff6000", "#ff0000"])   # no hue to steer by
-        self.assertIsNone(extras_for(None))
-
     def test_the_party_colors_switch_off_for_every_song_or_one(self):
         from types import SimpleNamespace
         from lightshow.studio.party_service import PartyService

@@ -47,11 +47,21 @@ AUDIO_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".opus"}
 # hands back the last good one, not {}: a save after {} wrote an almost empty config (lights, rooms, offsets gone).
 _CONFIG_LOCK = threading.RLock()
 _CONFIG_GOOD: str | None = None
+_CONFIG_SCRATCH: str | None = None
+
+
+def keep_config_in_memory() -> None:
+    """A test copy (--no-lights): settings change as usual but only in memory. Your config.json is never written."""
+    global _CONFIG_SCRATCH
+    if _CONFIG_SCRATCH is None:
+        _CONFIG_SCRATCH = json.dumps(load_config())
 
 
 def load_config() -> dict:
     global _CONFIG_GOOD
     with _CONFIG_LOCK:
+        if _CONFIG_SCRATCH is not None:
+            return json.loads(_CONFIG_SCRATCH)
         try:
             with open(CONFIG_PATH, encoding="utf-8") as fh:
                 text = fh.read()
@@ -65,9 +75,12 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
-    global _CONFIG_GOOD
+    global _CONFIG_GOOD, _CONFIG_SCRATCH
     text = json.dumps(cfg, indent=2)
     with _CONFIG_LOCK:
+        if _CONFIG_SCRATCH is not None:
+            _CONFIG_SCRATCH = text
+            return
         tmp = CONFIG_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(text)
@@ -570,6 +583,9 @@ class LightOutput:
 class Studio:
     def __init__(self, port: int = 8765, quit_when_closed: bool = False, lights: bool = True, player: bool = True):
         self.read_only = not lights                      # a test copy (--no-lights) never writes a show
+        if self.read_only:
+            keep_config_in_memory()                      # ... or your settings
+        self._tasks: set = set()
         self.port = port
         self.quit_when_closed = quit_when_closed
         self.ws_clients = 0
@@ -683,6 +699,7 @@ class Studio:
             web.post("/api/cast/volume", self.cast_volume),
             web.get("/api/cast/status", self.cast_status),
             web.post("/api/cast/synccheck", self.cast_sync_check),
+            web.post("/api/cast/offset", self.cast_offset_set),
             *self.party.routes(),
             *self.review.routes(),
             *self.space.routes(),
@@ -765,7 +782,9 @@ class Studio:
 
     def _warm_show_moments(self) -> None:
         """Analyse each moment's show ahead of time (cached), and decode its song into memory, so a tapped
-        moment's song and lights start at once."""
+        moment's song and lights start at once. A test copy leaves your shows' folders alone."""
+        if self.read_only:
+            return
         for c in self.show_moments.list():
             for show in c["shows"]:                       # (every one it may pick)
                 try:
@@ -798,6 +817,18 @@ class Studio:
             for k in [k for k in cache if k[0] == path and k != key]:
                 cache.pop(k)                              # an older copy of the same file
         return cache[key]
+
+    async def cast_offset_set(self, request):
+        """`lightshow calibrate` saves what it measured here, so it cannot cross a save of the studio's own."""
+        if request.remote not in ("127.0.0.1", "::1"):
+            raise web.HTTPForbidden()
+        body = await request.json()
+        device, offset = str(body["device"]), int(body["offset_ms"])
+        cfg = load_config()
+        cfg.setdefault("cast_offsets", {})[device] = offset
+        cfg["cast_offset_ms"] = offset
+        save_config(cfg)
+        return web.json_response({"ok": True})
 
     async def show_moments_get(self, request):
         _lan_only(request)
@@ -881,7 +912,7 @@ class Studio:
         if self.output.enabled and self.output.active:
             if dropped:
                 self.output.leave(dropped, FADE_S)
-                loop.call_later(FADE_S + 0.1, lambda: asyncio.ensure_future(self._finish_leaving()))
+                loop.call_later(FADE_S + 0.1, lambda: self._spawn(self._finish_leaving()))
             if added:
                 async with self.scan_lock:
                     await loop.run_in_executor(None, self.output.arrive, added, FADE_S)
@@ -1299,7 +1330,7 @@ class Studio:
             for name in sorted(os.listdir(SHOWS_DIR)):
                 pdir = os.path.join(SHOWS_DIR, name)
                 pj = os.path.join(pdir, "project.json")
-                if _songs_in(pdir):
+                if not name.startswith("_") and _songs_in(pdir):
                     out.append({"name": name, "has_project": os.path.exists(pj),
                                 "modified": os.path.getmtime(pj) if os.path.exists(pj) else os.path.getmtime(pdir)})
         out.sort(key=lambda p: -p["modified"])
@@ -1499,7 +1530,13 @@ class Studio:
         for w, busy in list(self.room_watchers.items()):
             if not busy and not w.closed:
                 self.room_watchers[w] = True
-                asyncio.ensure_future(self._room_send(w, text))
+                self._spawn(self._room_send(w, text))
+
+    def _spawn(self, coro) -> None:
+        """A task kept until it finishes: a bare one can be garbage collected mid-flight."""
+        task = asyncio.ensure_future(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def _room_send(self, w, text: str) -> None:
         try:

@@ -24,6 +24,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from lightshow.appdirs import data_dir  # noqa: E402
 from lightshow.studio import lyrics  # noqa: E402
 
 STATE_URL = "http://127.0.0.1:8765/api/party/state"
@@ -62,7 +63,7 @@ def song_info(copy: str, learned_dir: str) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--shows", default=os.path.join(ROOT, "shows"), help="the studio's shows folder")
+    ap.add_argument("--shows", default=os.path.join(data_dir(), "shows"), help="the studio's shows folder")
     ap.add_argument("--only", nargs="*", help="only these track ids")
     ap.add_argument("--force", action="store_true", help="redo songs that already have lyrics")
     ap.add_argument("--cpu", action="store_true", help="run on the processor (slow), e.g. while jamming")

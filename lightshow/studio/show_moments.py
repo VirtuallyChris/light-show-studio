@@ -260,7 +260,10 @@ class ShowMomentRunner:
 
     def _run(self, show_moment: dict) -> None:
         h = self.hooks
-        dur = h.stream_show_moment(show_moment["show"]) if hasattr(h, "stream_show_moment") else None
+        try:
+            dur = h.stream_show_moment(show_moment["show"]) if hasattr(h, "stream_show_moment") else None
+        except Exception:  # noqa: BLE001 - its song would not load for the stream: played the ordinary way, which says why
+            dur = None
         if dur:
             return self._run_in_stream(h, dur)
         try:

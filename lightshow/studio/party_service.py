@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import colorsys
 import html
 import ipaddress
 import os
@@ -25,29 +24,6 @@ from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 # the start settings remembered for next time (and for a party that starts itself)
 LAST_KEYS = ("device", "speakers", "pc_device", "target_delay", "crossfade", "skip_jumps", "source")
 DEFAULT_OPENER = ""                                   # a party opens with this saved show (config.json party_opener), if it is there
-
-
-def extras_for(pair) -> list[str] | None:
-    """The two "now and then" colors for a pair: the hues farthest from both, evenly spread across the
-    wider gap between them on the color wheel, either side of its middle (purple and green get red and
-    orange). The studio's
-    party_show.js does the same, so the phone shows what the lights will do."""
-    if not pair or len(pair) < 2:
-        return None
-    hues = []
-    for hx in pair[:2]:
-        r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (1, 3, 5))
-        h, s_, v = colorsys.rgb_to_hsv(r, g, b)
-        if s_ < 0.2 or v < 0.2:
-            return ["#ff6000", "#ff0000"]               # a grey or black: no hue to steer by
-        hues.append(h * 360)
-    a = (hues[1] - hues[0]) % 360
-    start, span = (hues[0], a) if a >= 180 else (hues[1], 360 - a)
-    out = []
-    for k in (0.38, 0.62):                                  # either side of the point farthest from both
-        r, g, b = colorsys.hsv_to_rgb(((start + span * k) % 360) / 360, 1, 1)
-        out.append("#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255)))
-    return out
 
 
 def _hex_color(v) -> str | None:
@@ -325,7 +301,7 @@ class PartyService:
         return float(length_of(name)) if length_of else 0.0
 
     def _opener_plan(self, body: dict) -> tuple[str, float] | None:
-        name = body["opener_show"] if "opener_show" in body else self._opener_choice()
+        name = self._opener_choice()
         length = self._length(name) if name else 0.0
         return (name, length) if name and length >= 60 else None
 
@@ -438,6 +414,7 @@ class PartyService:
                 if e.streaming:
                     start = rc if rc is not None else max(e.relay.oldest_time, e.relay.capture_time - e.cfg.target_delay)
                     new.start_stream(e.relay.open_stream(start, pace=not isinstance(new, VirtualOutput)))
+                    e._streamed_at = e.clock()               # (keep_delay leaves a fresh stream to settle)
                     if e.gate.paused:
                         new.pause()
                 self.mode = "spotify to " + new.name
@@ -803,6 +780,7 @@ class PartyService:
             rc = e.room_capture_time()
             start = rc if rc is not None else max(e.relay.oldest_time, e.relay.capture_time - e.cfg.target_delay)
             out.start_stream(e.relay.open_stream(start))
+            e._streamed_at = e.clock()                       # (keep_delay leaves a fresh stream to settle)
             if e.gate.paused:
                 out.pause()
 

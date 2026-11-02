@@ -335,7 +335,6 @@ class CloudBulbTest(unittest.TestCase):
         client.before = {"powerSwitch": 0, "brightness": 10, "colorRgb": 0, "colorTemperatureK": 2702}
         second = CloudBulb({"sku": "H6008", "id": "AA"}, client)
         second.begin()
-        n = len(client.calls)
         second.end()
         self.assertEqual(client.calls[-1], ("powerSwitch", 0))
         self.assertEqual(second.before["powerSwitch"], 0)

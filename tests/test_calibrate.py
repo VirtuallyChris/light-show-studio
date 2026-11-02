@@ -25,6 +25,7 @@ class SaveTheOffsetTest(unittest.TestCase):
                 mock.patch("lightshow.govee_lan.local_ip", return_value="127.0.0.1"), \
                 mock.patch.object(calibrate, "write_calibration_file"), \
                 mock.patch.object(calibrate, "measure", side_effect=results), \
+                mock.patch.object(calibrate, "_tell_studio", return_value=False), \
                 mock.patch.object(calibrate.time, "sleep"), \
                 contextlib.redirect_stdout(io.StringIO()):
             return calibrate.main(["Everywhere", "--runs", str(len(measured)), *argv])

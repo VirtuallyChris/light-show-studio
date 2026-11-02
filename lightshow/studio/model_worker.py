@@ -120,6 +120,12 @@ def append_only(path: str):
     return open(msvcrt.open_osfhandle(h, os.O_APPEND | os.O_WRONLY), "a", encoding="utf-8")
 
 
+def _close_log(err) -> None:
+    """The studio's own handle on a child's log, once the child has its copy (one more every retry, otherwise)."""
+    if err is not subprocess.DEVNULL:
+        err.close()
+
+
 def _child_log(what: str):
     """models.log for a child process's stderr, a line saying what starts in it first (nowhere if it will not open)."""
     try:
@@ -220,7 +226,6 @@ class ModelHost:
         token = secrets.token_hex(16)
         env = {**child_env(), "PYTHONIOENCODING": "utf-8", "LSS_MODELS_TOKEN": token, "LSS_MODELS_OWNER": str(os.getpid())}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
-        err = _child_log("lightshow.studio.models_host")
         # normal priority, not below: the urgent analysis of a song playing unlearned (above normal) waits on
         # these models, and at below normal their own CPU work (decoding, resampling) was crowded out: a
         # first song's SongFormer and stems ran 29 and 33 s instead of ~2.5. The host mostly waits on the GPU,
@@ -234,7 +239,9 @@ class ModelHost:
             cmds.append([base[0], "-I", "-S", "-c", boot])
         cmds.append([venv_py(), "-m", "lightshow.studio.models_host"])
         for cmd in cmds:
+            err = _child_log("lightshow.studio.models_host")
             proc = popen_outside(cmd, cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=err, creationflags=flags)
+            _close_log(err)
             box = {}
             t = threading.Thread(target=lambda: box.setdefault("line", proc.stdout.readline()), daemon=True)
             t.start()
@@ -276,9 +283,11 @@ class ModelHost:
                 r = json.loads(line)
                 n = int(r.pop("payload", 0) or 0)
                 payload = _read_exactly(f, n) if n else b""
+                if payload is None:                        # cut off: this request fails, with the rest, below
+                    break
                 slot = self.pending.pop(r.pop("id", None), None)
                 if slot:
-                    slot[1], slot[2] = r, payload or b""
+                    slot[1], slot[2] = r, payload
                     slot[0].set()
         except (OSError, ValueError):
             pass
@@ -402,6 +411,7 @@ class ModelWorker:
         self.proc = popen_outside(self.command(), cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                                      creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)
+        _close_log(err)
         hello = self._read(self.start_timeout)          # the first run downloads the model
         if not hello or not hello.get("ready"):
             self.failed = (hello or {}).get("error", "the model did not start")

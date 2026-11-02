@@ -89,6 +89,7 @@ class App:
         self.sounds: dict[str, tuple[float, Sound]] = {}
         self._scenes: dict[str, list] = {}               # bulb -> its own scenes
         self.ws_clients: set = set()
+        self.window_tasks: set = set()
         self.ever_connected = False        # a window has connected at least once
         self.started_at = time.monotonic()
         self.CLOSE_GRACE_S = 8.0           # a reload drops the window's socket for a moment: not a close
@@ -438,7 +439,9 @@ class App:
         finally:
             self.ws_clients.discard(ws)
             if not self.ws_clients:
-                asyncio.create_task(self._window_gone())
+                task = asyncio.create_task(self._window_gone())    # (kept: a bare task can be collected mid-flight)
+                self.window_tasks.add(task)
+                task.add_done_callback(self.window_tasks.discard)
         return ws
 
     async def _window_gone(self) -> None:

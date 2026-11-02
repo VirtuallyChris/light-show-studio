@@ -322,6 +322,19 @@ def live_sync_check(cast, song_path, seconds=8.0, mic_device=None, margin=3.0, l
             "confidence": round(confidence, 2), "position": runs[-1]["position"]}
 
 
+def _tell_studio(port: int, device: str, offset: int) -> bool:
+    """Save through the running studio, which holds its settings' lock. False when none answers."""
+    import json
+    import urllib.request
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/api/cast/offset", json.dumps({"device": device, "offset_ms": offset}).encode(),
+                                 {"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=3):
+            return True
+    except OSError:
+        return False
+
+
 def main(argv=None):
     import argparse
     import json
@@ -346,6 +359,8 @@ def main(argv=None):
     if args.mic:
         import sounddevice as sd
         mic = int(args.mic) if args.mic.isdigit() else next((i for i, d in enumerate(sd.query_devices()) if args.mic.lower() in d["name"].lower() and d["max_input_channels"] > 0), None)
+        if mic is None:
+            ap.error(f"no microphone matches {args.mic!r}")
     cm = CastManager(local_ip())
     print(f"Connecting to {args.device!r}...")
     cm.connect(args.device)
@@ -363,15 +378,18 @@ def main(argv=None):
     print(f"\nCast offset for {args.device!r}: {offset} ms")
     if not args.no_save:
         cfg_path = os.path.join(data_dir(), "config.json")
-        try:
-            with open(cfg_path, encoding="utf-8") as fh:
-                cfg = json.load(fh)
-        except (OSError, ValueError):
-            cfg = {}
-        cfg.setdefault("cast_offsets", {})[args.device] = offset
-        cfg["cast_offset_ms"] = offset
-        with open(cfg_path, "w", encoding="utf-8") as fh:
-            json.dump(cfg, fh, indent=2)
+        if not _tell_studio(args.port, args.device, offset):
+            try:
+                with open(cfg_path, encoding="utf-8") as fh:
+                    cfg = json.load(fh)
+            except (OSError, ValueError):
+                cfg = {}
+            cfg.setdefault("cast_offsets", {})[args.device] = offset
+            cfg["cast_offset_ms"] = offset
+            tmp = cfg_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, indent=2)
+            os.replace(tmp, cfg_path)
         print(f"Saved as the default Cast offset in {cfg_path}")
     return 0
 

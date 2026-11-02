@@ -182,8 +182,7 @@ class PartyLibrary:
         else:
             links[track_id] = project
         os.makedirs(self.dir, exist_ok=True)
-        with open(self.links_path, "w", encoding="utf-8") as fh:
-            json.dump(links, fh, indent=1)
+        _save_json(self.links_path, links, indent=1)
 
     # -- colors picked for a track in the party queue ------------------------------------------
     def colors(self) -> dict:

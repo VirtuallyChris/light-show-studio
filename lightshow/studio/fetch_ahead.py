@@ -350,8 +350,8 @@ class FetchAhead:
             self.checked[track_id] = not summ.get("problems")
         return self.checked[track_id]
 
-    def _wanted(self, t) -> bool:
-        if not getattr(t, "id", None) or self._learned_well(t.id) or self.library.match_project(t):
+    def _wanted(self, t, well: set) -> bool:
+        if not getattr(t, "id", None) or t.id in well or self.library.match_project(t):
             return False
         f = self.failed.get(t.id)
         if f and self.clock() - f[0] < (RETRY_DOWNLOAD_S if "download" in f[2].lower() else RETRY_AFTER_S):
@@ -366,13 +366,14 @@ class FetchAhead:
         downloaded past the two-copy limit and analysed at above-normal priority, all effort on it."""
         if not self.is_available():
             return 0
+        well = set()
         for t in tracks:                                  # (read before the lock: the poll thread and the page wait on it)
-            if getattr(t, "id", None):
-                self._learned_well(t.id)
+            if getattr(t, "id", None) and self._learned_well(t.id):
+                well.add(t.id)
         with self.lock:
             if first:
                 self.now = now
-            new = [t for t in tracks if self._wanted(t)]
+            new = [t for t in tracks if self._wanted(t, well)]
             if first:
                 ids = [t.id for t in tracks]
                 self.order = ids                          # the queue as it stands: the analyses follow it too

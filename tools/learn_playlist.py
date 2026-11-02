@@ -16,6 +16,7 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from lightshow.appdirs import data_dir  # noqa: E402
 from lightshow.studio import labeler, lyrics  # noqa: E402
 from lightshow.studio.fetch_ahead import FetchAhead, _spotdl_python  # noqa: E402
 from lightshow.studio.party import PartyLibrary  # noqa: E402
@@ -84,7 +85,7 @@ def main(link: str) -> None:
         tracks = SpotifyClient(store, save=lambda: _save_sign_in(store)).playlist_tracks(pid, most=2000)
     except PermissionError:
         tracks = _playlist_by_spotdl(pid)
-    lib = PartyLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(data_dir(), "shows"))
     fetch = FetchAhead(lib, keep=lambda: True, lyrics=lyrics.learn, features=labeler.learn_features)
     if not fetch.is_available():
         raise SystemExit("learn ahead is not set up (.venv-spotdl)")
