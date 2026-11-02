@@ -99,10 +99,10 @@ class BulbShows:
             self.http("GET", self.base + "/api/settings", timeout=1.0)
         except Exception:  # noqa: BLE001 - not open yet
             if not self.launch:
-                return {"ok": False, "url": "", "error": "Bulb Show is not open (a test copy never starts it)"}
+                return {"ok": False, "url": "", "error": "Bulb Studio is not open (a test copy never starts it)"}
             self._start_app()
             if not self._wait_open():
-                return {"ok": False, "url": "", "error": "Bulb Show did not start"}
+                return {"ok": False, "url": "", "error": "Bulb Studio did not start"}
         return {"ok": True, "url": f"http://127.0.0.1:{self.port}/", "error": ""}
 
     # -- switching one ------------------------------------------------------------------
@@ -140,14 +140,14 @@ class BulbShows:
         if show is None:
             return {"ok": False, "error": "no such bulb show"}
         if not show["ready"]:
-            return {"ok": False, "error": f"{show['name']} needs a sound, a speaker and a bulb (set them in Bulb Show)"}
+            return {"ok": False, "error": f"{show['name']} needs a sound, a speaker and a bulb (set them in Bulb Studio)"}
         if show["speaker"] in busy:
             return {"ok": False, "error": f"{show['speaker']} is playing the party"}
         if shows is None:
             if not self.launch:
-                return {"ok": False, "error": "Bulb Show is not open"}
+                return {"ok": False, "error": "Bulb Studio is not open"}
             self._start_app()
             if not self._wait_open():
-                return {"ok": False, "error": "Bulb Show did not start"}
+                return {"ok": False, "error": "Bulb Studio did not start"}
         r = self.http("POST", f"{self.base}/api/run/{quote(sid)}", {}, timeout=30.0) or {}
         return {"ok": bool(r.get("ok")), "error": r.get("error") or ""}

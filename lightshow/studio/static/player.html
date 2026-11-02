@@ -84,7 +84,7 @@
     player.addListener('not_ready', () => { deviceId = ''; status('Reconnecting to Spotify…', 'warn'); post('/api/jam/sdk_state', { device_id: '', ready: false }); });
     player.addListener('player_state_changed', report);
     player.addListener('initialization_error', ({ message }) => { status('This browser cannot play Spotify', 'warn'); problem(`${message}. The studio player needs Microsoft Edge or Google Chrome, with protected content allowed in its site settings.`); });
-    player.addListener('authentication_error', ({ message }) => { status('Spotify sign-in needed', 'warn'); problem(`${message}. Press "Sign in to Spotify" in the studio's Jam panel again.`); });
+    player.addListener('authentication_error', ({ message }) => { status('Spotify sign-in needed', 'warn'); problem(`${message}. Press "Sign in to Spotify" in the app's Settings again.`); });
     player.addListener('account_error', ({ message }) => { status('Spotify Premium needed', 'warn'); problem(message); });
     player.addListener('playback_error', ({ message }) => problem(`Playback: ${message}`));
     player.connect().then(ok => { if (!ok) problem('Could not connect to Spotify.'); });

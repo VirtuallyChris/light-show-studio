@@ -12,7 +12,8 @@ import unittest
 import wave
 
 import numpy as np
-from aiohttp.test_utils import TestClient, TestServer
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 
 from bulbshow import effects
 from bulbshow.bulbs import CloudBulb, CloudError, CloudUsage, VirtualBulb, rgb_int
@@ -472,6 +473,22 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
             r.stop(wait=True)
         await self.client.close()
         shutil.rmtree(self.dir, ignore_errors=True)
+
+    async def test_opens_on_this_computer_only(self):
+        # a phone on the network gets nothing of it; a speaker still fetches its looping sound
+        self.app.lan_ip = "192.168.1.11"
+
+        async def handler(_request):
+            return web.Response(text="ok")
+
+        async def status(path, remote):
+            request = make_mocked_request("GET", path).clone(remote=remote)
+            return (await self.app.only_here(request, handler)).status
+        for remote in ("127.0.0.1", "::1", "192.168.1.11"):
+            self.assertEqual(await status("/", remote), 200, remote)
+        for path in ("/", "/static/app.js", "/api/settings", "/api/shows", "/ws"):
+            self.assertEqual(await status(path, "192.168.1.50"), 403, path)
+        self.assertEqual(await status("/api/loop/abc.wav", "192.168.1.50"), 200)
 
     async def make(self, name, speaker):
         s = await (await self.client.post("/api/shows", json={"name": name})).json()

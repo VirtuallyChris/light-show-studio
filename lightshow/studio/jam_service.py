@@ -1264,7 +1264,7 @@ class JamService:
             raise web.HTTPForbidden()
         bulbs = self._bulbshows()
         if bulbs is None:
-            return web.json_response({"ok": False, "url": "", "error": "the Bulb Shows add-on is off"})
+            return web.json_response({"ok": False, "url": "", "error": "the Bulb Studio add-on is off"})
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.open_window))
 
     async def party_bulbshow_set(self, request):

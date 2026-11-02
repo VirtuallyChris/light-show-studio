@@ -21,7 +21,7 @@ from ..appdirs import code_dir
 
 ADDONS = {
     "doorbell": {"name": "Doorbell", "about": "A Reolink video doorbell rings a cue: the music dips and its show plays."},
-    "bulbshow": {"name": "Bulb Shows", "about": "Bulb Show's looping shows on Govee bulbs, switched on and off from the Lights tab."},
+    "bulbshow": {"name": "Bulb Studio", "about": "Looping shows on Govee bulbs, switched on and off on the Party screen and the phone."},
     "homeassistant": {"name": "Home Assistant", "about": "Tells Home Assistant when the show has your lights, so its automations leave their brightness alone."},
 }
 
@@ -33,7 +33,7 @@ def installed(addon: str) -> str:
     if addon == "homeassistant":
         return ""
     if addon == "bulbshow":
-        return "" if os.path.isdir(os.path.join(code_dir(), "bulbshow")) else "Bulb Show is not in this copy"
+        return "" if os.path.isdir(os.path.join(code_dir(), "bulbshow")) else "Bulb Studio is not in this copy"
     return "no such add-on"
 
 

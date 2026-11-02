@@ -204,13 +204,17 @@ class TestModelFallsBackToCpu(Fresh):
 
 class StandInInstaller:
     def __init__(self, variant="cuda"):
-        self.variant, self.started = variant, 0
+        self.variant, self.started, self.songs_started = variant, 0, 0
 
     def detect(self):
         return self.variant, "why"
 
     def start(self):
         self.started += 1
+        return True
+
+    def start_songs(self):
+        self.songs_started += 1
         return True
 
 
@@ -232,7 +236,14 @@ class TestInstallOnFirstRun(unittest.TestCase):
         self.assertFalse(self.go(live=False))
 
     def test_not_again_once_installed(self):
-        self.assertFalse(self.go(is_installed=True))
+        with mock.patch("lightshow.studio.fetch_ahead.available", lambda: True):    # (whatever this machine has)
+            self.assertFalse(self.go(is_installed=True))
+
+    def test_only_song_learning_when_the_models_came_before_it(self):
+        fake = StandInInstaller()
+        with mock.patch.object(ms, "installed", lambda: True), mock.patch("lightshow.studio.fetch_ahead.available", lambda: False):
+            self.assertTrue(ms.install_on_first_run(lambda: {}, True, True, installer=fake, free_gb=100))
+        self.assertEqual((fake.started, fake.songs_started), (0, 1))
 
     def test_not_after_cancel(self):
         self.assertFalse(self.go(cfg={"models_auto_install": False}))

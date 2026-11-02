@@ -1,4 +1,4 @@
-# Bulb Show
+# Bulb Studio
 
 A small app of its own beside Light Show Studio: looping light shows for one bulb at a time.
 Each show is one sound, one Google speaker and one Govee bulb (made for the H6008). Any number
@@ -6,7 +6,8 @@ of shows can loop at once, for example a witch laughing on one speaker with its 
 and a ghost on another speaker and bulb in the next room.
 
 Start it with **Bulb Show.vbs** in this folder, or `.venv\Scripts\python -m bulbshow` from the
-project folder. It opens on http://127.0.0.1:8770.
+project folder. It opens on http://127.0.0.1:8770, on this computer only: a phone on the network
+can switch its shows on and off from the party remote, but cannot open the app.
 
 ## Making a show
 
@@ -20,7 +21,7 @@ project folder. It opens on http://127.0.0.1:8770.
    interrupts it and the scene starts again afterwards: a pulsing scene with red every 20 seconds
    costs about 360 commands an hour. On screen a scene shows as a rainbow, since only the bulb knows
    what it looks like. Effects you make in the Govee app (DIY: gradient, jumping, twinkle, breath,
-   simple or combo) are scenes too, listed first under "Your effects"; one saved while Bulb Show is
+   simple or combo) are scenes too, listed first under "Your effects"; one saved while Bulb Studio is
    open shows up with **↻ Refresh list** at the bottom of the scene picker. (Govee's cloud can play
    them but not make them, so they are made in the Govee app.)
 4. Pick the speaker and the bulb at the top. The volume slider sets the show's own volume, inside
@@ -36,19 +37,19 @@ The show list's ▶ on each card runs that show on its own; **Run all** starts e
 a sound, a speaker and a bulb. Two running shows can never share a speaker or a bulb. Like Light
 Show Studio, closing the window ends everything: every show stops, each bulb is put back as it was
 before its show, and the app quits. Minimizing the window keeps the shows going. Closing Light Show
-Studio closes Bulb Show too, the same way, however Bulb Show was started.
+Studio closes Bulb Studio too, the same way, however Bulb Studio was started.
 
 The light follows what the speaker reports it is playing, less the speaker's delay as measured in
 Light Show Studio (`cast_offsets` in the studio's config.json). If a bulb still looks early or
 late, ⚙ → Light timing nudges that show.
 
-## From the Party Hub
+## From the Party screen and the phone
 
-Light Show Studio's Party Hub lists every show that is ready (a sound, a speaker and a bulb) under
-**Lights → Bulb Shows**, each with an on/off switch. Switching one on while Bulb Show is closed
-starts it without a window (opening Bulb Show then shows the running app). Started that way, it
-quits by itself about 30 seconds after its last show is switched off, unless its window is open. A show is never started on the speaker the party is casting to. Under
-Settings, a speaker playing a bulb show carries the show's name, and its volume slider works as for
+Light Show Studio lists every show that is ready (a sound, a speaker and a bulb) under **Bulb
+Studio** on its Party screen and on the phone's Rooms tab, each with an on/off switch. Switching one on while Bulb Studio is closed
+starts it without a window (opening Bulb Studio then shows the running app). Started that way, it
+quits by itself about 30 seconds after its last show is switched off, unless its window is open. A show is never started on the speaker the party is casting to. In the
+room volumes, a speaker playing a bulb show carries the show's name, and its volume slider works as for
 any other speaker.
 
 ## The bulb: LAN or Govee's cloud

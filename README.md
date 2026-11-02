@@ -60,7 +60,7 @@ Scan a QR code and your phone is the remote: skip songs, recolor anything in the
   <img src="docs/images/jam.svg" alt="A Spotify Jam's queue reaches your computer, which learns each song before it plays, then the room's lights and Google speakers play it. Below, two timelines show the room hearing the music a few seconds after Spotify plays it." width="100%">
 </p>
 
-Start a Spotify Jam and let everyone add songs all night. The party [learns each one ahead](docs/GUIDE.md#jam-mode-someone-else-picks-the-music) and plays it on your Google speakers with a full show from the first beat. It runs on Windows, Mac and Linux, sets up its own audio, and needs Spotify Premium.
+Start a Spotify Jam and let everyone add songs all night. The party [learns each one ahead](docs/GUIDE.md#the-party-someone-else-picks-the-music) and plays it on your Google speakers with a full show from the first beat. It runs on Windows, Mac and Linux, sets up its own audio, and needs Spotify Premium.
 
 ## Built for you, yours to change
 

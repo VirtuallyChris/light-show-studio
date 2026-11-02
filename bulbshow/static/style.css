@@ -121,9 +121,3 @@ input:focus, select:focus { box-shadow: 0 0 0 2px rgba(139, 92, 246, .25); }
 .menu { border-radius: .9rem; }
 /* its own icon beside its name, and on a phone the header in two tidy rows */
 .brand::before { width: 1.9rem; height: 1.9rem; border-radius: .5rem; background: url(/static/icon-192.png) center / cover; box-shadow: none; }
-@media (max-width: 520px) {
-  #home .topbar .spacer, #home .topbar .usage { display: none; }
-  #home .topbar .menu-wrap { margin-left: auto; }
-  #btnRunAll, #btnStopAll { order: 3; flex: 1; }
-}
-@media (max-width: 520px) { #btnKey { min-height: 2.4rem; } }

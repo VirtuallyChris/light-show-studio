@@ -99,7 +99,7 @@ class ShowRunner:
             self.sid = uuid.uuid4().hex[:12]
             self.base = at % self.sound.duration
             self.reader = LoopReader(self.sound, self.base, self.volume)
-        self.cast.play_stream(self.url_for(self.sid), "audio/wav", self.show.get("name") or "Bulb Show")
+        self.cast.play_stream(self.url_for(self.sid), "audio/wav", self.show.get("name") or "Bulb Studio")
 
     def reader_for(self, sid: str):
         """The stream a speaker asks for. A second request for a stream it had already been playing is

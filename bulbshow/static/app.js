@@ -1,4 +1,4 @@
-// Bulb Show: the show list and the one-bulb timeline editor.
+// Bulb Studio: the show list and the one-bulb timeline editor.
 // The server works out every color (effects.py) and sends one loop of them as frames; this page
 // only draws them, so the bulb on screen is exactly what the real bulb gets.
 'use strict';
@@ -62,7 +62,7 @@ async function openHome() {
   stopHere();
   S.view = 'home'; S.show = null;
   $('editor').hidden = true; $('home').hidden = false;
-  document.title = 'Bulb Show';
+  document.title = 'Bulb Studio';
   S.shows = await api('/api/shows');
   drawCards();
 }
@@ -158,7 +158,7 @@ async function openShow(id) {
   S.view = 'editor'; S.show = show; S.sel = null; S.undo = []; S.redo = []; S.playhead = 0; S.play = null;
   S.audio = null; S.wave = null; S.frames = [];
   $('home').hidden = true; $('editor').hidden = false;
-  document.title = `${show.name} · Bulb Show`;
+  document.title = `${show.name} · Bulb Studio`;
   $('showName').value = show.name;
   $('volume').value = Math.round((show.volume == null ? 1 : show.volume) * 100);
   $('dropHint').hidden = !!show.duration;
@@ -288,7 +288,7 @@ function fillBulbs() {
 $('speaker').onchange = e => { S.show.speaker = e.target.value; save(); };
 $('bulb').onchange = e => { S.show.bulb = (fillBulbs.list || []).find(b => b.id === e.target.value) || null; changed(); };
 $('volume').oninput = e => { S.show.volume = e.target.value / 100; if (S.gain) S.gain.gain.value = S.show.volume; save(); };
-$('showName').oninput = e => { S.show.name = e.target.value; document.title = `${S.show.name} · Bulb Show`; save(); };
+$('showName').oninput = e => { S.show.name = e.target.value; document.title = `${S.show.name} · Bulb Studio`; save(); };
 
 // ---------- playing ------------------------------------------------------------------------------
 function now() {

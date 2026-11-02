@@ -92,7 +92,7 @@ class App:
         self.started_at = time.monotonic()
         self.CLOSE_GRACE_S = 8.0           # a reload drops the window's socket for a moment: not a close
         self.exit = lambda: os._exit(0)
-        self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[self.seen])
+        self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[self.only_here, self.seen])
         self.app.add_routes([
             web.get("/", self.index),
             web.static("/static", STATIC),
@@ -175,6 +175,14 @@ class App:
         return sorted(d for d in os.listdir(self.shows_dir) if os.path.isfile(os.path.join(self.shows_dir, d, "show.json")))
 
     # -- requests ------------------------------------------------------------------------
+    @web.middleware
+    async def only_here(self, request, handler):
+        """Bulb Studio opens on this computer only (the phone has its shows' switches, through the studio). A speaker
+        on the network still fetches its looping sound."""
+        if request.remote not in ("127.0.0.1", "::1", self.lan_ip) and not request.path.startswith("/api/loop/"):
+            return web.Response(status=403, text="Bulb Studio opens on the computer it runs on.")
+        return await handler(request)
+
     @web.middleware
     async def seen(self, request, handler):
         resp = await handler(request)
