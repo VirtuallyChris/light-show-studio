@@ -207,6 +207,7 @@
   .cue .phase { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .cue .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
   .cue:disabled { opacity: .45; }
+  .cue.mode[aria-pressed="true"] .phase { display: none; }
   .cue.mode[aria-pressed="true"] { color: var(--on-text, #fff); border-color: transparent; background: var(--on, #ff6000); }
   .cover-colors { margin-top: 16px; }
   .mode-edit { padding: 12px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
@@ -309,7 +310,7 @@
   .seg { display: flex; background: var(--card2); border: 1px solid var(--line); border-radius: 11px; padding: 2px; gap: 3px; }
   .seg button { min-height: 32px; padding: 0 12px; border: 0; background: none; border-radius: 9px; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 650; }
   .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
-  .start-party { margin-top: 14px; min-height: 52px; padding: 0 28px; border: 0; border-radius: 14px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; font-size: 17px; }
+  .start-party { display: block; margin: 14px auto 0; min-height: 52px; padding: 0 28px; border: 0; border-radius: 14px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; font-size: 17px; }
   .stop-party { min-height: 52px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text); font: inherit; font-weight: 650; }
   .room-line { display: flex; align-items: center; gap: 12px; }
   .room-vol { flex: 1; min-width: 0; }
@@ -352,7 +353,6 @@
 <section class="tab" id="tab-moments" hidden>
   <section class="card" id="momentsEmpty" hidden><div class="empty">No moments yet. Make them on the computer, in Party.</div></section>
   <section class="card" id="modesCard" hidden>
-    <div class="label">Hold a color</div>
     <div class="cues" id="modes"></div>
     <div id="modeColors"></div>
   </section>
@@ -662,7 +662,7 @@
     const sig = modes.map(m => m.id + '|' + m.name + '|' + m.confirm).join(',');
     if (sig !== modesShown) {
       modesShown = sig;
-      $('#modes').innerHTML = modes.map(m => `<button class="cue mode" type="button" data-mode="${esc(m.id)}" aria-pressed="false">${esc(m.name)}</button>`).join('');
+      $('#modes').innerHTML = modes.map(m => `<button class="cue mode" type="button" data-mode="${esc(m.id)}" aria-pressed="false">${esc(m.name)}<span class="phase"></span></button>`).join('');
       for (const b of $('#modes').querySelectorAll('[data-mode]')) b.onclick = () => {
         const m = ((state && state.modes) || []).find(x => x.id === b.dataset.mode); if (!m) return;
         const on = b.getAttribute('aria-pressed') !== 'true';
@@ -677,6 +677,7 @@
       const b = $('#modes').querySelector(`[data-mode="${CSS.escape(m.id)}"]`); if (!b) continue;
       if (performance.now() > (modeBusy[m.id] || 0)) b.setAttribute('aria-pressed', m.on ? 'true' : 'false');
       if (performance.now() > (modeColorBusy[m.id] || 0)) paint(b, m.color);
+      b.querySelector('.phase').textContent = m.pause ? 'Pauses the music' : `Music ${Math.round(m.music * 100)}%`;
     }
     // the colors of the ones that are on
     const on = modes.filter(m => m.on), box = $('#modeColors'), osig = on.map(m => m.id + m.color).join(',');

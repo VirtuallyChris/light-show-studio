@@ -848,8 +848,12 @@ button.pv-track:hover { background: var(--bg3); }
   .studio-view .top-right { grid-column: 1 / -1; justify-content: flex-end; }
 }
 @media (max-width: 760px) {
-  .studio-view main { grid-template-columns: minmax(0, 1fr); }
+  /* the timeline, then a clip's settings below it: one scrolls to them, and they never cover it */
+  .studio-view main { display: flex; flex-direction: column; overflow-y: auto; }
+  .studio-view .workspace { flex: none; height: 88vh; }
+  .studio-view .inspector { position: static; flex: none; width: auto; max-height: none; overflow: visible; }
   .studio-view .topbar { grid-template-columns: minmax(0, 1fr); padding: .6rem 1rem; }
   .studio-view .top-right { grid-column: auto; justify-content: flex-start; }
   .studio-view main { padding: .6rem; }
 }
+.pv-queue:has(#pvQueue > .pv-empty) { flex: none; min-height: 0; }

@@ -237,6 +237,10 @@
     if (!P()) return; S.undo.push(snapshot()); if (S.undo.length > 100) S.undo.shift(); S.redo.length = 0;
     if (!S.building) P().handEdited = true;                          // changed by hand: never rebuilt by itself
   }
+  /** A change begun on the press of a mouse. One that ends up changing nothing (a plain click) takes itself back: no
+   *  undo step, the redo steps kept, and the show not marked as changed by hand (which would stop it being rebuilt). */
+  function beginPress() { const was = { redo: S.redo.slice(), edited: P().handEdited }; beginChange(); return was; }
+  function cancelPress(was) { S.undo.pop(); S.redo.push(...was.redo); P().handEdited = was.edited; }
   // How shows are built (the effects chosen for each part of a song, how hard each style goes) is
   // versioned: SHOW_VERSION goes up with every change to it. A saved show records the version it was
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
@@ -1686,7 +1690,16 @@
   const lanesTop = () => ROW.ruler + ROW.sections + ROW.wave;
   // One effect to a row: a layer is one row, or two when a strips clip and a lamps or tubes clip play at the same
   // moment (they may share a layer, as they light different things). Rows keep their height and the stack scrolls.
-  const laneRows = lane => { const top = lane.clips.filter(c => c.target === 'long'), low = lane.clips.filter(c => c.target && c.target !== 'long'); return top.some(a => low.some(b => a.start < b.start + b.len && b.start < a.start + a.len)) ? 2 : 1; };
+  // A layer with nothing on it takes no room, unless it was added by hand (shown) or the show is still empty: it stays
+  // in the show, as the builder's layer numbers and the stacking order count on it, and its number goes to the next one.
+  const laneRows = lane => { if (S.view.frozen && S.view.frozen.has(lane)) return S.view.frozen.get(lane);
+    if (!lane.clips.length) return lane.shown || !P().lanes.some(l => l.clips.length) ? 1 : 0;
+    const top = lane.clips.filter(c => c.target === 'long'), low = lane.clips.filter(c => c.target && c.target !== 'long'); return top.some(a => low.some(b => a.start < b.start + b.len && b.start < a.start + a.len)) ? 2 : 1; };
+  /** Rows stay as they are while a clip is dragged, or the layer under the pointer would shift as it leaves one. */
+  function freezeLanes() { S.view.frozen = new Map(P().lanes.map(lane => [lane, laneRows(lane)])); }
+  const laneNo = li => P().lanes.slice(0, li + 1).filter(lane => laneRows(lane) > 0).length;
+  /** The next layer showing, up (1) or down (-1), or -1 when there is none. */
+  const laneStep = (li, dir) => { const L = P().lanes; for (let i = li + dir; i >= 0 && i < L.length; i += dir) if (laneRows(L[i])) return i; return -1; };
   let laneYs = [0];
   function layoutLanes() { const ys = [0]; for (const lane of P().lanes) ys.push(ys[ys.length - 1] + laneRows(lane) * ROW.lane); laneYs = ys; }
   const lanesHeight = () => laneYs[laneYs.length - 1];
@@ -1786,7 +1799,7 @@
     // lanes (scrollable region under the fixed rows)
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
-      const y = laneTop(li), rows = laneRows(lane); g.fillStyle = lane.hidden ? CV.laneHidden : li % 2 ? CV.laneAlt : CV.lane; g.fillRect(HEADER, y, w, laneH(li)); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
+      const y = laneTop(li), rows = laneRows(lane); if (!rows) return; g.fillStyle = lane.hidden ? CV.laneHidden : li % 2 ? CV.laneAlt : CV.lane; g.fillRect(HEADER, y, w, laneH(li)); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
       // a hidden layer is greyed out as a whole: its clips in grey, faded
       // (a jam song under review whose lights are the jam's own, untouched: every layer at half, until a change to
       // the lights makes it your own show; undone back to the jam's, half again)
@@ -1820,10 +1833,10 @@
     g.fillStyle = CV.overview; g.fillRect(0, 0, HEADER, h); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER - 0.5, 0); g.lineTo(HEADER - 0.5, h); g.stroke();
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
-      const ly = laneTop(li), mid = ly + ROW.lane / 2, rows = laneRows(lane);
+      const ly = laneTop(li), mid = ly + ROW.lane / 2, rows = laneRows(lane); if (!rows) return;
       const kind = cs => { const k = new Set(cs.map(c => c.target ? targetName(c.target) : '')); return k.size === 1 ? [...k][0] : ''; };
       const up = kind(rows > 1 ? lane.clips.filter(c => !c.target || c.target === 'long') : lane.clips);
-      const name = lane.name || `Layer ${li + 1}`, pale = lane.hidden ? CV.laneHiddenText : CV.muted;
+      const name = lane.name || `Layer ${laneNo(li)}`, pale = lane.hidden ? CV.laneHiddenText : CV.muted;
       g.fillStyle = lane.hidden ? CV.laneHiddenText : CV.text; g.font = '600 12px system-ui'; g.fillText(fitText(g, name, HEADER - 40), 10, up ? mid - 2 : mid + 4);
       g.font = '10px system-ui'; g.fillStyle = pale;
       if (up) g.fillText(up[0].toUpperCase() + up.slice(1), 10, mid + 11);
@@ -2088,24 +2101,24 @@
         setSelection(cur.includes(h.id) ? cur.filter(id => id !== h.id) : cur.concat(h.id)); return;
       }
       if (S.view.multi.includes(h.id) && h.edge) {    // an edge of a member: every selected clip changes by the same amount
-        beginChange();
-        S.view.drag = { type: 'groupedge', edge: h.edge, ref: clip, b0: h.edge === 'r' ? clip.start + clip.len : clip.start, moved: false,
+        freezeLanes();
+        S.view.drag = { press: beginPress(), type: 'groupedge', edge: h.edge, ref: clip, b0: h.edge === 'r' ? clip.start + clip.len : clip.start, moved: false,
           items: selectedClips().map(i => ({ clip: i.clip, lane: i.lane, start0: i.clip.start, len0: i.clip.len })) };
         return;
       }
       if (S.view.multi.includes(h.id) && !h.edge) {   // drag a member: the whole group comes along
-        beginChange();
-        S.view.drag = { type: 'group', id: h.id, items: selectedClips().map(i => ({ clip: i.clip, lane: i.lane, start0: i.clip.start })), b0: h.b, delta: 0, moved: false };
+        freezeLanes();
+        S.view.drag = { press: beginPress(), type: 'group', id: h.id, items: selectedClips().map(i => ({ clip: i.clip, lane: i.lane, start0: i.clip.start })), b0: h.b, delta: 0, moved: false };
         return;
       }
-      S.view.multi = []; S.view.sel = { type: 'clip', id: h.id }; inspector(); beginChange(); S.view.drag = { type: 'clip', clip, lane: h.lane, edge: h.edge, offset: h.b - clip.start, start0: clip.start, len0: clip.len, moved: false, copy: e.altKey }; draw(); return;
+      S.view.multi = []; S.view.sel = { type: 'clip', id: h.id }; inspector(); freezeLanes(); S.view.drag = { press: beginPress(), lane0: h.lane, type: 'clip', clip, lane: h.lane, edge: h.edge, offset: h.b - clip.start, start0: clip.start, len0: clip.len, moved: false, copy: e.altKey }; draw(); return;
     }
     if (h.type === 'lane') {   // empty space: click clears, dragging draws a selection box
       if (!e.shiftKey) clearSelection();
       S.view.drag = { type: 'marquee', x0: x, y0: y, x, y, add: e.shiftKey ? selectedClips().map(i => i.clip.id) : [], hits: [] }; return;
     }
     if (h.type === 'laneEye') { beginChange(); p.lanes[h.lane].hidden = !p.lanes[h.lane].hidden; changed(); }
-    if (h.type === 'addLane') { beginChange(); p.lanes.push(newLane()); changed(); vscrollTo(lanesOverflow()); }
+    if (h.type === 'addLane') { beginChange(); p.lanes.push({ ...newLane(), shown: true }); changed(); layoutLanes(); vscrollTo(lanesOverflow()); }
   });
   window.addEventListener('mousemove', e => {
     const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const d = S.view.drag;
@@ -2164,19 +2177,20 @@
       draw();
     }
   });
-  window.addEventListener('mouseup', () => { const d = S.view.drag; S.view.drag = null; if (!d) return; if (d.type === 'scrub' || d.type === 'vbar') return;
+  window.addEventListener('mouseup', () => { const d = S.view.drag; S.view.drag = null; if (S.view.frozen) { S.view.frozen = null; draw(); } if (!d) return; if (d.type === 'scrub' || d.type === 'vbar') return;
     if (d.type === 'marquee') {
       if (Math.abs(d.x - d.x0) < 4 && Math.abs(d.y - d.y0) < 4) { draw(); return; }   // a plain click, already cleared
       setSelection(d.add.concat(d.hits)); return;
     }
     if (d.type === 'groupedge') {
-      if (!d.moved) { S.undo.pop(); return; }
+      if (!d.moved) { cancelPress(d.press); return; }
       inspector(); changed(); return;
     }
     if (d.type === 'group') {
-      if (!d.moved) { S.undo.pop(); if (!d.tried) setSelection([d.id]); return; }   // a plain click on a member picks just that clip
+      if (!d.moved) { cancelPress(d.press); if (!d.tried) setSelection([d.id]); return; }   // a plain click on a member picks just that clip
       inspector(); changed(); return;
-    } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'clip') inspector(); changed(); });
+    } if (d.type === 'clip' && d.clip.start === d.start0 && d.clip.len === d.len0 && P().lanes[d.lane0].clips.includes(d.clip)) { cancelPress(d.press); inspector(); draw(); return; }
+    if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'clip') inspector(); changed(); });
   tl.addEventListener('dblclick', e => { const r = tl.getBoundingClientRect(); const h = hitTest((e.clientX - r.left) / UI, (e.clientY - r.top) / UI); if (!h) return; if (h.type === 'section') { beginChange(); const s = P().sections[h.index]; s.type = SECTION_TYPES[(SECTION_TYPES.indexOf(s.type) + 1) % SECTION_TYPES.length]; inspector(); changed(); } });
   /** A clip dragged to the top or bottom of the layers scrolls them, to reach the ones out of sight. */
   function edgeScroll(y) { const v = S.view.vscroll || 0; if (y > TH() - 20) vscrollTo(v + 10); else if (y >= lanesTop() && y < lanesTop() + 20) vscrollTo(v - 10); }
@@ -2212,8 +2226,9 @@
       item('Duplicate after', () => { beginChange(); lane.clips.push({ ...clip, id: uid(), start: clip.start + clip.len, params: { ...clip.params } }); changed(); });
       item('Split at playhead', () => { const pb = timeToBeat(pos()); if (pb <= clip.start || pb >= clip.start + clip.len) return; beginChange(); const right = { ...clip, id: uid(), start: pb, len: clip.start + clip.len - pb, params: { ...clip.params } }; clip.len = pb - clip.start; lane.clips.push(right); changed(); });
       item('Fill section', () => { const s = p.sections.find(s => beatToTime(clip.start) >= s.start - 0.01 && beatToTime(clip.start) < s.end); if (!s) return; const st = Math.round(timeToBeat(s.start)), ln = Math.round(timeToBeat(s.end)) - st; if (overlaps(lane, st, ln, clip)) return toast('Another clip on this layer is in the way', true); beginChange(); clip.start = st; clip.len = ln; changed(); });
-      if (li < p.lanes.length - 1) item('Move up a layer', () => { if (overlaps(p.lanes[li + 1], clip.start, clip.len)) return toast('No room on the layer above', true); beginChange(); lane.clips = lane.clips.filter(c => c !== clip); p.lanes[li + 1].clips.push(clip); changed(); });
-      if (li > 0) item('Move down a layer', () => { if (overlaps(p.lanes[li - 1], clip.start, clip.len)) return toast('No room on the layer below', true); beginChange(); lane.clips = lane.clips.filter(c => c !== clip); p.lanes[li - 1].clips.push(clip); changed(); });
+      const up = laneStep(li, 1), down = laneStep(li, -1);
+      if (up >= 0) item('Move up a layer', () => { if (overlaps(p.lanes[up], clip.start, clip.len)) return toast('No room on the layer above', true); beginChange(); lane.clips = lane.clips.filter(c => c !== clip); p.lanes[up].clips.push(clip); changed(); });
+      if (down >= 0) item('Move down a layer', () => { if (overlaps(p.lanes[down], clip.start, clip.len)) return toast('No room on the layer below', true); beginChange(); lane.clips = lane.clips.filter(c => c !== clip); p.lanes[down].clips.push(clip); changed(); });
       hr(); item('Delete', () => deleteSelection({ type: 'clip', id: h.id }));
     } else if (h.type === 'section' || h.type === 'section-edge') {
       const i = h.index; const s = p.sections[i];
@@ -2226,13 +2241,14 @@
       item('Set downbeat to nearest beat', () => { beginChange(); const k = Math.round(b); p.phase = ((k % 4) + 4) % 4; changed(); });
     } else if (h.type === 'lane' || h.type === 'laneHeader') {
       if (h.type === 'lane') { pasteItem(h.lane); item('Select all on this layer', () => selectAll(h.lane)); item('Select all clips', () => selectAll()); hr(); }
-      item('Insert layer above', () => { beginChange(); p.lanes.splice(h.lane + 1, 0, newLane()); changed(); });
-      item('Insert layer below', () => { beginChange(); p.lanes.splice(h.lane, 0, newLane()); changed(); });
-      if (h.lane < p.lanes.length - 1) item('Move layer up', () => { beginChange(); [p.lanes[h.lane], p.lanes[h.lane + 1]] = [p.lanes[h.lane + 1], p.lanes[h.lane]]; changed(); });
-      if (h.lane > 0) item('Move layer down', () => { beginChange(); [p.lanes[h.lane], p.lanes[h.lane - 1]] = [p.lanes[h.lane - 1], p.lanes[h.lane]]; changed(); });
+      item('Insert layer above', () => { beginChange(); p.lanes.splice(h.lane + 1, 0, { ...newLane(), shown: true }); changed(); });
+      item('Insert layer below', () => { beginChange(); p.lanes.splice(h.lane, 0, { ...newLane(), shown: true }); changed(); });
+      const above = laneStep(h.lane, 1), below = laneStep(h.lane, -1);
+      if (above >= 0) item('Move layer up', () => { beginChange(); [p.lanes[h.lane], p.lanes[above]] = [p.lanes[above], p.lanes[h.lane]]; changed(); });
+      if (below >= 0) item('Move layer down', () => { beginChange(); [p.lanes[h.lane], p.lanes[below]] = [p.lanes[below], p.lanes[h.lane]]; changed(); });
       hr();
-      item('Clear this layer', () => { beginChange(); p.lanes[h.lane].clips = []; changed(); });
-      if (p.lanes.length > 1) item('Remove this layer', () => { const n = p.lanes[h.lane].clips.length; if (n && !confirm(`Remove layer ${h.lane + 1} and its ${n} clip(s)?`)) return; beginChange(); p.lanes.splice(h.lane, 1); S.view.sel = null; inspector(); changed(); vscrollTo(S.view.vscroll || 0); });
+      item('Clear this layer', () => { beginChange(); p.lanes[h.lane].clips = []; p.lanes[h.lane].shown = true; changed(); });
+      if (p.lanes.length > 1) item('Remove this layer', () => { const n = p.lanes[h.lane].clips.length; if (n && !confirm(`Remove layer ${laneNo(h.lane)} and its ${n} clip(s)?`)) return; beginChange(); p.lanes.splice(h.lane, 1); S.view.sel = null; inspector(); changed(); vscrollTo(S.view.vscroll || 0); });
     }
     if (!m.children.length) return;
     m.style.left = cx + 'px'; m.style.top = cy + 'px'; m.hidden = false;
@@ -2273,7 +2289,7 @@
     const li = freeLaneFor(start, len, laneIdx);
     const clip = { id: uid(), effect: effectId, start, len, params: Effects.defaults(effectId), opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: effectColors(effectId), mine: true };
     P().lanes[li].clips.push(clip); S.view.sel = { type: 'clip', id: clip.id }; inspector(); changed();
-    if (li !== laneIdx) toast(`Layer ${laneIdx + 1} was busy there, placed on layer ${li + 1}`);
+    if (li !== laneIdx) toast(`Layer ${laneNo(laneIdx)} was busy there, placed on layer ${laneNo(li)}`);
     return clip;
   }
   function deleteSelection(sel = S.view.sel) {
@@ -2369,6 +2385,7 @@
     const b = snapBeat(h.b ?? timeToBeat(h.t ?? tOf(x)));
     if (kind === 'effect' && h.type === 'clip') { const { clip } = findClip(h.id); if (Effects.byId[id]) { beginChange(); const wasDefault = JSON.stringify(clip.palette || null) === JSON.stringify(effectColors(clip.effect)); clip.effect = id; clip.params = Effects.defaults(id); if (wasDefault) clip.palette = effectColors(id); S.view.sel = { type: 'clip', id: clip.id }; inspector(); changed(); toast(`Replaced with ${Effects.byId[id].name}, same timing`); } }
     else if (kind === 'effect' && h.type === 'lane') addClip(h.lane, id, b);
+    else if (kind === 'effect' && h.type === 'addLane') { P().lanes.push(newLane()); addClip(P().lanes.length - 1, id, b); }
     else if (kind === 'palette' && h.type === 'clip') { beginChange(); const { clip } = findClip(h.id); clip.palette = id; S.view.sel = { type: 'clip', id: h.id }; inspector(); changed(); toast(`${Effects.byId[clip.effect]?.name || clip.effect}: colors set to ${id}`); }
     else if (kind === 'palette') toast('Drop a palette onto a clip to recolor it', true);
     else if (kind === 'effect') addClip(0, id, b);
@@ -2494,7 +2511,7 @@
     if (sel.type === 'clip') {
       const f = findClip(sel.id); if (!f) { S.view.sel = null; return inspector(); } const { clip, lane } = f; const e = Effects.byId[clip.effect];
       let html = `<div class="panel"><div class="title">${e.name}</div><div class="desc">${e.desc}</div>
-        <div class="row"><label>Layer</label><select id="cLane">${p.lanes.map((l, i) => `<option value="${i}" ${l === lane ? 'selected' : ''}>Layer ${i + 1}</option>`).join('')}</select></div>
+        <div class="row"><label>Layer</label><select id="cLane">${p.lanes.map((l, i) => laneRows(l) ? `<option value="${i}" ${l === lane ? 'selected' : ''}>Layer ${laneNo(i)}</option>` : '').join('')}</select></div>
         <div class="row"><label>Start</label><span>bar ${barLabel(clip.start)} · ${fmtTime(beatToTime(clip.start))}</span></div>
         <div class="row"><label>Length (beats)</label><input id="cLen" type="number" step="0.25" min="0.25" value="${clip.len}"></div>
         <div class="row"><label>Opacity</label><input id="cOp" type="range" min="0" max="1" step="0.01" value="${clip.opacity ?? 1}"><span class="val">${Math.round((clip.opacity ?? 1) * 100)}%</span></div>
