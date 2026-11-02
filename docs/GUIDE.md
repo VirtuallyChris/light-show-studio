@@ -440,7 +440,8 @@ drop, bounded by the nearest texture change and extended back while the
 brightness and level keep climbing. Everything else with a groove is a
 *verse*; quiet first and last stretches are intro and outro. On a
 hand-labelled Porter Robinson track it agrees with the human labels 95% of
-the time and lands every drop within a second. Press **Re-detect** to refresh
+the time and lands every drop within a second. Press **Re-detect** (in the
+**Beat grid** menu) to refresh
 sections, drops and the beat grid from analysis without touching your clips,
 then fix anything it got wrong by dragging section edges.
 
@@ -461,9 +462,9 @@ inspector moves to the bottom. The **?** button lists the keyboard shortcuts.
 **Getting around**: the strip across the top is an overview of the whole song
 (section colors, a summary waveform and the drop markers). The bright box on
 it is what you are looking at: drag it to scroll, drag its edges to zoom, or
-click anywhere to jump there. In the timeline the wheel zooms around the
-pointer, <kbd>Shift</kbd>+wheel pans, and <kbd>Ctrl</kbd>+wheel scrolls the
-layer stack. <kbd>Space</kbd> plays and pauses, clicking the waveform seeks,
+click anywhere to jump there. In the timeline the wheel scrolls the layers
+when they do not all fit, <kbd>Ctrl</kbd>+wheel (or the wheel over the waveform)
+zooms around the pointer, and <kbd>Shift</kbd>+wheel pans. <kbd>Space</kbd> plays and pauses, clicking the waveform seeks,
 dragging the ruler scrubs (the playhead snaps to the **Snap** setting, like
 clips; hold <kbd>Alt</kbd> to place it freely), and <kbd>+</kbd>/<kbd>-</kbd>/<kbd>Fit</kbd> zoom
 from the keyboard. Zooming out can go past the end of the song (up to four

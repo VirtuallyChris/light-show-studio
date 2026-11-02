@@ -56,10 +56,9 @@
   <div class="top-right">
     <div class="group build">
       <button id="btnAuto" class="accent" title="Generate a full show from the detected structure">Auto-build show</button>
-      <button id="btnRedetect" title="Analyse the song again from scratch with the newest analysis, then replace sections, drops and beat grid (keeps your clips)">Re-detect</button>
     </div>
     <div class="group cast">
-      <select id="castDevice" title="Google Cast speaker or group"><option value="">Cast: this PC</option></select>
+      <label class="pv-playson">Plays on <select id="castDevice" title="Google Cast speaker or group"><option value="">This computer</option></select></label>
       <button id="btnCast" title="Play the song on the selected Cast speakers instead of this PC">Cast</button>
       <label id="castOffsetWrap" hidden>Cast offset <input id="castOffset" type="number" step="25" value="0" class="num" title="Delay for lights and PC audio so they match the sound from the speakers"> ms</label>
       <label class="toggle" id="castLocalWrap" hidden><input id="castLocal" type="checkbox" checked> PC audio</label>
@@ -86,6 +85,7 @@
         <div class="menu-wrap">
           <button id="btnGridMenu" title="Halve or double the tempo, nudge the grid, move the downbeat">Beat grid ▾</button>
           <div id="gridMenu" class="menu" hidden>
+            <button id="btnRedetect" title="Analyse the song again from scratch with the newest analysis, then replace sections, drops and beat grid (keeps your clips)">Re-detect</button>
             <div class="menu-title">Tempo</div>
             <div class="menu-row"><button id="btnHalf" title="Halve the tempo: keep every other beat. Use when the grid counts eighth notes.">Halve &divide;2</button><button id="btnDouble" title="Double the tempo: add a beat between every pair.">Double &times;2</button></div>
             <div class="menu-title">Grid</div>
@@ -116,7 +116,7 @@
     </div>
     <div id="emptyState" class="empty">
       <div class="big">Drop a song here</div>
-      <div>or click <b>Add a song</b>, or pick a saved show. MP3, WAV, FLAC, OGG, M4A.</div>
+      <div>or pick one in <b>Shows</b>. MP3, WAV, FLAC, OGG, M4A.</div>
       <div class="path-open">Local file path: <input id="pathInput" placeholder="C:\Music\track.mp3"><button id="btnPath">Open</button></div>
     </div>
     <div id="busy" class="busy" hidden><div class="spinner"></div><div id="busyText">Analysing…</div></div>

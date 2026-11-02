@@ -793,3 +793,63 @@ button.pv-track:hover { background: var(--bg3); }
   .page-body, .home-body, .store-body, .page-view .st-main { padding-left: 1rem; padding-right: 1rem; }
   .pv-setup { margin-left: 1rem; margin-right: 1rem; }
 }
+
+/* ======================================================================================
+   The show editor: the same header and cards as every other view
+   ====================================================================================== */
+:root { --canvas-room: #0d0e15; --canvas-lane: #13141c; --canvas-lane-alt: #13141c; --canvas-lane-hidden: #101118; --canvas-overview: #13141c; --canvas-rule: #1c1e29;
+  --canvas-text: #eef0f6; --canvas-muted: #8b92a5; --canvas-link: #c4b5fd; --canvas-wave: #8b5cf6; --canvas-wave2: #ec4899; --canvas-dim: #5d6175; }
+.studio-view .topbar { min-height: 4.6rem; padding: .5rem 1.8rem; gap: .5rem 1rem; background: none; border-bottom: 1px solid var(--line); }
+.studio-view .group { background: none; padding: 0; border: none; border-radius: 0; }
+.studio-view .title-block .project-name { font-size: 1.35rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.25; width: clamp(10rem, 22vw, 26rem); text-overflow: ellipsis; }
+.studio-view .pv-playson select { min-width: 8rem; }
+.studio-view .song-meta { font-size: .85rem; }
+#btnBackShows { border: none; background: none; color: var(--muted); padding: .3rem .5rem .3rem 0; font-weight: 600; }
+#btnBackShows:hover { color: var(--text); background: none; }
+#btnOpen { display: none; }
+.transport button.icon { border: none; border-radius: 50%; }
+.clock .time { font-family: inherit; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.clock .time.small { font-size: .8rem; font-weight: 400; }
+.studio-view main { gap: 1rem; padding: 1rem 1.2rem 1.2rem; background: none; }
+.workspace { background: none; }
+.preview-wrap { flex: none; height: clamp(7rem, 22vh, 14rem); margin-bottom: 1rem; border: 1px solid var(--line); border-radius: 1.4rem; overflow: hidden; }
+.tl-bar { flex: none; padding: .6rem 1rem .5rem; background: #13141c; border: 1px solid var(--line); border-bottom: none; border-radius: 1.4rem 1.4rem 0 0; }
+.tl-bar .group + .group { border-left: none; padding-left: 0; margin-left: auto; }
+.tl-bar label { color: var(--muted); }
+.tl-bar button:not(.accent):not(.icon) { background: var(--bg3); border-color: transparent; }
+.tl-bar button.icon { background: none; border-color: transparent; color: var(--muted); }
+.tl-bar button.icon:hover { background: var(--bg3); color: var(--text); }
+#btnZoomOut, #btnZoomIn { display: none; }
+.timeline-wrap { background: #13141c; border: 1px solid var(--line); border-top: none; border-radius: 0 0 1.4rem 1.4rem; overflow: hidden; }
+#overview { background: var(--canvas-overview); }
+.library > .panel, .inspector > .panel { background: #13141c; border: 1px solid var(--line); border-radius: 1.4rem; padding: 1rem 1.1rem; }
+.library .search { background: var(--bg3); border-color: transparent; border-radius: .7rem; }
+.panel h3 { margin: 0 0 .5rem; font-size: 1.05rem; font-weight: 800; color: var(--text); text-transform: none; letter-spacing: 0; }
+.inspector .title { font-size: 1.05rem; font-weight: 800; }
+.cat { color: var(--muted); font-size: .85rem; font-weight: 600; letter-spacing: 0; text-transform: none; margin: .9rem 0 .3rem; }
+.effect-list { gap: .1rem; }
+.effect-card { border: none; background: none; border-radius: .8rem; padding: .5rem .55rem; }
+.effect-card:hover { border: none; background: var(--bg3); transform: none; }
+.effect-card .sw { width: 2.4rem; height: 2.4rem; border-radius: .6rem; }
+.effect-card .nm { font-size: .95rem; }
+.effect-card .ds { color: var(--muted); font-size: .8rem; }
+.studio-view .inspector { background: none; border: none; padding: 0; }
+.inspector .row label { overflow-wrap: normal; min-width: min-content; }
+.inspector .row input[type=range] { width: 5rem; flex: 1 1 5rem; min-width: 4rem; }
+@media (min-width: 1151px) {
+  .studio-view .library { background: none; border: none; padding: 0; }
+}
+@media (max-width: 1150px) {
+  /* the effects slide out past the rail, wholly out of sight when closed */
+  .library { transform: translateX(calc(-100% - 6rem)); }
+  body.lib-open .library { transform: none; }
+  .studio-view main { grid-template-columns: minmax(0, 1fr) clamp(16rem, 30vw, 19rem); }
+  .studio-view .topbar { grid-template-columns: minmax(0, 1fr) auto; padding: .5rem 1.2rem; }
+  .studio-view .top-right { grid-column: 1 / -1; justify-content: flex-end; }
+}
+@media (max-width: 760px) {
+  .studio-view main { grid-template-columns: minmax(0, 1fr); }
+  .studio-view .topbar { grid-template-columns: minmax(0, 1fr); padding: .6rem 1rem; }
+  .studio-view .top-right { grid-column: auto; justify-content: flex-start; }
+  .studio-view main { padding: .6rem; }
+}

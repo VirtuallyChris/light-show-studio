@@ -28,8 +28,8 @@
   /** The canvases' own colors, from the stylesheet (style.css --canvas-*): a new look is changed in one place. */
   function canvasColors() {
     const cs = getComputedStyle(document.documentElement), v = (k, d) => cs.getPropertyValue('--canvas-' + k).trim() || d;
-    return { room: v('room', '#07080b'), wall: v('room-wall', '#2a2d3a'), name: v('room-name', '#5d6175'), lane: v('lane', '#10121a'),
-      laneAlt: v('lane-alt', '#0e1017'), laneHidden: v('lane-hidden', '#0b0c10'), overview: v('overview', '#0f1017'), rule: v('rule', '#1d1f29') };
+    return { room: v('room', '#07080b'), wall: v('room-wall', '#2a2d3a'), name: v('room-name', '#5d6175'), lane: v('lane', '#10121a'), text: v('text', '#eef0f6'), muted: v('muted', '#8b92a5'), link: v('link', '#c4b5fd'), wave: v('wave', '#8b5cf6'), wave2: v('wave2', '#ec4899'),
+      laneAlt: v('lane-alt', '#0e1017'), laneHidden: v('lane-hidden', '#0b0c10'), laneHiddenText: v('dim', '#5d6175'), overview: v('overview', '#0f1017'), rule: v('rule', '#1d1f29') };
   }
   const CV = canvasColors();
   const DEFAULT_LANES = 4;
@@ -654,7 +654,7 @@
   async function loadCastDevices(rescan = false) {
     const sel = $('#castDevice'); const cur = sel.value;
     try { const list = await castApi('devices' + (rescan ? '?rescan=1' : '')); S.cast.devices = list;
-      sel.innerHTML = '<option value="">Cast: this PC</option>' + list.map(d => `<option value="${d.name}">${d.type === 'group' ? '🔊 ' : ''}${d.name}${d.type === 'group' ? ' (group)' : ''}</option>`).join('');
+      sel.innerHTML = '<option value="">This computer</option>' + list.map(d => `<option value="${d.name}">${d.type === 'group' ? '🔊 ' : ''}${d.name}${d.type === 'group' ? ' (group)' : ''}</option>`).join('');
       sel.value = cur; } catch (e) { /* no cast library or no devices */ }
   }
   async function castStart() {
@@ -1684,9 +1684,20 @@
   const xOf = t => HEADER + (t - S.view.scroll) * S.view.pps;
   const tOf = x => S.view.scroll + (x - HEADER) / S.view.pps;
   const lanesTop = () => ROW.ruler + ROW.sections + ROW.wave;
-  const laneTop = i => lanesTop() + i * ROW.lane - (S.view.vscroll || 0);
-  const ADD_ROW = 26;  // the "+ layer" strip under the last layer
-  function lanesOverflow() { const h = TH(); return Math.max(0, lanesTop() + P().lanes.length * ROW.lane + ADD_ROW - h); }
+  // One effect to a row: a layer is one row, or two when a strips clip and a lamps or tubes clip play at the same
+  // moment (they may share a layer, as they light different things). Rows keep their height and the stack scrolls.
+  const laneRows = lane => { const top = lane.clips.filter(c => c.target === 'long'), low = lane.clips.filter(c => c.target && c.target !== 'long'); return top.some(a => low.some(b => a.start < b.start + b.len && b.start < a.start + a.len)) ? 2 : 1; };
+  let laneYs = [0];
+  function layoutLanes() { const ys = [0]; for (const lane of P().lanes) ys.push(ys[ys.length - 1] + laneRows(lane) * ROW.lane); laneYs = ys; }
+  const lanesHeight = () => laneYs[laneYs.length - 1];
+  const laneTop = i => lanesTop() + (i < laneYs.length ? laneYs[i] : lanesHeight() + (i - laneYs.length + 1) * ROW.lane) - (S.view.vscroll || 0);
+  const laneH = i => laneYs[i + 1] - laneYs[i];
+  const ADD_ROW = 34;  // the "+ layer" strip under the last layer
+  /** The layer at a height: -1 above them, the layer count on the "+ layer" strip, past that beyond it. */
+  function laneAt(y) { layoutLanes(); const v = y - lanesTop() + (S.view.vscroll || 0); if (v < 0) return -1; const i = laneYs.findIndex((_, k) => k < laneYs.length - 1 && v < laneYs[k + 1]); if (i >= 0) return i; return v < lanesHeight() + ADD_ROW ? P().lanes.length : P().lanes.length + 1; }
+  function lanesOverflow() { const h = TH(); return Math.max(0, lanesTop() + lanesHeight() + ADD_ROW - h); }
+  /** The layers' scrollbar: where its thumb starts, and how tall it is. */
+  function vbar() { const track = TH() - lanesTop(), over = lanesOverflow(), th = Math.max(28, track * track / (track + over)); return [lanesTop() + (track - th) * (S.view.vscroll || 0) / Math.max(1, over), th, track - th]; }
   function vscrollTo(v) { S.view.vscroll = clamp(v, 0, lanesOverflow()); draw(); }
   const waveTop = () => ROW.ruler + ROW.sections;
   function viewWidth() { return TW() - HEADER; }
@@ -1709,16 +1720,13 @@
     if (!S.analysis) return;
     const w = TW(), h = TH();
     if (!w || !h) { S.dirty = true; return; }   // hidden or collapsed: try again next frame
-    // Layers share the height there is, rather than sitting in a strip. On a short window everything
-    // still fits: the waveform gives up height first, then the layers go down to a compact one-line
-    // size, so "+ add layer" is never pushed off the bottom.
-    const nl = Math.max(4, P().lanes.length), fixed = ROW.ruler + ROW.sections + ADD_ROW + 2;
-    ROW.wave = 84;
-    let lane = (h - fixed - ROW.wave) / nl;
-    if (lane < 44) { ROW.wave = Math.round(Math.max(44, h - fixed - 44 * nl)); lane = (h - fixed - ROW.wave) / nl; }
-    ROW.lane = Math.round(Math.max(28, Math.min(78, lane)));
+    // A few layers share the height there is; many keep their height and scroll. A short window takes it from the waveform.
+    const rows = Math.max(4, P().lanes.reduce((n, lane) => n + laneRows(lane), 0)), fixed = ROW.ruler + ROW.sections;
+    ROW.wave = Math.round(clamp((h - fixed) * 0.24, 44, 84));
+    ROW.lane = Math.round(clamp((h - fixed - ROW.wave - ADD_ROW) / rows, 38, 52));
+    layoutLanes();
     if ((S.view.vscroll || 0) > lanesOverflow()) S.view.vscroll = lanesOverflow();
-    if (S.view.fitPending) { S.view.fitPending = false; S.view.pps = Math.max(1, viewWidth() / duration()); S.view.scroll = 0; }
+    if (S.view.fitPending) { S.view.fitPending = false; S.view.vscroll = 0; S.view.pps = Math.max(1, viewWidth() / duration()); S.view.scroll = 0; }
     const W = Math.floor(tl.clientWidth * devicePixelRatio), H = Math.floor(tl.clientHeight * devicePixelRatio);
     if (tl.width !== W || tl.height !== H) { tl.width = W; tl.height = H; }
     if (off.width !== W || off.height !== H) { off.width = W; off.height = H; }
@@ -1732,40 +1740,42 @@
     for (let i = b0; i <= b1; i++) {
       const isBar = ((i - p.phase) % 4 + 4) % 4 === 0; const x = xOf(p.beats[i]);
       if (!isBar && beatPx < 5) continue;
-      g.strokeStyle = isBar ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.05)'; g.beginPath(); g.moveTo(x, ROW.ruler); g.lineTo(x, h); g.stroke();
+      g.strokeStyle = isBar ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.025)'; g.beginPath(); g.moveTo(x, ROW.ruler); g.lineTo(x, h); g.stroke();
       if (isBar && (beatPx * 4 > 26 || barOf(i) % Math.ceil(30 / Math.max(1, beatPx * 4)) === 0)) { g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText(String(barOf(i) + 1), x + 3, 14); }
     }
     // ruler: seconds
-    g.fillStyle = '#1a1c22'; g.fillRect(HEADER, 0, w, ROW.ruler); g.fillStyle = '#8b92a3'; g.font = '10px system-ui';
+    g.fillStyle = CV.lane; g.fillRect(HEADER, 0, w, ROW.ruler); g.fillStyle = '#8b92a3'; g.font = '10px system-ui';
     const secStep = S.view.pps > 80 ? 1 : S.view.pps > 25 ? 5 : S.view.pps > 8 ? 10 : 30;
     for (let s = Math.floor(t0 / secStep) * secStep; s < t1; s += secStep) { const x = xOf(s); g.fillStyle = '#3a3f4b'; g.fillRect(x, ROW.ruler - 6, 1, 6); g.fillStyle = '#8b92a3'; g.fillText(fmtTime(s).slice(0, -4), x + 2, ROW.ruler - 8); }
     // drops
 
     // sections
     const sy = ROW.ruler;
+    g.fillStyle = CV.lane; g.fillRect(HEADER, sy, w, ROW.sections);
     p.sections.forEach((s, i) => {
       const x0 = xOf(s.start), x1 = xOf(s.end); if (x1 < HEADER || x0 > w) return;
       const vx = Math.max(HEADER, x0), vw = Math.max(0, x1 - vx - 1);        // measured from where it is drawn
-      g.fillStyle = SECTION_COLORS[s.type] || '#555'; g.globalAlpha = 0.85; g.fillRect(vx, sy + 2, vw, ROW.sections - 4); g.globalAlpha = 1;
+      g.fillStyle = SECTION_COLORS[s.type] || '#555'; g.globalAlpha = 0.34; g.beginPath(); g.roundRect(vx, sy + 1, vw, ROW.sections - 3, 6); g.fill(); g.globalAlpha = 1;
       g.save(); g.beginPath(); g.rect(vx, sy, Math.max(0, vw - 2), ROW.sections); g.clip();
-      g.fillStyle = '#fff'; g.font = 'bold 10px system-ui'; g.fillText(s.type.toUpperCase(), vx + 4, sy + 14); g.restore();
-      if (S.view.sel && S.view.sel.type === 'section' && S.view.sel.index === i) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.strokeRect(x0, sy + 1, x1 - x0, ROW.sections - 2); g.lineWidth = 1; }
+      g.fillStyle = CV.text; g.font = '600 11px system-ui'; g.fillText(fitText(g, s.type[0].toUpperCase() + s.type.slice(1), vw - 12), vx + 7, sy + 13); g.restore();
+      if (S.view.sel && S.view.sel.type === 'section' && S.view.sel.index === i) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.roundRect(vx, sy + 1, vw, ROW.sections - 3, 6); g.stroke(); g.lineWidth = 1; }
     });
 
     // waveform
-    const wy = waveTop(), wh = ROW.wave; g.fillStyle = '#0e0f13'; g.fillRect(HEADER, wy, w, wh);
+    const wy = waveTop(), wh = ROW.wave; g.fillStyle = CV.lane; g.fillRect(HEADER, wy, w, wh);
     const pps = a.wave_pps; const i0 = Math.max(0, Math.floor(t0 * pps)), i1 = Math.min(a.peaks.length - 1, Math.ceil(t1 * pps));
-    g.fillStyle = '#4b6bff';
+    const wg = g.createLinearGradient(0, wy, 0, wy + wh); wg.addColorStop(0, CV.wave2); wg.addColorStop(0.5, CV.wave); wg.addColorStop(1, CV.wave2); g.fillStyle = wg; g.globalAlpha = 0.72;
     if (S.view.pps / pps >= 1) { for (let i = i0; i <= i1; i++) { const x = xOf(i / pps); const ph = a.peaks[i] * (wh / 2 - 4); g.fillRect(x, wy + wh / 2 - ph, Math.max(1, S.view.pps / pps), ph * 2); } }
     else { const step = pps / S.view.pps; for (let x = HEADER; x < w; x++) { const j0 = Math.floor((tOf(x)) * pps), j1 = Math.floor(tOf(x + 1) * pps); let m = 0; for (let j = j0; j <= j1 && j < a.peaks.length; j++) if (j >= 0) m = Math.max(m, a.peaks[j]); const ph = m * (wh / 2 - 4); g.fillRect(x, wy + wh / 2 - ph, 1, ph * 2); } }
+    g.globalAlpha = 1;
     // energy line
-    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.beginPath();
+    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.beginPath();
     for (let x = HEADER; x < w; x += 2) { const e = featureAt(clamp(tOf(x), 0, duration())).energy; const y = wy + wh - 2 - e * (wh - 6); x === HEADER ? g.moveTo(x, y) : g.lineTo(x, y); } g.stroke();
     // beat markers on the waveform (editable)
     const be = $('#beatEdit').checked;
-    if (beatPx >= 3 || be) for (let i = b0; i <= b1; i++) {
+    if (beatPx >= 8 || be) for (let i = b0; i <= b1; i++) {
       const x = xOf(p.beats[i]); const isBar = ((i - p.phase) % 4 + 4) % 4 === 0; const selB = S.view.sel && S.view.sel.type === 'beat' && S.view.sel.index === i;
-      g.fillStyle = selB ? '#fff' : isBar ? '#ffd166' : be ? '#8ad8ff' : 'rgba(138,216,255,0.5)';
+      g.fillStyle = selB ? '#fff' : isBar ? CV.link : be ? '#8ad8ff' : 'rgba(255,255,255,0.22)';
       g.beginPath(); g.moveTo(x - 4, wy); g.lineTo(x + 4, wy); g.lineTo(x, wy + 7); g.fill();
       if (be) g.fillRect(x, wy, 1, wh);
     }
@@ -1776,7 +1786,7 @@
     // lanes (scrollable region under the fixed rows)
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
-      const y = laneTop(li); g.fillStyle = lane.hidden ? CV.laneHidden : li % 2 ? CV.laneAlt : CV.lane; g.fillRect(HEADER, y, w, ROW.lane); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
+      const y = laneTop(li), rows = laneRows(lane); g.fillStyle = lane.hidden ? CV.laneHidden : li % 2 ? CV.laneAlt : CV.lane; g.fillRect(HEADER, y, w, laneH(li)); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
       // a hidden layer is greyed out as a whole: its clips in grey, faded
       // (a jam song under review whose lights are the jam's own, untouched: every layer at half, until a change to
       // the lights makes it your own show; undone back to the jam's, half again)
@@ -1787,21 +1797,17 @@
         // a clip that starts off to the left is drawn from the timeline's edge: its width must be
         // measured from there too, or it (and its label) spills over the next clip
         const vx = Math.max(HEADER, x0), vw = Math.max(0, x1 - vx - 2);
-        const e = Effects.byId[c.effect]; const sw = e ? e.swatch : ['#666', '#333'];
-        const [cy, ch] = clipBox(c, y);
-        const grad = g.createLinearGradient(x0, cy, x0, cy + ch); grad.addColorStop(0, sw[0]); grad.addColorStop(1, sw[1]);
-        g.fillStyle = grad; g.globalAlpha = 0.55 * ga; g.beginPath(); g.roundRect(vx, cy, vw, ch, 5); g.fill(); g.globalAlpha = ga;
-        const isSel = isSelected(c.id);
-        g.strokeStyle = isSel ? '#fff' : 'rgba(255,255,255,0.25)'; g.lineWidth = isSel ? 2 : 1;
-        g.beginPath(); g.roundRect(vx, cy, vw, ch, 5); g.stroke(); g.lineWidth = 1;
-        g.save(); g.beginPath(); g.rect(vx, cy, Math.max(0, vw - 4), ch); g.clip();
-        const compact = ch < 34;
-        g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText((e ? e.name : c.effect) + (c.target && compact ? ' \u00b7 ' + targetName(c.target) : ''), Math.max(HEADER, x0) + 6, cy + (compact ? Math.min(12, ch - 4) : 15));
-        if (!compact) { g.fillStyle = 'rgba(255,255,255,0.7)'; g.font = '10px system-ui'; g.fillText(clipSummary(c), Math.max(HEADER, x0) + 6, cy + 27); }
-        g.restore();
-        // the clip's own colors, as a bar along its bottom edge
-        const cols = clipPaletteHex(c); const bx0 = Math.max(HEADER, x0) + 5, bx1 = Math.min(w, x1) - 7;
-        if (bx1 > bx0 + 4) { const pg = g.createLinearGradient(bx0, 0, bx1, 0); cols.forEach((col, i) => pg.addColorStop(i / Math.max(1, cols.length - 1), col)); g.fillStyle = pg; g.beginPath(); if (compact) g.roundRect(bx0, cy + ch - 5, bx1 - bx0, 3, 1.5); else g.roundRect(bx0, cy + ch - 8, bx1 - bx0, 6, 3); g.fill(); }
+        const e = Effects.byId[c.effect], [cy, ch] = clipBox(c, y, rows), r = Math.min(8, ch / 2, vw / 2);
+        // a clip is the colors it plays: a tick when it is only a moment, a soft bar with its name otherwise
+        const cols = clipPaletteHex(c), pg = g.createLinearGradient(vx, 0, vx + Math.max(1, vw), 0);
+        cols.forEach((col, i) => pg.addColorStop(i / Math.max(1, cols.length - 1), col));
+        const tick = vw < 16;
+        g.fillStyle = pg; g.globalAlpha = (tick ? 0.95 : 0.42) * ga; g.beginPath(); g.roundRect(vx, cy, Math.max(2, vw), ch, r); g.fill(); g.globalAlpha = ga;
+        if (isSelected(c.id)) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.roundRect(vx, cy, Math.max(2, vw), ch, r); g.stroke(); g.lineWidth = 1; }
+        if (vw >= 34) {
+          g.fillStyle = CV.text; g.font = '600 12px system-ui';
+          g.fillText(fitText(g, e ? e.name : c.effect, vw - 18), vx + 9, cy + ch / 2 + 4);
+        }
       }
       g.globalAlpha = 1; g.filter = 'none';
     });
@@ -1814,26 +1820,31 @@
     g.fillStyle = CV.overview; g.fillRect(0, 0, HEADER, h); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER - 0.5, 0); g.lineTo(HEADER - 0.5, h); g.stroke();
     g.save(); g.beginPath(); g.rect(0, lanesTop(), w, h - lanesTop()); g.clip();
     p.lanes.forEach((lane, li) => {
-      const ly = laneTop(li);
-      const small = ROW.lane < 42, mid = small ? ly + ROW.lane / 2 : ly + 22;
-      g.fillStyle = lane.hidden ? '#6b7280' : '#e6e8ee'; g.font = 'bold 12px system-ui'; g.fillText(`Layer ${li + 1}`, 8, mid + 4);
-      if (!small) { g.fillStyle = '#8b92a3'; g.font = '10px system-ui'; g.fillText(lane.hidden ? 'hidden' : li === p.lanes.length - 1 ? 'top' : li === 0 ? 'bottom' : '', 8, ly + 36); }
+      const ly = laneTop(li), mid = ly + ROW.lane / 2, rows = laneRows(lane);
+      const kind = cs => { const k = new Set(cs.map(c => c.target ? targetName(c.target) : '')); return k.size === 1 ? [...k][0] : ''; };
+      const up = kind(rows > 1 ? lane.clips.filter(c => !c.target || c.target === 'long') : lane.clips);
+      const name = lane.name || `Layer ${li + 1}`, pale = lane.hidden ? CV.laneHiddenText : CV.muted;
+      g.fillStyle = lane.hidden ? CV.laneHiddenText : CV.text; g.font = '600 12px system-ui'; g.fillText(fitText(g, name, HEADER - 40), 10, up ? mid - 2 : mid + 4);
+      g.font = '10px system-ui'; g.fillStyle = pale;
+      if (up) g.fillText(up[0].toUpperCase() + up.slice(1), 10, mid + 11);
+      if (rows > 1) { const low = kind(lane.clips.filter(c => c.target && c.target !== 'long')); g.fillText(low[0].toUpperCase() + low.slice(1), 10, mid + ROW.lane + 4); }
       // eye toggle
-      const ex = HEADER - 16, ey = mid; g.strokeStyle = lane.hidden ? '#6b7280' : '#e6e8ee'; g.fillStyle = g.strokeStyle; g.lineWidth = 1.5;
-      g.beginPath(); g.ellipse(ex, ey, 8, 5, 0, 0, Math.PI * 2); g.stroke();
-      if (!lane.hidden) { g.beginPath(); g.arc(ex, ey, 2.4, 0, Math.PI * 2); g.fill(); }
+      const ex = HEADER - 15, ey = mid; g.strokeStyle = lane.hidden ? CV.laneHiddenText : CV.muted; g.fillStyle = g.strokeStyle; g.lineWidth = 1.3;
+      g.beginPath(); g.ellipse(ex, ey, 7, 4.2, 0, 0, Math.PI * 2); g.stroke();
+      if (!lane.hidden) { g.beginPath(); g.arc(ex, ey, 2, 0, Math.PI * 2); g.fill(); }
       else { g.beginPath(); g.moveTo(ex - 9, ey + 7); g.lineTo(ex + 9, ey - 7); g.stroke(); }
       g.lineWidth = 1;
     });
-    const ay = laneTop(p.lanes.length); g.fillStyle = '#1f2229'; g.fillRect(0, ay, w, ADD_ROW); g.fillStyle = '#6c8cff'; g.font = 'bold 11px system-ui'; g.fillText('+ add layer', 8, ay + 17);
-    g.fillStyle = getComputedStyle(document.body).backgroundColor || '#0b0c10'; g.fillRect(0, ay + ADD_ROW, w, Math.max(0, h - ay - ADD_ROW));
-    g.restore();
+    const ay = laneTop(p.lanes.length); g.fillStyle = CV.lane; g.fillRect(HEADER, ay, w, Math.max(0, h - ay)); g.fillStyle = CV.link; g.font = '600 12px system-ui'; g.fillText('+ Add a layer', 10, ay + 21);
+        g.restore();
   }
-  /** Where a clip sits in its layer: the whole height, or for one kind of light, its half (strips on top). */
-  function clipBox(c, y) {
-    if (!c.target) return [y + 4, ROW.lane - 8];
-    const h = ROW.lane / 2 - 3;
-    return c.target === 'long' ? [y + 3, h] : [y + ROW.lane / 2, h];
+  /** Where a clip sits in its layer: the row, and in a layer of two rows the strips on top, the lamps and tubes beneath. */
+  function clipBox(c, y, rows) { return [y + (rows > 1 && c.target && c.target !== 'long' ? ROW.lane : 0) + 3, ROW.lane - 6]; }
+  /** Text cut to fit a width, with an ellipsis; nothing at all rather than a stray letter or two. */
+  function fitText(g, text, width) {
+    if (g.measureText(text).width <= width) return text;
+    let n = text.length; while (n > 0 && g.measureText(text.slice(0, n) + '\u2026').width > width) n--;
+    return n < 3 ? '' : text.slice(0, n).trimEnd() + '\u2026';
   }
   const targetName = t => t === 'long' ? 'strips' : t === 'tubes' ? 'tubes' : 'lamps';
   function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : targetName(c.target)); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${+(+v).toFixed(2)}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
@@ -1874,7 +1885,7 @@
     const w = TW(), h = TH(); const g = tctx;
     g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(off, 0, 0);
     g.setTransform(devicePixelRatio * UI, 0, 0, devicePixelRatio * UI, 0, 0);
-    if (S.view.hoverDrop) { const d = S.view.hoverDrop; g.fillStyle = d.replace ? 'rgba(255,94,168,0.35)' : 'rgba(108,140,255,0.35)'; g.fillRect(d.x, d.y, d.w, d.h); if (d.replace) { g.strokeStyle = '#ff5ea8'; g.lineWidth = 2; g.strokeRect(d.x, d.y, d.w, d.h); g.lineWidth = 1; g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText('replace', d.x + 6, d.y + d.h - 6); } }
+    if (S.view.hoverDrop) { const d = S.view.hoverDrop; g.fillStyle = d.replace ? 'rgba(255,94,168,0.35)' : 'rgba(139,92,246,0.35)'; g.fillRect(d.x, d.y, d.w, d.h); if (d.replace) { g.strokeStyle = '#ff5ea8'; g.lineWidth = 2; g.strokeRect(d.x, d.y, d.w, d.h); g.lineWidth = 1; g.fillStyle = '#fff'; g.font = 'bold 11px system-ui'; g.fillText('replace', d.x + 6, d.y + d.h - 6); } }
     const x = xOf(pos());
     const bottom = Math.min(h, laneTop(P().lanes.length) + ADD_ROW);
     const ld = S.view.lyricDrawn, now = pos();                 // the word (or line) being sung, lit up
@@ -1883,9 +1894,11 @@
       g.fillStyle = 'rgba(8,9,12,0.9)'; g.fillRect(it.x - 2, ld.y + 1, g.measureText(it.text).width + 4, LYRIC_BAND - 2);
       g.fillStyle = '#ffd166'; g.fillText(it.text, it.x, ld.y + LYRIC_BAND / 2 + 0.5); g.restore(); } }
     if (x >= HEADER && x <= w) { g.fillStyle = '#fff'; g.fillRect(x - 0.5, 0, 1.5, bottom); g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 8); g.fill(); }
+    const over = lanesOverflow();
+    if (over > 0) { const [ty, th] = vbar(); g.fillStyle = 'rgba(255,255,255,0.2)'; g.beginPath(); g.roundRect(w - 7, ty + 2, 4, th - 4, 2); g.fill(); }
     const m = S.view.drag && S.view.drag.type === 'marquee' ? S.view.drag : null;
     if (m) { const rx = Math.min(m.x0, m.x), ry = Math.min(m.y0, m.y), rw = Math.abs(m.x - m.x0), rh = Math.abs(m.y - m.y0);
-      g.fillStyle = 'rgba(108,140,255,0.18)'; g.fillRect(rx, ry, rw, rh); g.strokeStyle = 'rgba(108,140,255,0.9)'; g.lineWidth = 1; g.strokeRect(rx + 0.5, ry + 0.5, rw, rh); }
+      g.fillStyle = 'rgba(139,92,246,0.18)'; g.fillRect(rx, ry, rw, rh); g.strokeStyle = 'rgba(139,92,246,0.9)'; g.lineWidth = 1; g.strokeRect(rx + 0.5, ry + 0.5, rw, rh); }
   }
 
   // ---------------------------------------------------------------- overview strip
@@ -1908,7 +1921,7 @@
       g.globalAlpha = 0.17; g.fillRect(x0, top, Math.max(1, x1 - x0 - 0.5), h - top); g.globalAlpha = 1;
     }
     const mid = top + (h - top) / 2, amp = (h - top) / 2 - 2;
-    g.fillStyle = 'rgba(120,150,255,0.85)';
+    g.fillStyle = 'rgba(167,139,250,0.72)';
     const pps = a.wave_pps;
     for (let x = 0; x < w; x++) {
       const j0 = Math.floor(ovT(x) * pps), j1 = Math.floor(ovT(x + 1) * pps);
@@ -1933,11 +1946,11 @@
     const x0 = ovX(S.view.scroll), x1 = ovX(S.view.scroll + visibleSpan());
     g.fillStyle = 'rgba(10,11,14,0.62)';
     g.fillRect(0, 0, Math.max(0, x0), h); g.fillRect(x1, 0, Math.max(0, w - x1), h);
-    g.strokeStyle = '#8fa6ff'; g.lineWidth = 1.5;
-    g.strokeRect(x0 + 0.75, 0.75, Math.max(2, x1 - x0 - 1.5), h - 1.5);
-    g.fillStyle = 'rgba(143,166,255,0.18)'; g.fillRect(x0, 0, Math.max(2, x1 - x0), h);
-    g.fillStyle = '#8fa6ff';                                  // grab handles
-    for (const hx of [x0 + 1.5, x1 - 4.5]) g.fillRect(hx, h / 2 - 7, 3, 14);
+    g.strokeStyle = 'rgba(196,181,253,0.55)'; g.lineWidth = 1;
+    g.strokeRect(x0 + 0.5, 0.5, Math.max(2, x1 - x0 - 1), h - 1);
+    g.fillStyle = 'rgba(196,181,253,0.07)'; g.fillRect(x0, 0, Math.max(2, x1 - x0), h);
+    g.fillStyle = CV.link;                                    // grab handles
+    for (const hx of [x0 + 2, x1 - 4]) { g.beginPath(); g.roundRect(hx, h / 2 - 7, 2, 14, 1); g.fill(); }
     g.lineWidth = 1;
     const px = ovX(pos());
     g.fillStyle = '#fff'; g.fillRect(px - 0.5, 0, 1.5, h);
@@ -1985,10 +1998,10 @@
   function hitTest(x, y) {
     if (!S.analysis) return null; const p = P();
     if (x < HEADER) {
-      if (y >= lanesTop()) { const li = Math.floor((y - laneTop(0)) / ROW.lane); if (li >= 0 && li < p.lanes.length) return x >= HEADER - 28 ? { type: 'laneEye', lane: li } : { type: 'laneHeader', lane: li }; if (li === p.lanes.length) return { type: 'addLane' }; }
+      if (y >= lanesTop()) { const li = laneAt(y); if (li >= 0 && li < p.lanes.length) return x >= HEADER - 28 ? { type: 'laneEye', lane: li } : { type: 'laneHeader', lane: li }; if (li === p.lanes.length) return { type: 'addLane' }; }
       return { type: 'header' };
     }
-    if (y >= lanesTop() && Math.floor((y - laneTop(0)) / ROW.lane) === p.lanes.length) return { type: 'addLane' };
+    if (y >= lanesTop() && laneAt(y) === p.lanes.length) return { type: 'addLane' };
     const t = tOf(x), b = timeToBeat(t);
     if (y < ROW.ruler) return { type: 'ruler', t };
     if (y < ROW.ruler + ROW.sections) {
@@ -2000,10 +2013,10 @@
       if (best >= 0 && ($('#beatEdit').checked || y < waveTop() + 10)) return { type: 'beat', index: best };
       return { type: 'wave', t };
     }
-    const li = Math.floor((y - laneTop(0)) / ROW.lane); if (li < 0 || li >= p.lanes.length) return null;
+    const li = laneAt(y); if (li < 0 || li >= p.lanes.length) return null;
     for (const c of p.lanes[li].clips) {
       const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x < x0 || x > x1) continue;
-      if (c.target) { const [cy, ch] = clipBox(c, laneTop(li)); if (y < cy - 2 || y > cy + ch + 2) continue; }
+      const [cy, ch] = clipBox(c, laneTop(li), laneRows(p.lanes[li])); if (y < cy - 2 || y > cy + ch + 2) continue;
       return { type: 'clip', lane: li, id: c.id, edge: x - x0 < 7 ? 'l' : x1 - x < 7 ? 'r' : null, b };
     }
     return { type: 'lane', lane: li, b };
@@ -2035,7 +2048,7 @@
   function clipsInRect(x0, y0, x1, y1) {
     const p = P(); const ids = [];
     p.lanes.forEach((lane, li) => {
-      const ly = laneTop(li); if (ly + ROW.lane < y0 || ly > y1 || ly + ROW.lane <= lanesTop()) return;
+      const ly = laneTop(li), lh = laneH(li); if (ly + lh < y0 || ly > y1 || ly + lh <= lanesTop()) return;
       for (const c of lane.clips) { const cx0 = xOf(beatToTime(c.start)), cx1 = xOf(beatToTime(c.start + c.len)); if (cx1 >= x0 && cx0 <= x1 && cx1 > HEADER) ids.push(c.id); }
     });
     return ids;
@@ -2054,7 +2067,9 @@
   // ------------------------------------------------------------------ mouse
   tl.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
-    const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const h = hitTest(x, y); if (!h) return;
+    const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI;
+    if (S.analysis && lanesOverflow() > 0 && x > TW() - 12 && y >= lanesTop()) { S.view.drag = { type: 'vbar', y0: y, v0: S.view.vscroll || 0 }; return; }
+    const h = hitTest(x, y); if (!h) return;
     const p = P(); S.view.mouse = { x, y };
     if (h.type === 'ruler' || h.type === 'wave') {
       if (h.type === 'wave' && $('#beatEdit').checked) { beginChange(); const t = h.t; const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); S.view.sel = { type: 'beat', index: i < 0 ? p.beats.length - 1 : i }; inspector(); changed(); return; }
@@ -2094,8 +2109,9 @@
   });
   window.addEventListener('mousemove', e => {
     const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const d = S.view.drag;
-    if (!d) { const h = hitTest(x, y); tl.style.cursor = h && h.type === 'clip' && h.edge ? 'ew-resize' : h && (h.type === 'section-edge' || (h.type === 'beat' && $('#beatEdit').checked)) ? 'col-resize' : h && (h.type === 'clip' || h.type === 'drop') ? 'grab' : h && (h.type === 'laneEye' || h.type === 'addLane') ? 'pointer' : 'default'; return; }
+    if (!d) { const h = hitTest(x, y); const hc = h && h.type === 'clip' && findClip(h.id); tl.title = hc ? (Effects.byId[hc.clip.effect] || {}).name || hc.clip.effect : ''; tl.style.cursor = h && h.type === 'clip' && h.edge ? 'ew-resize' : h && (h.type === 'section-edge' || (h.type === 'beat' && $('#beatEdit').checked)) ? 'col-resize' : h && (h.type === 'clip' || h.type === 'drop') ? 'grab' : h && (h.type === 'laneEye' || h.type === 'addLane') ? 'pointer' : 'default'; return; }
     const p = P(); const t = clamp(tOf(x), 0, duration()); const b = timeToBeat(t);
+    if (d.type === 'vbar') { vscrollTo(d.v0 + (y - d.y0) * lanesOverflow() / Math.max(1, vbar()[2])); return; }
     if (d.type === 'scrub') { const st = snapTime(t, e); if (st !== d.last) { d.last = st; seek(st); } return; }
     if (d.type === 'marquee') {
       d.x = clamp(x, HEADER, TW()); d.y = clamp(y, lanesTop(), TH());
@@ -2136,7 +2152,7 @@
       else {
         let ns = Math.max(0, snapBeat(b - d.offset));
         let li = d.lane;
-        if (d.type === 'clip') { const l2 = Math.floor((y - laneTop(0)) / ROW.lane); if (l2 >= 0 && l2 < p.lanes.length) li = l2; }
+        if (d.type === 'clip') { edgeScroll(y); const l2 = laneAt(y); if (l2 >= 0 && l2 < p.lanes.length) li = l2; }
         if (d.type === 'clip') {
           const fit = fitInLane(p.lanes[li], ns, c.len, c);
           if (fit === null) { ns = c.start; li = d.lane; }   // no room: stay where it was
@@ -2148,7 +2164,7 @@
       draw();
     }
   });
-  window.addEventListener('mouseup', () => { const d = S.view.drag; S.view.drag = null; if (!d) return; if (d.type === 'scrub') return;
+  window.addEventListener('mouseup', () => { const d = S.view.drag; S.view.drag = null; if (!d) return; if (d.type === 'scrub' || d.type === 'vbar') return;
     if (d.type === 'marquee') {
       if (Math.abs(d.x - d.x0) < 4 && Math.abs(d.y - d.y0) < 4) { draw(); return; }   // a plain click, already cleared
       setSelection(d.add.concat(d.hits)); return;
@@ -2162,11 +2178,16 @@
       inspector(); changed(); return;
     } if (d.type === 'clip' && d.copy && d.moved) { /* alt-drag copies: restore original and add copy */ const orig = { ...d.clip, id: uid(), start: d.start0, len: d.len0, params: { ...d.clip.params } }; P().lanes[d.lane].clips.push(orig); } if (d.type === 'clip') inspector(); changed(); });
   tl.addEventListener('dblclick', e => { const r = tl.getBoundingClientRect(); const h = hitTest((e.clientX - r.left) / UI, (e.clientY - r.top) / UI); if (!h) return; if (h.type === 'section') { beginChange(); const s = P().sections[h.index]; s.type = SECTION_TYPES[(SECTION_TYPES.indexOf(s.type) + 1) % SECTION_TYPES.length]; inspector(); changed(); } });
+  /** A clip dragged to the top or bottom of the layers scrolls them, to reach the ones out of sight. */
+  function edgeScroll(y) { const v = S.view.vscroll || 0; if (y > TH() - 20) vscrollTo(v + 10); else if (y >= lanesTop() && y < lanesTop() + 20) vscrollTo(v - 10); }
   tl.addEventListener('wheel', e => {
     e.preventDefault(); const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI;
-    // plain wheel zooms around the pointer; shift pans; ctrl/alt scrolls the layer stack
-    if (e.ctrlKey || e.metaKey || e.altKey) return vscrollTo((S.view.vscroll || 0) + (e.deltaY || e.deltaX));
+    // over layers that do not all fit, the wheel scrolls them; anywhere else it zooms around the pointer, as ctrl does
+    // everywhere; shift pans
+    const y = (e.clientY - r.top) / UI;
+    if (e.ctrlKey || e.metaKey || e.altKey) return zoomAt(wheelZoom(e), x);
     if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return scrollTo(S.view.scroll + (e.shiftKey ? e.deltaY : e.deltaX) / S.view.pps * 0.8);
+    if (S.analysis && y >= lanesTop() && lanesOverflow() > 0) return vscrollTo((S.view.vscroll || 0) + (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY));
     zoomAt(wheelZoom(e), x);
   }, { passive: false });
   tl.addEventListener('contextmenu', e => { e.preventDefault(); const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const h = hitTest(x, y); if (!h) return;
@@ -2339,7 +2360,7 @@
 
   // ------------------------------------------------------------------ drag & drop from the library
   function libraryDrag(el, kind, id) { el.draggable = true; el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', kind + ':' + id); e.dataTransfer.effectAllowed = 'copy'; }); }
-  tl.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; const h = hitTest(x, y); if (!h) { S.view.hoverDrop = null; return; } const b = snapBeat(h.b ?? timeToBeat(h.t ?? tOf(x))); if (h.type === 'clip') { const { clip } = findClip(h.id); const x0 = xOf(beatToTime(clip.start)), x1 = xOf(beatToTime(clip.start + clip.len)); S.view.hoverDrop = { x: x0, y: laneTop(h.lane) + 4, w: x1 - x0 - 2, h: ROW.lane - 8, replace: true }; }
+  tl.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI; edgeScroll(y); const h = hitTest(x, y); if (!h) { S.view.hoverDrop = null; return; } const b = snapBeat(h.b ?? timeToBeat(h.t ?? tOf(x))); if (h.type === 'clip') { const { clip } = findClip(h.id); const x0 = xOf(beatToTime(clip.start)), x1 = xOf(beatToTime(clip.start + clip.len)); S.view.hoverDrop = { x: x0, y: laneTop(h.lane) + 4, w: x1 - x0 - 2, h: ROW.lane - 8, replace: true }; }
     else if (h.type === 'lane') S.view.hoverDrop = { x: xOf(beatToTime(b)), y: laneTop(h.lane) + 4, w: 16 * 60 / P().bpm * S.view.pps, h: ROW.lane - 8 }; else S.view.hoverDrop = null; });
   tl.addEventListener('dragleave', () => { S.view.hoverDrop = null; });
   tl.addEventListener('drop', e => {
@@ -2376,7 +2397,7 @@
 
   // ------------------------------------------------------------------ toolbar menus
   const SHORTCUTS = `<h3>Shortcuts</h3><div class="help">
-      <kbd>Space</kbd> play / pause &nbsp; <kbd>Home</kbd> start<br>Wheel zooms · <kbd>Shift</kbd>+wheel pans · <kbd>Ctrl</kbd>+wheel scrolls layers<br>Drag the strip on top to scroll, its edges to zoom<br>
+      <kbd>Space</kbd> play / pause &nbsp; <kbd>Home</kbd> start<br>Wheel scrolls the layers · <kbd>Ctrl</kbd>+wheel zooms (or the wheel over the waveform) · <kbd>Shift</kbd>+wheel pans<br>Drag the strip on top to scroll, its edges to zoom<br>
       Click waveform to seek, drag the ruler to scrub (snaps like clips; hold <kbd>Alt</kbd> to go anywhere)<br>Drag effects onto layers; drag edges to resize<br>Drag across empty space to box-select clips · <kbd>Shift</kbd>+click adds · <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all<br>Drag any selected clip to move the whole block<br>Drop an effect on a clip to swap the effect, same timing<br>Click a clip to pick its colors in the inspector<br>Click a layer's eye to hide it · right-click its name to insert, remove or reorder<br><kbd>Alt</kbd>+drag copies a clip<br>
       <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd>/<kbd>D</kbd> copy / cut / paste / duplicate<br><kbd>Ctrl</kbd>+<kbd>Z</kbd>/<kbd>Y</kbd> undo / redo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save<br>
       Double-click a section to cycle its type<br>Right-click anything for more<br>
