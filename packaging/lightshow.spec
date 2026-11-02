@@ -1,6 +1,6 @@
 # PyInstaller spec for the downloads: pyinstaller packaging/lightshow.spec
 # Built by .github/workflows/release.yml on Windows, macOS and Linux. One folder (not one file): the app starts
-# fast and its helper processes (analysis, Bulb Show) start from the same executable.
+# fast and its helper processes (analysis, Bulb Studio) start from the same executable.
 import glob
 import os
 import platform

@@ -12,7 +12,7 @@ This does the same for the studio's window, once Chrome has opened it:
 
 Pinning it then pins a Light Show Studio button that starts the whole studio,
 server and all, and its windows group under that button, apart from your Chrome.
-Off Windows, or if anything refuses, nothing changes. Bulb Show (bulbshow/) passes its own ID,
+Off Windows, or if anything refuses, nothing changes. Bulb Studio (bulbshow/) passes its own ID,
 name, launcher and icon to the same calls.
 """
 

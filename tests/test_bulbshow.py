@@ -1,4 +1,4 @@
-"""Bulb Show: effects, the looping stream, a running show, the cloud bulb's allowance, and the server.
+"""Bulb Studio: effects, the looping stream, a running show, the cloud bulb's allowance, and the server.
 Virtual speakers and bulbs only: nothing on the network is touched, nothing plays."""
 
 import asyncio
@@ -241,7 +241,7 @@ class RunnerTest(unittest.TestCase):
 
     def test_a_speaker_taken_over_is_taken_back(self):
         # the party (2026-10-30): a show whose speaker was taken (a doorbell cue, the party's group, a Wi-Fi drop)
-        # ended, and Bulb Show, started from the Party Hub, then quit; the show was switched on again by hand
+        # ended, and Bulb Studio, started from the Party Hub, then quit; the show was switched on again by hand
         r, clock = self.playing_runner()
         first = r.speakers.opened[0]
         first.state = "IDLE"
@@ -600,7 +600,7 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         runner.clock = itertools.count(0, 5).__next__                 # (its idle count runs out at once)
         self.app.speakers.opened[0].state = "IDLE"
         await asyncio.sleep(0.8)
-        self.assertFalse(quit.is_set())                               # the show is still on: Bulb Show stays
+        self.assertFalse(quit.is_set())                               # the show is still on: Bulb Studio stays
         self.assertGreater(len(self.app.speakers.opened), 1)          # its speaker taken back
         self.assertTrue((await (await self.client.get("/api/shows")).json())[0]["running"])
 
@@ -770,7 +770,7 @@ class TaskbarTest(unittest.TestCase):
         idn = window_identity()
         files = re.findall(r'"([^"]+)"', idn["relaunch"])
         self.assertTrue(files[0].lower().endswith("wscript.exe"))
-        self.assertTrue(os.path.isfile(files[1]) and files[1].endswith("Bulb Show.vbs"), files)
+        self.assertTrue(os.path.isfile(files[1]) and files[1].endswith("Bulb Studio.vbs"), files)
         self.assertTrue(os.path.isfile(idn["icon"].rsplit(",", 1)[0]))
         self.assertNotEqual(idn["app_id"], "LightShowStudio.Studio")   # its own button, apart from the studio's
         self.assertEqual(idn["title"], "")                              # every window of its own profile

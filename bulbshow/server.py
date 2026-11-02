@@ -1,4 +1,4 @@
-"""Bulb Show: little looping light shows, each one sound on one speaker and one bulb.
+"""Bulb Studio: little looping light shows, each one sound on one speaker and one bulb.
 
 A show lives in bulbshow/shows/<id>/ as show.json and sound.wav (both kept out of git). Any number of
 shows can run at once, each looping on its own speaker and bulb, as long as no two share either.
@@ -446,7 +446,7 @@ class App:
             await self.quit("the window was closed")
 
     async def quit_request(self, request):
-        """Light Show Studio closing: Bulb Show goes with it (shows stopped, bulbs put back). This PC only."""
+        """Light Show Studio closing: Bulb Studio goes with it (shows stopped, bulbs put back). This PC only."""
         if request.remote not in ("127.0.0.1", "::1"):
             raise web.HTTPForbidden()
         why = (await request.json() if request.can_read_body else {}).get("why") or "asked to"
@@ -496,14 +496,14 @@ APP_ID = "LightShowStudio.BulbShow"
 
 def window_identity() -> dict:
     wscript = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "wscript.exe")
-    return dict(title="", app_id=APP_ID, name="Bulb Studio", relaunch=f'"{wscript}" "{os.path.join(HERE, "Bulb Show.vbs")}"',
-                icon=os.path.join(HERE, "Bulb Show.ico") + ",0")
+    return dict(title="", app_id=APP_ID, name="Bulb Studio", relaunch=f'"{wscript}" "{os.path.join(HERE, "Bulb Studio.vbs")}"',
+                icon=os.path.join(HERE, "Bulb Studio.ico") + ",0")
 
 
 def give_window_identity(wait: bool = False) -> None:
-    """Make the app window Bulb Show on the taskbar rather than Chrome: its own button, name and icon,
-    and a pin that starts Bulb Show (the studio's window_identity, with Bulb Show's details). Every
-    window of the app's own browser profile is Bulb Show's, whatever its title."""
+    """Make the app window Bulb Studio on the taskbar rather than Chrome: its own button, name and icon,
+    and a pin that starts Bulb Studio (the studio's window_identity, with Bulb Studio's details). Every
+    window of the app's own browser profile is Bulb Studio's, whatever its title."""
     from lightshow.studio.window_identity import adopt_studio_windows
     identity = window_identity()
     if wait:
@@ -563,7 +563,7 @@ def run(host: str = "0.0.0.0", port: int = 8770, open_browser: bool = True, stay
         os.makedirs(DATA, exist_ok=True)
         log = open(os.path.join(DATA, "bulbshow.log"), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
-        print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} Bulb Show starting" + ("" if open_browser else " (no window)"))
+        print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} Bulb Studio starting" + ("" if open_browser else " (no window)"))
     url = f"http://127.0.0.1:{port}/"
     if open_browser and _already_running(url):
         if open_app_window(url):
@@ -573,7 +573,7 @@ def run(host: str = "0.0.0.0", port: int = 8770, open_browser: bool = True, stay
         return
     app = App(port=port, lights=lights, cast=cast, quit_when_closed=open_browser and not stay,
               quit_when_idle=not open_browser and not stay)
-    print(f"Bulb Show running at {url}" + ("" if lights else "   (lights are virtual in this copy)")
+    print(f"Bulb Studio running at {url}" + ("" if lights else "   (lights are virtual in this copy)")
           + ("" if cast else "   (speakers are virtual in this copy)"))
     if open_browser:
         if open_app_window(url):

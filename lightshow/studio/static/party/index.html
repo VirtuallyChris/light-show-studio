@@ -868,8 +868,8 @@
   }
   setInterval(poll, 1500);
 
-  // ---- Bulb Shows: Bulb Show's own looping shows (one sound, one speaker, one bulb each), on or off from here;
-  // switching one on starts Bulb Show if it is not open
+  // ---- Bulb Studio: Bulb Studio's own looping shows (one sound, one speaker, one bulb each), on or off from here;
+  // switching one on starts Bulb Studio if it is not open
   let bulbShown = '', bulbBusy = 0, bulbNote = {};
   async function loadBulbShows() {
     if (performance.now() < bulbBusy) return;                          // a switch just flipped: wait for its answer

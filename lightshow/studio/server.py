@@ -590,8 +590,8 @@ class Studio:
         self.requested: list[str] = []                   # the lights ticked in the studio (by address)
         self.rooms = Rooms(load_config, save_config, self.cast, touch=lights)   # a test copy never touches a speaker
         self.cast.on_release = self.rooms.unmute_all             # casting stops: the speakers it muted play again
-        # Bulb Show's shows, switched on and off from the Party Hub; a test copy talks to the test Bulb Show only
-        # (bulbshow-test, port 8798) and never starts one
+        # Bulb Studio's shows, switched on and off from the Party screen and the phone; a test copy talks to the test Bulb Studio only
+        # (port 8798) and never starts one
         from .bulbshows import BulbShows
         self.bulbshows = BulbShows(port=8770 if lights else 8798, launch=lights)
         # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
@@ -689,7 +689,7 @@ class Studio:
 
     async def _close_player(self, app):
         """Any orderly exit: Edge's sound goes back to the default output, the hidden player closes,
-        every speaker a room muted plays again, and Bulb Show closes."""
+        every speaker a room muted plays again, and Bulb Studio closes."""
         try:
             await asyncio.get_running_loop().run_in_executor(None, self.jam.close_player)
         except Exception:  # noqa: BLE001
@@ -698,7 +698,7 @@ class Studio:
             await asyncio.get_running_loop().run_in_executor(None, self.rooms.unmute_all)
         except Exception:  # noqa: BLE001
             pass
-        try:                                              # Bulb Show closes with the studio
+        try:                                              # Bulb Studio closes with the studio
             await asyncio.get_running_loop().run_in_executor(None, self.bulbshows.quit)
         except Exception:  # noqa: BLE001
             pass
@@ -833,7 +833,7 @@ class Studio:
         if self._doorbell_wanted():
             self.doorbell.start()
 
-    # -- add-ons (addons.py): the doorbell, Bulb Shows ------------------------------------------
+    # -- add-ons (addons.py): the doorbell, Bulb Studio ------------------------------------------
     async def addons_get(self, request):
         if not JamService._lan(request):
             raise web.HTTPForbidden()
@@ -958,7 +958,7 @@ class Studio:
             from . import model_setup
             if model_setup.INSTALLER.state == "running":  # an install stops with the app (it starts over next time)
                 model_setup.INSTALLER.cancel()
-            try:                                          # Bulb Show goes too: it stops its shows and puts its bulbs back
+            try:                                          # Bulb Studio goes too: it stops its shows and puts its bulbs back
                 self.bulbshows.quit()
             except Exception:  # noqa: BLE001
                 pass

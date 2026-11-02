@@ -1,11 +1,11 @@
 """Add-ons: features for one kind of home, off until they are switched on (Party Hub > Settings > More settings >
 Add-ons). Each is kept in config.json as {"addons": {"doorbell": true, ...}}; while one is off, its card stays
-hidden on the Party Hub and it does nothing in the background (the doorbell is not listened to, Bulb Show is not
+hidden on the Party Hub and it does nothing in the background (the doorbell is not listened to, Bulb Studio is not
 asked about or started).
 
     doorbell   a Reolink video doorbell rings a Party Hub cue (doorbell.py; needs reolink_aio, in
                requirements-addons.txt)
-    bulbshow   Bulb Show's looping shows (bulbshow/, an app of its own: Govee bulbs over Govee's cloud, a sound
+    bulbshow   Bulb Studio's looping shows (bulbshow/, an app of its own: Govee bulbs over Govee's cloud, a sound
                on a speaker), switched on and off from the Lights tab (bulbshows.py)
     homeassistant  Home Assistant is told when the studio plays on the lights, so its automations leave them be
                (homeassistant.py: a webhook, and a state for a RESTful sensor)

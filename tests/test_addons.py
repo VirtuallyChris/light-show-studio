@@ -1,5 +1,5 @@
-"""Add-ons (the doorbell, Bulb Shows): off until switched on, and while off they do nothing; and the settings that
-used to be one home's, now in config.json. Fakes only: no doorbell, no Bulb Show, no light is touched.
+"""Add-ons (the doorbell, Bulb Studio): off until switched on, and while off they do nothing; and the settings that
+used to be one home's, now in config.json. Fakes only: no doorbell, no Bulb Studio, no light is touched.
 Run with  .venv\\Scripts\\python -m unittest tests.test_addons -v"""
 
 import shutil

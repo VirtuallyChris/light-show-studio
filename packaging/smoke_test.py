@@ -1,6 +1,6 @@
 """Start a built app headless and check it serves its pages: python packaging/smoke_test.py <path to the executable>
 
-The studio with no lights, no Spotify player and no browser window, then Bulb Show (started the way the studio
+The studio with no lights, no Spotify player and no browser window, then Bulb Studio (started the way the studio
 starts it, through the app's own executable) with virtual bulbs and speakers, both in a scratch data folder,
 so a build machine's run touches nothing. Fails if either does not answer in time or a page does not load, or if
 the shipped section labeler or the analysis worker will not start in the packaged app."""

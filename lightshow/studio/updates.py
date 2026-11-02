@@ -164,7 +164,7 @@ def clean_env() -> dict:
 
 def windows_script(installer: str, exe: str, log: str) -> str:
     """Waits a moment for this app to end, runs the installer (its own small progress window, no questions, closing
-    whatever still holds the app's files, such as Bulb Show), and opens the app whether or not that worked."""
+    whatever still holds the app's files, such as Bulb Studio), and opens the app whether or not that worked."""
     q = lambda p: '"' + p.replace("%", "%%") + '"'  # noqa: E731
     return "\r\n".join(["@echo off", "chcp 65001 >nul", "ping -n 3 127.0.0.1 >nul",
                         f"{q(installer)} /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /LOG={q(log)}",

@@ -27,7 +27,7 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Bulb Show (bulbshow/): its shows and sounds, its Govee API key and its log stay on this computer
+# Bulb Studio (bulbshow/): its shows and sounds, its Govee API key and its log stay on this computer
 bulbshow/shows/
 bulbshow/config.json
 bulbshow/bulbshow.log

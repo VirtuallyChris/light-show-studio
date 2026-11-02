@@ -82,7 +82,7 @@ def draw_mark(size):
 
 
 def png(size, pixel):
-    """A PNG from a function of (x, y) giving RGBA. The Bulb Show icon draws with this."""
+    """A PNG from a function of (x, y) giving RGBA. The Bulb Studio icon draws with this."""
     raw = bytearray()
     for y in range(size):
         raw.append(0)

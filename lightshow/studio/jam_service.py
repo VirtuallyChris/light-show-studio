@@ -1245,12 +1245,12 @@ class JamService:
             return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
 
     def _bulbshows(self):
-        """Bulb Show, while its add-on is on (else None: not asked about, never started)."""
+        """Bulb Studio, while its add-on is on (else None: not asked about, never started)."""
         bulbs = getattr(self.studio, "bulbshows", None)
         return bulbs if bulbs is not None and (self.load_config().get("addons") or {}).get("bulbshow") else None
 
     async def party_bulbshows(self, request):
-        """Bulb Show's shows that can run, each on or off (the Lights tab's Bulb Shows)."""
+        """Bulb Studio's shows that can run, each on or off (their switches on the Party screen and the phone)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         bulbs = self._bulbshows()
@@ -1259,7 +1259,7 @@ class JamService:
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.list))
 
     async def bulbshow_open(self, request):
-        """The studio's Bulb Shows button: Bulb Show running, and the address of its window ({ok, url, error})."""
+        """The studio's Bulb Studio button: Bulb Studio running, and the address of its window ({ok, url, error})."""
         if not self._local(request):
             raise web.HTTPForbidden()
         bulbs = self._bulbshows()

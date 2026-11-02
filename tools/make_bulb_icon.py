@@ -1,9 +1,9 @@
-r"""Draw the Bulb Show icon: a glowing bulb on the studio's dark rounded tile.
+r"""Draw the Bulb Studio icon: a glowing bulb on the studio's dark rounded tile.
 
 Run from the project folder:  .venv\Scripts\python tools\make_bulb_icon.py
 
-Writes bulbshow\Bulb Show.ico (the pinned taskbar button and the launcher) and the icons the
-page serves, which the Chrome app window shows until it takes Bulb Show's own identity.
+Writes bulbshow\Bulb Studio.ico (the pinned taskbar button and the launcher) and the icons the
+page serves, which the Chrome app window shows until it takes Bulb Studio's own identity.
 """
 import math
 import os
@@ -70,7 +70,7 @@ def ico(sizes):
 
 if __name__ == "__main__":
     data = ico([256, 48, 32, 16])
-    open(os.path.join(APP, "Bulb Show.ico"), "wb").write(data)
+    open(os.path.join(APP, "Bulb Studio.ico"), "wb").write(data)
     open(os.path.join(STATIC, "icon.ico"), "wb").write(data)
     open(os.path.join(STATIC, "icon-192.png"), "wb").write(draw(192))
     print("icons written")

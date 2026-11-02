@@ -2439,8 +2439,8 @@
   $('#btnGridMenu').onclick = e => { e.stopPropagation(); toggleMenu($('#btnGridMenu'), $('#gridMenu')); };
   $('#btnHelp').onclick = e => { e.stopPropagation(); toggleMenu($('#btnHelp'), $('#helpPop'), SHORTCUTS); };
   for (const id of ['#gridMenu', '#helpPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
-  // Bulb Shows (an add-on): its button shows while the add-on is on, and opens Bulb Show in a window of its own (the
-  // window opens at once, so it is never taken for a pop-up, and goes to Bulb Show once it is running)
+  // Bulb Studio (an add-on): its button shows while the add-on is on, and opens Bulb Studio in a window of its own (the
+  // window opens at once, so it is never taken for a pop-up, and goes to Bulb Studio once it is running)
   const openBulbs = async () => {
     const win = window.open('', 'lss-bulbshow', 'width=1280,height=800');
     try {

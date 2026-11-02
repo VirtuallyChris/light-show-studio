@@ -1,5 +1,5 @@
-"""Bulb Show from the studio (bulbshows.py): its shows on the Party Hub, switched on and off, and which speakers
-they play on. A fake Bulb Show only: nothing here starts it, casts or lights a bulb."""
+"""Bulb Studio from the studio (bulbshows.py): its shows on the Party Hub, switched on and off, and which speakers
+they play on. A fake Bulb Studio only: nothing here starts it, casts or lights a bulb."""
 
 import json
 import os

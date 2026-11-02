@@ -1,9 +1,9 @@
-"""Bulb Show (bulbshow/, an app of its own on this PC) from the studio: its shows, which are running and on
+"""Bulb Studio (bulbshow/, an app of its own on this PC) from the studio: its shows, which are running and on
 which speaker, and switching one on or off from the Party Hub's Lights tab (the user).
 
-The two talk over Bulb Show's own API on 127.0.0.1. When it is not open, its shows are read from its folder (all
+The two talk over Bulb Studio's own API on 127.0.0.1. When it is not open, its shows are read from its folder (all
 off), and switching one on starts it without a window, the way the studio starts with no console: it keeps the
-show going until it is switched off (opening Bulb Show later finds it running and shows its window).
+show going until it is switched off (opening Bulb Studio later finds it running and shows its window).
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def _http(method: str, url: str, body: dict | None = None, timeout: float = 2.0)
 
 
 class BulbShows:
-    START_WAIT_S = 20.0                 # Bulb Show takes a few seconds to come up (Python, its speakers' discovery)
+    START_WAIT_S = 20.0                 # Bulb Studio takes a few seconds to come up (Python, its speakers' discovery)
 
     def __init__(self, port: int = 8770, shows_dir: str = SHOWS_DIR, launch: bool = True, http=_http,
                  clock=time.monotonic, sleep=time.sleep):
@@ -73,19 +73,19 @@ class BulbShows:
         return out
 
     def list(self) -> dict:
-        """{open: is Bulb Show running, shows: [{id, name, speaker, bulb, ready, on, error}]}; only the shows
+        """{open: is Bulb Studio running, shows: [{id, name, speaker, bulb, ready, on, error}]}; only the shows
         that can run (a sound, a speaker and a bulb) are any use from the phone."""
         live = self._from_app()
         shows = live if live is not None else self._from_disk()
         return {"open": live is not None, "shows": [s for s in shows if s["ready"]]}
 
     def speakers_in_use(self) -> dict[str, str]:
-        """{speaker: the show playing on it} for every running show (none when Bulb Show is not open)."""
+        """{speaker: the show playing on it} for every running show (none when Bulb Studio is not open)."""
         return {s["speaker"]: s["name"] for s in (self._from_app() or []) if s["on"] and s["speaker"]}
 
     def quit(self, why: str = "Light Show Studio closed") -> bool:
-        """Close Bulb Show if it is open: its shows stop and their bulbs are put back (the user: closing the
-        studio closes Bulb Show too). True if one was open."""
+        """Close Bulb Studio if it is open: its shows stop and their bulbs are put back (the user: closing the
+        studio closes Bulb Studio too). True if one was open."""
         try:
             self.http("POST", self.base + "/api/quit", {"why": why}, timeout=2.0)
             return True
@@ -93,7 +93,7 @@ class BulbShows:
             return False
 
     def open_window(self) -> dict:
-        """Bulb Show running, for its window to open in the studio (started with no window of its own if it is
+        """Bulb Studio running, for its window to open in the studio (started with no window of its own if it is
         not: its window keeps it running, and it quits once no show runs and no window is open). {ok, url, error}."""
         try:
             self.http("GET", self.base + "/api/settings", timeout=1.0)
