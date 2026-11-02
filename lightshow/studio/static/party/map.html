@@ -72,6 +72,16 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
   td button { border: 0; background: none; color: var(--muted); font-size: 16px; }
   h2 { font-size: 15px; margin: 0 0 8px; }
   .err { color: var(--accent2); font-size: 13px; }
+  /* A phone's header and margins, the same as the party page's: 2px above a 44px row and 10px under it (the first card
+     that close, so the column's gap comes off), and 12px at each side. Not in the studio's Settings, whose frame on the
+     computer can be this narrow too. */
+  @media (max-width: 600px), (orientation: landscape) and (max-height: 500px) {
+    html:not(.embedded) { --phone-top: calc(2px + env(safe-area-inset-top)); --phone-left: calc(12px + env(safe-area-inset-left)); --phone-right: calc(12px + env(safe-area-inset-right)); }
+    html:not(.embedded) .main { padding-left: var(--phone-left); padding-right: var(--phone-right); }
+    .top { margin: 0 calc(-1 * var(--phone-right)) -12px calc(-1 * var(--phone-left)); padding: var(--phone-top) var(--phone-right) 10px var(--phone-left); }
+    .top h1 { font-size: 26px; letter-spacing: -0.03em; white-space: nowrap; }
+    a.back { flex: none; display: flex; align-items: center; min-height: 44px; margin: 0; padding: 0 8px 0 0; }
+  }
 </style>
 </head>
 <body>
