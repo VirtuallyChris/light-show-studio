@@ -488,7 +488,7 @@ APP_ID = "LightShowStudio.BulbShow"
 
 def window_identity() -> dict:
     wscript = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "wscript.exe")
-    return dict(title="", app_id=APP_ID, name="Bulb Show", relaunch=f'"{wscript}" "{os.path.join(HERE, "Bulb Show.vbs")}"',
+    return dict(title="", app_id=APP_ID, name="Bulb Studio", relaunch=f'"{wscript}" "{os.path.join(HERE, "Bulb Show.vbs")}"',
                 icon=os.path.join(HERE, "Bulb Show.ico") + ",0")
 
 

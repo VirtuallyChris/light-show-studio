@@ -150,6 +150,8 @@
     if (typeof cp === 'string' && p.palettes[cp]) return p.palettes[cp];
     return p.palettes[p.defaultPalette] || p.palettes[Object.keys(p.palettes)[0]] || ['#888'];
   }
+  /** A song's name for the screen. Saved songs are named after their files, where a comma or an apostrophe became _. */
+  const niceName = name => String(name || '').replace(/ _ /g, ' & ').replace(/ _([^_]+)_ /g, ' "$1" ').replace(/(\w)_(s|t|d|m|re|ll|ve)\b/g, "$1'$2").replace(/_ /g, ', ').replace(/_$/, '').replace(/_/g, ' ');
   /** older projects had a palette lane: bake it into the clips, then drop it */
   function migrateProject(p) {
     p.drops = dropsOf(p);
@@ -380,7 +382,7 @@
   async function saveNow() {
     if (S.jam && S.jam.live) return jamSave(true);
     if (!P() || !S.name) return toast('Open a song first.', true);
-    if (await save()) toast(`Saved ${S.name}`);
+    if (await save()) toast(`Saved ${niceName(S.name)}`);
   }
 
   // ------------------------------------------------------------------ loading songs
@@ -413,7 +415,7 @@
     if (!S.project.lanes) S.project = newProject(data.analysis, data.project);
     migrateProject(S.project);
     const fresh = freshenSaved(data);
-    $('#projectName').value = S.project.name || S.name;
+    $('#projectName').value = niceName(S.project.name || S.name);
     if (fresh === 'rebuilt') { clearTimeout(S.saveTimer); await saveBackedUp(); }    // now, before its usual save could
     $('#bpm').value = S.project.bpm.toFixed(2);
     $('#latency').value = S.defaults.lightOffset ?? 30;           // the lights' own delay: the same for every song
@@ -427,9 +429,9 @@
     busy('Decoding audio…');
     await loadAudio(data.audio_url);
     zoomFit(); inspector(); renderPalettes(); draw(); refreshRecent();
-    toast(`${S.name}: ${S.project.bpm.toFixed(1)} bpm, ${S.project.sections.length} sections, ${S.project.drops.length} drops` + (S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''));
-    if (fresh === 'rebuilt') toast(`${S.name}: rebuilt with the latest show logic (the old show is kept as a backup)`);
-    else if (fresh === 'edited') toast(`${S.name} was built by older show logic. It has your own changes, so it is left as it is: press Auto-build show to rebuild it.`, true);
+    toast(`${niceName(S.name)}: ${S.project.bpm.toFixed(1)} bpm, ${S.project.sections.length} sections, ${S.project.drops.length} drops` + (S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''));
+    if (fresh === 'rebuilt') toast(`${niceName(S.name)}: rebuilt with the latest show logic (the old show is kept as a backup)`);
+    else if (fresh === 'edited') toast(`${niceName(S.name)} was built by older show logic. It has your own changes, so it is left as it is: press Auto-build show to rebuild it.`, true);
   }
   // ---- Review: the learned Jam songs with no saved show, one after another, their sections set right by
   // ear (review.py). Moving on keeps any change to the sections in the section truth (what the rules that
@@ -459,7 +461,7 @@
     const mine = clipSig() !== R.clips;
     if (mine !== !!R.custom) {
       R.custom = mine; draw();
-      toast(mine ? `${S.name}: your own show now. It is saved as you go, and the party plays it.` : `${S.name}: back to the show the app made`);
+      toast(mine ? `${niceName(S.name)}: your own show now. It is saved as you go, and the party plays it.` : `${niceName(S.name)}: back to the show the app made`);
     }
     if (mine || R.savedAs) { clearTimeout(R.saveT); R.saveT = setTimeout(reviewSaveCustom, 1200); }
   }
@@ -495,7 +497,7 @@
       const song = R.songs.find(x => x.id === R.id); if (song) { song.reviewed = d.entry.reviewed; song.proposal = false; }
       R.proposal = null;
       R.orig = secKey(); R.beats = P().beats.slice();                   // (a grid move is kept once)
-      toast(ok ? `${S.name}: the sections are right, kept` : `${S.name}: your sections are kept`);
+      toast(ok ? `${niceName(S.name)}: the sections are right, kept` : `${niceName(S.name)}: your sections are kept`);
     } catch (e) { toast('The review was not kept: ' + e.message, true); }
   }
   async function reviewOpen(i) {
@@ -549,7 +551,7 @@
     const R = S.review; if (R) await reviewSaveCustom();
     await reviewKeep(false);
     const mine = R && R.custom && R.savedAs;
-    S.review = null; S.name = mine || ''; if (mine) { P().name = mine; $('#projectName').value = mine; }
+    S.review = null; S.name = mine || ''; if (mine) { P().name = mine; $('#projectName').value = niceName(mine); }
     reviewBar(); draw();
   }
   /** Done: the song as it stands is the truth (a correction if anything was changed), and on to the next. */
@@ -1596,7 +1598,7 @@
     pctx.lineWidth = 2; pctx.strokeStyle = CV.wall; pctx.lineJoin = 'round';
     for (const r of sh.rooms || []) { pctx.beginPath(); r.poly.forEach(([x, y], i) => { const [px, py] = at(x, y); i ? pctx.lineTo(px, py) : pctx.moveTo(px, py); }); pctx.closePath(); pctx.stroke(); }
     pctx.fillStyle = CV.name; pctx.font = '700 9px system-ui';
-    for (const r of H.rooms) { const ys = r.poly.map(q => q[1]); const [px, py] = at(r.x0 + 0.6, Math.max(...ys) - 0.6); pctx.fillText(r.name.toUpperCase(), px, py); }
+    for (const r of H.rooms) { const ys = r.poly.map(q => q[1]); const [px, py] = at(r.x0 + 0.6, Math.min(...ys) + 0.6); pctx.fillText(r.name.toUpperCase(), px, py + 9); }
     const dot = (x, y, r, g, b, a) => {
       if (r + g + b < 12) return;
       pctx.globalCompositeOperation = 'lighter'; pctx.fillStyle = `rgba(${r},${g},${b},${0.2 * a})`; pctx.beginPath(); pctx.arc(x, y, 9, 0, 7); pctx.fill();
@@ -1788,11 +1790,11 @@
     const be = $('#beatEdit').checked;
     if (beatPx >= 8 || be) for (let i = b0; i <= b1; i++) {
       const x = xOf(p.beats[i]); const isBar = ((i - p.phase) % 4 + 4) % 4 === 0; const selB = S.view.sel && S.view.sel.type === 'beat' && S.view.sel.index === i;
-      g.fillStyle = selB ? '#fff' : isBar ? CV.link : be ? '#8ad8ff' : 'rgba(255,255,255,0.22)';
+      g.fillStyle = selB ? '#fff' : isBar ? CV.link : be ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.22)';
       g.beginPath(); g.moveTo(x - 4, wy); g.lineTo(x + 4, wy); g.lineTo(x, wy + 7); g.fill();
-      if (be) g.fillRect(x, wy, 1, wh);
+      if (be && (isBar || beatPx >= 5)) { g.globalAlpha = isBar ? 0.5 : 0.22; g.fillRect(x, wy, 1, wh); g.globalAlpha = 1; }
     }
-    if (be) { g.fillStyle = 'rgba(255,209,102,0.9)'; g.font = 'bold 10px system-ui'; g.fillText('BEAT EDIT: click adds a beat, Space taps while playing, drag moves, Delete removes', HEADER + 8, wy + wh - 6); }
+    if (be) { g.font = '600 11px system-ui'; const tip = fitText(g, 'Click adds a beat, Space taps while playing, drag moves, Delete removes', w - HEADER - 40); g.fillStyle = 'rgba(8,9,12,0.85)'; g.beginPath(); g.roundRect(HEADER + 8, wy + wh - 25, g.measureText(tip).width + 16, 20, 6); g.fill(); g.fillStyle = CV.text; g.fillText(tip, HEADER + 16, wy + wh - 11); }
     S.view.lyricDrawn = null;
     if (!be && a.lyrics && (a.lyrics.words || []).length) drawLyrics(g, a.lyrics, wy + wh - LYRIC_BAND, t0, t1, w);
 
@@ -2430,7 +2432,7 @@
   /** A popover beside its button: under it, right-aligned, in the top bar; to its right on the side rail. */
   function placePop(pop, btn) {
     const r = btn.getBoundingClientRect();
-    if (btn.closest('.rail')) { pop.style.right = 'auto'; pop.style.left = (r.right + 8) + 'px'; pop.style.top = Math.max(8, Math.min(r.top, innerHeight - pop.offsetHeight - 8)) + 'px'; }
+    if (btn.closest('.rail, .views-rail')) { pop.style.right = 'auto'; pop.style.left = (r.right + 8) + 'px'; pop.style.top = Math.max(8, Math.min(r.top, innerHeight - pop.offsetHeight - 8)) + 'px'; }
     else { pop.style.left = 'auto'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px'; pop.style.top = (r.bottom + 6) + 'px'; }
   }
   function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnHelp', '#helpPop']]) { if ($(m).closest('#viewSettings')) continue; $(m).hidden = true; $(b).classList.remove('on'); } }
@@ -2443,8 +2445,8 @@
     const win = window.open('', 'lss-bulbshow', 'width=1280,height=800');
     try {
       const r = await (await fetch('/api/bulbshow/open', { method: 'POST' })).json();
-      if (r.ok && win) win.location = r.url; else { if (win) win.close(); toast(r.error || 'Bulb Show did not open', true); }
-    } catch (err) { if (win) win.close(); toast('Bulb Show did not open', true); }
+      if (r.ok && win) win.location = r.url; else { if (win) win.close(); toast(r.error || 'Bulb Studio did not open', true); }
+    } catch (err) { if (win) win.close(); toast('Bulb Studio did not open', true); }
   };
   document.addEventListener('mousedown', closeMenus);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
@@ -2579,7 +2581,7 @@
     }
     if (sel.type === 'section') {
       const s = p.sections[sel.index]; if (!s) { S.view.sel = null; return inspector(); }
-      el.innerHTML = `<div class="panel"><div class="title">Section ${sel.index + 1}</div><div class="row"><label>Type</label><select id="secType">${SECTION_TYPES.map(t => `<option ${t === s.type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      el.innerHTML = `<div class="panel"><div class="title">Section ${sel.index + 1}</div><div class="row"><label>Type</label><select id="secType">${SECTION_TYPES.map(t => `<option value="${t}" ${t === s.type ? 'selected' : ''}>${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}</select></div>
         <div class="row"><label>Start</label><span>${fmtTime(s.start)} · bar ${barLabel(timeToBeat(s.start))}</span></div><div class="row"><label>End</label><span>${fmtTime(s.end)}</span></div><div class="row"><label>Length</label><span>${(timeToBeat(s.end) - timeToBeat(s.start)).toFixed(1)} beats</span></div>
         <div class="btns"><button id="secSplit" class="small">Split at playhead</button><button id="secBuild" class="small">Auto-build this section</button><button id="secDel" class="small">Merge away</button></div></div>`;
       $('#secType').onchange = ev => { beginChange(); s.type = ev.target.value; changed(); };
@@ -4269,6 +4271,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, showPanel, openRooms, openBulbs, openNamed, modelsReady, startPartyLights, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
+  window.Studio = { S, P, $, niceName, showPanel, openRooms, openBulbs, openNamed, modelsReady, startPartyLights, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
     sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
 })();

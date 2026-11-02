@@ -89,7 +89,7 @@
       sel.value = chosen; if (sel.selectedIndex < 0) sel.value = 'pc';
       sel.disabled = !!st.running;
       const btn = $('#pvStart');
-      btn.textContent = st.running ? 'Stop the party' : 'Start the party';
+      btn.textContent = st.running ? 'End the party' : 'Start the party';
       btn.classList.toggle('accent', !st.running);
       btn.disabled = !st.running && !signedIn;
       btn.title = !st.running && !signedIn ? 'Connect Spotify in Settings first' : '';
@@ -101,7 +101,7 @@
     headerSig = ''; pollParty();
   };
   $('#pvStart').onclick = async () => {
-    const running = ps && ps.running, btn = $('#pvStart'); btn.disabled = true;
+    const running = ps && ps.running, btn = $('#pvStart'); if (running && !confirm('End the party? The music and the lights stop.')) return; btn.disabled = true;
     try {
       if (running) await post('/api/jam/stop', {});
       else {
@@ -423,7 +423,7 @@
             <div class="pv-swatches">${swatches(m.color)}</div></div>`).join('') + '<button id="stAddMode">+ Add a moment</button>' +
           `<h4>Play a show</h4><p class="hint">The music dips and a show of yours plays, then it fades back into the party.</p>` +
           cues.cues.map((c, i) => `<div class="st-mode" data-cue-row="${i}"><div class="st-mode-top"><input class="c-name" value="${esc(c.name)}" aria-label="Moment name"><button class="c-del">Delete</button></div>
-            <p class="hint">${(c.shows || []).length > 1 ? 'One picked at random each time:' : 'Plays:'}</p><div class="st-shows">${cues.shows.map(s => `<label><input type="checkbox" value="${esc(s.name)}" ${(c.shows || []).includes(s.name) ? 'checked' : ''}> ${esc(s.name)}</label>`).join('') || '<span class="hint">Make a show in Shows first.</span>'}</div></div>`).join('') +
+            <p class="hint">${(c.shows || []).length > 1 ? 'One picked at random each time:' : 'Plays:'}</p><div class="st-shows">${cues.shows.filter(s => !s.name.startsWith('_')).map(s => `<label><input type="checkbox" value="${esc(s.name)}" ${(c.shows || []).includes(s.name) ? 'checked' : ''}> ${esc(St.niceName(s.name))}</label>`).join('') || '<span class="hint">Make a show in Shows first.</span>'}</div></div>`).join('') +
           '<button id="stAddCue">+ Add a moment</button>';
         for (const r of el.querySelectorAll('[data-i]')) {
           const m = modes[+r.dataset.i], q = c => r.querySelector(c);
@@ -459,8 +459,8 @@
     if (!songs.length) $('#libGrid').innerHTML = '<div class="pv-empty">Finding your songs…</div>';
     const [list, every] = await Promise.all([get('/api/projects').catch(() => []), get('/api/review/every').then(d => d.songs || []).catch(() => [])]);
     const seen = new Set(); songs = [];
-    for (const p of list) { seen.add(p.name); songs.push({ name: p.name, label: p.name, kind: p.has_project ? 'mine' : 'song', length: p.length }); }
-    for (const s of every) if (!s.show && !seen.has(s.label)) songs.push({ name: s.label, label: s.label, kind: 'auto', reviewed: s.reviewed });
+    for (const p of list) { seen.add(p.name); if (!p.name.startsWith('_')) songs.push({ name: p.name, label: St.niceName(p.name), kind: p.has_project ? 'mine' : 'song', length: p.length }); }
+    for (const s of every) if (!s.show && !seen.has(s.label)) songs.push({ name: s.label, label: St.niceName(s.label), kind: 'auto', reviewed: s.reviewed });
     drawLibrary();
   }
   function drawLibrary() {
@@ -669,7 +669,7 @@
       row('Even out song volume', 'Brings quiet and loud songs closer together.', toggle('id="stEven"', st.even_levels !== false)) +
       row('Start by itself', 'Starts when music begins playing on Light Show Studio in Spotify.', toggle('id="stAuto"', jam.auto)) +
       (f.available ? row('Learn songs ahead', 'Studies queued songs before they play, from a copy found on YouTube.', toggle('id="stFetch"', f.on)) : '') +
-      (f.on ? '' : row('Open with', 'A saved show plays first, while Spotify fills up behind it.', `<select id="stOpener"><option value="">Nothing</option>${(shows.shows || []).filter(s => s.length >= 60 || s.name === jam.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === jam.opener_choice ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>`)) +
+      (f.on ? '' : row('Open with', 'A saved show plays first, while Spotify fills up behind it.', `<select id="stOpener"><option value="">Nothing</option>${(shows.shows || []).filter(s => s.length >= 60 || s.name === jam.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === jam.opener_choice ? 'selected' : ''}>${esc(St.niceName(s.name))}</option>`).join('')}</select>`)) +
       row('Spotify plays in', 'This app, hidden, or the Spotify app on this computer.', `<select id="stSource"><option value="studio" ${last.source === 'app' ? '' : 'selected'}>This app</option><option value="app" ${last.source === 'app' ? 'selected' : ''}>The Spotify app</option></select>`) +
       `<div class="st-h">Sound devices</div>` +
       row('Microphone', 'Listens to the room for the sync check.', pick('stMic', dev.inputs, dev.mic_device, `Default${dev.default_input ? ': ' + dev.default_input : ''}`) + ' <button id="stMicTest">Test</button> <span id="stMicLevel" class="hint"></span>') +

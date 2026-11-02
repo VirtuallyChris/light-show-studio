@@ -125,8 +125,13 @@
   .np .title { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin-top: 2px; }
   .np:not(.idle) .title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }   /* a long title on two lines, not cut to a few words */
   @media (orientation: portrait) and (max-height: 720px) { .np .art { width: min(100%, 196px); } }   /* an SE: play/pause above the tab bar */
+  @media (orientation: portrait) and (max-height: 600px) { .np .art { width: min(100%, 128px); margin-bottom: 10px; } }
   /* a phone on its side: the cover beside the song, so the title and play/pause are on screen without scrolling */
   @media (orientation: landscape) and (max-height: 500px) {
+    .np.idle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 20px; }
+    .np.idle > .art { grid-row: 1 / 3; width: min(150px, calc(100vh - 190px)); margin: 0; }
+    .np.idle > .title { text-align: left; align-self: end; }
+    .np.idle .start-party { margin: 10px 0 0; justify-self: start; align-self: start; }
     .np:not(.idle) { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 1fr repeat(7, auto) 1fr; column-gap: 20px; }
     .np:not(.idle) > .art { grid-column: 1; grid-row: 1 / -1; align-self: center; width: min(200px, calc(100vh - 170px)); margin: 0; }
     .np:not(.idle) > :not(.art) { grid-column: 2; }
@@ -351,7 +356,7 @@
   <section class="card hero" id="nowCard">
     <div id="now"></div>
   </section>
-  <section class="card">
+  <section class="card" id="nextCard">
     <div class="label">Up next</div>
     <div id="next"></div>
   </section>
@@ -375,7 +380,7 @@
     <div class="label">Play a show</div>
     <div class="cues" id="cues"></div>
   </section>
-  <button class="stop-party" id="stopParty" type="button" hidden>Stop the party</button>
+  <button class="stop-party" id="stopParty" type="button" hidden>End the party</button>
 </section>
 
 <!-- ======================================================== ROOMS -->
@@ -432,7 +437,7 @@
   // ---- the party level: sent while the slider moves (a few times a second), saved by the studio
   const slider = $('#party');
   let sendTimer = null, dragging = false;
-  const hint = v => v >= 100 ? 'The full show.' : v <= 0 ? 'Just the song’s color, steady.' : `The song’s color over the show: ${100 - v}%.`;
+  const hint = v => v >= 100 ? 'The full show.' : v <= 0 ? 'Just the song’s color, steady.' : `Calmer: the song’s color, with ${v}% of the show.`;
   const showLevel = v => { $('#partyVal').textContent = v + '%'; $('#partyHint').textContent = hint(v); };
   slider.addEventListener('input', () => {
     dragging = true; const v = +slider.value; showLevel(v);
@@ -483,7 +488,7 @@
     if (!t || !t.id) return '';
     if (t.kind === 'custom') return `<div class="colors"><span class="tag">your show</span></div>`;
     const st = state || {}, wild = st.color_source === 'wild', themed = st.theme_on !== false && (wild || ['pick', 'mix'].includes(st.color_mode));
-    const chip = themed || t.theme_off ? `<button class="theme-chip ${t.theme_off ? '' : 'on'}" aria-label="${t.theme_off ? 'Plays in its album cover’s colors: tap for the party’s' : 'Plays in the party’s colors: tap for its album cover’s'}">${t.theme_off ? 'cover' : 'party'}</button>` : '';
+    const chip = themed || t.theme_off ? `<button class="theme-chip ${t.theme_off ? '' : 'on'}" aria-label="${t.theme_off ? 'Plays in its album cover’s colors: tap for the party’s' : 'Plays in the party’s colors: tap for its album cover’s'}">${t.theme_off ? 'Cover colors' : 'Party colors'}</button>` : '';
     // No Limits: the show picks the colors section by section, so a song shows none (the box stays, empty:
     // a tap on the song still opens its vibe and genre). One given its own colors, or its cover's, shows them.
     const bare = wild && !t.own && !t.theme_off;
@@ -806,7 +811,7 @@
     // never rebuild under an open color picker (rebuilding would close it)
     const busy = sheetOpen;
     if (html !== shown && !busy) {
-      $('#now').innerHTML = nowHtml; $('#next').innerHTML = nextHtml; shown = html;
+      $('#now').innerHTML = nowHtml; $('#next').innerHTML = nextHtml; $('#nextCard').hidden = !st.running; shown = html;
       wireColors($('#now')); wireColors($('#next'));
       const startBtn = $('#bStart'); if (startBtn) startBtn.onclick = startParty;
       const play = $('#bPlay');
@@ -850,7 +855,7 @@
     shown = ''; poll();
   }
   $('#stopParty').onclick = async () => {
-    if (!confirm('Stop the party? The music and the lights stop.')) return;
+    if (!confirm('End the party? The music and the lights stop.')) return;
     await postJson('/api/jam/stop', {}).catch(() => {});
     shown = ''; poll();
   };

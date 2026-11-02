@@ -49,10 +49,10 @@ Draw your rooms and pin each light where it stands. Effects then travel through 
 ## Your phone runs the party
 
 <p align="center">
-  <img src="docs/images/phones.svg" alt="Three phones running the Party Hub. A song skips on the middle phone and the lights behind them change to its colors. On the left, tapping Cake time turns the room orange. On the right, the party level slider is dragged and a room joins the party." width="100%">
+  <img src="docs/images/phones.svg" alt="Three phones running the party. A song skips on the middle phone and the lights behind them change to its colors. On the left, tapping Cake time turns the room orange. On the right, the Energy slider is dragged and a room joins the party." width="100%">
 </p>
 
-Scan a QR code and your phone is the remote: skip songs, recolor anything in the queue, turn the whole party up or down, and switch rooms in and out. Big buttons handle the moments the party stops for, like a toast or cake.
+Scan a QR code and your phone is the remote: skip songs, recolor anything in the queue, set the energy, and switch rooms in and out. Big buttons handle the moments the party stops for, like a toast or cake.
 
 ## Spotify picks the music, the lights keep up
 
@@ -60,7 +60,7 @@ Scan a QR code and your phone is the remote: skip songs, recolor anything in the
   <img src="docs/images/jam.svg" alt="A Spotify Jam's queue reaches your computer, which learns each song before it plays, then the room's lights and Google speakers play it. Below, two timelines show the room hearing the music a few seconds after Spotify plays it." width="100%">
 </p>
 
-Start a Spotify Jam and let everyone add songs all night. **Jam mode** [learns each one ahead](docs/GUIDE.md#jam-mode-someone-else-picks-the-music) and plays it on your Google speakers with a full show from the first beat. It runs on Windows and needs Spotify Premium.
+Start a Spotify Jam and let everyone add songs all night. The party [learns each one ahead](docs/GUIDE.md#jam-mode-someone-else-picks-the-music) and plays it on your Google speakers with a full show from the first beat. It runs on Windows, Mac and Linux, sets up its own audio, and needs Spotify Premium.
 
 ## Built for you, yours to change
 
@@ -72,8 +72,8 @@ Drop in any song and press **Auto-build show**, then move, swap or recolor anyth
 
 ## Get started
 
-1. **Download** it and open **Get started** in Settings. It finds your lights and speakers and walks you through the rest.
-2. **Connect Spotify** for Jam mode.
-3. **Scan the QR code** on your phone and start the party.
+1. **Download** it and open it. **Get started** on the Party page finds your lights and speakers and walks you through the rest.
+2. **Connect Spotify** in Settings.
+3. **Scan the QR code** in Settings with your phone, and start the party.
 
 Everything else is in **[the full guide](docs/GUIDE.md)**.

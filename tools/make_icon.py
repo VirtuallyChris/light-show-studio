@@ -1,8 +1,7 @@
 r"""Draw the studio logo and write every size the app needs.
 
-The logo is two stage lamps whose beams cross in the air, the colors adding up
-where they meet, over a glow on the floor. Run from the project folder:
-.venv\Scripts\python tools\make_icon.py
+The logo is a waveform, simplified to a few rounded bars in the colors of a show.
+Run from the project folder:  .venv\Scripts\python tools\make_icon.py
 
 Outputs the launcher icon (Light Show Studio.ico), the web icons the studio page
 serves (where the Chrome app window gets its title bar and taskbar icon from),
@@ -14,43 +13,36 @@ import struct
 import zlib
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "lightshow", "studio", "static")
 
-MAGENTA, CYAN = (1, .10, .60), (.05, .72, 1)
-#        lamp          aimed at      half width in degrees, color
-BEAMS = [((.17, .17), (.66, .89), 10, MAGENTA),
-         ((.83, .17), (.34, .89), 10, CYAN)]
-TINY_BEAMS = [((.15, .15), (.70, .92), 13, MAGENTA),
-              ((.85, .15), (.30, .92), 13, CYAN)]    # fatter, to still read at 16 pixels
-FLOOR = (.5, .3, 1)                                  # where the beams land
+STOPS = [(0, (.13, .83, .93)), (.36, (.55, .36, .96)), (.68, (.93, .28, .60)), (1, (.98, .57, .24))]   # cyan, violet, pink, orange
+BARS = [.16, .36, .62, .36, .72, .44, .20]    # each bar's height, as parts of the tile
+TINY_BARS = [.30, .70, .46, .78, .34]         # five, the same shape, still read at 16 pixels
 
 
-def emission(work, beams, lamp, floor=False):
-    """The light alone, as an RGB array that adds up: overlaps go past 1.0 and clip toward white."""
+def waveform(work, bars, span, fill):
+    """The bars' coverage (0 to 1) and their colors, running across the logo."""
     yy, xx = np.mgrid[0:work, 0:work]
     x, y = (xx + .5) / work, (yy + .5) / work
-    px = 1 / work
-    light = np.zeros((work, work, 3))
-    for (ax, ay), (tx, ty), half, color in beams:
-        reach = np.hypot(tx - ax, ty - ay)
-        ux, uy = (tx - ax) / reach, (ty - ay) / reach
-        along = (x - ax) * ux + (y - ay) * uy
-        across = np.abs((y - ay) * ux - (x - ax) * uy)
-        width = np.maximum(along, 0) * np.tan(np.radians(half)) + lamp * .55
-        side = np.clip((width - across) / px + .5, 0, 1) * (along > -lamp)
-        t = np.clip(along / reach, 0, 1)
-        fade = (1 - .72 * t ** 1.15) * np.clip((reach - along) / (reach * .10), 0, 1)   # thins out like a beam through haze
-        light += (side * fade)[..., None] * np.array(color)
-    if floor:
-        light += (np.exp(-((y - .86) / .035) ** 2) * np.exp(-((x - .5) / .30) ** 2))[..., None] * np.array(FLOOR) * .9
-    for (ax, ay), _, _, color in beams:
-        d = np.hypot(x - ax, y - ay)
-        light += np.exp(-(d / (lamp * 1.15)) ** 2)[..., None] * 1.6                     # the lamp, white hot
-        light += np.exp(-(d / (lamp * 3)) ** 2)[..., None] * np.array(color) * .5       # and its halo
-    return light
+    pitch = span / len(bars)
+    half = pitch * fill / 2
+    cover = np.zeros((work, work))
+    for i, height in enumerate(bars):
+        cx = .5 - span / 2 + pitch * (i + .5)
+        edge = np.hypot(x - cx, np.maximum(np.abs(y - .5) - max(height / 2 - half, 0), 0)) - half
+        cover = np.maximum(cover, np.clip(.5 - edge * work, 0, 1))
+    t = np.clip((x - (.5 - span / 2)) / span, 0, 1)
+    color = np.dstack([np.interp(t, [q[0] for q in STOPS], [q[1][c] for q in STOPS]) for c in range(3)])
+    return cover, color
+
+
+def glow(cover, color, work, amount):
+    """The bars' light, spread out around them."""
+    lit = Image.fromarray((cover[..., None] * color * 255).astype("uint8"), "RGB")
+    return np.asarray(lit.filter(ImageFilter.GaussianBlur(work * .035))) / 255 * amount
 
 
 def rounded(work, radius):
@@ -72,20 +64,20 @@ def draw(size, radius=.225):
     """The logo on its dark tile, size pixels square."""
     tiny = size <= 32
     work = size * (8 if tiny else 4)
+    cover, color = waveform(work, TINY_BARS if size <= 16 else BARS, .76 if tiny else .68, .68 if tiny else .62)
     y = ((np.arange(work) + .5) / work)[:, None, None]
-    sky = (1 - y) * np.array([.085, .045, .20]) + y * np.array([.022, .016, .055])     # a dark room, violet up by the rig
-    light = emission(work, TINY_BEAMS if tiny else BEAMS, .05 if tiny else .03, floor=not tiny)
-    return picture(sky + light, rounded(work, radius)).resize((size, size), Image.LANCZOS)
+    sky = (1 - y) * np.array([.075, .05, .16]) + y * np.array([.03, .025, .07])
+    back = sky * np.ones((work, work, 3)) + (0 if tiny else glow(cover, color, work, .55))
+    rgb = back * (1 - cover[..., None]) + color * cover[..., None]
+    return picture(rgb, rounded(work, radius)).resize((size, size), Image.LANCZOS)
 
 
 def draw_mark(size):
-    """The beams alone on nothing, for the app's own dark screens."""
+    """The bars alone on nothing, for the app's own dark screens."""
     work = size * 4
-    shown = np.clip(emission(work, BEAMS, .03), 0, 1)
-    alpha = shown.max(axis=2)
-    rgb = np.divide(shown, alpha[..., None], out=np.zeros_like(shown), where=alpha[..., None] > 0)
-    img = picture(rgb, alpha)
-    img = img.crop(img.getchannel("A").point(lambda a: 255 if a > 10 else 0).getbbox())   # to the mark, so it sits where it is put
+    cover, color = waveform(work, BARS, .84, .66)
+    img = picture(color, cover)
+    img = img.crop(img.getchannel("A").getbbox())     # to the mark, so it sits where it is put
     return img.resize((size, round(size * img.height / img.width)), Image.LANCZOS)
 
 

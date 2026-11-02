@@ -857,3 +857,9 @@ button.pv-track:hover { background: var(--bg3); }
   .studio-view main { padding: .6rem; }
 }
 .pv-queue:has(#pvQueue > .pv-empty) { flex: none; min-height: 0; }
+.sheet-head h3 { font-size: 1.25rem; font-weight: 800; color: var(--text); text-transform: none; letter-spacing: 0; }
+.studio-view .title-block { flex: 1 1 6rem; min-width: 5rem; }
+.studio-view .title-block .project-name { width: 100%; }
+.studio-view .group.file { flex: none; }
+.light-list .seg { width: 3.9rem; }
+:root { --canvas-room-name: #7a8095; }

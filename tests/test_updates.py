@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+import urllib.request
 from unittest import mock
 
 from lightshow.studio import updates
@@ -338,6 +339,19 @@ class TestNotice(unittest.TestCase):
         self.assertTrue(n.status()["auto_update"])
         self.post(n, {"auto_update": False})
         self.assertFalse(n.status()["auto_update"])
+
+
+class TestSplashWindow(unittest.TestCase):
+    def test_serves_the_logo_its_page_shows(self):
+        with mock.patch.object(updates, "_browser", return_value=None):
+            splash = updates.Splash("9.9.9")
+        self.addCleanup(splash.close)
+        base = f"http://127.0.0.1:{splash.server.server_address[1]}"
+        with urllib.request.urlopen(base + "/") as page:
+            self.assertIn(b'src="/logo.png"', page.read())
+        with urllib.request.urlopen(base + "/logo.png") as logo:
+            self.assertEqual(logo.headers["Content-Type"], "image/png")
+            self.assertTrue(logo.read().startswith(b"\x89PNG"))
 
 
 if __name__ == "__main__":
