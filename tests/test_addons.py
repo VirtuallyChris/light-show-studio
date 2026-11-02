@@ -15,7 +15,7 @@ class TestAddons(unittest.TestCase):
     def test_off_until_switched_on_and_kept(self):
         cfg = {}
         self.assertFalse(addons.enabled(cfg, "doorbell"))
-        self.assertEqual([a["id"] for a in addons.status(cfg)], ["doorbell", "bulbshow", "homeassistant"])
+        self.assertEqual([a["id"] for a in addons.status(cfg)], ["doorbell", "bulbstudio", "homeassistant"])
         self.assertTrue(all(not a["on"] for a in addons.status(cfg)))
         store = {}
         addons.switch(lambda: dict(store), store.update, "doorbell", True)
@@ -28,10 +28,15 @@ class TestAddons(unittest.TestCase):
 
 
 class TestAddonsDoNothingWhileOff(unittest.TestCase):
+    def test_a_saved_switch_survives_the_id_change(self):
+        cfg = addons.upgrade({"addons": {"bulbshow": True, "doorbell": False}})
+        self.assertEqual(cfg["addons"], {"bulbstudio": True, "doorbell": False})
+        self.assertEqual(addons.upgrade({}), {})
+
     def service(self, cfg):
-        s = SimpleNamespace(load_config=lambda: cfg, studio=SimpleNamespace(bulbshows=object()))
+        s = SimpleNamespace(load_config=lambda: cfg, studio=SimpleNamespace(bulbstudio=object()))
         s.cue = lambda: JamService._doorbell_cue(s)
-        s.bulbs = lambda: JamService._bulbshows(s)
+        s.bulbs = lambda: JamService._bulbstudio(s)
         return s
 
     def test_the_doorbell_cue_is_left_on_the_hub_while_the_add_on_is_off(self):
@@ -41,7 +46,7 @@ class TestAddonsDoNothingWhileOff(unittest.TestCase):
 
     def test_bulb_show_is_not_asked_about_while_the_add_on_is_off(self):
         self.assertIsNone(self.service({}).bulbs())
-        self.assertIsNotNone(self.service({"addons": {"bulbshow": True}}).bulbs())
+        self.assertIsNotNone(self.service({"addons": {"bulbstudio": True}}).bulbs())
 
 
 class TestOneHomesSettings(unittest.TestCase):

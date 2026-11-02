@@ -36,7 +36,6 @@ from ..appdirs import data_dir, popen_outside
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
-ROOT = os.path.dirname(os.path.dirname(HERE))
 DATA = data_dir()                  # the project folder from source; the user's app data when packaged
 SHOWS_DIR = os.path.join(DATA, "shows")
 CONFIG_PATH = os.path.join(DATA, "config.json")
@@ -56,7 +55,7 @@ def load_config() -> dict:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as fh:
                 text = fh.read()
-            cfg = json.loads(text)
+            cfg = addons.upgrade(json.loads(text))
             _CONFIG_GOOD = text
             return cfg
         except FileNotFoundError:
@@ -86,6 +85,25 @@ def save_config(cfg: dict) -> None:
 def safe_name(name: str) -> str:
     name = re.sub(r"[^\w\- .()]+", "_", name).strip(" .")
     return name[:80] or "untitled"
+
+
+def _songs_in(pdir: str) -> list[str]:
+    """A show folder's song file (none if the folder is not there)."""
+    return [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
+
+
+def _lan_only(request) -> None:
+    if not JamService._lan(request):
+        raise web.HTTPForbidden()
+
+
+def _segments_of(d, seg: dict) -> int:
+    """How many segments a light has: its own count, the one set for it in the light list, its model's, or 10."""
+    return int(getattr(d, "segments", 0) or seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10)
+
+
+def _name_of(d, names: dict) -> str:
+    return names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or getattr(d, "name", "")
 
 
 @web.middleware
@@ -160,11 +178,9 @@ class LightOutput:
         self.handed_back: dict = {}
         self.devices: list[govee_lan.GoveeDevice] = []
         self.active = False
-        self.last_enable = 0.0
         self.last_frame = 0.0
         self.frames = 0
         self.sent = 0                                   # frames sent to at least one light (after the caps)
-        self.last_sent = 0.0
         # Each light's own frame rate (set from its own Wi-Fi by link_health), and when it last got one;
         # a light with none yet uses max_fps.
         self.fps_by_ip: dict[str, float] = {}
@@ -311,7 +327,6 @@ class LightOutput:
         if not self.enabled:
             return
         self._take_over(self.devices)
-        self.last_enable = time.monotonic()
         self.active = True
 
     REUSE_S = 60.0          # a light handed back this recently keeps the state it was first saved with
@@ -538,7 +553,6 @@ class LightOutput:
             flat = by_ip.get(ip) or self.last_px.get(ip) or [0, 0, 0]
             out.append((f["dev"], _mix_toward(flat, f["target"], _ease(self._progress(f, now)))))
         if out:
-            self.last_sent = now
             self.sent += 1
         for d, flat in out:
             self.last_px[d.ip] = flat
@@ -565,6 +579,8 @@ class Studio:
         self.room_last: str | None = None                # the latest frame, for a phone that just opened it
         self._watch_task = None
         self.last_client = 0.0
+        self._lengths: dict = {}                         # (song file, date) -> its length
+        self._pcm: dict = {}                             # (song file, date) -> a cue's song decoded (_cue_pcm)
         self.known: list[govee_lan.GoveeDevice] = []    # (and hue.HueDevice: the same methods)
         self.hue = hue.HueManager(load_config, save_config)
         self.scan_lock = asyncio.Lock()                  # one scan at a time: they all listen on the same UDP port
@@ -592,8 +608,8 @@ class Studio:
         self.cast.on_release = self.rooms.unmute_all             # casting stops: the speakers it muted play again
         # Bulb Studio's shows, switched on and off from the Party screen and the phone; a test copy talks to the test Bulb Studio only
         # (port 8798) and never starts one
-        from .bulbshows import BulbShows
-        self.bulbshows = BulbShows(port=8770 if lights else 8798, launch=lights)
+        from .bulbstudio import BulbStudio
+        self.bulbstudio = BulbStudio(port=8770 if lights else 8798, launch=lights)
         # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
         self.cues = CueRunner(load_config, save_config, self._show_length,
                               live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length, pcm=self._cue_pcm)) if lights else None)
@@ -690,26 +706,19 @@ class Studio:
     async def _close_player(self, app):
         """Any orderly exit: Edge's sound goes back to the default output, the hidden player closes,
         every speaker a room muted plays again, and Bulb Studio closes."""
-        try:
-            await asyncio.get_running_loop().run_in_executor(None, self.jam.close_player)
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            await asyncio.get_running_loop().run_in_executor(None, self.rooms.unmute_all)
-        except Exception:  # noqa: BLE001
-            pass
-        try:                                              # Bulb Studio closes with the studio
-            await asyncio.get_running_loop().run_in_executor(None, self.bulbshows.quit)
-        except Exception:  # noqa: BLE001
-            pass
+        async def step(fn):
+            try:
+                await asyncio.get_running_loop().run_in_executor(None, fn)
+            except Exception:  # noqa: BLE001
+                pass
+        await step(self.jam.close_player)
+        await step(self.rooms.unmute_all)
+        await step(self.bulbstudio.quit)                  # Bulb Studio closes with the studio
         try:
             await self.doorbell.close()
         except Exception:  # noqa: BLE001
             pass
-        try:                                              # Home Assistant has the lights back at once
-            await asyncio.get_running_loop().run_in_executor(None, self.homeassistant.release)
-        except Exception:  # noqa: BLE001
-            pass
+        await step(self.homeassistant.release)            # Home Assistant has the lights back at once
 
     # -- rooms ---------------------------------------------------------------------------
     async def _rooms_at_start(self, app):
@@ -722,16 +731,15 @@ class Studio:
     # -- cues ----------------------------------------------------------------------------
     def _show_length(self, name: str) -> float:
         pdir = os.path.join(SHOWS_DIR, safe_name(name))
-        song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
+        song = _songs_in(pdir)
         if not song:
             return 0.0
         path = os.path.join(pdir, song[0])
         try:
             key = (path, os.path.getmtime(path))
-            cache = self.__dict__.setdefault("_lengths", {})   # asked every second by the Jam panel: read each song once
-            if key not in cache:
-                cache[key] = float(audiotrim.total_duration(path))
-            return cache[key]
+            if key not in self._lengths:                  # asked every second by the Jam panel: read each song once
+                self._lengths[key] = float(audiotrim.total_duration(path))
+            return self._lengths[key]
         except Exception:  # noqa: BLE001
             return 0.0
 
@@ -739,7 +747,7 @@ class Studio:
         """A saved show's song: the address a speaker fetches it from, and the file."""
         name = safe_name(name)
         pdir = os.path.join(SHOWS_DIR, name)
-        song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
+        song = _songs_in(pdir)
         if not song:
             raise FileNotFoundError(f"{name} has no song")
         ip = govee_lan.local_ip() or "127.0.0.1"
@@ -777,7 +785,7 @@ class Studio:
             key = (path, os.path.getmtime(path))
         except Exception:  # noqa: BLE001
             return None
-        cache = self.__dict__.setdefault("_pcm", {})
+        cache = self._pcm
         if key not in cache:
             if self._show_length(name) > self.CUE_PCM_MAX_S:
                 return None
@@ -792,22 +800,19 @@ class Studio:
         return cache[key]
 
     async def cues_get(self, request):
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         shows = await asyncio.get_running_loop().run_in_executor(None, self._cue_shows)
         return web.json_response({"cues": self.cues.list(), "shows": shows, "running": self.cues.status()})
 
     async def cues_set(self, request):
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         cues = self.cues.replace((await request.json()).get("cues", []))
         asyncio.get_running_loop().run_in_executor(None, self._warm_cues)
         return web.json_response({"cues": cues})
 
     async def cues_run(self, request):
         """Run a cue: the music fades out, a saved show plays, the music comes back."""
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         try:
             return web.json_response(self.cues.run(str((await request.json()).get("id", ""))))
         except (LookupError, ValueError, RuntimeError) as e:
@@ -815,13 +820,11 @@ class Studio:
 
     async def cues_now(self, request):
         """The cue running now (asked often by the studio page, so a cue's lights start with its song)."""
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         return web.json_response(self.jam._room_cue())
 
     async def cues_stop(self, request):
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         return web.json_response(self.cues.stop())
 
     # -- the doorbell --------------------------------------------------------------------
@@ -835,14 +838,12 @@ class Studio:
 
     # -- add-ons (addons.py): the doorbell, Bulb Studio ------------------------------------------
     async def addons_get(self, request):
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         return web.json_response({"addons": addons.status(load_config())})
 
     async def addons_set(self, request):
         """Switch an add-on on or off ({id, on}): its card shows on the Party Hub, and it starts (or stops) at once."""
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         body = await request.json()
         try:
             addons.switch(load_config, save_config, str(body.get("id")), bool(body.get("on")))
@@ -856,14 +857,12 @@ class Studio:
         return web.json_response({"addons": addons.status(load_config())})
 
     async def doorbell_get(self, request):
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         return web.json_response({**self.doorbell.status(), "live": self.doorbell_live})
 
     async def doorbell_set(self, request):
         """The doorbell's address, user, password (kept if left empty), which cue it rings, on or off."""
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         self.doorbell.save(await request.json())
         if self._doorbell_wanted():
             self.doorbell.start()
@@ -899,15 +898,13 @@ class Studio:
         doc = {"rooms": self.rooms.list(), "fade_s": FADE_S, "muted": self.rooms.muted()}
         if devices:
             names = load_config().get("light_names", {})
-            doc["lights"] = [{"key": d.mac or d.device_id or d.ip, "ip": d.ip, "sku": d.sku,
-                              "name": names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or getattr(d, "name", "")} for d in self.known]
+            doc["lights"] = [{"key": d.mac or d.device_id or d.ip, "ip": d.ip, "sku": d.sku, "name": _name_of(d, names)} for d in self.known]
             doc["speakers"] = sorted({c.cast_info.friendly_name for c in self.cast.casts if c.cast_info.cast_type != "group"}
                                      | {s for r in doc["rooms"] for s in r["speakers"]}, key=str.lower)
         return doc
 
     async def rooms_get(self, request):
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         devices = request.query.get("devices") == "1"
         if devices and not self.cast.casts:
             try:
@@ -918,16 +915,14 @@ class Studio:
 
     async def rooms_set(self, request):
         """Replace the rooms (names, lights, speakers, on or off), from the studio or the Party Hub."""
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         self.rooms.replace((await request.json()).get("rooms", []))
         await self.apply_rooms()
         return web.json_response(self._rooms_doc(request.query.get("devices") == "1"))
 
     async def rooms_on(self, request):
         """Switch one room on or off."""
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         body = await request.json()
         self.rooms.set_on(str(body.get("id", "")), bool(body.get("on")))
         await self.apply_rooms()
@@ -959,7 +954,7 @@ class Studio:
             if model_setup.INSTALLER.state == "running":  # an install stops with the app (it starts over next time)
                 model_setup.INSTALLER.cancel()
             try:                                          # Bulb Studio goes too: it stops its shows and puts its bulbs back
-                self.bulbshows.quit()
+                self.bulbstudio.quit()
             except Exception:  # noqa: BLE001
                 pass
             try:                                          # Home Assistant has the lights back
@@ -1103,10 +1098,8 @@ class Studio:
         for d in self.known:
             if not d.mac:   # ARP may not have the entry yet; use what we remembered
                 d.mac = remembered.get(d.ip, {}).get("mac", "")
-            n = getattr(d, "segments", 0) or seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10
-            name = names.get(d.mac) or names.get(d.device_id) or names.get(d.ip) or getattr(d, "name", "")
             flip = bool(flipped.get(d.mac) or flipped.get(d.device_id) or flipped.get(d.ip))
-            out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": name, "sku": d.sku, "segments": int(n), "online": d.ip in online, "flip": flip,
+            out.append({"ip": d.ip, "mac": d.mac, "device_id": d.device_id, "name": _name_of(d, names), "sku": d.sku, "segments": _segments_of(d, seg), "online": d.ip in online, "flip": flip,
                         "default": bool(default) and d.mac.upper() == default,
                         # none ticked yet: config.json default_light, or every light (a home set up for the first time)
                         "on": (d.mac in chosen or d.device_id in chosen) if chosen is not None else (d.mac.upper() == default if default else True)})
@@ -1125,8 +1118,7 @@ class Studio:
 
     async def hue_pair(self, request):
         """Start pairing a found bridge: its button pressed within 30 s pairs it. {"bridge": id}"""
-        if not JamService._lan(request):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         bid = str((await request.json()).get("bridge", ""))
         st = self.hue.pair(bid)
         if st.get("state") == "unknown":
@@ -1206,8 +1198,7 @@ class Studio:
         d = next((d for d in self.known if d.ip == ip), None)
         if d is None:
             return 50
-        seg = load_config().get("segments", {})
-        return int(getattr(d, "segments", 0) or seg.get(d.mac) or seg.get(d.ip) or seg.get(d.device_id) or seg.get(d.sku) or govee_lan.SKU_SEGMENTS.get(d.sku) or 10)
+        return _segments_of(d, load_config().get("segments", {}))
 
     async def set_segments(self, request):
         body = await request.json()
@@ -1274,9 +1265,7 @@ class Studio:
         and every start position then drifts by a different amount.
         """
         pdir = os.path.join(SHOWS_DIR, safe_name(request.match_info["project"]))
-        for fn in os.listdir(pdir) if os.path.isdir(pdir) else []:
-            if not fn.startswith("song."):
-                continue
+        for fn in _songs_in(pdir):
             path = os.path.join(pdir, fn)
             try:
                 start = float(request.query.get("start", "0") or 0)
@@ -1310,8 +1299,7 @@ class Studio:
             for name in sorted(os.listdir(SHOWS_DIR)):
                 pdir = os.path.join(SHOWS_DIR, name)
                 pj = os.path.join(pdir, "project.json")
-                song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
-                if song:
+                if _songs_in(pdir):
                     out.append({"name": name, "has_project": os.path.exists(pj),
                                 "modified": os.path.getmtime(pj) if os.path.exists(pj) else os.path.getmtime(pdir)})
         out.sort(key=lambda p: -p["modified"])
@@ -1320,9 +1308,7 @@ class Studio:
     async def load_project(self, request):
         name = safe_name(request.match_info["name"])
         pdir = os.path.join(SHOWS_DIR, name)
-        if not os.path.isdir(pdir):
-            raise web.HTTPNotFound()
-        song = [f for f in os.listdir(pdir) if f.startswith("song.")]
+        song = _songs_in(pdir)
         if not song:
             raise web.HTTPNotFound()
         loop = asyncio.get_running_loop()
@@ -1405,14 +1391,12 @@ class Studio:
 
     async def cast_play(self, request):
         body = await request.json()
-        name = safe_name(body.get("project", ""))
-        pdir = os.path.join(SHOWS_DIR, name)
-        song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
-        if not song:
+        project = body.get("project", "")
+        try:
+            url, path = self._show_song(project)
+        except FileNotFoundError:
             return web.json_response({"error": "project has no song"}, status=404)
-        ip = govee_lan.local_ip() or "127.0.0.1"
-        url = f"http://{ip}:{self.port}/api/audio/{name}"
-        return await self._cast_call(self.cast.play, url, os.path.join(pdir, song[0]), name, float(body.get("start", 0.0)))
+        return await self._cast_call(self.cast.play, url, path, safe_name(project), float(body.get("start", 0.0)))
 
     async def cast_pause(self, request):
         return await self._cast_call(self.cast.pause)
@@ -1435,7 +1419,7 @@ class Studio:
         """Listen to the room and measure the real Cast delay for the song playing now."""
         body = await request.json()
         pdir = os.path.join(SHOWS_DIR, safe_name(body.get("project", "")))
-        song = [f for f in os.listdir(pdir) if f.startswith("song.")] if os.path.isdir(pdir) else []
+        song = _songs_in(pdir)
         if not song:
             return web.json_response({"error": "project has no song"}, status=404)
         from .calibrate import live_sync_check
@@ -1534,23 +1518,13 @@ class Studio:
                 pass
 
     async def _room_count(self) -> None:
-        for s in list(self.studio_sockets):
-            try:
-                await s.send_json({"type": "roomview_watchers", "n": len(self.room_watchers)})
-            except Exception:  # noqa: BLE001
-                pass
+        await self.tell_studio({"type": "roomview_watchers", "n": len(self.room_watchers)})
 
     async def roomview_ws(self, request):
         """A phone's room view (roomview.html?remote=1 on the Party Hub): the frames the studio page draws for its
         own room view window, passed on while it is open. Its own socket, never /ws: a /ws closing hands the
         lights back."""
-        import ipaddress
-        try:
-            ip = ipaddress.ip_address((request.remote or "").split("%")[0])
-        except ValueError:
-            raise web.HTTPForbidden()
-        if not (ip.is_private or ip.is_loopback):
-            raise web.HTTPForbidden()
+        _lan_only(request)
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)
         self.room_watchers[ws] = False
@@ -1589,22 +1563,6 @@ def find_chromium() -> str | None:
         if found:
             cands.append(found)
     return next((c for c in cands if os.path.exists(c)), None)
-
-
-def chromium_candidates() -> list[str]:
-    """Every installed Chromium-family browser, in order of preference."""
-    first = find_chromium()
-    found = [first] if first else []
-    if sys.platform == "win32":
-        for env in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
-            base = os.environ.get(env)
-            if base:
-                for parts in (("Microsoft", "Edge", "Application", "msedge.exe"), ("Google", "Chrome", "Application", "chrome.exe"),
-                              ("BraveSoftware", "Brave-Browser", "Application", "brave.exe")):
-                    p = os.path.join(base, *parts)
-                    if os.path.exists(p) and p not in found:
-                        found.append(p)
-    return found
 
 
 APP_PROFILE = os.path.join(local_appdata(), "lanlightshow", "browser")
@@ -1657,10 +1615,9 @@ def open_app_window(url: str) -> subprocess.Popen | None:
     exe = find_chromium()
     if exe is None:
         return None
-    profile = APP_PROFILE
-    os.makedirs(profile, exist_ok=True)
-    _start_maximized(profile)
-    args = [exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
+    os.makedirs(APP_PROFILE, exist_ok=True)
+    _start_maximized(APP_PROFILE)
+    args = [exe, f"--app={url}", f"--user-data-dir={APP_PROFILE}", "--no-first-run",
             "--no-default-browser-check", "--disable-features=Translate,TranslateUI",
             "--autoplay-policy=no-user-gesture-required", "--start-maximized"]
     try:
@@ -1668,16 +1625,6 @@ def open_app_window(url: str) -> subprocess.Popen | None:
         return popen_outside(args, env=clean_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         return None
-
-
-def _already_running(url: str) -> bool:
-    """True if a studio is already answering on this port."""
-    import urllib.request
-    try:
-        with urllib.request.urlopen(url + "api/settings", timeout=1.5) as r:
-            return r.status == 200
-    except Exception:  # noqa: BLE001 - anything at all means "not ours"
-        return False
 
 
 def _rotate_logs(limit: int = 2_000_000) -> None:
@@ -1703,13 +1650,14 @@ def run(host: str = "0.0.0.0", port: int = 8765, open_browser: bool = True,
         print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} studio starting (hidden)")
     os.makedirs(SHOWS_DIR, exist_ok=True)
     url = f"http://127.0.0.1:{port}/"
-    if open_browser and _already_running(url):
+    from .updates import port_busy
+    if open_browser and port_busy(port, timeout=1.5):
         # A second double-click should give you the window, not a silent failure.
         print("Studio already running; opening another window on it.")
-        if not (app_window and open_app_window(url) is not None):
-            webbrowser.open(url)
-        elif app_window:
+        if app_window and open_app_window(url) is not None:
             give_window_identity(wait=True)             # this process ends right after, so do it now
+        else:
+            webbrowser.open(url)
         return
     studio = Studio(port=port, quit_when_closed=app_window and not stay, lights=lights, player=player)
     if not lights:

@@ -277,7 +277,7 @@ class Space:
                         continue
                     v = pattern_level(kind, p, t, doc, point)
                     base = 10                            # every mapped segment faintly on, so the whole map shows
-                    flat.extend((round(base + (255 - base) * v), round(base + (255 - base) * v), round(base + (255 - base) * v)))
+                    flat.extend([round(base + (255 - base) * v)] * 3)
                 frames[ip] = flat
             return frames
         self.driver.play([ip for ip, _, _ in lights], self.known(), render)

@@ -84,11 +84,11 @@ class PreListen:
         if self.fetch is not None:                          # from copies: nothing plays, Spotify stays free
             self.state["how"] = "copies"
             self.fetch.submit(todo, first=False)
-            self.thread = threading.Thread(target=self._run_fetched, args=(todo,), daemon=True)
-            self.thread.start()
-            return self.status()
-        self.start_jam()                                    # silent: the room hears nothing, nothing is kept but what is learned
-        self.thread = threading.Thread(target=self._run, args=(todo,), daemon=True)
+            run = self._run_fetched
+        else:
+            self.start_jam()                                # silent: the room hears nothing, nothing is kept but what is learned
+            run = self._run
+        self.thread = threading.Thread(target=run, args=(todo,), daemon=True)
         self.thread.start()
         return self.status()
 
@@ -120,9 +120,9 @@ class PreListen:
     def _run_fetched(self, todo: list) -> None:
         while not self.halt.wait(CHECK_S):
             learned = [t for t in todo if self.library.has_learned(t.id)]
-            failed = {f["label"] for f in self.fetch.status()["failed"]}
             left = [t for t in todo if t not in learned]
             st = self.fetch.status()
+            failed = {f["label"] for f in st["failed"]}
             self.state.update(learned=len(learned), remaining_s=round(60 * len(left)), current=st["working"])
             if not left:
                 return self._finish_fetched(f"learned all {len(todo)} songs")

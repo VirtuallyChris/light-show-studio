@@ -5,7 +5,6 @@ them). The studio's model environment, on the graphics card (about 3 s a song; a
     .venv-songformer\Scripts\python tools\songformer_features.py [ids...]
 """
 import json
-import math
 import os
 import sys
 import time
@@ -31,28 +30,14 @@ if dev.startswith("cuda"):
 ec = (lambda: torch.cuda.empty_cache()) if dev.startswith("cuda") else (lambda: None)
 print(f"loaded on {dev} in {time.time()-t0:.1f}s", flush=True)
 import librosa
-from model import Model
-from model_config import ModelConfig
 from dataset.label2id import DATASET_ID_ALLOWED_LABEL_IDS, ID_TO_LABEL
 
 HEADS = [("sf5", model.songformer, 5, 8.333), ("sf0", model.songformer, 0, 8.333), ("sf6", model.songformer, 6, 8.333)]
 ALLOWED = dict(DATASET_ID_ALLOWED_LABEL_IDS)
 
 
-def head_logits(net, embd, ds):
-    with torch.no_grad():
-        x = net.mixed_win_downsample(embd)
-        x = net.input_norm(x)
-        x = net.down_sample_conv(x)
-        pre = net.dataset_class_prefix(torch.tensor([ds], device=embd.device)).unsqueeze(1)
-        x = x + pre
-        x = net.transformer(x=x, src_key_padding_mask=None)
-        return net.function_head(x)[0], net.boundary_head(x).squeeze(-1)[0]
-
-
 SR = 24000
 WIN = {}
-ids = list(ids)
 for tid in ids:
   try:
       if os.path.exists(os.path.join(out_dir, f"{tid}.npz")) and "--redo" not in os.environ.get("SFH", ""):
@@ -99,7 +84,7 @@ for tid in ids:
       for name, net, ds, fps in HEADS:
           fl, bl = [], []
           for i, embd in chunks:
-              f, b = head_logits(net, embd, ds)
+              f, b = sfi._head_logits(net, embd, ds)
               fl.append(f.float().cpu().numpy())
               bl.append(b.float().cpu().numpy())
           f = np.concatenate(fl)
@@ -134,6 +119,3 @@ for tid in ids:
         print(tid, "out of memory: again with a 150 s window", flush=True)
     else:
         print(tid, "out of memory: skipped", flush=True)
-
-if "--check" in os.environ.get("SF_CHECK", ""):
-    pass

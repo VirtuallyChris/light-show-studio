@@ -69,11 +69,11 @@ def truth(jam: str = JAM) -> dict:
         return {}
 
 
-def _share(segs, t0, t1, names, key="label"):
+def _share(segs, t0, t1, names):
     v = np.zeros(len(names))
     for s in segs or []:
         o = min(t1, float(s["end"])) - max(t0, float(s["start"]))
-        lab = str(s.get(key, "")).lower()
+        lab = str(s.get("label", "")).lower()
         if o > 0 and lab in names:
             v[names.index(lab)] += o / max(1e-6, t1 - t0)
     return v

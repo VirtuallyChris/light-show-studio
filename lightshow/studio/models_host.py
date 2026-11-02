@@ -354,8 +354,7 @@ def _genre(state, req, payload):
 
 def _load_beats():
     from . import beats_infer
-    model, _ = beats_infer.load_model()
-    return model
+    return beats_infer.load_model()
 
 
 def _beats(model, req, payload):

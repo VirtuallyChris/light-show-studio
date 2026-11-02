@@ -24,14 +24,13 @@ SR = 44100                    # what the model was trained on (its spectrogram: 
 NAMES = {35: "kick", 38: "snare", 42: "hat", 47: "tom", 49: "cymbal"}
 
 
-def load_model(device: str = "auto"):
+def load_model():
     from adtof_pytorch import calculate_n_bins, create_frame_rnn_model, get_default_weights_path, load_pytorch_weights
     from adtof_pytorch.audio import create_adtof_processor
 
     from . import devices
 
-    if device == "auto":
-        device = devices.device_for("drums_infer")
+    device = devices.device_for("drums_infer")
     model = load_pytorch_weights(create_frame_rnn_model(calculate_n_bins()), get_default_weights_path(), strict=True)
     return model.eval().to(device), create_adtof_processor(), device
 

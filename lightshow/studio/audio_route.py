@@ -24,7 +24,7 @@ _WIN = sys.platform == "win32"
 CLASS = "Windows.Media.Internal.AudioPolicyConfig"
 IIDS = ("ab3d4648-e242-459f-b02f-541c70306324",      # Windows 10 21H2 and later, Windows 11
         "2a59116d-6c4f-45e0-a74f-707e3fef9258")      # earlier Windows 10
-SET_SLOT, GET_SLOT = 25, 26                            # after IInspectable's 6 and 19 unpublished methods
+SET_SLOT = 25                                          # after IInspectable's 6 and 19 unpublished methods
 RENDER, CONSOLE, MULTIMEDIA = 0, 0, 1
 PREFIX, SUFFIX = "\\\\?\\SWD#MMDEVAPI#", "#{e6327cad-dcec-4949-ae8a-991e976a79d2}"
 
@@ -43,8 +43,7 @@ def _guid(text: str):
 class _Factory:
     def __init__(self):
         import ctypes
-        from ctypes import wintypes
-        self.ct, self.wt = ctypes, wintypes
+        self.ct = ctypes
         self.combase = ctypes.WinDLL("combase")
         # Set this thread up for Windows Runtime only if nothing has yet, and undo it after (close):
         # left in place, it stops the sound library from listing devices on this thread later.
@@ -95,18 +94,6 @@ class _Factory:
         finally:
             if h.value:
                 self.combase.WindowsDeleteString(h)
-
-    def get(self, pid: int) -> str:
-        ct = self.ct
-        fn = self._method(GET_SLOT, ct.c_uint, ct.c_int, ct.c_int, ct.POINTER(ct.c_void_p))
-        out = ct.c_void_p()
-        if fn(self.ptr, pid, RENDER, MULTIMEDIA, ct.byref(out)) != 0 or not out.value:
-            return ""
-        n = ct.c_uint()
-        self.combase.WindowsGetStringRawBuffer.restype = ct.c_wchar_p
-        text = self.combase.WindowsGetStringRawBuffer(out, ct.byref(n)) or ""
-        self.combase.WindowsDeleteString(out)
-        return text
 
 
 def device_mute(name_part: str, on: bool | None = None) -> bool | None:
@@ -180,15 +167,3 @@ def route(pid: int, output_name_part: str | None) -> bool:
             return f.set(pid, dev)
     except Exception:  # noqa: BLE001
         return False
-
-
-def routed_to(pid: int) -> str:
-    """The output id the program of process `pid` is set to, or "" for the default."""
-    if not _WIN:
-        return ""
-    try:
-        with _Factory() as f:
-            got = f.get(pid)
-    except Exception:  # noqa: BLE001
-        return ""
-    return got[len(PREFIX):-len(SUFFIX)] if got.startswith(PREFIX) and got.endswith(SUFFIX) else got

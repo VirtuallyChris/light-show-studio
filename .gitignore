@@ -27,10 +27,10 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-# Bulb Studio (bulbshow/): its shows and sounds, its Govee API key and its log stay on this computer
-bulbshow/shows/
-bulbshow/config.json
-bulbshow/bulbshow.log
+# Bulb Studio (bulbstudio/): its shows and sounds, its Govee API key and its log stay on this computer
+bulbstudio/shows/
+bulbstudio/config.json
+bulbstudio/bulbstudio.log
 
 # The AI models' environment the in-app installer makes (lightshow/studio/model_setup.py)
 models-env/

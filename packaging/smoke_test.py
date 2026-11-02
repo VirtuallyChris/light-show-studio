@@ -71,11 +71,11 @@ def main(exe: str) -> int:
     env = {**os.environ, "LSS_DATA_DIR": tempfile.mkdtemp(prefix="lss-smoke-")}
     ok = serve("studio", [exe, "studio", "--no-lights", "--no-player", "--no-browser", "--port", str(PORT)],
                PORT, ["/", "/party", "/api/addons", "/api/setup"], env)
-    ok = serve("bulbshow", [exe, "--run-module", "bulbshow", "--no-browser", "--no-lights", "--no-cast", "--port", str(PORT + 1)],
+    ok = serve("bulbstudio", [exe, "--run-module", "bulbstudio", "--no-browser", "--no-lights", "--no-cast", "--port", str(PORT + 1)],
                PORT + 1, ["/api/settings", "/"], env) and ok
     ok = runs("section labeler", [exe, "--run-module", "lightshow.studio.selfcheck"], "loads", env) and ok
     ok = runs("analysis worker", [exe, "--run-module", "lightshow.studio.analysis_worker"], '"ready": true', env) and ok
-    for name in ("studio.log", os.path.join("bulbshow", "bulbshow.log")):
+    for name in ("studio.log", os.path.join("bulbstudio", "bulbstudio.log")):
         path = os.path.join(env["LSS_DATA_DIR"], name)
         if os.path.exists(path):
             print(f"--- {name}\n{open(path, encoding='utf-8', errors='replace').read()[-6000:]}")

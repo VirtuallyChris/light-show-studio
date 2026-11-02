@@ -34,6 +34,32 @@ def _safe(track_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", track_id)
 
 
+def _read_json(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _entries(path: str) -> dict:
+    """A JSON file of songs, without its notes (keys starting with _)."""
+    return {k: v for k, v in _read_json(path).items() if not k.startswith("_")}
+
+
+def _write_json(path: str, doc: dict) -> None:
+    """Written whole, through a temporary file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, indent=1)
+    os.replace(tmp, path)
+
+
+def _track(track_id: str, t: dict) -> Track:
+    """The track of a learned file."""
+    return Track(id=track_id, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=float(t.get("duration") or 0))
+
+
 def _recycle(path: str, aside_dir: str) -> None:
     """Into the Recycle Bin (Windows); elsewhere, or if that fails, moved into aside_dir. Never deleted outright."""
     if os.name == "nt":
@@ -70,11 +96,7 @@ class Review:
         return os.path.join(self.library.dir, "copies", _safe(track_id) + ".flac")
 
     def truth(self) -> dict:
-        try:
-            with open(self.truth_path, encoding="utf-8") as fh:
-                return json.load(fh)
-        except (OSError, ValueError):
-            return {}
+        return _read_json(self.truth_path)
 
     # Claude's suggested sections (tools/claude_review.py propose): never the truth by themselves. A song with one opens
     # in review mode on it (M flips to the labeler's own, to compare); Done keeps what is showing as the user's review,
@@ -84,17 +106,7 @@ class Review:
         return os.path.join(self.library.dir, "section_proposals.json")
 
     def proposals(self) -> dict:
-        try:
-            with open(self.proposals_path, encoding="utf-8") as fh:
-                return {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
-        except (OSError, ValueError):
-            return {}
-
-    def _write_proposals(self, props: dict) -> None:
-        tmp = self.proposals_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(props, fh, indent=1)
-        os.replace(tmp, self.proposals_path)
+        return _entries(self.proposals_path)
 
     def propose(self, track_id: str, sections: list, by: str = "claude") -> None:
         if self.read_only:
@@ -103,7 +115,7 @@ class Review:
             props = self.proposals()
             props[track_id] = {"sections": [{"type": x["type"], "start": round(float(x["start"]), 3), "end": round(float(x["end"]), 3)} for x in sections],
                                "by": by, "added": datetime.date.today().isoformat()}
-            self._write_proposals(props)
+            _write_json(self.proposals_path, props)
 
     def _head(self, track_id: str) -> dict | None:
         """The track of a learned file (it comes right after the version: the rest is not read)."""
@@ -123,43 +135,48 @@ class Review:
         self._heads[track_id] = (mtime, t)
         return t
 
-    def songs(self) -> list[dict]:
-        """The learned songs with a kept copy and no saved show: the most doubted first (review_order.json), else by
-        artist and title."""
+    def _with_copies(self):
+        """(id, track) of every learned song whose copy was kept."""
         try:
             names = os.listdir(self.library.learned_dir)
         except OSError:
-            return []
-        truth, props, out = self.truth(), self.proposals(), []
+            return
         for fn in names:
             if not fn.endswith(".json"):
                 continue
             tid = fn[:-5]
             t = self._head(tid)
-            if not t or not os.path.exists(self.copy_path(tid)):
-                continue
-            track = Track(id=tid, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=float(t.get("duration") or 0))
+            if t and os.path.exists(self.copy_path(tid)):
+                yield tid, _track(tid, t)
+
+    def _twins(self, track_id: str) -> list[str]:
+        return [t for t, _ in self.library.twins(track_id)] if hasattr(self.library, "twins") else []
+
+    @staticmethod
+    def _once(songs: list[dict]) -> list[dict]:
+        """The same song under several ids (twins: an album and a single) listed once, the first of them."""
+        keep, gone = [], set()
+        for s in songs:
+            if s["id"] not in gone:
+                keep.append(s)
+                gone.update(s["twins"])
+        return keep
+
+    def songs(self) -> list[dict]:
+        """The learned songs with a kept copy and no saved show: the most doubted first (review_order.json), else by
+        artist and title."""
+        truth, props, out = self.truth(), self.proposals(), []
+        for tid, track in self._with_copies():
             if self.library.match_project(track):
                 continue
             seen = truth.get(tid) or {}
             out.append({"id": tid, "name": track.name, "artists": track.artists, "label": track.label,
                         "reviewed": seen.get("reviewed") or ("drops" if seen else ""), "proposal": tid in props and not seen,
-                        "twins": [t for t, _ in self.library.twins(tid)] if hasattr(self.library, "twins") else []})
-        # the same song under several ids (twins: an album and a single): listed once, the reviewed one if any
-        keep, gone = [], set()
-        for s in sorted(out, key=lambda s: (not s["reviewed"], s["id"])):
-            if s["id"] in gone:
-                continue
-            keep.append(s)
-            gone.update(s["twins"])
-        out = keep
+                        "twins": self._twins(tid)})
+        out = self._once(sorted(out, key=lambda s: (not s["reviewed"], s["id"])))     # (the reviewed one if any)
         # the songs the learned labeler and the rules disagree on most come first (tools/section_labeler.py order):
         # each review there teaches the most; without a ranking, by artist and title
-        try:
-            with open(os.path.join(self.library.dir, "review_order.json"), encoding="utf-8") as fh:
-                doubt = {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
-        except (OSError, ValueError):
-            doubt = {}
+        doubt = _entries(os.path.join(self.library.dir, "review_order.json"))
         # (songs already reviewed last, whatever an older ranking said of them)
         # (and before them all, the songs Claude suggested sections for: they wait for the user's yes or no)
         return sorted(out, key=lambda s: (bool(s["reviewed"]), not s["proposal"], -float(doubt.get(s["id"], 0.0)), s["label"].lower()))
@@ -167,27 +184,11 @@ class Review:
     def every_song(self) -> list[dict]:
         """Every learned song with a kept copy, for the studio's song box: {id, label, show} (show: the saved show
         it plays, if it has one), each song once (twins: the one with a show, else the reviewed one, else any)."""
-        try:
-            names = os.listdir(self.library.learned_dir)
-        except OSError:
-            return []
         truth, out = self.truth(), []
-        for fn in names:
-            if not fn.endswith(".json"):
-                continue
-            tid = fn[:-5]
-            t = self._head(tid)
-            if not t or not os.path.exists(self.copy_path(tid)):
-                continue
-            track = Track(id=tid, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=float(t.get("duration") or 0))
+        for tid, track in self._with_copies():
             out.append({"id": tid, "label": track.label, "show": self.library.match_project(track), "reviewed": bool(truth.get(tid)),
-                        "twins": [t for t, _ in self.library.twins(tid)] if hasattr(self.library, "twins") else []})
-        keep, gone = [], set()
-        for s in sorted(out, key=lambda s: (not s["show"], not s["reviewed"], s["id"])):
-            if s["id"] in gone:
-                continue
-            keep.append(s)
-            gone.update(s["twins"])
+                        "twins": self._twins(tid)})
+        keep = self._once(sorted(out, key=lambda s: (not s["show"], not s["reviewed"], s["id"])))
         return sorted(({k: s[k] for k in ("id", "label", "show")} for s in keep), key=lambda s: s["label"].lower())
 
     def make_custom(self, track_id: str, project: dict) -> str:
@@ -196,7 +197,7 @@ class Review:
         t = self._head(track_id)
         if not t or not os.path.exists(self.copy_path(track_id)):
             raise ValueError("That song is not learned, or its copy is gone.")
-        label = Track(id=track_id, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=0.0).label
+        label = _track(track_id, t).label
         name = re.sub(r"[^\w\- .()]+", "_", label).strip(" .")[:80] or "untitled"          # (server.safe_name)
         if self.read_only:
             return name
@@ -236,8 +237,7 @@ class Review:
         if lyr:
             a["lyrics"] = lyr
         t = doc.get("track") or {}
-        label = Track(id=track_id, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=float(t.get("duration") or 0)).label
-        return {"project": label, "audio_url": f"/api/review/audio/{_safe(track_id)}", "analysis": a, "saved": None,
+        return {"project": _track(track_id, t).label, "audio_url": f"/api/review/audio/{_safe(track_id)}", "analysis": a, "saved": None,
                 "review": {"id": track_id, "truth": self.truth().get(track_id),
                            "proposal": (self.proposals().get(track_id) or {}).get("sections")}}
 
@@ -256,8 +256,7 @@ class Review:
                 raise ValueError(f"unknown section type {kind!r}")
             secs.append({"type": kind, "start": round(float(s["start"]), 3), "end": round(float(s["end"]), 3)})
         secs.sort(key=lambda s: s["start"])
-        label = Track(id=track_id, name=t.get("name") or "", artists=list(t.get("artists") or []), duration=0.0).label
-        entry = {"name": label, "drops": [s["start"] for s in secs if s["type"] == "drop"], "sections": secs,
+        entry = {"name": _track(track_id, t).label, "drops": [s["start"] for s in secs if s["type"] == "drop"], "sections": secs,
                  "reviewed": "right as found" if ok else "corrected", "added": datetime.date.today().isoformat()}
         if by:
             entry["by"], entry["reviewed"] = by, by
@@ -275,14 +274,11 @@ class Review:
             truth.setdefault("_about", "Sections the user set by ear (review mode in the studio): the section labeler "
                                        "learns from them; sections are the whole song.")
             truth[track_id] = entry
-            tmp = self.truth_path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(truth, fh, indent=1)
-            os.replace(tmp, self.truth_path)
+            _write_json(self.truth_path, truth)
             props = self.proposals()
             if not by and track_id in props:                  # the user's word on it: the suggestion is decided
                 del props[track_id]
-                self._write_proposals(props)
+                _write_json(self.proposals_path, props)
         try:                                                  # the learned labeler learns from it (every few songs)
             from . import labeler
             labeler.retrain_soon(self.library.dir)

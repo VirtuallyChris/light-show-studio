@@ -2,7 +2,7 @@ r"""Draw the Bulb Studio icon: a glowing bulb on the studio's dark rounded tile.
 
 Run from the project folder:  .venv\Scripts\python tools\make_bulb_icon.py
 
-Writes bulbshow\Bulb Studio.ico (the pinned taskbar button and the launcher) and the icons the
+Writes bulbstudio\Bulb Studio.ico (the pinned taskbar button and the launcher) and the icons the
 page serves, which the Chrome app window shows until it takes Bulb Studio's own identity.
 """
 import math
@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from make_icon import png  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-APP = os.path.join(ROOT, "bulbshow")
+APP = os.path.join(ROOT, "bulbstudio")
 STATIC = os.path.join(APP, "static")
 
 

@@ -8,7 +8,7 @@
   "cast_offset_ms": 250,
   "addons": {
     "doorbell": false,
-    "bulbshow": false
+    "bulbstudio": false
   },
   "jam_hidden_output": "CABLE Input",
   "jam_opener": ""

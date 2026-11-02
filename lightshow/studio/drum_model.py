@@ -12,10 +12,6 @@ from .model_worker import ModelWorker
 WORKER = ModelWorker("lightshow.studio.drums_infer", "hits", start_timeout=600, request_timeout=120)
 
 
-def available() -> bool:
-    return WORKER.available()
-
-
 def hits(stems: dict | None) -> dict | None:
     """The drum stem's hits, {drum: [(time, strength 0..1), ...]}, strength against the song's own strong
     hits (as events.find_drums gives them); None if the model cannot run. Audio from memory only."""

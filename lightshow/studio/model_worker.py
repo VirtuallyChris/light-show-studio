@@ -84,7 +84,6 @@ def venv_py() -> str:
     return next((c for c in _CANDIDATES if os.path.exists(c)), _CANDIDATES[0])
 
 
-VENV_PY = venv_py()
 MODELS_LOG = os.path.join(data_dir(), "models.log")   # what the model processes print (PyTorch's warnings, a crash)
 RETRY_S = 120.0                                  # a model that would not start is tried again after this
 
@@ -119,6 +118,17 @@ def append_only(path: str):
     if not h or h == wintypes.HANDLE(-1).value:
         return open(path, "a", encoding="utf-8")
     return open(msvcrt.open_osfhandle(h, os.O_APPEND | os.O_WRONLY), "a", encoding="utf-8")
+
+
+def _child_log(what: str):
+    """models.log for a child process's stderr, a line saying what starts in it first (nowhere if it will not open)."""
+    try:
+        err = append_only(MODELS_LOG)
+        err.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} {what} starting\n")
+        err.flush()
+        return err
+    except OSError:
+        return subprocess.DEVNULL
 
 
 WORKERS: list = []                     # every model worker made (see kill_all)
@@ -210,12 +220,7 @@ class ModelHost:
         token = secrets.token_hex(16)
         env = {**child_env(), "PYTHONIOENCODING": "utf-8", "LSS_MODELS_TOKEN": token, "LSS_MODELS_OWNER": str(os.getpid())}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
-        try:
-            err = append_only(MODELS_LOG)
-            err.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} lightshow.studio.models_host starting\n")
-            err.flush()
-        except OSError:
-            err = subprocess.DEVNULL
+        err = _child_log("lightshow.studio.models_host")
         # normal priority, not below: the urgent analysis of a song playing unlearned (above normal) waits on
         # these models, and at below normal their own CPU work (decoding, resampling) was crowded out: a
         # first song's SongFormer and stems ran 29 and 33 s instead of ~2.5. The host mostly waits on the GPU,
@@ -372,7 +377,7 @@ class ModelWorker:
         return [self.python(), "-m", self.module]
 
     def available(self) -> bool:
-        return os.path.exists(self.python() if not self.hosted else venv_py())
+        return os.path.exists(self.python())
 
     env_extra: dict = {}                          # more environment for the worker process
 
@@ -393,12 +398,7 @@ class ModelWorker:
             return False
         env = {**child_env(), "PYTHONIOENCODING": "utf-8", **self.env_extra}
         env.setdefault("LOCALAPPDATA", local_appdata())    # PyTorch and the model cache look for it
-        try:
-            err = append_only(MODELS_LOG)
-            err.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} {self.module} starting\n")
-            err.flush()
-        except OSError:
-            err = subprocess.DEVNULL
+        err = _child_log(self.module)
         self.proc = popen_outside(self.command(), cwd=ROOT, env=env,
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
                                      creationflags=(subprocess.CREATE_NO_WINDOW | POPEN_BELOW_NORMAL) if sys.platform == "win32" else 0)
@@ -490,9 +490,6 @@ class ModelWorker:
         """Start the worker (and load its model) now, ahead of the first request."""
         with self.lock:
             return self._start()
-
-    def ask_file_and_cache(self, path: str, cache_dir: str):
-        return self._ask({"path": os.path.abspath(path), "cache": os.path.abspath(cache_dir)})
 
     def ask_file(self, path: str):
         return self._ask({"path": os.path.abspath(path)})       # always a full path: the worker changes directory

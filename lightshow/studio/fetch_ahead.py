@@ -32,7 +32,6 @@ from collections import deque
 from ..appdirs import data_dir, run_outside, self_command
 from .model_worker import ModelWorker
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPOTDL = os.path.join(data_dir(), ".venv-spotdl", "Scripts" if os.name == "nt" else "bin", "spotdl" + (".exe" if os.name == "nt" else ""))
 SPOTDL_HOME = os.path.join(os.path.expanduser("~"), ".spotdl")   # where `spotdl --download-deno` puts Deno
 LENGTH_SLACK_S = 8.0            # a copy this much longer or shorter than Spotify's is another version (a little
@@ -61,21 +60,29 @@ def _tools_env() -> dict:
     return env
 
 
-def _download(track, folder: str) -> str:
-    """The song's copy, downloaded into folder as it comes (no re-encoding): its path."""
+def _downloaded(track, folder: str) -> str | None:
+    """The song's copy in folder, once it has finished downloading."""
+    return next((p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")), None)
+
+
+def _spotdl_download(query: str, track, folder: str, env: dict, missing: str) -> str:
+    """spotDL's copy of the song, downloaded into folder as it comes (no re-encoding): its path."""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
-    # Deno (installed with `spotdl --download-deno`) lets YouTube's downloader get the copies that need it
-    # ("made for kids" ones among them): its folder goes first on the path spotDL sees.
-    env = _tools_env()
-    r = run_outside([SPOTDL, "download", f"https://open.spotify.com/track/{track.id}", "--output",
+    r = run_outside([SPOTDL, "download", query, "--output",
                         os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
                         "--lyrics", "--skip-album-art",      # (no lyrics searched, no art: not needed, and seconds a song)
                         "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
-    got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
+    got = _downloaded(track, folder)
     if not got:
-        tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or ["no copy found"]
+        tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or [missing]
         raise LookupError(tail[0][:160])
-    return got[0]
+    return got
+
+
+def _download(track, folder: str) -> str:
+    """The song's copy as spotDL picks it. Deno (installed with `spotdl --download-deno`) lets YouTube's downloader
+    get the copies that need it ("made for kids" ones among them): its folder goes first on the path spotDL sees."""
+    return _spotdl_download(f"https://open.spotify.com/track/{track.id}", track, folder, _tools_env(), "no copy found")
 
 
 def _spotdl_python() -> str:
@@ -104,7 +111,7 @@ def pick_alternative(track, results: list[dict]) -> str | None:
             dur = float(r.get("duration") or 0)
         except (TypeError, ValueError):
             continue
-        if abs(dur - float(track.duration)) > 3.0 or not name or name.split("(")[0].strip() not in title:
+        if abs(dur - float(track.duration)) > 3.0 or not name or name not in title:
             continue
         if any(f" {w} " in f" {title} " and f" {w} " not in f" {name} " for w in NOT_THE_RECORDING):
             continue
@@ -200,19 +207,12 @@ def _download_from(track, folder: str, url: str) -> str:
                        capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
     except (OSError, subprocess.SubprocessError):
         pass
-    got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
+    got = _downloaded(track, folder)
     if got:
-        return got[0]
+        return got
     for p in glob.glob(os.path.join(folder, track.id + ".*")):
         os.remove(p)
-    r = run_outside([SPOTDL, "download", f"{url}|https://open.spotify.com/track/{track.id}", "--output",
-                        os.path.join(folder, "{track-id}.{output-ext}"), "--format", "m4a", "--bitrate", "disable",
-                        "--lyrics", "--skip-album-art", "--print-errors"], capture_output=True, text=True, timeout=FETCH_TIMEOUT_S, creationflags=flags, env=env)
-    got = [p for p in glob.glob(os.path.join(folder, track.id + ".*")) if not p.endswith(".part")]
-    if not got:
-        tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or ["the chosen copy did not download"]
-        raise LookupError(tail[0][:160])
-    return got[0]
+    return _spotdl_download(f"{url}|https://open.spotify.com/track/{track.id}", track, folder, env, "the chosen copy did not download")
 
 
 def _to_flac(src: str) -> str:
@@ -230,18 +230,17 @@ def _length(path: str) -> float:
 
 def analyze_here(path: str, cache_dir: str) -> dict:
     """The full analysis of a copy (what the analysis worker runs), with the whole song's fingerprint."""
-    import time as _t
     from . import analysis
-    t0 = _t.perf_counter()
+    t0 = time.perf_counter()
     analysis.LAPS = None
     a = dict(analysis.analyze_cached(path, cache_dir))
-    t1 = _t.perf_counter()
+    t1 = time.perf_counter()
     a["align_bands"] = whole_fingerprint(path)
     laps = analysis.LAPS
     # one line per song in models.log: where the time went (the analysis worker's prints go there)
-    print(f"{_t.strftime('%H:%M:%S')} [timing] {os.path.basename(path)}: {_t.perf_counter() - t0:.1f} s in all"
+    print(f"{time.strftime('%H:%M:%S')} [timing] {os.path.basename(path)}: {time.perf_counter() - t0:.1f} s in all"
           + (f"; analysis {laps.line()}" if laps else "") + f"; genre and the rest {t1 - t0 - (sum(v for _, v in laps.steps) if laps else 0):.1f}"
-          + f"; fingerprint {_t.perf_counter() - t1:.1f}", file=sys.stderr, flush=True)
+          + f"; fingerprint {time.perf_counter() - t1:.1f}", file=sys.stderr, flush=True)
     return a
 
 

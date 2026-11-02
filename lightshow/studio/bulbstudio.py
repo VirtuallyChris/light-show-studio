@@ -1,4 +1,4 @@
-"""Bulb Studio (bulbshow/, an app of its own on this PC) from the studio: its shows, which are running and on
+"""Bulb Studio (bulbstudio/, an app of its own on this PC) from the studio: its shows, which are running and on
 which speaker, and switching one on or off from the Party Hub's Lights tab (the user).
 
 The two talk over Bulb Studio's own API on 127.0.0.1. When it is not open, its shows are read from its folder (all
@@ -16,9 +16,9 @@ import time
 import urllib.request
 from urllib.parse import quote
 
-from ..appdirs import FROZEN, code_dir, data_dir, self_command
+from ..appdirs import FROZEN, bulb_studio_dir, code_dir, self_command
 
-SHOWS_DIR = os.path.join(data_dir(), "bulbshow", "shows")
+SHOWS_DIR = os.path.join(bulb_studio_dir(), "shows")
 
 
 def _http(method: str, url: str, body: dict | None = None, timeout: float = 2.0):
@@ -28,7 +28,7 @@ def _http(method: str, url: str, body: dict | None = None, timeout: float = 2.0)
         return json.loads(r.read().decode("utf-8") or "null")
 
 
-class BulbShows:
+class BulbStudio:
     START_WAIT_S = 20.0                 # Bulb Studio takes a few seconds to come up (Python, its speakers' discovery)
 
     def __init__(self, port: int = 8770, shows_dir: str = SHOWS_DIR, launch: bool = True, http=_http,
@@ -113,7 +113,7 @@ class BulbShows:
         if os.name == "nt":
             exe = w if os.path.exists(w) and not FROZEN else exe
             flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-        subprocess.Popen(self_command("bulbshow", "--no-browser", "--port", str(self.port), exe=exe), cwd=code_dir(),
+        subprocess.Popen(self_command("bulbstudio", "--no-browser", "--port", str(self.port), exe=exe), cwd=code_dir(),
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          creationflags=flags, close_fds=True)
 
@@ -132,9 +132,8 @@ class BulbShows:
         speaker from the party. Returns {ok, error}."""
         shows = self._from_app()
         if not on:
-            if shows is None:
-                return {"ok": True, "error": ""}         # not open: nothing is running
-            self.http("POST", f"{self.base}/api/stop/{quote(sid)}", {})
+            if shows is not None:                        # (not open: nothing is running)
+                self.http("POST", f"{self.base}/api/stop/{quote(sid)}", {})
             return {"ok": True, "error": ""}
         show = next((s for s in (shows if shows is not None else self._from_disk()) if s["id"] == sid), None)
         if show is None:

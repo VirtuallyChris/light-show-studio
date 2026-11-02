@@ -5,8 +5,8 @@ asked about or started).
 
     doorbell   a Reolink video doorbell rings a Party Hub cue (doorbell.py; needs reolink_aio, in
                requirements-addons.txt)
-    bulbshow   Bulb Studio's looping shows (bulbshow/, an app of its own: Govee bulbs over Govee's cloud, a sound
-               on a speaker), switched on and off from the Lights tab (bulbshows.py)
+    bulbstudio   Bulb Studio's looping shows (bulbstudio/, an app of its own: Govee bulbs over Govee's cloud, a sound
+               on a speaker), switched on and off from the Lights tab (bulbstudio.py)
     homeassistant  Home Assistant is told when the studio plays on the lights, so its automations leave them be
                (homeassistant.py: a webhook, and a state for a RESTful sensor)
 """
@@ -21,7 +21,7 @@ from ..appdirs import code_dir
 
 ADDONS = {
     "doorbell": {"name": "Doorbell", "about": "A Reolink video doorbell rings a cue: the music dips and its show plays."},
-    "bulbshow": {"name": "Bulb Studio", "about": "Looping shows on Govee bulbs, switched on and off on the Party screen and the phone."},
+    "bulbstudio": {"name": "Bulb Studio", "about": "Looping shows on Govee bulbs, switched on and off on the Party screen and the phone."},
     "homeassistant": {"name": "Home Assistant", "about": "Tells Home Assistant when the show has your lights, so its automations leave their brightness alone."},
 }
 
@@ -32,9 +32,17 @@ def installed(addon: str) -> str:
         return "" if importlib.util.find_spec("reolink_aio") is not None else "needs reolink_aio: pip install -r requirements-addons.txt"
     if addon == "homeassistant":
         return ""
-    if addon == "bulbshow":
-        return "" if os.path.isdir(os.path.join(code_dir(), "bulbshow")) else "Bulb Studio is not in this copy"
+    if addon == "bulbstudio":
+        return "" if os.path.isdir(os.path.join(code_dir(), "bulbstudio")) else "Bulb Studio is not in this copy"
     return "no such add-on"
+
+
+def upgrade(cfg: dict) -> dict:
+    """A config saved before Bulb Studio's add-on id changed keeps its switch."""
+    on = cfg.get("addons") or {}
+    if "bulbshow" in on:
+        on["bulbstudio"] = on.pop("bulbshow")
+    return cfg
 
 
 def enabled(cfg: dict, addon: str) -> bool:

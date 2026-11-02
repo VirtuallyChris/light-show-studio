@@ -110,7 +110,7 @@ class FpsGovernor:
             self.ceiling, self.ceiling_until = max(0, self.i - 1), now + self.CEILING_S
             self.i = max(0, self.i - steps)
             self.changed_at, self.hold_until = now, now + self.HOLD_S
-            self.reason = f"{'lost pings' if lost3 else f'slow replies ({p90:.0f} ms)'}"
+            self.reason = "lost pings" if lost3 else f"slow replies ({p90:.0f} ms)"
             return self.fps
         clean = (len(last10) >= 5 and all(r is not None for r in last10)
                  and (self._p90(last10) or 0) < self.QUICK_MS)

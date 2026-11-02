@@ -1,6 +1,6 @@
 """Bulb Studio: little looping light shows, each one sound on one speaker and one bulb.
 
-A show lives in bulbshow/shows/<id>/ as show.json and sound.wav (both kept out of git). Any number of
+A show lives in bulbstudio/shows/<id>/ as show.json and sound.wav (both kept out of git). Any number of
 shows can run at once, each looping on its own speaker and bulb, as long as no two share either.
 Like the studio, closing the window ends it all: every show stops, every bulb is put back as it
 was, and the server quits. Closing Light Show Studio does the same (it asks /api/quit).
@@ -23,7 +23,8 @@ import webbrowser
 from aiohttp import web
 
 from lightshow import govee_lan
-from lightshow.appdirs import data_dir
+from lightshow.appdirs import bulb_studio_dir, data_dir, move_data
+from lightshow.studio.updates import port_busy
 from lightshow.studio.winpaths import local_appdata
 
 from . import effects
@@ -32,9 +33,8 @@ from .runner import ShowRunner
 from .sound import Sound
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
 STATIC = os.path.join(HERE, "static")
-DATA = os.path.join(data_dir(), "bulbshow")     # bulbshow/ itself from source; the app data when packaged
+DATA = bulb_studio_dir()
 SHOWS_DIR = os.path.join(DATA, "shows")
 CONFIG_PATH = os.path.join(DATA, "config.json")
 STUDIO_CONFIG = os.path.join(data_dir(), "config.json")      # read only: the speakers' measured delays
@@ -87,6 +87,7 @@ class App:
         self._reset_client()
         self.runners: dict[str, ShowRunner] = {}
         self.sounds: dict[str, tuple[float, Sound]] = {}
+        self._scenes: dict[str, list] = {}               # bulb -> its own scenes
         self.ws_clients: set = set()
         self.ever_connected = False        # a window has connected at least once
         self.started_at = time.monotonic()
@@ -317,7 +318,7 @@ class App:
             return web.json_response({"scenes": [], "problem": "only a bulb driven through Govee's cloud can run its own scenes"})
         if self.client is None:
             return web.json_response({"scenes": [], "problem": "no Govee API key yet (⚙ settings)"})
-        cache = self.__dict__.setdefault("_scenes", {})
+        cache = self._scenes
         if dev not in cache or request.query.get("fresh") == "1":
             try:
                 cache[dev] = await asyncio.get_running_loop().run_in_executor(None, self.client.scenes, sku, dev)
@@ -488,10 +489,10 @@ class App:
 
 
 # -- the window ------------------------------------------------------------------------------------
-APP_PROFILE = os.path.join(local_appdata(), "bulbshow", "browser")
+APP_PROFILE = os.path.join(local_appdata(), "bulbstudio", "browser")
 
 
-APP_ID = "LightShowStudio.BulbShow"
+APP_ID = "LightShowStudio.BulbStudio"
 
 
 def window_identity() -> dict:
@@ -542,30 +543,22 @@ def open_app_window(url: str) -> bool:
         return False
 
 
-def _already_running(url: str) -> bool:
-    import urllib.request
-    try:
-        with urllib.request.urlopen(url + "api/settings", timeout=1.5) as r:
-            return r.status == 200
-    except Exception:  # noqa: BLE001
-        return False
-
-
 def keeps_log(open_browser: bool, stay: bool) -> bool:
     """Started without a console (the .vbs launcher), or by the studio with no window (the Party Hub switching
-    a show on: its output goes nowhere, so a party's lost speakers left no trace): keep bulbshow.log."""
+    a show on: its output goes nowhere, so a party's lost speakers left no trace): keep bulbstudio.log."""
     return sys.stdout is None or not (open_browser or stay)
 
 
 def run(host: str = "0.0.0.0", port: int = 8770, open_browser: bool = True, stay: bool = False,
         lights: bool = True, cast: bool = True) -> None:
+    move_data(os.path.join(local_appdata(), "bulbshow"), os.path.dirname(APP_PROFILE))     # the window's old profile
     if keeps_log(open_browser, stay):
         os.makedirs(DATA, exist_ok=True)
-        log = open(os.path.join(DATA, "bulbshow.log"), "a", encoding="utf-8", buffering=1)
+        log = open(os.path.join(DATA, "bulbstudio.log"), "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
         print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} Bulb Studio starting" + ("" if open_browser else " (no window)"))
     url = f"http://127.0.0.1:{port}/"
-    if open_browser and _already_running(url):
+    if open_browser and port_busy(port, timeout=1.5):
         if open_app_window(url):
             give_window_identity(wait=True)             # this process ends right after, so do it now
         else:

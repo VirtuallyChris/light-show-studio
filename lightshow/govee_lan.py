@@ -51,7 +51,6 @@ class GoveeDevice:
     sku: str = ""
     mac: str = ""  # wifi MAC from ARP table, if resolvable
     _sock: socket.socket = field(default=None, repr=False, compare=False)
-    _last: tuple = field(default=None, repr=False, compare=False)
 
     # -- transport --------------------------------------------------------
     def _socket(self) -> socket.socket:
@@ -79,9 +78,7 @@ class GoveeDevice:
         self.send("brightness", {"value": max(0, min(100, int(value)))})
 
     def color(self, r: int, g: int, b: int) -> None:
-        rgb = (_clamp8(r), _clamp8(g), _clamp8(b))
-        self._last = rgb
-        self.send("colorwc", {"color": {"r": rgb[0], "g": rgb[1], "b": rgb[2]}, "colorTemInKelvin": 0})
+        self.send("colorwc", {"color": {"r": _clamp8(r), "g": _clamp8(g), "b": _clamp8(b)}, "colorTemInKelvin": 0})
 
     def status(self, timeout: float = 1.0) -> dict | None:
         with _listener(timeout) as ls:
@@ -118,10 +115,6 @@ class GoveeDevice:
             for r, g, b in colors:
                 data += bytes((_clamp8(r), _clamp8(g), _clamp8(b)))
         self.send("razer", {"pt": _razer_packet(0xB0, bytes(data))})
-
-    @property
-    def label(self) -> str:
-        return f"{self.sku or '?'} @ {self.ip}" + (f" [{self.mac}]" if self.mac else "")
 
 
 def _resample_colors(colors, n):
@@ -169,9 +162,7 @@ def _drain(sock: socket.socket, timeout: float):
         sock.settimeout(remaining)
         try:
             raw, addr = sock.recvfrom(8192)
-        except socket.timeout:
-            return
-        except OSError:
+        except OSError:                                     # (a timeout is one too)
             return
         try:
             yield addr[0], json.loads(raw.decode())["msg"]

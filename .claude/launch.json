@@ -32,15 +32,15 @@
       "port": 8797
     },
     {
-      "name": "bulbshow",
+      "name": "bulbstudio",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "bulbshow", "--no-browser", "--stay", "--port", "8770"],
+      "runtimeArgs": ["-m", "bulbstudio", "--no-browser", "--stay", "--port", "8770"],
       "port": 8770
     },
     {
-      "name": "bulbshow-test",
+      "name": "bulbstudio-test",
       "runtimeExecutable": ".venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "bulbshow", "--no-browser", "--stay", "--port", "8798", "--no-lights", "--no-cast"],
+      "runtimeArgs": ["-m", "bulbstudio", "--no-browser", "--stay", "--port", "8798", "--no-lights", "--no-cast"],
       "port": 8798
     }
   ]

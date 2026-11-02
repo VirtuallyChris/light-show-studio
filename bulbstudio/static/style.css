@@ -1,7 +1,7 @@
 :root {
   --bg: #0f1014; --bg2: #171920; --bg3: #20232c; --bg4: #2a2e3a; --line: #2a2e38; --line2: #3a3f4d;
   --text: #e8eaf0; --muted: #8e95a6; --dim: #5d6474;
-  --accent: #6c8cff; --accent2: #ff5ea8; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+  --accent: #6c8cff; --accent2: #ff5ea8; --warn: #fbbf24; --bad: #f87171;
   --radius: 0.6154rem; --radius-s: 0.4615rem;
   --shadow: 0 0.6154rem 2.154rem rgba(0,0,0,.45);
 }

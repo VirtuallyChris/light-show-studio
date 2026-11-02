@@ -1,4 +1,4 @@
-"""Bulb Studio from the studio (bulbshows.py): its shows on the Party Hub, switched on and off, and which speakers
+"""Bulb Studio from the studio (bulbstudio.py): its shows on the Party Hub, switched on and off, and which speakers
 they play on. A fake Bulb Studio only: nothing here starts it, casts or lights a bulb."""
 
 import json
@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import unittest
 
-from lightshow.studio.bulbshows import BulbShows
+from lightshow.studio.bulbstudio import BulbStudio
 
 WITCH = {"id": "witch", "name": "Witch", "speaker": "Office Home 2", "bulb": {"name": "Bedroom Bulb Left", "via": "cloud"},
          "ready": True, "running": False}
@@ -41,7 +41,7 @@ class FakeApp:
         raise AssertionError(path)
 
 
-class TestBulbShows(unittest.TestCase):
+class TestBulbStudio(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         for sid, s in (("witch", {"name": "Witch", "duration": 4.0, "speaker": "Office Home 2", "bulb": {"name": "Bedroom Bulb Left"}}),
@@ -54,7 +54,7 @@ class TestBulbShows(unittest.TestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def make(self, app, launch=True):
-        b = BulbShows(shows_dir=self.dir, launch=launch, http=app, sleep=lambda s: None)
+        b = BulbStudio(shows_dir=self.dir, launch=launch, http=app, sleep=lambda s: None)
         b.started = 0
 
         def start():
@@ -104,7 +104,7 @@ class TestBulbShows(unittest.TestCase):
         self.assertFalse(b.open_window()["ok"])
         self.assertEqual(b.started, 0)
 
-    def test_a_test_copy_never_starts_bulb_show(self):
+    def test_a_test_copy_never_starts_bulb_studio(self):
         b = self.make(FakeApp(open_=False), launch=False)
         self.assertFalse(b.set("witch", True)["ok"])
         self.assertEqual(b.started, 0)

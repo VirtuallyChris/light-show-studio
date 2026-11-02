@@ -33,6 +33,12 @@ def _bars(a: dict) -> list[float]:
     return bars
 
 
+def _mean_over(c, rate: float, t0: float, t1: float):
+    """A curve's mean from t0 to t1 (`rate` values a second): at least one value, and 0 past its end."""
+    i = int(t0 * rate)
+    return c[i:max(i + 1, int(t1 * rate))].mean() if i < len(c) else 0.0
+
+
 def bar_features(a: dict) -> tuple[list[float], np.ndarray]:
     """The song bar by bar: its spectrum (each band against its own run) and its stems' levels."""
     bars = _bars(a)
@@ -54,7 +60,7 @@ def bar_features(a: dict) -> tuple[list[float], np.ndarray]:
         c = np.asarray((cur.get(k) or []) if k != "energy" else (a.get("energy") or []), dtype=float)
         if not len(c):
             continue
-        v = np.array([c[int(b0 * fps):max(int(b0 * fps) + 1, int(b1 * fps))].mean() if int(b0 * fps) < len(c) else 0.0 for b0, b1 in zip(bars[:-1], bars[1:])])
+        v = np.array([_mean_over(c, fps, b0, b1) for b0, b1 in zip(bars[:-1], bars[1:])])
         stem.append((v - v.mean()) / (v.std() + 1e-6))
     if stem:
         cols.append(np.stack(stem, axis=1) / np.sqrt(len(stem)))
@@ -148,7 +154,7 @@ def tension(a: dict, step: float = 0.25) -> dict:
     bar = float(np.median(np.diff(bars)))
     dt = step * bar
     t = np.arange(bars[0], min(bars[-1] + bar, len(en) / fps), dt)
-    at = lambda c, x: float(np.mean(c[int(x * fps):max(int(x * fps) + 1, int((x + dt) * fps))])) if int(x * fps) < len(c) else 0.0
+    at = lambda c, x: float(_mean_over(c, fps, x, x + dt))
     ev = a.get("events") or {}
     sn = np.array(sorted(float(e[0]) for k in ("snare", "roll") for e in ev.get(k) or []))
     snare = np.array([((sn >= x - bar) & (sn < x)).sum() / 8.0 for x in t]) if len(sn) else np.zeros(len(t))  # per bar, 8 = sixteenths
@@ -157,7 +163,7 @@ def tension(a: dict, step: float = 0.25) -> dict:
         B = np.asarray(B, dtype=np.float32)
         afps = float(a.get("align_fps", 43.0))
         hi = B[int(B.shape[0] * 0.66):].mean(axis=0) - B.mean(axis=0)            # the top of the spectrum against the rest
-        bright = np.array([hi[int(x * afps):max(int(x * afps) + 1, int((x + dt) * afps))].mean() if int(x * afps) < len(hi) else 0.0 for x in t])
+        bright = np.array([_mean_over(hi, afps, x, x + dt) for x in t])
     else:
         bright = np.zeros(len(t))
     loud = np.array([at(en, x) for x in t])
@@ -224,7 +230,7 @@ def moments(a: dict, ps: list[dict], ten: dict, keep: int = 10) -> list[dict]:
             continue
         quiet = 0
         for b in bars[1:]:
-            lvl = float(c[int(b * fps):max(int(b * fps) + 1, int((b + bar) * fps))].mean()) if int(b * fps) < len(c) else 0.0
+            lvl = float(_mean_over(c, fps, b, b + bar))
             if lvl < 0.1:
                 quiet += 1
             elif lvl >= 0.4 and quiet >= 2 and b > bars[0] + 4 * bar:

@@ -55,6 +55,9 @@ class Rooms:
         self.lock = threading.Lock()
         self.gen: dict[str, int] = {}                    # speaker -> the change it is on (a newer one ends an older)
         self.errors: dict[str, str] = {}
+        self._off_seen: dict[str, int] = {}              # keep_levels: looks in a row each speaker was off its kept level
+        self._set_at: dict[str, float] = {}              # when each was last sent its level again
+        self._sent_at: dict[str, float] = {}             # when the studio last set each one
 
     # -- the rooms --------------------------------------------------------------------------------
     def list(self) -> list[dict]:
@@ -80,10 +83,6 @@ class Rooms:
 
     def off_light_keys(self) -> set[str]:
         return {k for r in self.list() if not r["on"] for k in r["lights"]}
-
-    def room_of_light(self, keys) -> dict | None:
-        keys = {k for k in keys if k}
-        return next((r for r in self.list() if keys & set(r["lights"])), None)
 
     # -- the speakers -------------------------------------------------------------------------------
     def muted(self) -> dict[str, float]:
@@ -126,7 +125,7 @@ class Rooms:
     def sync_speakers(self, wait: bool = False) -> list[threading.Thread]:
         """Mute the speakers of rooms that are off, and unmute those of rooms that are on again: while the
         studio is casting only (see casting)."""
-        if not self.touch or self.cast is None or not self.casting():
+        if not self.touch or not self.casting():
             return []
         want = {s for r in self.list() if not r["on"] for s in r["speakers"]}
         have = set(self.muted())
@@ -208,7 +207,7 @@ class Rooms:
             cfg.setdefault("speaker_levels", {})[str(name)] = round(max(0.0, min(1.0, float(level))), 3)
             self.save_config(cfg)
         if sent:
-            self.__dict__.setdefault("_sent_at", {})[str(name)] = self.clock()
+            self._sent_at[str(name)] = self.clock()
 
     clock = staticmethod(time.monotonic)
 
@@ -216,10 +215,10 @@ class Rooms:
         """A group's volume was moved on purpose (the Party Hub's cast volume, the jam casting to "Everywhere"):
         each speaker in it moved with it. Once they have settled, the levels they are at are the ones kept (it
         set them all back 5 s later, as if someone had turned them down)."""
-        if not self.touch or self.cast is None or not self.casting():
+        if not self.touch or not self.casting():
             return
         sleep(wait_s)
-        off = self.__dict__.setdefault("_off_seen", {})
+        off = self._off_seen
         for name in list(self.levels()):
             try:
                 c = self.cast._device(name)
@@ -235,13 +234,11 @@ class Rooms:
         so its level is kept from now on (muted by hand: left muted); or, just after the studio set it, it missed
         that: sent again, once. Returns what it did. Only while the studio is casting, and never a speaker
         someone else is casting to."""
-        if not self.touch or self.cast is None or not self.casting():
+        if not self.touch or not self.casting():
             return []
         clock = clock or self.clock
         kept, muted, did = self.levels(), self.muted(), []
-        off = self.__dict__.setdefault("_off_seen", {})
-        last = self.__dict__.setdefault("_set_at", {})
-        sent = self.__dict__.setdefault("_sent_at", {})
+        off, last, sent = self._off_seen, self._set_at, self._sent_at
         for name in names:
             if name in muted or self.gen.get(name, 0):
                 continue                                         # its room is off, or a mute is on its way

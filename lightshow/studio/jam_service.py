@@ -50,6 +50,10 @@ def extras_for(pair) -> list[str] | None:
     return out
 
 
+def _hex_color(v) -> str | None:
+    return v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
+
+
 def _summary(library, tid: str) -> dict:
     """A learned song's problems, mood and genre (JamLibrary.summary: without parsing the whole file)."""
     if hasattr(library, "summary"):
@@ -106,6 +110,20 @@ class JamService:
         self.auto_armed = True                          # auto-start fires on playback beginning, not on it carrying on
         self.auto_started = False                       # the running jam was started by playback, not by a button
         self.auto_error = ""
+        self.opener: dict | None = None                 # the opening song, while a jam opens with one
+        self.room_wanted = False                        # the running jam is to be heard in the room (not a preview)
+        self._switching = False                         # the room's sound is moving to another output
+        self._cast_failed = None                        # the Cast speaker that would not play, until Cast is pressed again
+        self._cast_ok_at = 0.0                          # when the Cast speaker was last seen playing, or not due to
+        self._hushed = False                            # the window closing stopped the music (a reload brings it back)
+        self.sync_warning = ""
+        self._syncing = False
+        self._auto_sync_off = False
+        self._sync_retry_at = 0.0
+        self._synced_start = None
+        self._served: dict[str, float] = {}             # stream sid -> seconds of audio sent
+        self._found_genre: dict[str, dict] = {}         # track id -> what its analysis found (_found)
+        self._art: dict = {}                            # album art relayed, by its URL
 
     def _save_store(self) -> None:
         cfg = self.load_config()
@@ -153,9 +171,9 @@ class JamService:
             web.post("/api/party/modes", self.party_modes_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
-            web.get("/api/party/bulbshows", self.party_bulbshows),
-            web.post("/api/party/bulbshows", self.party_bulbshow_set),
-            web.post("/api/bulbshow/open", self.bulbshow_open),
+            web.get("/api/party/bulbstudio", self.party_bulbstudio),
+            web.post("/api/party/bulbstudio", self.party_bulbstudio_set),
+            web.post("/api/bulbstudio/open", self.bulbstudio_open),
             web.post("/api/party/even", self.party_even),
             web.post("/api/prelisten", self.prelisten_start),
             web.post("/api/prelisten/stop", self.prelisten_stop),
@@ -172,7 +190,7 @@ class JamService:
 
     def _file_status(self):
         """How much of a song from disk the speakers still have to play (for the opening-song hand-over)."""
-        o = getattr(self, "opener", None)
+        o = self.opener
         if o and not o.get("cut"):
             gone = time.monotonic() - o["t0"]
             if o["via"] != "cast" or gone < 10:               # this PC's page plays it, or the speaker is still loading it
@@ -231,7 +249,6 @@ class JamService:
             where = "cast" if self.studio.cast.cast is not None else "pc"
         elif where == "cast" and self.studio.cast.cast is None:
             where = "none"
-        use_cast = where == "cast"
         output = self._output_for(where, hidden_name, check=not demo)
         # A jam opens with one of your saved shows (config.json jam_opener, unless another is chosen): it plays
         # in the room with its lights while Spotify plays, unheard, behind it, and the room joins the jam as
@@ -272,7 +289,7 @@ class JamService:
             self.engine.on_queue = lambda tracks, now=None: self.fetch.submit(tracks, first=True, now=now)
             self.engine.on_context = lambda tracks: self.fetch.submit(tracks, first=False)     # behind the queue
             self.engine.on_mismatch = self.fetch.mismatched
-        self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") and use_cast or where == "pc" else ", preview only (no speakers)")
+        self.mode = ("demo" if demo else "spotify") + (" to " + output.name if where in ("cast", "pc") else ", preview only (no speakers)")
         self.runner.start()
         threading.Thread(target=self._keep_levels, args=(self.engine,), daemon=True, name="keep-levels").start()
         threading.Thread(target=self._keep_on_studio, args=(self.engine,), daemon=True, name="keep-on-studio").start()
@@ -334,7 +351,7 @@ class JamService:
 
     def opener_status(self) -> dict:
         """The opening song as the page plays it (shaped like a cue): over once the jam has the speakers."""
-        o = getattr(self, "opener", None)
+        o = self.opener
         if not o:
             return {}
         done = self.engine is None or self.engine.streaming or o.get("cut") or time.monotonic() - o["t0"] > o["dur"] + 10
@@ -370,10 +387,10 @@ class JamService:
         """Casting moves the jam: a Cast speaker connected mid-jam takes the room's sound, and when
         it goes away the sound comes back to this PC. Checked every time the page asks for the state."""
         e = self.engine
-        if e is None or self.source == "demo" or getattr(self, "_switching", False):
+        if e is None or self.source == "demo" or self._switching:
             return
         kind = self._output_kind(e.output)
-        if kind == "none" and not getattr(self, "room_wanted", False):
+        if kind == "none" and not self.room_wanted:
             return                                      # a preview stays a preview
         cast = self.studio.cast
         if kind == "cast" and self._cast_stuck(e):
@@ -385,7 +402,7 @@ class JamService:
             threading.Thread(target=cast.disconnect, daemon=True).start()
         if kind == "cast":
             self._maybe_auto_sync(e)
-        usable = cast.cast is not None and cast.cast is not getattr(self, "_cast_failed", None)
+        usable = cast.cast is not None and cast.cast is not self._cast_failed
         want = "cast" if usable else "pc"
         if want != kind:
             self._switching = True
@@ -403,7 +420,7 @@ class JamService:
         if not callable(status) or status().get("state") in ("PLAYING", "BUFFERING", "PAUSED"):
             self._cast_ok_at = now
             return False
-        since = max(getattr(self, "_cast_ok_at", 0.0), getattr(e.output, "started_at", 0.0))
+        since = max(self._cast_ok_at, getattr(e.output, "started_at", 0.0))
         return now - since > self.CAST_GRACE_S
 
     def _switch_output(self, want: str) -> None:
@@ -466,7 +483,7 @@ class JamService:
 
     def unhush(self) -> None:
         """It was a reload, not a close: the room carries on where it stopped."""
-        if not getattr(self, "_hushed", False):
+        if not self._hushed:
             return
         self._hushed = False
         eng = self.engine
@@ -522,8 +539,7 @@ class JamService:
                 pass
 
     def _stop(self) -> None:
-        if getattr(self, "fetch", None) is not None:
-            self.fetch.forget()                              # what is under way finishes; nothing new starts
+        self.fetch.forget()                                  # what is under way finishes; nothing new starts
         if self.runner:
             self.runner.stop()
         if self.capture:
@@ -545,9 +561,6 @@ class JamService:
         except Exception:  # noqa: BLE001
             return False
         return (capture or default) == (playback or default)
-
-    def _open_player(self) -> None:
-        self.hidden.start()
 
     def _state(self) -> dict:
         if self._want_player():
@@ -575,9 +588,8 @@ class JamService:
         out_error = getattr(self.engine.output, "error", "")
         if out_error:
             st["output_error"] = out_error
-        out = self.engine.output
-        st["output_kind"] = self._output_kind(out)
-        if getattr(self, "sync_warning", "") and st["output_kind"] == "cast":
+        st["output_kind"] = self._output_kind(self.engine.output)
+        if self.sync_warning and st["output_kind"] == "cast":
             st["sync_warning"] = self.sync_warning
         if self.capture is not None and getattr(self.capture, "lost", 0):
             st["capture"]["lost_s"] = round(self.capture.lost, 2)
@@ -585,7 +597,7 @@ class JamService:
             base["party_level"] = self.party_level
         played = [st.get("room"), st.get("ahead"), *(st.get("queue") or [])]
         for t in played:                                     # learning ahead: where each first listen stands
-            if t and t.get("kind") == "live" and t.get("id") and base.get("fetch", {}).get("on"):
+            if t and t.get("kind") == "live" and t.get("id") and base["fetch"]["on"]:
                 got = self.fetch.state_of(t["id"])
                 if got:
                     t["learning"], t["learning_why"] = got
@@ -644,7 +656,7 @@ class JamService:
     async def sync_check(self, request):
         if self.engine is None or not self.engine.streaming:
             return web.json_response({"error": "the speakers are not playing the jam yet"}, status=400)
-        if getattr(self, "_syncing", False):
+        if self._syncing:
             return web.json_response({"error": "a sync check is already listening; its result will be in the Jam log"}, status=409)
         self._syncing = True
 
@@ -678,13 +690,13 @@ class JamService:
         restart), listen to the room and correct its delay. A speaker's delay can change when it or
         its group reconnects, and nothing else would notice. It only listens; nothing is played."""
         out = e.output
-        if not isinstance(out, CastOutput) or getattr(self, "_auto_sync_off", False) or getattr(self, "_syncing", False):
+        if not isinstance(out, CastOutput) or self._auto_sync_off or self._syncing:
             return
         started = getattr(out, "started_at", 0.0)
         if getattr(e, "cue_hold", False) or (started and started == getattr(e, "no_sync_start", None)):
             return                                       # a doorbell, the music back after it, a catch-up: no new delay
-        retry = getattr(self, "_sync_retry_at", 0.0)
-        if not started or e.gate.paused or (started == getattr(self, "_synced_start", None) and not (retry and time.monotonic() >= retry)):
+        retry = self._sync_retry_at
+        if not started or e.gate.paused or (started == self._synced_start and not (retry and time.monotonic() >= retry)):
             return
         status = getattr(self.studio.cast, "status", None)
         if time.monotonic() - started < self.AUTO_SYNC_AFTER_S or not callable(status) or status().get("state") != "PLAYING":
@@ -694,7 +706,7 @@ class JamService:
         def run():
             name = self.studio.cast.name or "the speaker"
             try:
-                was = getattr(self, "sync_warning", "")
+                was = self.sync_warning
                 r = self._run_sync()
                 if r.get("mic_silent"):
                     self._sync_retry_at = time.monotonic() + self.SILENT_RETRY_S
@@ -741,7 +753,7 @@ class JamService:
         sid = request.query.get("sid", "")
         if stream is None or (sid and str(getattr(out, "sid", "")) != sid):
             raise web.HTTPNotFound()
-        served = self.__dict__.setdefault("_served", {})        # sid -> seconds of audio sent
+        served = self._served
         # Judged by what the speaker has played, not by what was sent: up to 20 s go into the
         # network at once, so a speaker that only probed the stream may already have "had" a lot.
         try:
@@ -757,7 +769,7 @@ class JamService:
                     eng._speaker_dropped = True
                     eng.say("the speaker let go of the stream during the pause: it restarts when the music does")
                 raise web.HTTPGone()
-            eng.say(f"the speaker lost its stream (Wi-Fi) and came back: restarting it where the room was")
+            eng.say("the speaker lost its stream (Wi-Fi) and came back: restarting it where the room was")
             threading.Thread(target=self._restart_cast, args=(out,), daemon=True).start()
             raise web.HTTPGone()
         served.setdefault(sid, 0.0)
@@ -904,7 +916,7 @@ class JamService:
         """What the room is playing instead of the jam: a cue, else the opening song."""
         cue = self.studio.cues.status() if getattr(self.studio, "cues", None) else {}
         if cue.get("phase") and cue.get("phase") != "done":
-            if getattr(self, "opener", None):                 # a cue cut the opening song short: the jam follows the cue
+            if self.opener:                                   # a cue cut the opening song short: the jam follows the cue
                 self.opener["cut"] = True
             return cue
         return self.opener_status() or cue
@@ -924,7 +936,7 @@ class JamService:
         tid = t.get("id")
         if not tid or t.get("kind") != "learned":
             return {}
-        found = self.__dict__.setdefault("_found_genre", {})
+        found = self._found_genre
         if tid not in found:
             a = _summary(self.library, tid)                               # (problems, mood, genre: not the whole file)
             from .genre import restyle
@@ -1080,15 +1092,22 @@ class JamService:
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
         if not body.get("track_id") and "on" in body:
             self._set_theme_on(bool(body["on"]))
         elif not body.get("track_id"):
             return web.json_response({"error": "no track"}, status=400)
         else:
-            self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
-                                    off=body.get("theme") is False, only=bool(body.get("only")))
+            self._set_track_colors(body)
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
+
+    def _set_track_colors(self, body: dict) -> None:
+        self.library.set_colors(str(body["track_id"]), _hex_color(body.get("primary")), _hex_color(body.get("secondary")),
+                                off=body.get("theme") is False, only=bool(body.get("only")))
+
+    def _set_genre(self, body: dict) -> None:
+        if not body.get("track_id"):
+            raise web.HTTPBadRequest(text="no track")
+        self.library.set_genre(str(body["track_id"]), body.get("genre"))
 
     def _set_style(self, body: dict) -> None:
         tid = str(body.get("track_id") or "")
@@ -1109,19 +1128,13 @@ class JamService:
         the analysis hears), kept for that track; the song playing is rebuilt in it at once."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        body = await request.json()
-        if not body.get("track_id"):
-            raise web.HTTPBadRequest(text="no track")
-        self.library.set_genre(str(body["track_id"]), body.get("genre"))
+        self._set_genre(await request.json())
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
 
     async def track_genre(self, request):
         if not self._local(request):
             raise web.HTTPForbidden()
-        body = await request.json()
-        if not body.get("track_id"):
-            raise web.HTTPBadRequest(text="no track")
-        self.library.set_genre(str(body["track_id"]), body.get("genre"))
+        self._set_genre(await request.json())
         return await self._run(self._state)
 
     async def track_style(self, request):
@@ -1161,7 +1174,7 @@ class JamService:
         cast = self.studio.cast
 
         rooms = getattr(self.studio, "rooms", None)
-        bulbs = self._bulbshows()
+        bulbs = self._bulbstudio()
 
         def read():
             st = cast.status()
@@ -1169,7 +1182,7 @@ class JamService:
             in_use = bulbs.speakers_in_use() if bulbs else {}      # (a bulb show playing on it: its volume is set here too)
             for d in devices:
                 if d["name"] in in_use:
-                    d["bulb_show"] = in_use[d["name"]]
+                    d["bulb_studio_show"] = in_use[d["name"]]
             # a speaker its room has muted shows the level it is set to (it plays at that once the room
             # is back), not what a fade has it at right now
             muted = rooms.muted() if rooms else {}
@@ -1244,35 +1257,35 @@ class JamService:
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=400)
 
-    def _bulbshows(self):
+    def _bulbstudio(self):
         """Bulb Studio, while its add-on is on (else None: not asked about, never started)."""
-        bulbs = getattr(self.studio, "bulbshows", None)
-        return bulbs if bulbs is not None and (self.load_config().get("addons") or {}).get("bulbshow") else None
+        bulbs = getattr(self.studio, "bulbstudio", None)
+        return bulbs if bulbs is not None and (self.load_config().get("addons") or {}).get("bulbstudio") else None
 
-    async def party_bulbshows(self, request):
+    async def party_bulbstudio(self, request):
         """Bulb Studio's shows that can run, each on or off (their switches on the Party screen and the phone)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        bulbs = self._bulbshows()
+        bulbs = self._bulbstudio()
         if bulbs is None:
             return web.json_response({"open": False, "shows": []})
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.list))
 
-    async def bulbshow_open(self, request):
+    async def bulbstudio_open(self, request):
         """The studio's Bulb Studio button: Bulb Studio running, and the address of its window ({ok, url, error})."""
         if not self._local(request):
             raise web.HTTPForbidden()
-        bulbs = self._bulbshows()
+        bulbs = self._bulbstudio()
         if bulbs is None:
             return web.json_response({"ok": False, "url": "", "error": "the Bulb Studio add-on is off"})
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, bulbs.open_window))
 
-    async def party_bulbshow_set(self, request):
+    async def party_bulbstudio_set(self, request):
         """Switch a bulb show on or off ({id, on}). Never on the speaker the party plays on."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        bulbs, cast = self._bulbshows(), self.studio.cast
+        bulbs, cast = self._bulbstudio(), self.studio.cast
         if bulbs is None or not body.get("id"):
             return web.json_response({"ok": False, "error": "no such bulb show"}, status=400)
         busy = {cast.name} if cast.cast is not None and cast.name else set()
@@ -1411,8 +1424,7 @@ class JamService:
     def _music_gain(self) -> float:
         """The music's level with the modes that are on: the quietest one asks for (1: none on)."""
         ms = {m["id"]: m for m in self.modes()}
-        on = getattr(self, "mode_on", {})
-        return min([ms[i]["music"] for i, st in on.items() if st.get("on") and i in ms and not ms[i]["pause"]] or [1.0])
+        return min([ms[i]["music"] for i, st in self.mode_on.items() if st.get("on") and i in ms and not ms[i]["pause"]] or [1.0])
 
     def _music_playing(self) -> bool:
         now = getattr(self.engine, "now", None) if self.engine is not None else None
@@ -1496,10 +1508,8 @@ class JamService:
         if not self._local(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
         if body.get("track_id"):
-            self.library.set_colors(str(body["track_id"]), hexcolor(body.get("primary")), hexcolor(body.get("secondary")),
-                                    off=body.get("theme") is False, only=bool(body.get("only")))
+            self._set_track_colors(body)
         else:
             self._set_jam_colors(body)
         # off the event loop: handing out pairs afresh reads what was learned about each queued track
@@ -1513,7 +1523,6 @@ class JamService:
         """Change the party's colors: {on}, {mode}, {primary, secondary}, {pairs}, {extras}, {rainbow}, {wild}; and the
         named sets: {use: name} puts one on, {save_as: name} keeps the colors as they are under a name,
         {save: true} keeps them in the set they came from, {delete: name} forgets one."""
-        hexcolor = lambda v: v if isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v) else None
         cfg = self.load_config()
         cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
         sets = dict(cfg.get("color_sets") or {})
@@ -1525,20 +1534,17 @@ class JamService:
         if body.get("mode") in ("pick", "mix", "album"):
             cur["mode"] = body["mode"]
         for k in ("primary", "secondary", "accent1", "accent2"):
-            if hexcolor(body.get(k)):
-                cur[k] = hexcolor(body[k])
-        if "extras" in body:
-            cur["extras"] = bool(body["extras"])
-        if "rainbow" in body:
-            cur["rainbow"] = bool(body["rainbow"])
-        if "wild" in body:
-            cur["wild"] = bool(body["wild"])
+            if _hex_color(body.get(k)):
+                cur[k] = _hex_color(body[k])
+        for k in ("extras", "rainbow", "wild"):
+            if k in body:
+                cur[k] = bool(body[k])
         if body.get("source") in ("album", "party", "wild"):     # the three ways a song gets its colors
             cur["on"], cur["wild"] = body["source"] != "album", body["source"] == "wild"
             if body["source"] == "party" and cur.get("mode") not in ("pick", "mix"):
                 cur["mode"] = "mix"                              # (album art is its own choice now)
         if isinstance(body.get("pairs"), list):
-            pairs = [[hexcolor(p[0]), hexcolor(p[1])] for p in body["pairs"][:8] if isinstance(p, list) and len(p) == 2]
+            pairs = [[_hex_color(p[0]), _hex_color(p[1])] for p in body["pairs"][:8] if isinstance(p, list) and len(p) == 2]
             if pairs and all(a and b for a, b in pairs):
                 cur["pairs"] = pairs
         name = str(body.get("save_as") or "").strip()[:30]
@@ -1586,7 +1592,7 @@ class JamService:
         url = request.query.get("url", "")
         if not url.startswith("https://i.scdn.co/image/"):
             raise web.HTTPForbidden()
-        cache = self.__dict__.setdefault("_art", {})
+        cache = self._art
         if url not in cache:
             import urllib.request
 
@@ -1632,7 +1638,7 @@ class JamService:
         return web.json_response(self._state())
 
     async def player_open(self, request):
-        return await self._run(lambda: (self._open_player(), self._state())[1])
+        return await self._run(lambda: (self.hidden.start(), self._state())[1])
 
     async def player_transfer(self, request):
         if not self._local(request):

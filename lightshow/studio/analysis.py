@@ -58,8 +58,7 @@ LAPS: Laps | None = None                                   # the analysis runnin
 
 
 def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_dir: str | None = None,
-                  use_model: bool = False, events: bool = True, bpm_hint: float | None = None, segment_fn=None,
-                  separate: bool | None = None) -> dict:
+                  use_model: bool = False, events: bool = True, bpm_hint: float | None = None, segment_fn=None) -> dict:
     """The whole analysis, from audio already in memory.
 
     `analyze` is this plus loading a file. Jam mode calls it directly on audio it
@@ -87,11 +86,8 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     # The models (the stems, the sections, the beats: each its own process, on the GPU) are all asked at
     # once, side by side, while the CPU work below goes on; each answer is waited for only where it is
     # needed. One after another they cost ~7 s of a ~23 s analysis.
-    want_models = bool(use_model or segment_fn is not None)
-    if separate is None:
-        separate = want_models
     pending, pool = {}, None
-    if want_models:
+    if use_model or segment_fn is not None:
         from concurrent.futures import ThreadPoolExecutor
         from . import beats_model as _bm, stems as _st, structure_model as _sm
         pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="models")
@@ -101,7 +97,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
             pending["segs"] = pool.submit(_sm.run_model, path, cache_dir)
         elif segment_fn is not None:
             pending["segs"] = pool.submit(segment_fn, y, sr)
-        if events and separate:
+        if events:
             pending["stems"] = (pool.submit(_st.separate_file, path) if path
                                 else pool.submit(_st.separate_audio, stereo if stereo is not None else y, sr))
 
@@ -112,12 +108,11 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     # precise fit at that tempo, its beats and bar lines (see beats_model.py). librosa's own tempo search
     # and grid run only when it cannot (no models, or no steady pulse heard): they cost seconds a song.
     beats, phases, beat_source = None, None, "librosa"
-    if (use_model or segment_fn is not None) and "beats" in pending:
+    if "beats" in pending:
         try:
-            from . import beats_model
             got = pending["beats"].result()
             if got:
-                m_bpm, m_beats, m_phases, m_down, m_raw = got
+                m_bpm, m_beats, m_phases, m_down = got
                 f_bpm, _ = fit_grid(onset, onset_times, m_bpm)
                 f_per = 60.0 / f_bpm
                 # where the beats sit: the model's (the onsets' strongest pulse can be the off-beat, half
@@ -132,7 +127,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                 f_beats = np.arange(f_off, duration, f_per)
                 # (no second opinion from the onsets on where the beats sit: a song with strong hits on the
                 # off-beats fools it, and it swapped Kitten's ME onto the off-beat, its drop half a beat late)
-                f_phases = beats_model.bar_places(f_beats, m_down) if abs(f_bpm / m_bpm - 1) <= 0.015 else None
+                f_phases = _bm.bar_places(f_beats, m_down) if abs(f_bpm / m_bpm - 1) <= 0.015 else None
                 if f_phases:
                     bpm, beats, phases, beat_source = f_bpm, f_beats, f_phases, "beat this tempo, onset fit"
                 else:
@@ -194,7 +189,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     lap("sections model")
     centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=HOP)[0]
     mood = song_mood(y, sr, energy, centroid)
-    ev = {"events": {}, "fills": [], "hook": None, "curves": {}, "stereo": False}
+    ev = {"events": {}, "fills": [], "hook": None, "curves": {}}
     # The drums and bass pulled out of the mix (Demucs, in the model environment), so the drums are
     # found in a track that has nothing else in it. Only where the models are in use anyway (a song
     # file; Jam mode with SongFormer), and always in memory: a jam's audio never touches the disk.
@@ -202,13 +197,11 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     problems = []                                            # whatever failed along the way (the show is made regardless)
     if structure_error and structure_error != "SongFormer was not asked":
         problems.append(structure_error)
-    if events and separate:
+    if "stems" in pending:
         try:
-            from . import stems as stems_mod
-            stems = pending["stems"].result() if "stems" in pending else (
-                stems_mod.separate_file(path) if path else stems_mod.separate_audio(stereo if stereo is not None else y, sr))
+            stems = pending["stems"].result()
             if stems is None:
-                problems.append(f"the stems could not be separated ({stems_mod.WORKER.failed or stems_mod.WORKER.last_error or 'no answer'})")
+                problems.append(f"the stems could not be separated ({_st.WORKER.failed or _st.WORKER.last_error or 'no answer'})")
         except Exception as e:  # noqa: BLE001 - without stems the drums come from the mix, as before
             print(f"[stems] skipped: {type(e).__name__}: {e}")
             problems.append(f"the stems could not be separated ({type(e).__name__}: {e})")
@@ -270,7 +263,6 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
         "beat_source": beat_source,
         "beats": [round(float(b), 4) for b in beats],
         "downbeats": [round(float(b), 4) for b in downbeats],
-        "feature_fps": FEATURE_FPS,
         "energy": [round(float(e), 4) for e in energy],
         "bands": [[round(float(v), 3) for v in row] for row in bands.T],
         "wave_pps": WAVE_PPS,
@@ -341,6 +333,21 @@ def song_mood(y, sr, energy, centroid_hz) -> dict:
     family = family[spin:] + family[:spin]
     return {"key": f"{NOTE_NAMES[tonic]} {mode}", "mode": mode, "brightness": round(bright, 3),
             "drive": round(drive, 3), "palette": family[0], "palettes": family}
+
+
+def _averager(a: dict):
+    """mean(curve, t0, t1): a curve's mean over a stretch of the song (0.0 past its end)."""
+    fps = float(a.get("feature_fps", FEATURE_FPS))
+
+    def mean(c, t0, t1):
+        i0 = max(0, int(t0 * fps))
+        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0
+    return mean
+
+
+def _move_drops(a: dict, t0: float, t1: float, *to) -> None:
+    """The drop markers in t0..t1 (or just before it) give way to markers at `to`."""
+    a["drops"] = sorted([d for d in (a.get("drops") or []) if not (t0 - 0.5 <= d < t1)] + [round(float(t), 3) for t in to])
 
 
 def stem_beats(stems: dict, beats) -> np.ndarray | None:
@@ -425,7 +432,7 @@ def drumless_drops(a: dict) -> list:
             continue
         out.append({**s, "end": at, "type": "verse"})
         out.append({**s, "start": at})
-        a["drops"] = sorted([d for d in (a.get("drops") or []) if not (start - 0.5 <= d < end)] + [round(at, 3)])
+        _move_drops(a, start, end, at)
         changes.append((round(start, 1), "->", round(at, 1)))
     a["sections"] = out
     return changes
@@ -440,11 +447,7 @@ def loud_buildups(a: dict) -> list:
     bass, en = _curve(a, "bass"), np.asarray(a.get("energy") or [], dtype=float)
     if len(secs) < 3 or bass is None or len(en) == 0:
         return []
-    fps = float(a.get("feature_fps", FEATURE_FPS))
-
-    def mean(c, t0, t1):
-        i0, i1 = max(0, int(t0 * fps)), int(t1 * fps)
-        return float(c[i0:max(i0 + 1, i1)].mean()) if i0 < len(c) else 0.0
+    mean = _averager(a)
     out, changes, i = [], [], 0
     while i < len(secs):
         s = secs[i]
@@ -455,7 +458,7 @@ def loud_buildups(a: dict) -> list:
                 and mean(en, s["start"], s["end"]) - mean(en, pv["start"], pv["end"]) >= 0.15
                 and mean(bass, s["start"], s["end"]) >= mean(bass, nx["start"], nx["end"]) - 0.1):
             out.append({**nx, "start": s["start"]})
-            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (s["start"] - 0.5 <= d < nx["end"])] + [round(float(s["start"]), 3)])
+            _move_drops(a, s["start"], nx["end"], s["start"])
             changes.append((round(s["start"], 1), "buildup is the drop"))
             i += 2
             continue
@@ -534,13 +537,9 @@ def _section_levels(a: dict):
     bass, drums = _curve(a, "bass"), _curve(a, "drums_present")
     if len(en) == 0 or bass is None or drums is None:
         return None
-    fps = float(a.get("feature_fps", FEATURE_FPS))
     top = float(np.percentile(en, 90)) or 1.0
-
-    def mean(c, s):
-        i0 = max(0, int(s["start"] * fps))
-        return float(c[i0:max(i0 + 1, int(s["end"] * fps))].mean()) if i0 < len(c) else 0.0
-    return lambda sec: (mean(en, sec) / top, mean(bass, sec), mean(drums, sec))
+    mean = _averager(a)
+    return lambda sec: (mean(en, sec["start"], sec["end"]) / top, mean(bass, sec["start"], sec["end"]), mean(drums, sec["start"], sec["end"]))
 
 
 def _standing_out(secs: list, lv) -> callable:
@@ -551,7 +550,7 @@ def _standing_out(secs: list, lv) -> callable:
     return lambda d: lv(d)[0] >= mid + 0.05
 
 
-def _merge_drops(a: dict, secs: list, made: set) -> list:
+def _merge_drops(a: dict, secs: list, made: set) -> None:
     """Sections turned into drops here join a drop next to them: one drop, starting where the first does."""
     out = []
     for i, sec in enumerate(secs):
@@ -563,7 +562,6 @@ def _merge_drops(a: dict, secs: list, made: set) -> list:
         sec.pop("_made", None)
     a["sections"] = out
     a["drops"] = sorted(round(float(x["start"]), 3) for x in out if x.get("type") == "drop")
-    return out
 
 
 def drops_where_none(a: dict) -> list:
@@ -739,12 +737,8 @@ def verses_in_long_drops(a: dict) -> list:
     bars = [float(b) for b in a.get("downbeats") or []]
     if not secs or drums is None or bass is None or len(bars) < 8:
         return []
-    fps = float(a.get("feature_fps", FEATURE_FPS))
     bar = float(np.median(np.diff(bars)))
-
-    def mean(c, t0, t1):
-        i0 = max(0, int(t0 * fps))
-        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0
+    mean = _averager(a)
     out, changes = [], []
     for sec in secs:
         inb = [b for b in bars if sec["start"] - 0.1 <= b <= sec["end"] - 0.5 * bar]
@@ -797,8 +791,7 @@ def verses_in_long_drops(a: dict) -> list:
             out.append({**sec, "start": t0, "end": t1, "type": lab})
             if lab != "drop":
                 changes.append((round(t0, 1), f"a {lab} inside a long drop", round(t1, 1)))
-        a["drops"] = sorted([x for x in (a.get("drops") or []) if not (sec["start"] - 0.5 <= x < sec["end"])]
-                            + [round(out[-len(pieces) + n]["start"], 3) for n, pc in enumerate(pieces) if pc[0] == "drop"])
+        _move_drops(a, sec["start"], sec["end"], *[out[-len(pieces) + n]["start"] for n, pc in enumerate(pieces) if pc[0] == "drop"])
     if changes:
         a["sections"] = out
     return changes
@@ -818,13 +811,9 @@ def choruses_in_long_sections(a: dict) -> list:
     bars = [float(b) for b in a.get("downbeats") or []]
     if not secs or len(en) == 0 or drums is None or len(bars) < 8:
         return []
-    fps = float(a.get("feature_fps", FEATURE_FPS))
     bar = float(np.median(np.diff(bars)))
     hooks = sorted(float(t) for t in ((a.get("hook") or {}).get("times") or []))
-
-    def mean(c, t0, t1):
-        i0 = max(0, int(t0 * fps))
-        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0
+    mean = _averager(a)
     out, changes = [], []
     for sec in secs:
         inb = [b for b in bars if sec["start"] - 0.1 <= b <= sec["end"] - 0.5 * bar]
@@ -891,13 +880,9 @@ def drops_on_their_bar(a: dict) -> list:
     bars = [float(b) for b in a.get("downbeats") or []]
     if len(secs) < 2 or len(en) == 0 or drums is None or len(bars) < 4:
         return []
-    fps = float(a.get("feature_fps", FEATURE_FPS))
     top = float(np.percentile(en, 90)) or 1.0
     bar = float(np.median(np.diff(bars)))
-
-    def mean(c, t0, t1):
-        i0 = max(0, int(t0 * fps))
-        return float(c[i0:max(i0 + 1, int(t1 * fps))].mean()) if i0 < len(c) else 0.0
+    mean = _averager(a)
     changes = []
     for i, sec in enumerate(secs):
         if sec.get("type") != "drop" or i == 0 or secs[i - 1].get("type") == "drop":
@@ -914,7 +899,7 @@ def drops_on_their_bar(a: dict) -> list:
             if (de - 0.06 <= e1 <= de + 0.15 and (dd < 0.5 or d1 >= min(0.8, dd - 0.1))
                     and (e1 - e0 >= 0.15 or d1 - d0 >= 0.4) and stays):
                 changes.append((round(sec["start"], 1), "drop heard a bar early", round(b, 1)))
-                a["drops"] = sorted([d for d in (a.get("drops") or []) if not (sec["start"] - 0.5 <= d < sec["end"])] + [round(b, 3)])
+                _move_drops(a, sec["start"], sec["end"], b)
                 prev["end"], sec["start"] = b, b
                 break
     return changes
@@ -981,7 +966,7 @@ def flat_buildups(a: dict) -> list:
         if (into_drop and not accel and says.get("chorus", 0.0) >= 0.8 and bass is not None
                 and mean(bass, t0, t1) >= mean(bass, nx["start"], min(nx["end"], nx["start"] + 32 * beat)) + 0.05):
             nx["start"] = t0                                         # the bass is all there: the chorus has begun
-            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (t0 - 0.5 <= d < nx["end"])] + [round(float(t0), 3)])
+            _move_drops(a, t0, nx["end"], t0)
             changes.append((round(t0, 1), "buildup with the drop's bass, a chorus: the drop starts here"))
             continue
         heard_verse = t1 - t0 >= 24 * beat and says.get("verse", 0.0) >= 0.8
@@ -1002,7 +987,7 @@ def flat_buildups(a: dict) -> list:
             changes.append((round(t0, 1), "flat buildup SongFormer hears as a verse: a verse"))
         elif into_drop and (pv is None or (e_all - before) / loud_top >= 0.25):
             nx["start"] = t0                                         # the drop arrives here
-            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (t0 - 0.5 <= d < nx["end"])] + [round(float(t0), 3)])
+            _move_drops(a, t0, nx["end"], t0)
             changes.append((round(t0, 1), "flat buildup: the drop starts here"))
         elif pv is not None and pv.get("type") == "drop" and into_drop:
             pv["end"] = t1
@@ -1039,13 +1024,9 @@ def drop_landings(a: dict) -> list:
     bars = sorted(float(b) for b in (a.get("downbeats") or []))
     if not secs or bass is None or dp is None or len(en) == 0 or len(bars) < 8 or not a.get("bpm"):
         return []
-    fps = float(a.get("feature_fps", FEATURE_FPS))
     beat = 60.0 / float(a["bpm"])
     two = 8 * beat
-
-    def mean(c, t0, t1):
-        i0, i1 = max(0, int(t0 * fps)), int(t1 * fps)
-        return float(c[i0:max(i0 + 1, i1)].mean()) if i0 < len(c) else 0.0
+    mean = _averager(a)
     ev = a.get("events") or {}
     snares = np.array(sorted(float(e[0]) for e in (ev.get("snare") or []) + (ev.get("roll") or [])))
     rolling = lambda t0, t1: float(((snares >= t0) & (snares < t1)).sum()) / max(1e-6, (t1 - t0) / beat) >= 1.5
@@ -1064,7 +1045,7 @@ def drop_landings(a: dict) -> list:
                 continue
             out.append({**s, "end": t, "type": "buildup" if rolling(max(start, t - two), t) else "verse"})
             out.append({**s, "start": t})
-            a["drops"] = sorted([d for d in (a.get("drops") or []) if not (start - 0.5 <= d < end)] + [round(t, 3)])
+            _move_drops(a, start, end, t)
             changes.append((round(start, 1), "drop lands at", round(t, 1)))
             continue
         if kind not in ("verse", "breakdown"):
@@ -1106,18 +1087,12 @@ def _bar_levels(a: dict, t0: float, t1: float) -> list:
     bars = [float(b) for b in a.get("downbeats") or []]
     if len(en) == 0 or len(bars) < 3:
         return []
-    fps = float(a.get("feature_fps", FEATURE_FPS))
     top = float(np.percentile(en, 90)) or 1.0
     curves = {"e": en / top, **{k: _curve(a, n) for k, n in (("bass", "bass"), ("dp", "drums_present"), ("drum", "drum"),
                                                               ("voc", "vocals"), ("other", "other"))}}
-
-    def mean(c, b0, b1):
-        if c is None:
-            return 0.0
-        i0 = max(0, int(b0 * fps))
-        return float(c[i0:max(i0 + 1, int(b1 * fps))].mean()) if i0 < len(c) else 0.0
+    mean = _averager(a)
     edges = [b for b in bars if t0 - 0.05 <= b <= t1 + 0.05]
-    return [(b0, b1, {k: mean(c, b0, b1) for k, c in curves.items()}) for b0, b1 in zip(edges, edges[1:])]
+    return [(b0, b1, {k: 0.0 if c is None else mean(c, b0, b1) for k, c in curves.items()}) for b0, b1 in zip(edges, edges[1:])]
 
 
 def _split(secs: list, i: int, parts: list) -> None:
@@ -1501,17 +1476,14 @@ def settle_sections(a: dict) -> list:
     if a.get("track_id") and not a.get("_no_labeler"):      # the learned labeler's sections, where it can (labeler.py)
         try:
             from . import labeler
-            got = labeler.apply(a)
+            final = labeler.apply(a)
         except Exception as e:  # noqa: BLE001 - the rules' sections stand
             print(f"[labeler] {a.get('track_id')}: {type(e).__name__}: {e}")
-            got = None
-        if got:
-            final, why = got, "the learned labeler's sections"
-    if final is not None:
+    if final:
         a["sections_rules"] = [dict(s) for s in a["sections"]]
         a["sections"] = final
         a["drops"] = [round(float(s["start"]), 3) for s in final if s.get("type") == "drop"]
-        changes = changes + [(0.0, why)]
+        changes = changes + [(0.0, "the learned labeler's sections")]
         songmap.add(a)                                      # (and its map again, on the sections that play)
     a.pop("_songmap_bars", None)                            # (the map's bars, kept between its two runs: not saved)
     return changes
@@ -1550,16 +1522,15 @@ def hook_drops(a: dict) -> list:
     inside = lambda s: [t for t in times if s["start"] - 0.5 <= t < s["end"]]
     in_drops = sum(len(inside(s)) for s in drops)
     # the hook marks the choruses only where nearly all of it plays inside drops, in more than one place
-    if not drops or in_drops < 0.75 * len(times) or len(times) < 3:
+    if not drops or in_drops < 0.75 * len(times):
         return []
-    period = float(np.median(np.diff(times))) if len(times) > 1 else 4 * bar
+    period = float(np.median(np.diff(times)))
     ev = a.get("events") or {}
     snares = np.array(sorted(float(e[0]) for e in (ev.get("snare") or [])))
     snare_rate = lambda t0, t1: float(((snares >= t0) & (snares < t1)).sum()) / max(1e-6, (t1 - t0) / bar)
     hooked = [d for d in drops if inside(d)]
-    backbeat = float(np.mean([snare_rate(d["start"], d["end"]) for d in hooked])) if hooked else 0.0
-    sung = float(np.mean([lvl(d["start"], d["end"]) for d in hooked])) if hooked else 0.0
-    near_bar = lambda t: min(bars, key=lambda b: abs(b - t))
+    backbeat = float(np.mean([snare_rate(d["start"], d["end"]) for d in hooked]))
+    sung = float(np.mean([lvl(d["start"], d["end"]) for d in hooked]))
     changes, out = [], []
     for s in secs:
         if s.get("type") != "drop":
@@ -1594,16 +1565,14 @@ def hook_drops(a: dict) -> list:
         pieces = []
         cur_start = s["start"]
         for i, g in enumerate(groups):
-            # where the drop lands: the bar near its first hook where the melody lifts most
-            cands = [b for b in bars if g[0] - 2.2 * bar <= b <= g[0] + 0.5 * bar and b >= cur_start - 0.1 * bar]
-            if i == 0:
-                cands = [b for b in cands if s["start"] - 0.1 <= b <= s["start"] + 2.1 * bar] or [s["start"]]
-            rise = lambda b: lvl(b, b + bar) - lvl(b - bar, b)
-            land = max(cands, key=rise) if cands else s["start"]
             if i == 0:
                 land = s["start"]                     # a drop's own start stands (moving it to where the melody lifts
                                                       # suited Higher Power and put If Youre Too Shy's last drop 3 s late)
-            if i > 0:
+            else:
+                # where the drop lands: the bar near its first hook where the melody lifts most
+                cands = [b for b in bars if g[0] - 2.2 * bar <= b <= g[0] + 0.5 * bar and b >= cur_start - 0.1 * bar]
+                rise = lambda b: lvl(b, b + bar) - lvl(b - bar, b)
+                land = max(cands, key=rise) if cands else s["start"]
                 pieces.append(("verse", cur_start, land))
             # where it ends, if another group follows: the bar after its last hook where the melody falls most
             if i < len(groups) - 1:
@@ -2037,7 +2006,6 @@ ANALYSIS_VERSION = 32         # bumped when saved analyses (the cache, learned j
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
-BUILDUP_CHECKS: list = []   # every drop's run-in, as measured (for tuning and tests)
 
 
 def cap_tempo(y, sr, bpm, beats):
@@ -2177,11 +2145,6 @@ def find_structure(y, sr, beats, rms, duration, phases=None):
         return (t - t.min()) / (t.max() - t.min()) if t.max() > t.min() else np.zeros(4)
     score = (2.0 * phase_term(bound_strength, np.sum) + 2.0 * phase_term(kick, np.mean)
              + 0.5 * phase_term(flux_low, np.sum) - 0.5 * phase_term(onset_mid, np.sum))
-    if os.environ.get("SF_PHASE_DEBUG"):
-        import sys as _s
-        print(f"[phase] bound {np.round(phase_term(bound_strength, np.sum), 2)}  kick {np.round(phase_term(kick, np.mean), 2)}"
-              f"  flux {np.round(phase_term(flux_low, np.sum), 2)}  mid {np.round(phase_term(onset_mid, np.sum), 2)}"
-              f"  -> score {np.round(score, 2)}", file=_s.stderr)
     # the beat model's downbeats say where the bar lines may be (one place, or two in half time)
     allowed = [p for p in (phases or range(4)) if 0 <= p < 4] or list(range(4))
     phase = int(max(allowed, key=lambda p: score[p]))
@@ -2205,14 +2168,14 @@ def find_structure(y, sr, beats, rms, duration, phases=None):
         beat = bar_starts[bar]
         return bound_strength[max(0, beat - 2):beat + 3].max() if bar > 0 else 0.0
 
-    snapped = sorted({0} | {to_bar(c) for c in cand if 0 < to_bar(c) < n_bars})
+    weak = {to_bar(c) for c in cand if 0 < to_bar(c) < n_bars}      # every candidate, 4-bar snapped
+    snapped = sorted({0} | weak)
     bounds = [0]
     for bb in snapped[1:]:
         if bb - bounds[-1] >= 4:
             bounds.append(bb)
         elif len(bounds) > 1 and strength(bb) > strength(bounds[-1]) and bb - bounds[-2] >= 4:
             bounds[-1] = bb
-    weak = {to_bar(c) for c in cand if 0 < to_bar(c) < n_bars}      # every candidate, 4-bar snapped
     bar_time = [float(beats[bar_starts[i]]) for i in range(n_bars)] + [duration]
 
     def seg_stats(b0, b1):
@@ -2280,16 +2243,8 @@ def find_structure(y, sr, beats, rms, duration, phases=None):
         # risers, cymbals): its brightness climbs over the last 8 bars. Measured on hand-labelled
         # songs, real buildups brightened by +0.23 to +0.44 and forced ones by +0.14 at most (usually
         # they darkened). Without that climb the run-in keeps its own label.
-        win = act[d - L:d]
-        k = max(1, L // 4)
-        rise = float(win[-k:].mean() - win[:k].mean())
-        slope = float(np.polyfit(np.arange(L), win, 1)[0] * L) if L >= 2 else 0.0
         w8 = min(8, d - run0); q = max(1, w8 // 4)
-        feats = {nm: round(float(B[nm][d - q:d].mean() - B[nm][d - w8:d - w8 + q].mean()), 3) for nm in B}
-        feats["hits_slope"] = round(float(np.polyfit(np.arange(w8), B["hits"][d - w8:d], 1)[0] * w8), 3) if w8 >= 2 else 0.0
-        feats["sub_last"] = round(float(B["sub"][d - q:d].mean()), 3)
-        BUILDUP_CHECKS.append({"drop_bar": int(d), "bars": int(L), "rise": round(rise, 3), "slope": round(slope, 3), **feats})
-        if feats["cent"] < CLIMB_MIN:
+        if round(float(B["cent"][d - q:d].mean() - B["cent"][d - w8:d - w8 + q].mean()), 3) < CLIMB_MIN:
             continue
         for j in range(d - L, d):
             if labels[j] == "drop":

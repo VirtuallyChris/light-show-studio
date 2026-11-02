@@ -74,10 +74,6 @@ class NowPlaying:
     playing: bool = False
     fetched_at: float = 0.0               # local clock when the answer arrived
     device: str = ""
-    raw: dict = field(default_factory=dict, repr=False)
-
-    def progress_at(self, now: float) -> float:
-        return self.progress + (now - self.fetched_at if self.playing else 0.0)
 
 
 def parse_track(item: dict | None) -> Track | None:
@@ -139,10 +135,6 @@ class SpotifyClient:
         """Whether the sign-in allows the studio's own player (older sign-ins did not ask for it)."""
         return self.signed_in and "streaming" in self.store.get("scope", "").split()
 
-    def token(self) -> str:
-        """A current access token, for the studio's own player page."""
-        return self._token()
-
     def sign_out(self) -> None:
         self.store.pop("refresh_token", None)
         self.store.pop("scope", None)
@@ -164,7 +156,8 @@ class SpotifyClient:
             self.store["refresh_token"] = data["refresh_token"]
             self.save()
 
-    def _token(self) -> str:
+    def token(self) -> str:
+        """A current access token (for the calls here, and for the studio's own player page)."""
         if not self.access_token or self.clock() >= self.expires_at:
             if not self.store.get("refresh_token"):
                 raise PermissionError("not signed in to Spotify")
@@ -173,7 +166,7 @@ class SpotifyClient:
 
     # -- calls -------------------------------------------------------------------------
     def _call(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
-        headers = {"Authorization": "Bearer " + self._token()}
+        headers = {"Authorization": "Bearer " + self.token()}
         data = None
         if body is not None:
             headers["Content-Type"] = "application/json"
@@ -183,7 +176,7 @@ class SpotifyClient:
         status, raw = self.transport(method, API + path, headers, data)
         if status == 401:                                  # token died early: once more with a fresh one
             self.access_token = ""
-            headers["Authorization"] = "Bearer " + self._token()
+            headers["Authorization"] = "Bearer " + self.token()
             status, raw = self.transport(method, API + path, headers, data)
         try:
             parsed = json.loads(raw) if raw else {}
@@ -193,13 +186,16 @@ class SpotifyClient:
             self.last_error = f"{status}: {(parsed.get('error') or {}).get('message', '') if isinstance(parsed.get('error'), dict) else parsed.get('error', '')}"
         return status, parsed
 
+    def _done(self, method: str, path: str, body: dict | None = None) -> bool:
+        return self._call(method, path, body)[0] in (200, 202, 204)
+
     def now_playing(self) -> NowPlaying:
         status, data = self._call("GET", "/me/player?additional_types=track")
         now = self.clock()
         if status == 204 or not data:
             return NowPlaying(None, fetched_at=now)
         return NowPlaying(parse_track(data.get("item")), float(data.get("progress_ms") or 0) / 1000.0, bool(data.get("is_playing")),
-                          now, (data.get("device") or {}).get("name", ""), data)
+                          now, (data.get("device") or {}).get("name", ""))
 
     def queue(self) -> list[Track]:
         status, data = self._call("GET", "/me/player/queue")
@@ -263,7 +259,7 @@ class SpotifyClient:
 
     def play_uris(self, device_id: str, uris: list[str]) -> bool:
         """Play these songs, in order, on one device (the studio's own player)."""
-        return self._call("PUT", f"/me/player/play?device_id={device_id}", {"uris": list(uris)})[0] in (200, 202, 204)
+        return self._done("PUT", f"/me/player/play?device_id={device_id}", {"uris": list(uris)})
 
     def artist_genres(self, track: Track) -> list[str]:
         """Genres Spotify lists for the track's artists (per artist, not per song; often empty)."""
@@ -277,27 +273,27 @@ class SpotifyClient:
 
     def transfer_playback(self, device_id: str, play: bool = True) -> bool:
         """Make a device (the studio's own player) the one Spotify plays on."""
-        return self._call("PUT", "/me/player", {"device_ids": [device_id], "play": bool(play)})[0] in (200, 202, 204)
+        return self._done("PUT", "/me/player", {"device_ids": [device_id], "play": bool(play)})
 
     def pause(self) -> bool:
-        return self._call("PUT", "/me/player/pause")[0] in (200, 202, 204)
+        return self._done("PUT", "/me/player/pause")
 
     def resume(self) -> bool:
-        return self._call("PUT", "/me/player/play")[0] in (200, 202, 204)
+        return self._done("PUT", "/me/player/play")
 
     def resume_on(self, device_id: str) -> bool:
         """Play on this device (the studio's own player). A plain resume names no device: once Spotify had let
         a long-paused player go, it answered "no active device" and nothing played. This wakes it."""
-        if self._call("PUT", f"/me/player/play?device_id={device_id}")[0] in (200, 202, 204):
+        if self._done("PUT", f"/me/player/play?device_id={device_id}"):
             return True
         return self.transfer_playback(device_id, play=True)
 
     def next_track(self) -> bool:
-        return self._call("POST", "/me/player/next")[0] in (200, 202, 204)
+        return self._done("POST", "/me/player/next")
 
     def previous_track(self) -> bool:
         """As Spotify's own back button: the song starts over, or (near its start) the one before plays."""
-        return self._call("POST", "/me/player/previous")[0] in (200, 202, 204)
+        return self._done("POST", "/me/player/previous")
 
 
 # ============================================================================ the studio player
@@ -316,6 +312,7 @@ class PlayerState:
         self.heard = 0.0                                 # local clock of the last report of any kind
         self.last_raw: dict = {}                         # the last state exactly as the page sent it (for diagnosis)
         self.window = None                               # the player window's process, if the studio opened it
+        self._last_key = None                            # (_stale) the last report's track, position and stamp
 
     def update(self, report: dict) -> None:
         now = self.clock()
@@ -359,7 +356,7 @@ class PlayerState:
         # repeats the last one exactly is ignored. (An earlier rule also ignored reports a
         # little behind the running estimate; it let the estimate creep 1.4 s ahead.)
         key = (state.get("track") or {}).get("id"), state.get("raw_position_ms", state.get("position_ms")), state.get("stamp")
-        stale = key == getattr(self, "_last_key", None) and state.get("stamp") is None
+        stale = key == self._last_key and state.get("stamp") is None
         self._last_key = key
         return stale
 

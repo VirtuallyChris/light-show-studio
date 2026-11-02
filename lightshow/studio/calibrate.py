@@ -148,8 +148,6 @@ def wait_for_steady_clock(cast, log=print, timeout=20.0, window=2.5, tolerance=0
     that window gives an answer that is wrong by however early you asked, which
     is why two calibrations of the same speaker can disagree.
     """
-    import numpy as np
-
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         t0 = time.monotonic()
@@ -178,8 +176,6 @@ def _one_sync_pass(cast, song_path, seconds, mic_device, margin, log) -> dict:
     the real file, decoded by the real speakers, at the real playback position.
     """
     import librosa
-    import numpy as np
-    from scipy.signal import fftconvolve
 
     SRC = 22050
     HOP = 256                       # ~11.6 ms per frame
@@ -216,8 +212,6 @@ def measure_offset(heard, reference, sr: int, used_margin: float, margin: float,
     is a place the recording can sit inside it. Positive means the room is later
     than believed. See matching.py for why it is done the way it is.
     """
-    import numpy as np
-
     from .matching import best_match, match_features
 
     if float(np.std(heard)) < 1e-5:
@@ -268,8 +262,6 @@ def relay_sync_check(engine, seconds: float = 6.0, mic_device=None, margin: floa
     listens at different moments in the music will not make the same mistake
     twice, so their agreement is what the confidence rests on.
     """
-    import numpy as np
-
     # A listen only counts if its winner is clear of every rival (see matching.py):
     # during a looped stretch the music is the same a beat later and no answer is
     # better than a guess. Keep listening, up to six times, until two clear listens
@@ -308,8 +300,6 @@ def live_sync_check(cast, song_path, seconds=8.0, mic_device=None, margin=3.0, l
     passes taken at different points in the song will not make the same mistake
     twice, so agreement between them is the real confidence signal.
     """
-    import numpy as np
-
     wait_for_steady_clock(cast, log)
     runs = []
     for i in range(max(1, repeats)):
@@ -372,14 +362,16 @@ def main(argv=None):
     offset = int(round(float(np.median(offsets))))
     print(f"\nCast offset for {args.device!r}: {offset} ms")
     if not args.no_save:
-        cfg_path = os.path.join(root, "config.json")
+        cfg_path = os.path.join(data_dir(), "config.json")
         try:
-            cfg = json.load(open(cfg_path, encoding="utf-8"))
+            with open(cfg_path, encoding="utf-8") as fh:
+                cfg = json.load(fh)
         except (OSError, ValueError):
             cfg = {}
         cfg.setdefault("cast_offsets", {})[args.device] = offset
         cfg["cast_offset_ms"] = offset
-        json.dump(cfg, open(cfg_path, "w", encoding="utf-8"), indent=2)
+        with open(cfg_path, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh, indent=2)
         print(f"Saved as the default Cast offset in {cfg_path}")
     return 0
 

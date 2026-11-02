@@ -109,10 +109,10 @@ While one is off it does nothing in the background.
 
 - **Doorbell.** A Reolink video doorbell plays a moment (see **The doorbell plays
   a moment**). Needs `requirements-addons.txt`.
-- **Bulb Studio.** An app of its own (`bulbshow/`: looping shows on Govee bulbs
+- **Bulb Studio.** An app of its own (`bulbstudio/`: looping shows on Govee bulbs
   over Govee's cloud, with a sound on a speaker). Its card opens it, on the computer
   only; its shows switch on and off on **Party** and the phone's Rooms tab. It needs
-  your own Govee API key; see `bulbshow/README.md`.
+  your own Govee API key; see `bulbstudio/README.md`.
 - **Home Assistant.** Tells Home Assistant through a webhook when the show starts
   or stops playing on the lights, and which ones, so its own brightness
   automations can stand aside meanwhile. `GET /api/homeassistant/state` gives the

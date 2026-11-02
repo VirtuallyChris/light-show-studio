@@ -375,7 +375,7 @@ class HiddenPlayer:
             self._unmute_output()                         # (after the player: nothing plays once it is gone)
         elif sys.platform == "darwin":
             self._unmute()
-        elif sys.platform != "win32":
+        else:
             linux_audio.remove_sink()
 
     def to_json(self) -> dict:

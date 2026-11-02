@@ -208,10 +208,7 @@ def cloud_requests(show: dict, fps: int = FPS) -> int:
         for i in range(n):
             now = loop * dur + i / fps
             want = state(show, i / fps, cloud=True)
-            if want != sent:
-                pending = want
-            elif pending is not None:
-                pending = None
+            pending = want if want != sent else None
             if pending is not None and bucket.take(now):
                 sent, pending = pending, None
                 count += loop

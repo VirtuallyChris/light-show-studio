@@ -103,9 +103,9 @@ def main() -> int:
             failures.append(tid)
             print(f"[{k}/{len(todo)}] {tid} {info['artist']} - {info['title']}: FAILED {type(e).__name__}: {e}", flush=True)
             traceback.print_exc()
-            if models is not None and "out of memory" in str(e).lower():
+            if "out of memory" in str(e).lower():
                 models.torch.cuda.empty_cache()
-    if models is not None and models.device == "cuda":
+    if models.device == "cuda":
         print(f"card memory at most {models.torch.cuda.max_memory_allocated() / 2**30:.1f} GB (PyTorch)", flush=True)
     print(f"done; {len(failures)} failed: {' '.join(failures)}", flush=True)
     return 1 if failures else 0

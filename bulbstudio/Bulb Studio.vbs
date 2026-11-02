@@ -1,6 +1,6 @@
 ' Bulb Studio launcher: starts the app with no console window.
 ' Closing the window stops every show, puts the bulbs back as they were and
-' quits, like Light Show Studio. Messages go to bulbshow.log here.
+' quits, like Light Show Studio. Messages go to bulbstudio.log here.
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 here = fso.GetParentFolderName(WScript.ScriptFullName)
@@ -13,4 +13,4 @@ If Not fso.FileExists(py) Then
   WScript.Quit 1
 End If
 sh.CurrentDirectory = root
-sh.Run """" & py & """ -m bulbshow", 0, False
+sh.Run """" & py & """ -m bulbstudio", 0, False

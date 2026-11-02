@@ -12,7 +12,7 @@ This does the same for the studio's window, once Chrome has opened it:
 
 Pinning it then pins a Light Show Studio button that starts the whole studio,
 server and all, and its windows group under that button, apart from your Chrome.
-Off Windows, or if anything refuses, nothing changes. Bulb Studio (bulbshow/) passes its own ID,
+Off Windows, or if anything refuses, nothing changes. Bulb Studio (bulbstudio/) passes its own ID,
 name, launcher and icon to the same calls.
 """
 
@@ -99,15 +99,6 @@ class _Store:
         key = self._key(pid)
         return self._fn(6, ct.POINTER(self.PK), ct.POINTER(self.PV))(self.ptr, ct.byref(key), ct.byref(v)) == 0
 
-    def get(self, pid: int) -> str | None:
-        ct = self.ct
-        v, key = self.PV(), self._key(pid)
-        if self._fn(5, ct.POINTER(self.PK), ct.POINTER(self.PV))(self.ptr, ct.byref(key), ct.byref(v)) != 0:
-            return None
-        text = ct.wstring_at(v.p) if v.vt == VT_LPWSTR and v.p else None
-        ct.WinDLL("ole32").PropVariantClear(ct.byref(v))
-        return text
-
     def commit(self) -> bool:
         return self._fn(7)(self.ptr) == 0
 
@@ -133,15 +124,6 @@ def apply(hwnd: int, app_id: str = APP_ID, name: str = NAME, relaunch: str | Non
         ok = (st.set(PID_RELAUNCH, relaunch or relaunch_command()) and st.set(PID_NAME, name)
               and st.set(PID_ICON, icon or icon_resource()) and st.set(PID_ID, app_id))
         return bool(ok and st.commit())
-    finally:
-        st.close()
-
-
-def read(hwnd: int) -> dict:
-    """The window's taskbar identity as Windows sees it (for checking)."""
-    st = _Store(hwnd)
-    try:
-        return {"id": st.get(PID_ID), "relaunch": st.get(PID_RELAUNCH), "name": st.get(PID_NAME), "icon": st.get(PID_ICON)}
     finally:
         st.close()
 

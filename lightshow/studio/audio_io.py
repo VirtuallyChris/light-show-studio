@@ -241,7 +241,7 @@ def _wait_ready(ring: Ring, proc: mp.Process, timeout: float = 20.0) -> str:
 
 # ============================================================================ studio side
 class ProcessCapture:
-    """Drop-in for loopback.LoopbackCapture: the recording happens in its own process."""
+    """Records one output device into the relay: the recording happens in its own process."""
 
     def __init__(self, relay, device_name: str | None = None, gate=None, block: int = 1024, seconds: float = 20.0):
         from .loopback import Gate

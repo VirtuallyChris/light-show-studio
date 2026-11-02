@@ -14,6 +14,7 @@ LSS_DATA_DIR overrides it (the release smoke test uses a scratch folder).
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -23,7 +24,7 @@ SOURCE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def code_dir() -> str:
-    """The folder holding the `lightshow` and `bulbshow` packages (the bundle's own folder when packaged)."""
+    """The folder holding the `lightshow` and `bulbstudio` packages (the bundle's own folder when packaged)."""
     return getattr(sys, "_MEIPASS", SOURCE_ROOT) if FROZEN else SOURCE_ROOT
 
 
@@ -42,6 +43,34 @@ def data_dir() -> str:
     """Where config.json, shows/ and the logs go. Made on first use."""
     path = os.environ.get("LSS_DATA_DIR") or (user_data_dir() if FROZEN else SOURCE_ROOT)
     os.makedirs(path, exist_ok=True)
+    return path
+
+
+def move_data(old: str, new: str, renames: dict | None = None) -> None:
+    """Move what an older version kept in folder `old` into `new`, never over anything already there. A file in
+    use stays and moves the next time, so nothing is lost."""
+    if not os.path.isdir(old):
+        return
+    os.makedirs(new, exist_ok=True)
+    for name in os.listdir(old):
+        source, target = os.path.join(old, name), os.path.join(new, (renames or {}).get(name, name))
+        try:
+            if name == "__pycache__":
+                shutil.rmtree(source)
+            elif not os.path.exists(target):
+                os.replace(source, target)
+        except OSError as e:
+            print(f"[data] could not move {source} yet: {e}")
+    try:
+        os.rmdir(old)
+    except OSError:
+        pass
+
+
+def bulb_studio_dir() -> str:
+    """Bulb Studio's shows, API key and log (its own code folder too, from source)."""
+    path = os.path.join(data_dir(), "bulbstudio")
+    move_data(os.path.join(data_dir(), "bulbshow"), path, {"bulbshow.log": "bulbstudio.log"})
     return path
 
 

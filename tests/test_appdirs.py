@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -6,6 +7,46 @@ from unittest import mock
 
 from lightshow import appdirs
 from lightshow import __main__ as entry
+
+
+class TestMoveData(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+        self.old, self.new = os.path.join(self.dir, "bulbshow"), os.path.join(self.dir, "bulbstudio")
+
+    def write(self, *path, text="x"):
+        path = os.path.join(*path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def read(self, *path):
+        with open(os.path.join(*path), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_shows_key_and_log_all_follow(self):
+        self.write(self.old, "config.json", text="key")
+        self.write(self.old, "shows", "witch", "show.json", text="witch")
+        self.write(self.old, "bulbshow.log", text="log")
+        self.write(self.old, "__pycache__", "a.pyc")
+        appdirs.move_data(self.old, self.new, {"bulbshow.log": "bulbstudio.log"})
+        self.assertEqual(self.read(self.new, "config.json"), "key")
+        self.assertEqual(self.read(self.new, "shows", "witch", "show.json"), "witch")
+        self.assertEqual(self.read(self.new, "bulbstudio.log"), "log")
+        self.assertFalse(os.path.exists(self.old))
+        self.assertFalse(os.path.exists(os.path.join(self.new, "__pycache__")))
+
+    def test_never_over_what_is_already_there(self):
+        self.write(self.old, "config.json", text="old")
+        self.write(self.new, "config.json", text="new")
+        appdirs.move_data(self.old, self.new)
+        self.assertEqual(self.read(self.new, "config.json"), "new")
+        self.assertEqual(self.read(self.old, "config.json"), "old")
+
+    def test_nothing_to_move_makes_nothing(self):
+        appdirs.move_data(self.old, self.new)
+        self.assertFalse(os.path.exists(self.new))
 
 
 class DataDirTest(unittest.TestCase):
@@ -32,11 +73,11 @@ class DataDirTest(unittest.TestCase):
 
 class SelfCommandTest(unittest.TestCase):
     def test_source_runs_python_m(self):
-        self.assertEqual(appdirs.self_command("bulbshow", "--port", "1", frozen=False, exe="py"), ["py", "-m", "bulbshow", "--port", "1"])
+        self.assertEqual(appdirs.self_command("bulbstudio", "--port", "1", frozen=False, exe="py"), ["py", "-m", "bulbstudio", "--port", "1"])
 
     def test_packaged_runs_itself(self):
-        self.assertEqual(appdirs.self_command("bulbshow", "--port", "1", frozen=True, exe="app"),
-                         ["app", "--run-module", "bulbshow", "--port", "1"])
+        self.assertEqual(appdirs.self_command("bulbstudio", "--port", "1", frozen=True, exe="app"),
+                         ["app", "--run-module", "bulbstudio", "--port", "1"])
 
 
 class PopenOutsideTest(unittest.TestCase):
@@ -58,9 +99,9 @@ class PreparePackagedTest(unittest.TestCase):
 class DispatchTest(unittest.TestCase):
     def test_run_module(self):
         with mock.patch("runpy.run_module") as run, mock.patch.object(sys, "argv", ["x"]):
-            self.assertEqual(entry.dispatch(["--run-module", "bulbshow", "--no-browser"]), 0)
-            run.assert_called_once_with("bulbshow", run_name="__main__", alter_sys=True)
-            self.assertEqual(sys.argv, ["bulbshow", "--no-browser"])
+            self.assertEqual(entry.dispatch(["--run-module", "bulbstudio", "--no-browser"]), 0)
+            run.assert_called_once_with("bulbstudio", run_name="__main__", alter_sys=True)
+            self.assertEqual(sys.argv, ["bulbstudio", "--no-browser"])
 
     def test_packaged_double_click_opens_the_studio(self):
         with mock.patch("lightshow.cli.main", return_value=0) as main, mock.patch.object(sys, "frozen", True, create=True),                 mock.patch.object(entry, "prepare_packaged"):       # (it sets the environment for everything after)

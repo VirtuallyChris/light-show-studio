@@ -44,6 +44,23 @@ WAVE_PPS = 50
 N_BANDS = 12
 
 
+def _load_json(path: str, default=None):
+    """A JSON file's contents, or default when it is missing or broken."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return default
+
+
+def _save_json(path: str, doc, indent: int | None = None) -> None:
+    """Written to a temporary file and moved into place: never half a file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, indent=indent)
+    os.replace(tmp, path)
+
+
 # ======================================================================= the library
 def _norm(text: str) -> list[str]:
     """Words of a title with the noise taken out, for matching a track to a saved show."""
@@ -99,6 +116,12 @@ class JamLibrary:
         # the caches below (twins, the learned index, the user's sections) are used by the jam, learn ahead, the
         # review and the labeler's threads at once: one lock (a dict changed mid-dump failed a song's start)
         self._cache_lock = threading.RLock()
+        self._truth: tuple | None = None                            # (section_truth.json's time, its contents)
+        self._twins: dict | None = None                             # twins.json: confirmed pairs
+        self._lidx: dict = {}                                       # the learned index (_learned_index)
+        self._summary: dict = {}                                    # track id -> (the file's time, its summary)
+        self._locked_cache: dict = {}                               # locked file -> (its time, its contents)
+        self._lyrics: dict = {}                                     # track id -> (the file's time, its lyrics)
         self._projects: tuple[float, list[dict]] | None = None     # (when listed, the list)
         self._durations: dict[tuple, float] = {}                    # (path, size, mtime) -> seconds
 
@@ -141,11 +164,7 @@ class JamLibrary:
 
     def links(self) -> dict:
         if self._links is None:
-            try:
-                with open(self.links_path, encoding="utf-8") as fh:
-                    self._links = json.load(fh)
-            except (OSError, ValueError):
-                self._links = {}
+            self._links = _load_json(self.links_path, {})
         return self._links
 
     def link(self, track_id: str, project: str | None) -> None:
@@ -164,11 +183,7 @@ class JamLibrary:
         """track id -> {"primary": hex, "secondary": hex, "only"?: True}, or {"off": True} for a track that keeps out of
         the party's colors (it plays in its album cover's): kept for the next time the track plays."""
         if self._colors is None:
-            try:
-                with open(self.colors_path, encoding="utf-8") as fh:
-                    self._colors = json.load(fh)
-            except (OSError, ValueError):
-                self._colors = {}
+            self._colors = _load_json(self.colors_path, {})
         return self._colors
 
     def set_colors(self, track_id: str, primary: str | None, secondary: str | None, off: bool = False, only: bool = False) -> None:
@@ -183,10 +198,7 @@ class JamLibrary:
         else:
             colors.pop(track_id, None)
         os.makedirs(self.dir, exist_ok=True)
-        tmp = self.colors_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(colors, fh, indent=1)
-        os.replace(tmp, self.colors_path)
+        _save_json(self.colors_path, colors, indent=1)
 
     # -- a song's vibe, chosen by hand ---------------------------------------------------------
     STYLES = ("chill", "groove", "dance", "rave")
@@ -195,11 +207,7 @@ class JamLibrary:
         """track id -> the show style picked for it by hand (a song taken for a rager that is chill),
         kept for the next time it plays; a song not here gets the style its analysis finds."""
         if self._styles is None:
-            try:
-                with open(self.styles_path, encoding="utf-8") as fh:
-                    self._styles = {k: v for k, v in json.load(fh).items() if v in self.STYLES}
-            except (OSError, ValueError):
-                self._styles = {}
+            self._styles = {k: v for k, v in _load_json(self.styles_path, {}).items() if v in self.STYLES}
         return self._styles
 
     def set_style(self, track_id: str, style: str | None) -> None:
@@ -209,10 +217,7 @@ class JamLibrary:
         else:
             styles.pop(track_id, None)                   # back to the style the analysis finds
         os.makedirs(self.dir, exist_ok=True)
-        tmp = self.styles_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(styles, fh, indent=1)
-        os.replace(tmp, self.styles_path)
+        _save_json(self.styles_path, styles, indent=1)
 
     # A song's genre, chosen by hand: what the effects that belong to a genre listen for (808s and hat rolls
     # for hip hop and trap, wobbles and glitches for bass music, candlelight for folk), and, with the vibe
@@ -228,11 +233,7 @@ class JamLibrary:
 
     def genres(self) -> dict:
         if self._genres is None:
-            try:
-                with open(self.genres_path, encoding="utf-8") as fh:
-                    self._genres = {k: v for k, v in json.load(fh).items() if v in self.GENRES}
-            except (OSError, ValueError):
-                self._genres = {}
+            self._genres = {k: v for k, v in _load_json(self.genres_path, {}).items() if v in self.GENRES}
         return self._genres
 
     def set_genre(self, track_id: str, genre: str | None) -> None:
@@ -242,10 +243,7 @@ class JamLibrary:
         else:
             genres.pop(track_id, None)                   # back to the genre the analysis hears
         os.makedirs(self.dir, exist_ok=True)
-        tmp = self.genres_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(genres, fh, indent=1)
-        os.replace(tmp, self.genres_path)
+        _save_json(self.genres_path, genres, indent=1)
 
     def match_project(self, track: Track) -> str | None:
         linked = self.links().get(track.id)
@@ -315,10 +313,8 @@ class JamLibrary:
             mtime = os.path.getmtime(path)
         except OSError:
             return None
-        lock = self.__dict__.setdefault("_cache_lock", threading.RLock())
-        cache = self.__dict__.setdefault("_summary", {})
-        with lock:
-            hit = cache.get(track_id)
+        with self._cache_lock:
+            hit = self._summary.get(track_id)
             if hit and hit[0] == mtime:
                 return hit[1]
         out = None
@@ -341,8 +337,8 @@ class JamLibrary:
                 return None
             a = doc.get("analysis") or {}
             out = {"problems": list(a.get("problems") or []), "mood": a.get("mood"), "genre": a.get("genre")}
-        with lock:
-            cache[track_id] = (mtime, out)
+        with self._cache_lock:
+            self._summary[track_id] = (mtime, out)
         return out
 
     def reviewed_sections(self, track_id: str) -> list | None:
@@ -353,7 +349,7 @@ class JamLibrary:
             mtime = os.path.getmtime(path)
         except OSError:
             return None
-        cache = self.__dict__.get("_truth")
+        cache = self._truth
         if not cache or cache[0] != mtime:
             try:
                 with open(path, encoding="utf-8") as fh:
@@ -387,26 +383,17 @@ class JamLibrary:
         if not cands:
             return []
         path = os.path.join(self.dir, "twins.json")
-        lock = self.__dict__.setdefault("_cache_lock", threading.RLock())
-        with lock:
-            known = self.__dict__.get("_twins")
-            if known is None:
-                try:
-                    with open(path, encoding="utf-8") as fh:
-                        known = json.load(fh)
-                except (OSError, ValueError):
-                    known = {}
-                self._twins = known
+        with self._cache_lock:
+            if self._twins is None:
+                self._twins = _load_json(path, {})
+            known = self._twins
             todo = [t for t in cands if "|".join(sorted((track_id, t))) not in known]
         found = {"|".join(sorted((track_id, t))): self._match(*sorted((track_id, t))) for t in todo}   # (slow: outside the lock)
-        with lock:
+        with self._cache_lock:
             if found:
                 known.update(found)
                 try:
-                    tmp = path + ".tmp"
-                    with open(tmp, "w", encoding="utf-8") as fh:
-                        json.dump(known, fh, indent=1)
-                    os.replace(tmp, path)
+                    _save_json(path, known, indent=1)
                 except OSError:
                     pass
             out = []
@@ -443,27 +430,16 @@ class JamLibrary:
     # The beat grid set right by ear (the studio's review: Light Switch's beats sat on its claps, half a beat
     # off its kicks): track id -> seconds the whole grid moves, applied every time the song is read.
     def beat_fixes(self) -> dict:
-        try:
-            with open(self.beat_fixes_path, encoding="utf-8") as fh:
-                return {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
-        except (OSError, ValueError):
-            return {}
+        return {k: v for k, v in _load_json(self.beat_fixes_path, {}).items() if not k.startswith("_")}
 
     def set_beat_fix(self, track_id: str, seconds: float) -> None:
-        try:
-            with open(self.beat_fixes_path, encoding="utf-8") as fh:
-                fixes = json.load(fh)
-        except (OSError, ValueError):
-            fixes = {"_about": "Seconds each learned song's beat grid moves (set by ear in the studio's review)."}
+        fixes = _load_json(self.beat_fixes_path, {"_about": "Seconds each learned song's beat grid moves (set by ear in the studio's review)."})
         if abs(seconds) < 0.001:
             fixes.pop(track_id, None)
         else:
             fixes[track_id] = round(float(seconds), 4)
         os.makedirs(self.dir, exist_ok=True)
-        tmp = self.beat_fixes_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(fixes, fh, indent=1)
-        os.replace(tmp, self.beat_fixes_path)
+        _save_json(self.beat_fixes_path, fixes, indent=1)
 
     # -- locked shows: a song whose show the user wants kept exactly as it is ("it's epic") ---------------
     # shows/_jam/locked/<id>.json holds the show as it was built and the analysis it was built on, so no
@@ -481,7 +457,7 @@ class JamLibrary:
             mtime = os.path.getmtime(path)
         except OSError:
             return None                                   # (nearly every song: one quick look)
-        cache = self.__dict__.setdefault("_locked_cache", {})
+        cache = self._locked_cache
         if path in cache and cache[path][0] == mtime:
             return cache[path][1]
         try:
@@ -496,10 +472,7 @@ class JamLibrary:
     def lock(self, track_id: str, project: dict, analysis: dict, label: str = "") -> None:
         path = self._locked_path(track_id)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"label": label, "locked_at": time.strftime("%Y-%m-%d %H:%M"), "project": project, "analysis": analysis}, fh)
-        os.replace(tmp, path)
+        _save_json(path, {"label": label, "locked_at": time.strftime("%Y-%m-%d %H:%M"), "project": project, "analysis": analysis})
 
     def lyrics(self, track_id: str) -> dict | None:
         """The song's lyrics with word times (lyrics.py; shows/_jam/lyrics/<id>.json), slimmed to what a
@@ -516,7 +489,7 @@ class JamLibrary:
                     mv = lambda x: {**x, **{k: round(float(x[k]) + off, 3) for k in ("t", "end") if k in x}}
                     return {**lyr, "words": [mv(w) for w in lyr["words"]], "lines": [mv(x) for x in lyr["lines"]]}
             return None
-        cache = self.__dict__.setdefault("_lyrics", {})
+        cache = self._lyrics
         if track_id in cache and cache[track_id][0] == mtime:
             return cache[track_id][1]
         try:
@@ -537,9 +510,8 @@ class JamLibrary:
     def _learned_index(self) -> dict:
         """track id -> (artist words, name, length) of each learned song, read from the head of its file (the
         track comes right after the version: the megabytes after it are not read). Kept, and topped up."""
-        lock = self.__dict__.setdefault("_cache_lock", threading.RLock())
-        with lock:
-            idx = self.__dict__.setdefault("_lidx", {})
+        with self._cache_lock:
+            idx = self._lidx
             try:
                 names = os.listdir(self.learned_dir)
             except OSError:
@@ -579,11 +551,7 @@ class JamLibrary:
         doc = self.learned(tid) if tid else None
         if not doc:
             return None
-        out = {**doc, "track": track.to_json(), "twin_of": tid}       # (the version stays first)
-        tmp = self._learned_path(track.id) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(out, fh)
-        os.replace(tmp, self._learned_path(track.id))
+        _save_json(self._learned_path(track.id), {**doc, "track": track.to_json(), "twin_of": tid})       # (the version stays first)
         return tid
 
     def forget_learned(self, track_id: str) -> None:
@@ -597,11 +565,7 @@ class JamLibrary:
         """{"copy": measured from its YouTube copy, "relay": measured as it played} (either may be missing)."""
         with self._levels_lock:
             if self._levels is None:
-                try:
-                    with open(self.levels_path, encoding="utf-8") as fh:
-                        self._levels = json.load(fh)
-                except (OSError, ValueError):
-                    self._levels = {}
+                self._levels = _load_json(self.levels_path, {})
             return dict(self._levels.get(track_id) or {})
 
     def save_level(self, track_id: str, source: str, level: dict) -> None:
@@ -610,10 +574,7 @@ class JamLibrary:
         with self._levels_lock:
             self._levels.setdefault(track_id, {})[source] = {**level, "at": time.strftime("%Y-%m-%d %H:%M")}
             os.makedirs(self.dir, exist_ok=True)
-            tmp = self.levels_path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._levels, fh)
-            os.replace(tmp, self.levels_path)
+            _save_json(self.levels_path, self._levels)
 
     def save_learned(self, track: Track, analysis: dict, source: str = "heard") -> None:
         """source: "heard" (the jam listened to it) or "youtube" (learned ahead from a copy, see fetch_ahead)."""
@@ -621,10 +582,7 @@ class JamLibrary:
         prev = self.learned(track.id) or {}
         doc = {"version": _analysis_version(), "track": track.to_json(), "plays": int(prev.get("plays", 0)) + (source == "heard"),
                "learned_at": time.strftime("%Y-%m-%d %H:%M"), "source": source, "analysis": analysis}
-        tmp = self._learned_path(track.id) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh)
-        os.replace(tmp, self._learned_path(track.id))
+        _save_json(self._learned_path(track.id), doc)
 
 
 # ================================================================== streaming features
@@ -898,7 +856,6 @@ class JamTrack:
 @dataclass
 class JamSettings:
     target_delay: float = 90.0          # how far behind the capture head the room should be (90 s: time for a full analysis)
-    min_delay: float = 3.0              # where the stream restarts after a skip
     max_gap: float = 6.0                # most silence to add between two songs when growing the delay back
     analyse_every: float = 6.0          # new audio needed before the live analysis runs again
     min_audio: float = 12.0             # audio needed before the first pass
@@ -914,6 +871,21 @@ class JamSettings:
     # Every song at about the same volume (loudness.py): one gain per song, set where it begins.
     even_levels: bool = True
     level_target: float = -9.0          # LUFS
+
+
+def _ref_of(a: dict) -> tuple | None:
+    """What a song's saved analysis is lined up against by ear: (matching features, fps), or None."""
+    if not a.get("align_bands"):
+        return None
+    return np.asarray(a["align_bands"], dtype=np.float32), float(a.get("align_fps", SR_ANALYSIS / HOP))
+
+
+def _settle_learned(a: dict) -> None:
+    """A learned analysis made ready to play: its style as it reads now, its sections settled."""
+    from .analysis import settle_sections
+    from .genre import restyle
+    a["genre"] = restyle(a.get("genre"), float((a.get("mood") or {}).get("drive", 0.6)))
+    settle_sections(a)
 
 
 class JamEngine:
@@ -937,7 +909,6 @@ class JamEngine:
         self.streaming = False
         self.serial = 0
         self.flushes = 0
-        self.gaps_added = 0.0
         self._streamed_at = -1e9                       # when the speakers last got a fresh stream (keep_delay)
         self._planned_level = None                     # the song whose next song's level is set ahead (plan_levels)
         self._paused_room: float | None = None         # where the room was when Spotify paused
@@ -946,6 +917,8 @@ class JamEngine:
         self._resume_watch = None                      # (when, room) at a resume: has the room moved on since?
         self._resumed_at = -1e9                        # when the speakers last just resumed (keep_delay waits)
         self._duck_fresh = False                       # the music turned down or up while paused: a fresh stream on resume
+        self._catch_up_said = False                    # keep_delay has said the room catches up at the end of this song
+        self._prep: dict = {}                          # the song about to begin, loaded ahead (_prepare)
         self.error = ""
         self.auto_start = True            # begin streaming by itself once the buffer reaches the target
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
@@ -1106,20 +1079,16 @@ class JamEngine:
     def _prepare(self, track: Track) -> None:
         """A song about to begin: its learned analysis loaded and settled now, outside the lock (_begin_track takes it).
         Only the latest is kept."""
-        prep = self.__dict__.setdefault("_prep", {})
+        prep = self._prep
         if track.id in prep or self.library.match_project(track):
             return
         learned = self.library.learned(track.id)
         if not learned:
             return
-        from .analysis import settle_sections
-        from .genre import restyle
         a0 = learned["analysis"]
-        a0["genre"] = restyle(a0.get("genre"), float((a0.get("mood") or {}).get("drive", 0.6)))
-        settle_sections(a0)
-        ref = (np.asarray(a0["align_bands"], dtype=np.float32), float(a0.get("align_fps", SR_ANALYSIS / HOP))) if a0.get("align_bands") else None
+        _settle_learned(a0)
         prep.clear()
-        prep[track.id] = (learned, ref)
+        prep[track.id] = (learned, _ref_of(a0))
 
     def _begin_track(self, track: Track, est_start: float, prev: JamTrack | None, restarted: bool) -> None:
         natural = False
@@ -1135,7 +1104,7 @@ class JamEngine:
             natural = not restarted and -early <= est_start - expected_end <= 3.0
             prev.end = min(est_start, expected_end) if natural else est_start
             prev.skipped = not natural
-        ready = self.__dict__.setdefault("_prep", {}).pop(track.id, None)   # (loaded and settled ahead: poll, _prepare)
+        ready = self._prep.pop(track.id, None)   # (loaded and settled ahead: poll, _prepare)
         project = None if ready else self.library.match_project(track)
         if not project and not ready:
             try:
@@ -1157,21 +1126,15 @@ class JamEngine:
         except Exception:  # noqa: BLE001 - genres are a hint; the jam goes on without them
             jt.spotify_genres = []
         if learned:
-            from .genre import restyle
             jt.source = learned.get("source", "heard")
             jt.analysis = learned["analysis"]
             a0 = jt.analysis
             if not ready:                                   # (else restyled and settled ahead, outside the lock)
-                a0["genre"] = restyle(a0.get("genre"), float((a0.get("mood") or {}).get("drive", 0.6)))
-                from .analysis import settle_sections
-                settle_sections(a0)
+                _settle_learned(a0)
             jt.genre = a0.get("genre")
             jt.version = 1
             jt.horizon = track.duration
-            if ready:
-                jt.ref = ready[1]
-            elif a0.get("align_bands"):
-                jt.ref = (np.asarray(a0["align_bands"], dtype=np.float32), float(a0.get("align_fps", SR_ANALYSIS / HOP)))
+            jt.ref = ready[1] if ready else _ref_of(a0)
         self.tracks.append(jt)
         del self.tracks[:-40]
         self.say(f"{'next up' if natural else 'now'}: {track.label}  [{kind}{' - ' + project if project else ''}]")
@@ -1179,7 +1142,7 @@ class JamEngine:
         self.relay.set_level(est_start, gain)
         if why:
             self.say(f"level: {track.name}: {why}")
-        if prev is not None and natural and not restarted:
+        if natural:
             self._measure_level(prev)
         if prev is None:
             return
@@ -1195,7 +1158,6 @@ class JamEngine:
             if short > 1.0:
                 gap = min(self.cfg.max_gap, short)
                 self.output.stream.add_gap(self._quietest_near(jt.start), gap)
-                self.gaps_added += gap
                 self.say(f"adding {gap:.1f}s between songs to grow the delay back ({self.delay():.0f}s of {self.cfg.target_delay:.0f}s)")
 
     DRIFT_S = 5.0            # this far past the target delay, the room jumps back
@@ -1210,7 +1172,7 @@ class JamEngine:
         with self.lock:
             if not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
                 return None
-            if self.clock() - self._streamed_at < 20.0 or self.clock() - getattr(self, "_resumed_at", -1e9) < 20.0:
+            if self.clock() - self._streamed_at < 20.0 or self.clock() - self._resumed_at < 20.0:
                 return None
             d = self.delay()
             if d <= self.cfg.target_delay + self.DRIFT_S:
@@ -1223,18 +1185,21 @@ class JamEngine:
             here = self.track_at(rc)
             nxt = next((t for t in self.tracks if t.start > rc + 0.5), None)
             if nxt is None or rc < nxt.start - excess - 0.05:
-                if not getattr(self, "_catch_up_said", False):
+                if not self._catch_up_said:
                     self._catch_up_said = True
                     self.say(f"the room is {d:.0f}s behind: it catches up at the end of this song")
                 return None
-            self.output.start_stream(self.relay.open_stream(max(self.relay.oldest_time, nxt.start),
-                                                            pace=not isinstance(self.output, VirtualOutput)))
+            self.output.start_stream(self._open_stream(max(self.relay.oldest_time, nxt.start)))
             self._streamed_at, self._catch_up_said = self.clock(), False
             self._quiet_start()
             left = max(0.0, nxt.start - rc)
             self.say(f"caught up between songs: the last {left:.0f}s of {here.track.label if here else 'the song'} left out, "
                      f"{nxt.track.label} from its start ({d:.0f}s behind -> {d - left:.0f}s)")
             return f"delay {d:.0f}s -> {d - left:.0f}s"
+
+    def _open_stream(self, at: float) -> RelayStream:
+        """A stream of the jam from capture time `at` for the speakers (a virtual one is not paced)."""
+        return self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
 
     def _quiet_start(self) -> None:
         """The stream just started is the room carrying on (a doorbell's song, the music back after it, a catch-up
@@ -1261,7 +1226,7 @@ class JamEngine:
             # resume, no watch (one more fresh stream on a speaker still starting was a glitch)
             self._speaker_dropped, self._paused_room, self._paused_at, self._resume_watch = False, None, None, None
             return
-        paused_for = self.clock() - self._paused_at if getattr(self, "_paused_at", None) is not None else 0.0
+        paused_for = self.clock() - self._paused_at if self._paused_at is not None else 0.0
         at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
         duck, self._duck_fresh = getattr(self, "_duck_fresh", False), False
         dropped = cast is not None and (self._speaker_dropped or getattr(cast, "state", "") not in self.SPEAKER_LIVE or paused_for > self.RESUME_FRESH_S)
@@ -1299,7 +1264,7 @@ class JamEngine:
                 return None
             # a plain resume (_resume_output) the speaker did not pick up: the room has not moved on since, so a
             # fresh stream from where it stopped (never a jump ahead: nothing of the song is lost)
-            watch = getattr(self, "_resume_watch", None)
+            watch = self._resume_watch
             if watch is not None and self._streamed_at > watch[0]:
                 self._resume_watch = watch = None                # a fresh stream since: it is not the resume's
             if watch is not None and self.clock() - watch[0] >= self.RESUME_CHECK_S:
@@ -1413,8 +1378,7 @@ class JamEngine:
         """A skip: drop what was waiting and put the room on the new track at once."""
         if not self.streaming:
             return
-        start = max(jt.start, self.relay.oldest_time)
-        self.output.start_stream(self.relay.open_stream(start, pace=not isinstance(self.output, VirtualOutput)))
+        self.output.start_stream(self._open_stream(max(jt.start, self.relay.oldest_time)))
         self._streamed_at = self.clock()
         self.flushes += 1
         self.say(f"skip: buffer flushed, the room joins {jt.track.name} now")
@@ -1427,7 +1391,7 @@ class JamEngine:
                 from_time = max(first.start if first else self.relay.capture_time, self.relay.oldest_time)
                 # never start further back than the target: a long wait is cut down to it
                 from_time = max(from_time, self.relay.capture_time - self.cfg.target_delay * 2)
-            self.output.start_stream(self.relay.open_stream(from_time, pace=not isinstance(self.output, VirtualOutput)))
+            self.output.start_stream(self._open_stream(from_time))
             self._streamed_at = self.clock()
             self.streaming = True
             self.say(f"speakers started {self.relay.capture_time - from_time:.0f}s behind")
@@ -1473,7 +1437,7 @@ class JamEngine:
                 at = self._paused_room if self._paused_room is not None else self.relay.capture_time - self.cfg.target_delay
                 at = max(self.relay.oldest_time, at)
             sr = self.relay.sr
-            fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
+            fresh = self._open_stream(at)
             fresh.insert(pcm, int(fade_in_s * sr))
             self.gate.paused = True                       # Spotify's pause is not the room's: nothing to pause
             self.cue_hold, self.cue_in_stream, self.music_back = True, True, False
@@ -1499,7 +1463,7 @@ class JamEngine:
             rc = self.room_capture_time()
             if playing and rc is not None:
                 self.relay.set_duck(rc, seconds, to)
-                fresh = self.relay.open_stream(rc, pace=not isinstance(self.output, VirtualOutput))
+                fresh = self._open_stream(rc)
                 old = self.output.stream.gain
                 if old is not None and old[3] >= 1.0:             # (still fading in after a doorbell: carries on)
                     g = self.output.stream._gain_at(self.output.stream.sent)
@@ -1528,7 +1492,7 @@ class JamEngine:
         else:
             self.say(f"Spotify's pause: nothing played twice found (best match {info['match']:.2f}), joined{gap}")
         print(f"[jam] {self.log[-1][9:]}")                # (in studio.log too: the jam's own log goes with the studio)
-        if self.seam_dir is None or around is None:
+        if around is None:
             return
         sr, d = self.relay.sr, self.seam_dir
 
@@ -1573,7 +1537,7 @@ class JamEngine:
                 restart = True                            # cut short: the song is still in the stream
             if restart and self.streaming and at is not None:
                 # it plays from there at once: the buffer already holds what comes next
-                fresh = self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
+                fresh = self._open_stream(at)
                 if fade_in > 0:
                     fresh.fade(fade_in, 1.0, start=0.0)
                 self.output.start_stream(fresh)
@@ -1685,16 +1649,12 @@ class JamEngine:
         if not learned:
             return None
         a = learned["analysis"]
-        from .genre import restyle
-        a["genre"] = restyle(a.get("genre"), float((a.get("mood") or {}).get("drive", 0.6)))
-        from .analysis import settle_sections
-        settle_sections(a)
+        _settle_learned(a)
         with self.lock:
             jt.kind, jt.analysis, jt.genre, jt.source = "learned", a, a.get("genre"), learned.get("source", "heard")
             jt.horizon, jt.version, jt.saved = jt.track.duration, jt.version + 1, True
             jt.aligned = False
-            if a.get("align_bands"):
-                jt.ref = (np.asarray(a["align_bands"], dtype=np.float32), float(a.get("align_fps", SR_ANALYSIS / HOP)))
+            jt.ref = _ref_of(a)
         self.say(f"{jt.track.label}: learned ahead while it played, the full show from here")
         return f"upgraded {jt.track.name}"
 
@@ -1816,9 +1776,7 @@ class JamEngine:
             if song and self.cache_dir is not False:
                 try:
                     from .analysis import analyze_cached
-                    a = analyze_cached(song, os.path.join(os.path.dirname(song), "cache"))
-                    if a.get("align_bands"):
-                        return np.asarray(a["align_bands"], dtype=np.float32), float(a.get("align_fps", SR_ANALYSIS / HOP))
+                    return _ref_of(analyze_cached(song, os.path.join(os.path.dirname(song), "cache")))
                 except Exception as e:  # noqa: BLE001
                     self.say(f"could not read the analysis of {jt.project}: {e}")
         return None
@@ -2033,14 +1991,11 @@ class JamRunner:
         self.engine = engine
         self.file_status = file_status            # () -> (seconds left of a song from disk, playing?) for the hand-over
         self.stop_flag = threading.Event()
-        self.threads: list[threading.Thread] = []
 
     def start(self) -> None:
         self.stop_flag.clear()
         for fn in (self._poll, self._analyse):
-            t = threading.Thread(target=fn, daemon=True)
-            t.start()
-            self.threads.append(t)
+            threading.Thread(target=fn, daemon=True).start()
 
     def stop(self) -> None:
         self.stop_flag.set()

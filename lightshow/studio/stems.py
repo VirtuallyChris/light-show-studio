@@ -27,9 +27,7 @@ class StemsWorker(ModelWorker):
             if len(raw) < n * 4 * len(order):
                 self.last_error = "the separation came back short"
                 return None
-            arr = np.frombuffer(raw, dtype=np.float32)
-            return {**{k: arr[i * n:(i + 1) * n].copy() for i, k in enumerate(order)}, "sr": int(r["stems"]["sr"]),
-                    "levels": r.get("levels", {}), "fps": r.get("fps", 30), "seconds": r.get("seconds")}
+            return _tracks(r, raw, n, order)
         with self.lock:
             for _ in (1, 2):                             # a worker that died is restarted once
                 if not self._start():
@@ -45,10 +43,8 @@ class StemsWorker(ModelWorker):
                         if raw is None:
                             r = None
                         else:
-                            arr = np.frombuffer(raw, dtype=np.float32)
                             self.last_error = ""
-                            return {**{k: arr[i * n:(i + 1) * n].copy() for i, k in enumerate(order)}, "sr": int(r["stems"]["sr"]),
-                                    "levels": r.get("levels", {}), "fps": r.get("fps", 30), "seconds": r.get("seconds")}
+                            return _tracks(r, raw, n, order)
                 except OSError:
                     r = None
                 if r is not None and "error" in r:
@@ -58,6 +54,13 @@ class StemsWorker(ModelWorker):
                 self.stop()
             self.last_error = "the separation stopped answering"
             return None
+
+
+def _tracks(r: dict, raw: bytes, n: int, order: list) -> dict:
+    """The worker's reply with its tracks, which came after it as raw floats."""
+    arr = np.frombuffer(raw, dtype=np.float32)
+    return {**{k: arr[i * n:(i + 1) * n].copy() for i, k in enumerate(order)}, "sr": int(r["stems"]["sr"]),
+            "levels": r.get("levels", {}), "fps": r.get("fps", 30), "seconds": r.get("seconds")}
 
 
 def _read_exactly(stream, n: int):
@@ -72,10 +75,6 @@ def _read_exactly(stream, n: int):
 
 
 WORKER = StemsWorker("lightshow.studio.stems_infer", "stems")
-
-
-def available() -> bool:
-    return WORKER.available()
 
 
 def separate_file(path: str):

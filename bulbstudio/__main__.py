@@ -10,7 +10,7 @@ def main(argv=None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError):
             pass
-    p = argparse.ArgumentParser(prog="bulbshow", description="Bulb Studio: looping light shows, one sound, one speaker, one bulb each.")
+    p = argparse.ArgumentParser(prog="bulbstudio", description="Bulb Studio: looping light shows, one sound, one speaker, one bulb each.")
     p.add_argument("--host", default="0.0.0.0", help="interface to listen on (default all, so speakers can fetch the sound)")
     p.add_argument("--port", type=int, default=8770)
     p.add_argument("--no-browser", action="store_true", help="do not open a window")

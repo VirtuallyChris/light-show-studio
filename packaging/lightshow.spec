@@ -32,7 +32,7 @@ def tree(pkg):
 
 def modules(pkg):
     """Every module of one of our packages, read from its folder: the app starts some of them only by name
-    (--run-module), so the import scan alone misses them (and collect_submodules cannot import bulbshow here)."""
+    (--run-module), so the import scan alone misses them (and collect_submodules cannot import bulbstudio here)."""
     out = []
     for base, dirs, files in os.walk(os.path.join(ROOT, pkg)):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and os.path.exists(os.path.join(base, d, "__init__.py"))]
@@ -41,7 +41,7 @@ def modules(pkg):
     return out
 
 
-datas = tree("lightshow") + tree("bulbshow") + collect_data_files("soundcard") + collect_data_files("librosa") + collect_data_files("xgboost")
+datas = tree("lightshow") + tree("bulbstudio") + collect_data_files("soundcard") + collect_data_files("librosa") + collect_data_files("xgboost")
 # The version the app knows itself by (lightshow/studio/updates.py), from the release tag
 os.makedirs(workpath, exist_ok=True)
 version_file = os.path.join(workpath, "VERSION")
@@ -52,7 +52,7 @@ datas += [(version_file, "lightshow")] + collect_data_files("certifi")
 datas += [(path, "models_src") for path in glob.glob(os.path.join(ROOT, "requirements-models-*.txt"))]
 # The package again, for the models' own Python, in a folder without the app's libraries (model_worker.ROOT)
 datas += [(src, os.path.join("models_src", dest)) for src, dest in tree("lightshow") if "static" not in dest.split(os.sep)]
-hidden = modules("lightshow") + modules("bulbshow") + collect_submodules("pychromecast")
+hidden = modules("lightshow") + modules("bulbstudio") + collect_submodules("pychromecast")
 # The AI models run in the model environment, not in the app: never pull them in
 excludes = ["torch", "torchaudio", "torchvision", "transformers", "ctranslate2", "faster_whisper", "demucs",
             "tkinter", "matplotlib", "IPython", "pytest"]

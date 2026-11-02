@@ -13,7 +13,7 @@
 (() => {
   const St = window.Studio; if (!St) return;
   const { S, $, toast } = St;
-  const J = S.jam = { live: false, open: false, state: null, key: null, version: -1, anchor: null, built: [], timer: null, fetching: false,
+  const J = S.jam = { live: false, state: null, key: null, version: -1, anchor: null, built: [], fetching: false,
     pos() { const a = this.anchor; if (!a) return 0; return a.playing ? a.position + (performance.now() - a.at) / 1000 : a.position; } };
 
   const api = async (path, body) => {
@@ -22,7 +22,6 @@
     if (j && j.error) throw new Error(j.error);
     return j;
   };
-  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // ------------------------------------------------------------------ colors
   // Every jam song is shown in two colors: the ones picked for that track (kept for next time), else
   // the jam's own pair, else (jam set to "album cover") its cover's. A show you made keeps its own.
@@ -96,7 +95,6 @@
     J.clips = St.clipSig();                                        // (rebuilt by the jam, not by hand)
     St.draw();
   }
-  const roomTrackId = () => J.doc && J.doc.track && J.doc.track.id;
 
   // ------------------------------------------------------------------ following the room
   async function tick() {
@@ -154,7 +152,7 @@
   }, 200);
   async function cueStart(cue) {
     if (C.run) cueEnd();
-    C.run = cue.run; C.via = cue.via;
+    C.run = cue.run;
     // the jam's show is kept as it is, to take up again the moment the cue is over (not loaded again)
     C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing,
                key: J.key, doc: J.doc, version: J.version, built: J.built, style: J.style, drums: J.drums,
@@ -212,7 +210,6 @@
     else { S.audio.playing = false; S.audio.pos = 0; St.updateTransport(); }
     if (S.project) { St.zoomFit(); St.draw(); }
   }
-  J.cue = C;
 
   function anchorTo(room) {
     // keep a smooth local clock; only re-seat it when the server disagrees by more than a frame or two
@@ -393,7 +390,7 @@
     J.secsSeen = { key: room.key, sig: St.sectionsSig() };          // (section changes from here on are kept: app.js jamSave)
     J.clips = St.clipSig();                                         // (the lights as built: a change to them is a hand edit)
     J.drums = !!(S.analysis && S.analysis.events && S.analysis.events.kick && S.analysis.events.kick.length);
-    St.zoomFit(); St.inspector(); St.renderPalettes(); St.draw();
+    St.zoomFit(); St.inspector(); St.draw();
   }
 
   /** A section moved in a jam (as under review): the jam's own show follows it, rebuilt the way it is when the song
@@ -529,7 +526,6 @@
     joinClips(nowBeat);
     return keys;
   }
-  J.reconcile = reconcile;
 
   /** Rebuilds cut clips at the playhead and start them again; on the same layer, the same effect with
    *  the same settings and colors, end to end, is one clip, so it runs on without restarting. Clips
@@ -548,7 +544,7 @@
       }
       lane.clips = kept;
     }
-  }                                  // for checking by hand
+  }
 
   /** Clear [b0, b1) for a rebuild. A clip that began earlier is cut back to b0, not deleted: it is
    *  what the room is looking at right now, and removing it would black the lights out mid-verse. */
@@ -568,8 +564,7 @@
     toast('The party stopped.');
   }
 
-  window.Jam = { state: () => J.state };
   window.addEventListener('focus', () => tick());       // back from the Spotify sign-in window
-  J.timer = setInterval(tick, 1000);
+  setInterval(tick, 1000);
   tick();
 })();

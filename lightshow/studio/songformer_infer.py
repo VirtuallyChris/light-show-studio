@@ -24,7 +24,6 @@ SR = 24000
 
 
 def load_model(device: str = "auto"):
-    import torch
     from huggingface_hub import snapshot_download
     from transformers import AutoModel
 

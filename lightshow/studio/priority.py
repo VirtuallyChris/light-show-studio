@@ -16,7 +16,6 @@ import sys
 HIGH = 0x00000080                    # process priority classes
 ABOVE_NORMAL = 0x00008000
 BELOW_NORMAL = 0x00004000
-IDLE = 0x00000040
 
 _WIN = sys.platform == "win32"
 
@@ -66,26 +65,24 @@ def audio_thread() -> bool:
         return False
 
 
-def low_thread() -> bool:
-    """Lower the calling thread, for work that only has to get done eventually."""
+def _thread(level: int) -> bool:
     if not _WIN:
         return False
     try:
         k = _kernel32()
-        return bool(k.SetThreadPriority(k.GetCurrentThread(), -2))   # THREAD_PRIORITY_LOWEST
+        return bool(k.SetThreadPriority(k.GetCurrentThread(), level))
     except Exception:  # noqa: BLE001
         return False
+
+
+def low_thread() -> bool:
+    """Lower the calling thread, for work that only has to get done eventually."""
+    return _thread(-2)                  # THREAD_PRIORITY_LOWEST
 
 
 def high_thread() -> bool:
     """Raise the calling thread, for work that has to be on time."""
-    if not _WIN:
-        return False
-    try:
-        k = _kernel32()
-        return bool(k.SetThreadPriority(k.GetCurrentThread(), 2))    # THREAD_PRIORITY_HIGHEST
-    except Exception:  # noqa: BLE001
-        return False
+    return _thread(2)                   # THREAD_PRIORITY_HIGHEST
 
 
 # for subprocess.Popen(creationflags=...): start a model worker already stepped back

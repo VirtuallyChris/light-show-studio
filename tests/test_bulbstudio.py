@@ -15,12 +15,12 @@ import numpy as np
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 
-from bulbshow import effects
-from bulbshow.bulbs import CloudBulb, CloudError, CloudUsage, VirtualBulb, rgb_int
-from bulbshow.runner import ShowRunner
-from bulbshow.server import App
-from bulbshow.sound import LoopReader, Sound
-from bulbshow.speakers import FakeSpeakers
+from bulbstudio import effects
+from bulbstudio.bulbs import CloudBulb, CloudError, CloudUsage, VirtualBulb, rgb_int
+from bulbstudio.runner import ShowRunner
+from bulbstudio.server import App
+from bulbstudio.sound import LoopReader, Sound
+from bulbstudio.speakers import FakeSpeakers
 
 
 def show_of(*layers, duration=10.0):
@@ -404,7 +404,7 @@ class CloudBulbTest(unittest.TestCase):
         self.assertIn(("lightScene", {"id": 3853, "paramId": 4280}), client.calls)
 
     def test_scene_list(self):
-        from bulbshow.bulbs import CloudClient
+        from bulbstudio.bulbs import CloudClient
         c = CloudClient("key")
         answers = {
             "/router/api/v1/device/scenes": {"payload": {"capabilities": [{"type": "devices.capabilities.dynamic_scene", "instance": "lightScene",
@@ -418,7 +418,7 @@ class CloudBulbTest(unittest.TestCase):
 
     def test_only_bulbs_are_offered(self):
         from unittest import mock
-        from bulbshow import bulbs
+        from bulbstudio import bulbs
         cloud = [{"id": "1", "sku": "H6008", "name": "Bedroom Bulb Right"}, {"id": "2", "sku": "H608D", "name": "Office Downlights"},
                  {"id": "3", "sku": "H6076", "name": "Floor Lamp Left"}, {"id": "4", "sku": "H6821", "name": "Meteor Shower Lights"},
                  {"id": "5", "sku": "H70B1", "name": "Smart Curtain Lights"}, {"id": "6", "sku": "H6003", "name": "Hall"}]
@@ -618,7 +618,7 @@ class ServerTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.8)
         self.assertFalse(quit.is_set())
 
-    async def test_closing_light_show_studio_closes_bulb_show(self):
+    async def test_closing_light_show_studio_closes_bulb_studio(self):
         sid = await self.make("Witch", "Office Home 2")
         quit = asyncio.Event()
         self.app.exit = quit.set
@@ -715,7 +715,7 @@ class SpeakersTest(unittest.TestCase):
         # pychromecast's stop_discovery() closes the discovery it was given: one shared between lookups made
         # every show after the first fail with "The event loop is not running"
         from unittest import mock
-        from bulbshow.speakers import Speakers
+        from bulbstudio.speakers import Speakers
         made = []
         fake_zc = mock.MagicMock(side_effect=lambda **kw: made.append(object()) or made[-1])
         with mock.patch.dict("sys.modules", {"zeroconf": mock.MagicMock(Zeroconf=fake_zc)}):
@@ -726,7 +726,7 @@ class SpeakersTest(unittest.TestCase):
 
 class LogTest(unittest.TestCase):
     def test_started_hidden_by_the_studio_it_keeps_a_log(self):
-        from bulbshow.server import keeps_log
+        from bulbstudio.server import keeps_log
         self.assertTrue(keeps_log(open_browser=False, stay=False))          # the Party Hub's start: output to nowhere
         self.assertFalse(keeps_log(open_browser=True, stay=False))          # in a console with its window
         self.assertFalse(keeps_log(open_browser=False, stay=True))          # a launch config (the test copy)
@@ -735,7 +735,7 @@ class LogTest(unittest.TestCase):
 class ShowCastTest(unittest.TestCase):
     def cast_playing(self, content_id, app_id="CC1AD845"):
         from unittest import mock
-        from bulbshow.speakers import ShowCast
+        from bulbstudio.speakers import ShowCast
         sc = ShowCast(None, browser=mock.MagicMock())
         dev = mock.MagicMock()
         dev.status.app_id, dev.status.display_name = app_id, "Spotify"
@@ -766,7 +766,7 @@ class ShowCastTest(unittest.TestCase):
 class TaskbarTest(unittest.TestCase):
     def test_a_pinned_bulb_show_starts_bulb_show_with_its_own_icon(self):
         import re
-        from bulbshow.server import window_identity
+        from bulbstudio.server import window_identity
         idn = window_identity()
         files = re.findall(r'"([^"]+)"', idn["relaunch"])
         self.assertTrue(files[0].lower().endswith("wscript.exe"))

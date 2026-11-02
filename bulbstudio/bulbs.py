@@ -264,8 +264,7 @@ class CloudBulb(VirtualBulb):
         return st.get("powerSwitch") == 1 and st.get("brightness") == 100
 
     def begin(self) -> None:
-        homes = getattr(self.client, "homes", {})
-        home = homes.get(self.device)
+        home = self.client.homes.get(self.device)
         try:
             self.before = self.client.state(self.sku, self.device)
         except CloudError:
@@ -358,9 +357,8 @@ class CloudBulb(VirtualBulb):
                 send("devices.capabilities.on_off", "powerSwitch", 0)
         except CloudError:
             pass
-        homes = getattr(self.client, "homes", None)
-        if homes is not None and self.before:
-            homes[self.device] = (dict(self.before), time.monotonic())
+        if self.before:
+            self.client.homes[self.device] = (dict(self.before), time.monotonic())
 
 
 # Govee's bulbs are the H600x and H601x models (the H6008 among them). Every other light on the account

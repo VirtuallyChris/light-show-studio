@@ -6,8 +6,7 @@
 //   Settings  how is the app set up?   (Spotify, the phone, updates, and fine tuning, folded away)
 // A control lives where it is used, and only there. Party uses the same server calls as the phone's remote.
 (() => {
-  const St = window.Studio, $ = s => document.querySelector(s);
-  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const St = window.Studio, { $, esc } = St;
   const get = async url => { const r = await fetch(url); if (!r.ok) throw new Error(r.status); return r.json(); };
   const post = async (url, body) => { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }); return r.json(); };
   const party = (path, body) => body === undefined ? get('/api/party/' + path) : post('/api/party/' + path, body);
@@ -22,7 +21,7 @@
   const ink = c => { const v = parseInt(shown(c).slice(1), 16); return 0.299 * (v >> 16) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255) > 150 ? '#1a1206' : '#fff'; };
   const swatches = picked => COLORS.map(([c, n]) => `<button type="button" data-c="${c}" class="${c === picked ? 'on' : ''}" style="background:${shown(c)}" aria-label="${n}" title="${n}"></button>`).join('');
   const NOTE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l11-2v12"></path><circle cx="6" cy="18" r="3"></circle><circle cx="17" cy="16" r="3"></circle></svg>';
-  const card = (inner, cls = '') => `<section class="st-card ${cls}">${inner}</section>`;
+  const card = inner => `<section class="st-card">${inner}</section>`;
   const row = (title, help, control) => `<div class="st-row"><div class="st-row-t"><b>${title}</b>${help ? `<span>${help}</span>` : ''}</div><div class="st-row-c">${control}</div></div>`;
   const toggle = (attrs, on) => `<label class="pv-switch"><input type="checkbox" ${attrs} ${on ? 'checked' : ''}><i></i></label>`;
   const copy = async text => { try { await navigator.clipboard.writeText(text); St.toast('Copied'); } catch (e) { St.toast('Select the address and copy it', true); } };
@@ -40,7 +39,7 @@
     if (v === 'home') renderHome();
     if (v === 'addons') renderAddons();
     if (v === 'settings') renderSettings();
-    if (v === 'editor') requestAnimationFrame(() => { if (St.P && St.P()) { St.draw(); } });
+    if (v === 'editor') requestAnimationFrame(() => { if (St.P()) St.draw(); });
     try { localStorage.setItem('lss-view', v === 'editor' ? 'shows' : v); } catch (e) { /* not kept */ }
   }
   for (const b of document.querySelectorAll('.view-btn[data-view]')) b.onclick = () => showView(b.dataset.view);
@@ -105,7 +104,7 @@
     try {
       if (running) await post('/api/jam/stop', {});
       else {
-        if (St.modelsReady) await St.modelsReady('the party');
+        await St.modelsReady('the party');
         const jam = (ps && ps.jam) || {}, last = jam.last || {};
         if (last.speakers === 'cast' && jam.cast_device && !(jam.speaker_connected && jam.speaker === jam.cast_device)) {
           const c = await post('/api/cast/connect', { name: jam.cast_device }).catch(e => ({ error: e.message }));
@@ -397,11 +396,11 @@
 
   // Bulb Studio's shows, when that add-on is on
   async function loadBulbs() {
-    const d = await party('bulbshows').catch(() => null), el = $('#pvBulbs');
+    const d = await party('bulbstudio').catch(() => null), el = $('#pvBulbs');
     const shows = d && d.shows || []; el.hidden = !(d && d.open !== undefined && shows.length);
     if (el.hidden) return;
     $('#pvBulbList').innerHTML = shows.map(s => `<label class="pv-room-top"><b>${esc(s.name)}</b><span class="grow"></span>${toggle(`data-bulb="${esc(s.id)}" aria-label="${esc(s.name)}"`, s.running || s.on)}</label>`).join('');
-    for (const sw of el.querySelectorAll('[data-bulb]')) sw.onchange = async () => { const r = await party('bulbshows', { id: sw.dataset.bulb, on: sw.checked }).catch(() => null); if (r && !r.ok) St.toast(r.error || 'It didn’t start', true); loadBulbs(); };
+    for (const sw of el.querySelectorAll('[data-bulb]')) sw.onchange = async () => { const r = await party('bulbstudio', { id: sw.dataset.bulb, on: sw.checked }).catch(() => null); if (r && !r.ok) St.toast(r.error || 'It didn’t start', true); loadBulbs(); };
   }
 
   // editing moments, in a sheet over the Party screen
@@ -454,7 +453,7 @@
   // ------------------------------------------------------------------ Shows: every song in one list
   let libFilter = 'all', songs = [];
   async function renderLibrary() {
-    const open = St.P && St.P() && !$('#emptyState').hidden === false;
+    const open = St.P() && $('#emptyState').hidden;
     const cur = $('#libContinue'); cur.hidden = !open; if (open) cur.textContent = `Back to ${$('#projectName').value || 'the editor'}`;
     if (!songs.length) $('#libGrid').innerHTML = '<div class="pv-empty">Finding your songs…</div>';
     const [list, every] = await Promise.all([get('/api/projects').catch(() => []), get('/api/review/every').then(d => d.songs || []).catch(() => [])]);
@@ -483,7 +482,7 @@
   $('#libSearch').oninput = drawLibrary;
   for (const f of document.querySelectorAll('#libFilters button')) f.onclick = () => { libFilter = f.dataset.f; drawLibrary(); };
   $('#libAdd').onclick = () => $('#fileInput').click();
-  $('#libReview').onclick = () => { showView('editor'); $('#btnReview').click(); };
+  $('#libReview').onclick = () => { showView('editor'); St.reviewStart(); };
   $('#libContinue').onclick = () => showView('editor');
   // songs learned ahead of the party, silently: a playlist's, or the queue's
   $('#libLearn').onclick = () => openSheet('Learn a playlist', body => {
@@ -507,8 +506,8 @@
   async function renderHome() {
     for (const b of document.querySelectorAll('#homeTabs button')) b.classList.toggle('on', b.dataset.t === homeTab);
     const el = $('#homePane');
-    const park = () => { for (const id of ['#lightList', '#roomsPop']) { const n = $(id); if (n && el.contains(n)) $('#parked').appendChild(n); } };
-    park(); el.innerHTML = '';
+    for (const id of ['#lightList', '#roomsPop']) { const n = $(id); if (el.contains(n)) $('#parked').appendChild(n); }
+    el.innerHTML = '';
     if (homeTab === 'lights') {
       const hue = await get('/api/hue').catch(() => null);
       el.innerHTML = `<div id="homeLights"></div><div id="homeHue"></div><p class="hint">Not seeing a Govee light? Turn on LAN Control for it in the Govee Home app.</p>`;
@@ -530,17 +529,17 @@
 
   // ------------------------------------------------------------------ Add-ons: a small store
   const TILES = {
-    bulbshow: ['#be185d', '<circle cx="12" cy="9" r="5"></circle><path d="M10 19h4M9.5 16h5M12 1.5v1.5M4 9H2.5M21.5 9H20"></path>'],
+    bulbstudio: ['#be185d', '<circle cx="12" cy="9" r="5"></circle><path d="M10 19h4M9.5 16h5M12 1.5v1.5M4 9H2.5M21.5 9H20"></path>'],
     doorbell: ['#047857', '<path d="M6 19h12M8 19v-6a4 4 0 018 0v6M12 5V3"></path><circle cx="12" cy="13" r="1.2"></circle>'],
     homeassistant: ['#1d4ed8', '<path d="M4 11l8-7 8 7v9H4z"></path><circle cx="12" cy="14" r="2"></circle>'],
   };
-  const STORE_NAMES = { bulbshow: 'Bulb Studio', doorbell: 'Reolink doorbell', homeassistant: 'Home Assistant' };
-  const STORE_ABOUT = { bulbshow: 'Looping shows for one bulb and one speaker, like a spooky porch.', doorbell: 'When it rings, the music dips and a show plays.', homeassistant: 'Your automations leave the lights alone during a show.' };
+  const STORE_NAMES = { bulbstudio: 'Bulb Studio', doorbell: 'Reolink doorbell', homeassistant: 'Home Assistant' };
+  const STORE_ABOUT = { bulbstudio: 'Looping shows for one bulb and one speaker, like a spooky porch.', doorbell: 'When it rings, the music dips and a show plays.', homeassistant: 'Your automations leave the lights alone during a show.' };
+  const tile = id => `<span class="store-tile" style="background:${(TILES[id] || ['#7c3aed'])[0]}"><svg viewBox="0 0 24 24" aria-hidden="true">${(TILES[id] || ['', ''])[1]}</svg></span>`;
   let storePick = null;
   async function renderAddons() {
     const add = await get('/api/addons').catch(() => ({ addons: [] })), list = add.addons || [];
     if (!list.some(a => a.id === storePick)) storePick = (list.find(a => a.on) || {}).id || null;
-    const tile = id => `<span class="store-tile" style="background:${(TILES[id] || ['#7c3aed'])[0]}"><svg viewBox="0 0 24 24" aria-hidden="true">${(TILES[id] || ['', ''])[1]}</svg></span>`;
     $('#storeGrid').innerHTML = list.map(a => `<div class="store-app ${a.id === storePick ? 'sel' : ''}" data-app="${esc(a.id)}">${tile(a.id)}
         <button class="store-open" data-pick="${esc(a.id)}"><b>${esc(STORE_NAMES[a.id] || a.name)}</b><span>${esc(a.on && a.missing ? a.missing : STORE_ABOUT[a.id] || a.about)}</span></button>
         ${a.on ? '<span class="store-added">Added</span>' : `<button class="accent store-get" data-add="${esc(a.id)}">Add</button>`}</div>`).join('');
@@ -550,7 +549,7 @@
   }
   async function renderStoreCard(a) {
     const el = $('#storeCard'); el.hidden = !a; if (!a) return;
-    const head = `<div class="store-head"><span class="store-tile" style="background:${(TILES[a.id] || ['#7c3aed'])[0]}"><svg viewBox="0 0 24 24" aria-hidden="true">${(TILES[a.id] || ['', ''])[1]}</svg></span><div><h2>${esc(STORE_NAMES[a.id] || a.name)}</h2><p class="hint">${a.on ? 'Added' : 'Not added yet'}</p></div></div>`;
+    const head = `<div class="store-head">${tile(a.id)}<div><h2>${esc(STORE_NAMES[a.id] || a.name)}</h2><p class="hint">${a.on ? 'Added' : 'Not added yet'}</p></div></div>`;
     const remove = a.on ? '<button id="storeRemove">Remove add-on</button>' : `<button id="storeAdd" class="accent">Add ${esc(STORE_NAMES[a.id] || a.name)}</button>`;
     let body = `<p class="hint">${esc(STORE_ABOUT[a.id] || a.about)}</p>`;
     if (a.on && a.id === 'doorbell') {
@@ -571,7 +570,7 @@
       el.innerHTML = head + body + `<div class="store-actions"><button id="stHaTest">Send now</button>${remove}</div>`;
       const save = test => post('/api/homeassistant', { url: $('#stHaUrl').value.trim(), webhook_id: $('#stHaHook').value.trim(), test }).then(renderAddons);
       $('#stHaUrl').onchange = $('#stHaHook').onchange = () => save(false); $('#stHaTest').onclick = () => save(true);
-    } else if (a.on && a.id === 'bulbshow') {
+    } else if (a.on && a.id === 'bulbstudio') {
       el.innerHTML = head + body + `<p class="hint">Its shows switch on and off on the Party screen. It opens in a window of its own to make them.</p><div class="store-actions"><button id="stBulbOpen" class="accent">Open Bulb Studio</button>${remove}</div>`;
       $('#stBulbOpen').onclick = St.openBulbs;
     } else el.innerHTML = head + body + `<div class="store-actions">${remove}</div>`;
@@ -597,6 +596,7 @@
     fold.ontoggle = () => { tuningOpen = fold.open; if (fold.open) drawTuning($('#stTuningBody')); };
     if (fold.open) drawTuning($('#stTuningBody'));
   }
+  const on = (id, fn) => { const b = $('#' + id); if (b) b.onclick = fn; };
   async function drawSpotify(el) {
     const st = await get('/api/jam/state').catch(() => ({})), sp = st.spotify || {};
     el.innerHTML = sp.signed_in ? card(`<div class="st-h">Spotify</div>` + row('Connected', 'Spotify picks the music, and the app sets up its own audio.', '<button id="stSignAgain">Sign in again</button> <button id="stSignOut">Sign out</button>'))
@@ -608,7 +608,6 @@
           <li>In the app’s <b>User Management</b>, add the email of every Spotify account that will sign in here.</li>
           <li>Paste the app’s <b>Client ID</b>: <input id="stClient" value="${esc(sp.client_id || '')}" placeholder="Client ID" spellcheck="false"></li>
           <li><button id="stSignIn" class="accent" ${sp.client_id ? '' : 'disabled'}>Sign in to Spotify</button></li></ol>`);
-    const on = (id, fn) => { const b = $('#' + id); if (b) b.onclick = fn; };
     on('stSignOut', async () => { await post('/api/spotify/signout'); drawSpotify(el); });
     on('stCopyUri', () => copy(st.redirect_uri || ''));
     const cid = $('#stClient');
@@ -642,8 +641,7 @@
         (u && u.packaged ? row(u.available ? `Version ${esc(u.latest)} is ready` : 'Up to date', `You have version ${esc(u.version)}.${u.error ? ' Could not reach GitHub just now.' : ''}`,
             u.available && u.can_install ? '<button id="stUpRestart" class="accent">Restart and update</button>' : u.available ? `<a href="${esc(u.page)}" target="_blank" rel="noopener"><button class="accent">Download</button></a>` : '<button id="stUpCheck">Check now</button>') +
           row('Update when the app opens', u.can_install ? 'Off: it only says here that there is a new version.' : 'This copy cannot replace itself where it is. On a Mac, move it to Applications.', toggle(`id="stUpAuto" ${u.can_install ? '' : 'disabled'}`, u.auto_update && u.can_install)) : ''));
-      const on = (id, fn) => { const b = $('#' + id); if (b) b.onclick = fn; };
-      on('stModelsGo', async () => { await post('/api/models/setup', { action: 'install' }); draw(); });
+        on('stModelsGo', async () => { await post('/api/models/setup', { action: 'install' }); draw(); });
       on('stModelsCancel', async () => { await post('/api/models/setup', { action: 'cancel' }); draw(); });
       const keep = $('#stKeepCopies'); if (keep) keep.onchange = e => post('/api/songs/copies', { keep: e.target.checked });
       on('stClearCopies', async () => { if (confirm(`Delete ${kept.count} song copies? Their shows stay, but they can't be reviewed until learned again.`)) { await post('/api/songs/copies', { clear: true }); draw(); } });
@@ -710,5 +708,4 @@
     showView(v);
   })();
   window.addEventListener('hashchange', () => { const [hv, hs] = location.hash.slice(1).split('/'); if (VIEWS[hv]) { if (hv === 'home' && hs) homeTab = hs; showView(hv); } });
-  window.Views = { showView, showHome };
 })();

@@ -68,12 +68,3 @@ class LoopReader:
             out = (out.astype(np.float32) * g).astype(np.int16)
         self.sent += frames
         return np.ascontiguousarray(out, dtype="<i2").tobytes()
-
-
-def write_wav(path: str, pcm: np.ndarray, sr: int) -> None:
-    pcm = pcm if pcm.ndim == 2 else pcm[:, None]
-    with wave.open(path, "wb") as w:
-        w.setnchannels(pcm.shape[1])
-        w.setsampwidth(2)
-        w.setframerate(int(sr))
-        w.writeframes(np.ascontiguousarray(pcm, dtype="<i2").tobytes())

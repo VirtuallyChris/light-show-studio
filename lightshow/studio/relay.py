@@ -37,6 +37,22 @@ def wav_stream_header(sr: int, channels: int) -> bytes:
             + b"data" + struct.pack("<I", 0xFFFFFFFF - 36))
 
 
+def _fade_gain(fade: tuple, f: int) -> float:
+    """A fade's (from frame, frames, gain from, gain to) gain at frame f."""
+    s, n, g0, g1 = fade
+    k = min(1.0, max(0.0, (f - s) / n))
+    return g0 + (g1 - g0) * k * k * (3 - 2 * k)
+
+
+def _fade_pcm(data: bytes, f0: int, n: int, fade: tuple) -> bytes:
+    """n frames of int16 audio, the first at frame f0, through a fade."""
+    s, length, g0, g1 = fade
+    k = np.clip((f0 + np.arange(n) - s) / length, 0.0, 1.0)
+    g = (g0 + (g1 - g0) * k * k * (3 - 2 * k)).astype(np.float32)
+    x = np.frombuffer(data, dtype=np.int16).reshape(n, -1).astype(np.float32) * g[:, None]
+    return np.clip(x, -32768, 32767).astype(np.int16).tobytes()
+
+
 class Relay:
     def __init__(self, sr: int = 44100, channels: int = 2, capacity_s: float = 600.0, clock=time.monotonic):
         self.sr, self.channels, self.clock = int(sr), int(channels), clock
@@ -87,9 +103,7 @@ class Relay:
             self.duck = (f, max(1, int(seconds * self.sr)), self.duck_at(f), float(to))
 
     def duck_at(self, frame: int) -> float:
-        s, n, g0, g1 = self.duck
-        k = min(1.0, max(0.0, (frame - s) / n))
-        return g0 + (g1 - g0) * k * k * (3 - 2 * k)
+        return _fade_gain(self.duck, frame)
 
     # -- capture side -----------------------------------------------------------------
     def write(self, frames: np.ndarray) -> None:
@@ -105,15 +119,10 @@ class Relay:
             # the music stop for a split second, a few seconds after a doorbell (the user)
             if self.held_from is not None and self.seam is None and int(np.abs(frames).max()) <= self.SEAM_QUIET:
                 return
-            i = self.written % self.capacity
-            first = min(n, self.capacity - i)
-            self.buf[i:i + first] = frames[:first]
-            if first < n:
-                self.buf[:n - first] = frames[first:]
             if self.held_from is not None:
                 if self.seam is None and self.clock() - self.last_write_at > self.SEAM_GAP_S:
                     self.seam = self.written                  # Spotify plays again: the first of it
-            self.written += n
+            self._put(frames)
             self.last_write_at = self.clock()
             if self.held_from is not None:
                 if self.seam is not None and self.written - self.seam >= int(self.SEAM_POST_S * self.sr):
@@ -368,33 +377,23 @@ class RelayStream:
         return pcm[pos:pos + n].tobytes()
 
     def _gain_at(self, f: int) -> float:
-        if self.gain is None:
-            return 1.0
-        s, n, g0, g1 = self.gain
-        k = min(1.0, max(0.0, (f - s) / n))
-        return g0 + (g1 - g0) * k * k * (3 - 2 * k)
+        return 1.0 if self.gain is None else _fade_gain(self.gain, f)
 
     def _faded(self, data: bytes, n: int) -> bytes:
         if self.gain is None:
             return data
-        s, length, g0, g1 = self.gain
+        s, length, _, g1 = self.gain
         if self.sent >= s + length and g1 >= 1.0:
             self.gain = None                            # faded all the way in: nothing to do any more
             return data
-        k = np.clip((self.sent + np.arange(n) - s) / length, 0.0, 1.0)
-        g = (g0 + (g1 - g0) * k * k * (3 - 2 * k)).astype(np.float32)
-        x = np.frombuffer(data, dtype=np.int16).reshape(n, -1).astype(np.float32) * g[:, None]
-        return np.clip(x, -32768, 32767).astype(np.int16).tobytes()
+        return _fade_pcm(data, self.sent, n, self.gain)
 
     def _ducked(self, data: bytes, f0: int, n: int) -> bytes:
         """The music from capture frame f0 at the relay's duck (Relay.duck): untouched while it is at 1."""
         s, length, g0, g1 = self.relay.duck
         if g0 == g1 == 1.0 or (g1 == 1.0 and f0 >= s + length):
             return data
-        k = np.clip((f0 + np.arange(n) - s) / length, 0.0, 1.0)
-        g = (g0 + (g1 - g0) * k * k * (3 - 2 * k)).astype(np.float32)
-        x = np.frombuffer(data, dtype=np.int16).reshape(n, -1).astype(np.float32) * g[:, None]
-        return np.clip(x, -32768, 32767).astype(np.int16).tobytes()
+        return _fade_pcm(data, f0, n, self.relay.duck)
 
     def _note(self, capture_frame: int, n: int) -> None:
         last = self.segments[-1] if self.segments else None

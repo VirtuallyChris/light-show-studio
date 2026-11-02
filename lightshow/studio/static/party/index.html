@@ -27,20 +27,13 @@
     --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.05); --art-shadow: 0 14px 34px rgb(40 20 80 / 0.22);
   }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
+    :root {
       color-scheme: dark;
       --bg: #0e0f14; --bg-glow: rgb(139 92 246 / 0.14); --card: #181a22; --card2: #20232d; --line: rgb(255 255 255 / 0.08);
       --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80;
       --track-lo: #2a2f3d; --switch-off: #2c3040; --sw-line: rgb(255 255 255 / 0.15); --nav-bg: rgb(18 19 26 / 0.82);
       --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px rgb(0 0 0 / 0.35); --art-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
     }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #0e0f14; --bg-glow: rgb(139 92 246 / 0.14); --card: #181a22; --card2: #20232d; --line: rgb(255 255 255 / 0.08);
-    --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80;
-    --track-lo: #2a2f3d; --switch-off: #2c3040; --sw-line: rgb(255 255 255 / 0.15); --nav-bg: rgb(18 19 26 / 0.82);
-    --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px rgb(0 0 0 / 0.35); --art-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   [hidden] { display: none !important; }
@@ -92,7 +85,6 @@
   .rv-open svg { color: var(--muted); }
   .rv-wrap { position: fixed; inset: 0; z-index: 60; background: #000; box-sizing: border-box;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  .rv-wrap[hidden] { display: none; }
   .rv-wrap iframe { width: 100%; height: 100%; border: 0; display: block; }
   .rv-btn { position: absolute; top: calc(env(safe-area-inset-top) + 10px); right: calc(env(safe-area-inset-right) + 10px); width: 36px; height: 36px; border-radius: 10px; border: none; background: rgb(255 255 255 / 0.14); color: #fff; display: grid; place-items: center; padding: 0; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
   .label { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin-bottom: 10px; }
@@ -153,7 +145,6 @@
   .bar > div { height: 100%; background: linear-gradient(90deg, var(--c1, var(--accent)), var(--c2, var(--accent2))); width: 0; }
   .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
   .controls { display: flex; justify-content: center; align-items: center; gap: 26px; margin-top: 8px; }
-  .controls .spacer { width: 56px; }
   .btn { width: 56px; height: 56px; border-radius: 50%; border: none; background: var(--card2); color: var(--text); font-size: 22px; display: grid; place-items: center; }
   .btn.big { width: 72px; height: 72px; background: var(--text); color: var(--bg); font-size: 26px; box-shadow: var(--shadow); }
   .btn:active { transform: scale(0.95); }
@@ -166,7 +157,6 @@
   .sw.fixed { border-style: dashed; }
   .only-tag { font-size: 11px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; }
   .sixteen { position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / 0.35); display: flex; align-items: flex-end; }
-  .sixteen[hidden] { display: none; }
   .sixteen .sheet { width: 100%; background: var(--card); border-radius: 20px 20px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow: var(--shadow);
     transform: translateY(100%); transition: transform .2s ease; }
   .sixteen.up .sheet { transform: none; }
@@ -176,7 +166,6 @@
   .sixteen .sx-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sixteen .sx-label { font-size: 13px; color: var(--muted); margin: 14px 0 8px; }
   .sixteen .sx-reset { display: block; width: 100%; margin-top: 16px; font: inherit; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
-  .sixteen .sx-reset[hidden] { display: none; }
   .tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .sixteen.pair-only .song-only { display: none !important; }
   /* the party's colors: their set, their mode, the colors themselves */
@@ -201,7 +190,6 @@
   .sixteen .sheet { max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
   .sixteen .sx-vibes button.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .sixteen .sx-theme { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--card2); border-radius: 12px; margin-bottom: 4px; }
-  .sixteen .sx-theme[hidden] { display: none; }
   .sixteen .sx-theme button { font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 9px; padding: 8px; }
   .sixteen .sx-theme button.on { color: var(--text); background: var(--card); box-shadow: var(--shadow); }
   .sixteen .sx-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
@@ -220,52 +208,18 @@
   .cue.mode[aria-pressed="true"] .phase { display: none; }
   .cue.mode[aria-pressed="true"] { color: var(--on-text, #fff); border-color: transparent; background: var(--on, #ff6000); }
   .cover-colors { margin-top: 16px; }
-  .mode-edit { padding: 12px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
-  .mode-edit:first-of-type { border-top: none; }
-  .mode-edit .top { display: flex; align-items: center; gap: 10px; }
-  .mode-edit .top input[type=text] { flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 16px; }
-  .mode-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; min-width: 40px; min-height: 40px; }
-  .m-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
-  .m-row > span:first-child { color: var(--text-2); }
-  .m-row input[type=range] { flex: 1; height: 28px; }
-  .m-row .m-val { min-width: 3.2em; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .m-row select { font: inherit; font-size: 16px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
-  .m-colors { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
-  .m-colors button { aspect-ratio: 1; border-radius: 8px; border: 2px solid transparent; padding: 0; min-height: 28px; }
-  .m-colors button.on { border-color: var(--text); }
   .cover-colors .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-top: 8px; }
   .cover-colors .grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
   .cover-colors .grid button.on { border-color: var(--text); }
   .cue.mode[aria-pressed="true"]::after { content: 'On'; display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
-  .cue-edit { padding: 12px 0; border-top: 1px solid var(--line); }
-  .cue-edit:first-of-type { border-top: none; }
-  .cue-edit .top { display: flex; align-items: center; gap: 10px; }
-  .cue-edit input[type=text], .cue-edit select { font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-  .cue-edit .top input[type=text] { flex: 1; min-width: 0; font-weight: 600; }
-  .cue-edit select { width: 100%; margin-top: 10px; }
-  .show-pick { margin-top: 10px; max-height: 210px; overflow-y: auto; background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 4px 0; }
-  .show-pick label { display: flex; align-items: center; gap: 10px; padding: 7px 12px; color: var(--text-2); }
-  .show-pick label.on { color: var(--text); font-weight: 600; }
-  .show-pick input { accent-color: var(--accent); width: 18px; height: 18px; flex: none; margin: 0; }
-  .show-pick .empty { padding: 8px 12px; color: var(--muted); }
-  /* doorbell, pre-listen */
-  .bell input[type=text], .bell input[type=password], .bell select, .pre input[type=text] { width: 100%; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
-  .pre input[type=text] { margin-top: 10px; }
-  .bell .state, .pre .state { font-size: 13px; color: var(--muted); margin-top: 10px; }
-  .bell .state.ok { color: var(--ok); }
-  .addon .rsub { white-space: normal; }
   .pre-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  .pre .bar { height: 4px; border-radius: 2px; margin-top: 8px; }
   /* party colors */
   .colors[data-bare] { display: none; }
   .theme-chip { font: inherit; font-size: 12px; color: var(--muted); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; min-height: 32px; }
   .theme-chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .theme-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .even-row { margin-top: 14px; }
   .theme-row .label { margin: 0; }
   .theme-sw { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; }
-  .theme-sw .pair { display: flex; gap: 2px; }
-  .theme-sw .pair span { width: 20px; height: 20px; border-radius: 6px; }
   .tag { font-size: 12px; font-weight: 600; color: var(--text-2); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
   .reset { border: none; background: none; color: var(--muted); font-size: 18px; padding: 4px 6px; min-width: 36px; min-height: 36px; }
   /* up next */
@@ -310,16 +264,12 @@
   .room-edit:first-of-type { border-top: none; }
   .room-edit .top { display: flex; align-items: center; gap: 10px; }
   .room-edit .top input[type=text] { flex: 1; min-width: 0; font: inherit; font-weight: 600; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-  .room-edit .del, .cue-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; min-width: 40px; min-height: 40px; }
+  .room-edit .del { border: none; background: none; color: var(--muted); font-size: 22px; padding: 4px 6px; min-width: 40px; min-height: 40px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .chips .kind { width: 100%; font-size: 12px; color: var(--muted); }
   .chip { font: inherit; font-size: 14px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; }
   .chip.on { color: #fff; background: var(--accent); border-color: var(--accent); }
   .add { width: 100%; margin-top: 10px; font: inherit; color: var(--text); background: var(--card2); border: 1px dashed var(--line); border-radius: 12px; padding: 10px; }
-  /* appearance */
-  .seg { display: flex; background: var(--card2); border: 1px solid var(--line); border-radius: 11px; padding: 2px; gap: 3px; }
-  .seg button { min-height: 32px; padding: 0 12px; border: 0; background: none; border-radius: 9px; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 650; }
-  .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
   .start-party { display: block; margin: 14px auto 0; min-height: 52px; padding: 0 28px; border: 0; border-radius: 14px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; font-size: 17px; }
   .stop-party { min-height: 52px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--text); font: inherit; font-weight: 650; }
   .room-line { display: flex; align-items: center; gap: 12px; }
@@ -392,13 +342,13 @@
     <div class="pre-buttons"><button class="chip" id="rampBtn" type="button" hidden></button></div>
   </section>
 
-  <section class="card" id="roomsCard">
+  <section class="card">
     <div class="theme-row"><div class="label">Rooms</div><button class="mini" id="roomsEdit" type="button">Edit rooms</button></div>
     <div id="speakers"><div class="empty">Looking for rooms and speakers…</div></div>
   </section>
   <section class="card" id="bulbCard" hidden>
     <div class="label">Bulb Studio</div>
-    <div id="bulbShows"></div>
+    <div id="bulbStudio"></div>
   </section>
 
   <section class="card rv-card">
@@ -484,7 +434,7 @@
     }).catch(() => {});
     return null;
   }
-  function colorBox(t, big) {
+  function colorBox(t) {
     if (!t || !t.id) return '';
     if (t.kind === 'custom') return `<div class="colors"><span class="tag">your show</span></div>`;
     const st = state || {}, wild = st.color_source === 'wild', themed = st.theme_on !== false && (wild || ['pick', 'mix'].includes(st.color_mode));
@@ -509,9 +459,7 @@
   let sheetOpen = false, sheetFor = null;
   document.addEventListener('click', e => { if (sheetOpen && e.target === $('#sixteen')) closeSixteen(); });
   document.addEventListener('keydown', e => { if (sheetOpen && e.key === 'Escape') closeSixteen(); });
-  function openSixteen(box, save) {
-    const sheet = $('#sixteen'), cur = { a: box.dataset.a, b: box.dataset.b };
-    sheet.querySelector('.sx-title').textContent = box.dataset.name || 'Colors';
+  function fillGrids(sheet, cur, picked) {
     for (const grid of sheet.querySelectorAll('.sx-grid')) {
       const k = grid.dataset.k;
       grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'b' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
@@ -519,11 +467,18 @@
         cur[k] = btn.dataset.c;
         for (const o of grid.querySelectorAll('.on')) o.classList.remove('on');
         btn.classList.add('on');
-        box.dataset[k] = cur[k];
-        const sw = box.querySelector(`.sw[data-k="${k}"]`); if (sw) { sw.style.background = cur[k]; sw.classList.remove('fixed'); }
-        save({ primary: cur.a, secondary: cur.b, only: only.checked });
+        picked(k);
       };
     }
+  }
+  function openSixteen(box, save) {
+    const sheet = $('#sixteen'), cur = { a: box.dataset.a, b: box.dataset.b };
+    sheet.querySelector('.sx-title').textContent = box.dataset.name || 'Colors';
+    fillGrids(sheet, cur, k => {
+      box.dataset[k] = cur[k];
+      const sw = box.querySelector(`.sw[data-k="${k}"]`); if (sw) { sw.style.background = cur[k]; sw.classList.remove('fixed'); }
+      save({ primary: cur.a, secondary: cur.b, only: only.checked });
+    });
     const only = sheet.querySelector('#sxOnly'); only.checked = !!box.dataset.only;
     only.onchange = () => { box.dataset.only = only.checked ? '1' : ''; save({ primary: cur.a, secondary: cur.b, only: only.checked }); };
     // party colors or its album art's, at the top (the row's little chip does the same)
@@ -581,16 +536,7 @@
     const sheet = $('#sixteen'), cur = { a, b };
     sheet.classList.add('pair-only');
     sheet.querySelector('.sx-title').textContent = title;
-    for (const grid of sheet.querySelectorAll('.sx-grid')) {
-      const k = grid.dataset.k;
-      grid.innerHTML = SIXTEEN.map(c => `<button style="background:${c}" data-c="${c}" class="${c === cur[k] ? 'on' : ''}" aria-label="${k === 'b' ? 'Primary' : 'Secondary'} ${c}"></button>`).join('');
-      for (const btn of grid.querySelectorAll('[data-c]')) btn.onclick = () => {
-        cur[k] = btn.dataset.c;
-        for (const o of grid.querySelectorAll('.on')) o.classList.remove('on');
-        btn.classList.add('on');
-        done(cur.a, cur.b);
-      };
-    }
+    fillGrids(sheet, cur, () => done(cur.a, cur.b));
     sheet.hidden = false; sheetOpen = true; sheetFor = null;
     requestAnimationFrame(() => sheet.classList.add('up'));
   }
@@ -725,7 +671,6 @@
     for (const b of document.querySelectorAll('#colorSource button')) b.classList.toggle('on', b.dataset.s === source);
     $('#themeHint').textContent = source === 'album' ? 'Every song in its album cover’s colors' : source === 'wild' ? 'Every section its own palette: a breakdown all blue, a red drop, a rainbow, green there…'
       : (pc.set ? pc.set + (pc.edited ? ' (changed)' : '') : (mode === 'mix' ? 'A pair for each song' : 'Every song in these two'));
-    $('#themeSw').innerHTML = '';
     const pairs = mode === 'mix' ? (pc.pairs || []) : [[pc.primary, pc.secondary]];
     const html = !on ? '' : `
       <div class="set-row">
@@ -797,7 +742,7 @@
       : `<div class="np${skipping ? ' pending' : ''}">${artBox(shownSong, true)}
           <div class="eyebrow">${skipping ? (skipping.action === 'next' ? 'Next song loading…' : 'Going back…') : r.opener ? 'Opening song' : 'In the room'}</div>
           <div class="title">${esc(shownSong.name || shownSong.label)}</div>${(shownSong.artists || []).length ? `<div class="artist">${esc(shownSong.artists.join(', '))}</div>` : ''}
-          ${colorBox(shownSong, true)}
+          ${colorBox(shownSong)}
           <div class="bar"><div id="prog"></div></div><div class="times"><span id="pos">0:00</span><span>${fmt(r.duration)}</span></div>
           <div class="controls">
           <button class="btn" id="bPrev" aria-label="Previous song">${ICON.prev}</button>
@@ -871,29 +816,29 @@
   // ---- Bulb Studio: Bulb Studio's own looping shows (one sound, one speaker, one bulb each), on or off from here;
   // switching one on starts Bulb Studio if it is not open
   let bulbShown = '', bulbBusy = 0, bulbNote = {};
-  async function loadBulbShows() {
+  async function loadBulbStudio() {
     if (performance.now() < bulbBusy) return;                          // a switch just flipped: wait for its answer
     let d;
-    try { d = await api('bulbshows'); } catch (e) { return; }
+    try { d = await api('bulbstudio'); } catch (e) { return; }
     const shows = d.shows || [];
     $('#bulbCard').hidden = !shows.length;
     const html = shows.map(b => `<div class="room-row"><div><div class="rname">${esc(b.name)}</div>
         <div class="rsub">${esc(bulbNote[b.id] || b.error || [b.speaker, b.bulb].filter(Boolean).join(' · '))}</div></div>
         <label class="switch"><input type="checkbox" data-id="${esc(b.id)}" ${b.on ? 'checked' : ''} aria-label="${esc(b.name)} on"><span></span></label></div>`).join('');
     if (html === bulbShown) return;
-    bulbShown = html; $('#bulbShows').innerHTML = html;
-    for (const sw of $('#bulbShows').querySelectorAll('input[data-id]')) sw.onchange = async () => {
+    bulbShown = html; $('#bulbStudio').innerHTML = html;
+    for (const sw of $('#bulbStudio').querySelectorAll('input[data-id]')) sw.onchange = async () => {
       const id = sw.dataset.id, sub = sw.closest('.room-row').querySelector('.rsub');
       bulbBusy = performance.now() + 30000; delete bulbNote[id];
       sub.textContent = sw.checked ? 'Starting…' : 'Stopping…';
-      try { const r = await api('bulbshows', { id, on: sw.checked }); if (!r.ok) bulbNote[id] = r.error || 'Didn’t start'; }
+      try { const r = await api('bulbstudio', { id, on: sw.checked }); if (!r.ok) bulbNote[id] = r.error || 'Didn’t start'; }
       catch (e) { bulbNote[id] = 'Couldn’t reach the studio'; }
-      bulbBusy = 0; bulbShown = ''; loadBulbShows();
-      if (bulbNote[id]) setTimeout(() => { delete bulbNote[id]; bulbShown = ''; loadBulbShows(); }, 6000);
+      bulbBusy = 0; bulbShown = ''; loadBulbStudio();
+      if (bulbNote[id]) setTimeout(() => { delete bulbNote[id]; bulbShown = ''; loadBulbStudio(); }, 6000);
     };
   }
-  setInterval(() => { if (roomsOpen && !document.hidden) loadBulbShows(); }, 4000);
-  loadBulbShows();
+  setInterval(() => { if (roomsOpen && !document.hidden) loadBulbStudio(); }, 4000);
+  loadBulbStudio();
 
   // ---- the room view: the house and every light as it plays (roomview.html, its frames passed on by the studio),
   // opened from Lights over everything. Only while it is open does anything go over the Wi-Fi for it (the user): the
@@ -962,8 +907,8 @@
 
   // ---- settings: the cast's volume, and every speaker's own
   const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
-  function volRow(name, v, key, group, muted, bulbShow) {
-    return `<div class="vol${muted ? ' muted' : ''}"><div class="vname"><span>${esc(name)}${group ? '<span class="group-tag">group</span>' : ''}${muted ? '<span class="group-tag">muted</span>' : ''}${bulbShow ? `<span class="group-tag" title="Playing the bulb show ${esc(bulbShow)}">${esc(bulbShow)}</span>` : ''}</span><span class="vv">${pct(v)}</span></div>
+  function volRow(name, v, key, group, muted, bulbStudioShow) {
+    return `<div class="vol${muted ? ' muted' : ''}"><div class="vname"><span>${esc(name)}${group ? '<span class="group-tag">group</span>' : ''}${muted ? '<span class="group-tag">muted</span>' : ''}${bulbStudioShow ? `<span class="group-tag" title="Playing the bulb show ${esc(bulbStudioShow)}">${esc(bulbStudioShow)}</span>` : ''}</span><span class="vv">${pct(v)}</span></div>
       <input type="range" min="0" max="100" step="1" value="${v == null ? 0 : Math.round(v * 100)}" data-key="${esc(key)}" ${v == null ? 'disabled' : ''}></div>`;
   }
   function wireVols(root) {
@@ -1025,10 +970,10 @@
       html.push(`<div class="vroom" data-room="${esc(rm.id)}" data-names="${esc(JSON.stringify(known.map(d => d.name)))}">
         <div class="room-line"><div class="room-vol">${volRow(rm.name, top, '', false, !rm.on).replace('data-key=""', 'data-room-level="1"')}</div>${roomSwitch(rm)}</div>
         ${mine.length > 1 ? `<button class="mixbtn">${open ? 'Hide each speaker' : 'Each speaker’s volume'}</button>` : ''}
-        <div class="mix" ${open && mine.length > 1 ? '' : 'hidden'}>${mine.map(d => volRow(d.name, d.volume, d.name, false, d.muted, d.bulb_show)).join('')}</div></div>`);
+        <div class="mix" ${open && mine.length > 1 ? '' : 'hidden'}>${mine.map(d => volRow(d.name, d.volume, d.name, false, d.muted, d.bulb_studio_show)).join('')}</div></div>`);
     }
     const rest = devs.filter(d => !placed.has(d.name));
-    if (rest.length) html.push(`${html.length ? '<div class="eyebrow" style="margin-top:14px">Not in a room</div>' : ''}${rest.map(d => volRow(d.name, d.volume, d.name, d.type === 'group', d.muted, d.bulb_show)).join('')}`);
+    if (rest.length) html.push(`${html.length ? '<div class="eyebrow" style="margin-top:14px">Not in a room</div>' : ''}${rest.map(d => volRow(d.name, d.volume, d.name, d.type === 'group', d.muted, d.bulb_studio_show)).join('')}`);
     const box = $('#speakers');
     box.innerHTML = html.join('') || '<div class="empty">No rooms yet: add them with Edit rooms.</div>';
     roomVolumes(box, devs);
@@ -1053,7 +998,7 @@
     for (const b of document.querySelectorAll('.nav-btn')) b.dataset.tab === navTab ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current');
     $('#title').textContent = TABS[tab]; $('#scroller').scrollTop = 0;
     roomsOpen = tab === 'rooms';
-    if (roomsOpen && !was) { loadBulbShows(); loadVolumes(); }
+    if (roomsOpen && !was) { loadBulbStudio(); loadVolumes(); }
     if (!roomsOpen) roomView(false);
     if (tab === 'editrooms') loadRoomEdit();
   }

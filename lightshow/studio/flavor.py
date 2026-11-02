@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 
 
-def _env(x: np.ndarray, sr: int, hop: int) -> np.ndarray:
+def _env(x: np.ndarray, hop: int) -> np.ndarray:
     m = len(x) // hop
     if m < 4:
         return np.zeros(0)
@@ -31,7 +31,7 @@ def find_808s(bass: np.ndarray, sr: int, bass_hits: list) -> list:
     if bass is None or not len(bass) or not bass_hits:
         return []
     hop = 256
-    env = _env(bass, sr, hop)
+    env = _env(bass, hop)
     if not len(env):
         return []
     fps = sr / hop
@@ -194,7 +194,6 @@ def find_key_change(mid: np.ndarray, sr: int, duration: float) -> dict | None:
         keys.append((i / fps, k, m, r))
     if len(keys) < 8:
         return None
-    best = None
     for j in range(len(keys)):
         t = keys[j][0]
         if t < 0.55 * duration or duration - t < 15:
@@ -209,6 +208,5 @@ def find_key_change(mid: np.ndarray, sr: int, duration: float) -> dict | None:
         share_a = sum(1 for x in after if (x[1], x[2]) == ka) / len(after)
         up = (ka[0] - kb[0]) % 12
         if kb[1] == ka[1] and up in (1, 2) and share_b >= 0.6 and share_a >= 0.6 and keys[j][1:3] == ka:
-            best = {"time": round(float(t), 2), "up": int(up)}
-            break
-    return best
+            return {"time": round(float(t), 2), "up": int(up)}
+    return None

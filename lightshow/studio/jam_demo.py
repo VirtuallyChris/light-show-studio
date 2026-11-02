@@ -22,8 +22,6 @@ class DemoSpotify:
     """Plays the synthetic songs in order and answers like the Spotify client."""
 
     signed_in = True
-    client_id = "demo"
-    last_error = ""
 
     def __init__(self, relay, gate, clock=time.monotonic):
         self.relay, self.clock = relay, clock

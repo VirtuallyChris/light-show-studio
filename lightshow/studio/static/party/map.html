@@ -18,21 +18,21 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
   :root {
     color-scheme: light;
     --bg: #f4f4f8; --card: #ffffff; --card2: #f2f2f7; --line: rgb(20 16 40 / 0.09);
-    --text: #14141c; --text-2: #4a4d5c; --muted: #767a8c; --accent: #7c3aed; --accent2: #db2777; --ok: #16a34a; --warn: #d97706;
+    --text: #14141c; --text-2: #4a4d5c; --muted: #767a8c; --accent: #7c3aed; --accent2: #db2777; --ok: #16a34a;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.05);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       color-scheme: dark;
       --bg: #0e0f14; --card: #181a22; --card2: #20232d; --line: rgb(255 255 255 / 0.08);
-      --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80; --warn: #fbbf24;
+      --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80;
       --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px rgb(0 0 0 / 0.35);
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
     --bg: #0e0f14; --card: #181a22; --card2: #20232d; --line: rgb(255 255 255 / 0.08);
-    --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80; --warn: #fbbf24;
+    --text: #eef0f6; --text-2: #b8bdcc; --muted: #8b92a5; --accent: #8b5cf6; --accent2: #ec4899; --ok: #4ade80;
     --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 10px 30px rgb(0 0 0 / 0.35);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -143,7 +143,6 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
     S.doc = doc; S.doc.lights = S.doc.lights || {};
     S.rooms = rooms.rooms || [];
     const all = devs.devices || devs.lights || (Array.isArray(devs) ? devs : []);
-    const roomOf = l => S.rooms.find(r => (r.lights || []).some(k => [l.mac, l.device_id, l.ip].includes(k)));
     S.all = all;
     pickLights();
     renderChips(); fit(); draw();
@@ -217,7 +216,6 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
     return 0;
   }
   // the floor plan as a drawing: floors, fixtures and furniture faint, the real walls solid, the rooms named
-  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const TINTS = { dining: 265, kitchen: 32, living: 210, game: 300, office: 150 };   // a soft hue for each room's floor
   const tintOf = name => { const k = Object.keys(TINTS).find(t => name.toLowerCase().includes(t)); return k == null ? null : TINTS[k]; };
   function drawPlan() {
@@ -416,9 +414,9 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
     draw();
   }
   // drag to pan, pinch or buttons to zoom, a tap (little movement) places
-  const pts = new Map(); let downAt = null, moved = 0, pinch = null;
+  const pts = new Map(); let moved = 0, pinch = null;
   const feetAt = e => { const r = cv.getBoundingClientRect(); return toFeet((e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio); };
-  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 1) { downAt = [e.clientX, e.clientY]; moved = 0; S.drag = S.build && !S.tool ? grab(...feetAt(e)) : null; } else { pinch = null; S.drag = null; } });
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); if (pts.size === 1) { moved = 0; S.drag = S.build && !S.tool ? grab(...feetAt(e)) : null; } else { pinch = null; S.drag = null; } });
   cv.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return; const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
     const dpr = devicePixelRatio;

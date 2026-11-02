@@ -126,6 +126,17 @@ def _bars(song: dict, runs: list) -> np.ndarray:
     return out
 
 
+def _sections(song: dict, runs: list) -> list:
+    """A run list as sections on the song's bars."""
+    spans, secs = song["spans"], []
+    for (start, kind), nxt in zip(runs, runs[1:] + [[len(spans), None]]):
+        t0 = 0.0 if start == 0 else float(spans[start][0])
+        t1 = song["duration"] if nxt[0] >= len(spans) else float(spans[nxt[0]][0])
+        if t1 > t0:
+            secs.append({"type": kind, "start": t0, "end": t1})
+    return secs
+
+
 def score(batch_path: str, labels_path: str) -> None:
     """A blind batch's labels against the user's own, bar by bar (weighted by bar length), beside the trees'."""
     lib = JamLibrary(os.path.join(ROOT, "shows"))
@@ -154,20 +165,12 @@ def keep(batch_path: str, labels_path: str) -> None:
     review = Review(lib)
     guides = _guides()
     L.retrain_soon = lambda *a, **k: False                            # (trained once, below, not once a song)
-    import lightshow.studio.labeler as _lab
-    _lab.retrain_soon = L.retrain_soon
     done = 0
     for k, song in batch.items():
         runs = labels.get(k)
         if not runs:
             continue
-        spans, secs = song["spans"], []
-        for (start, kind), nxt in zip(runs, runs[1:] + [[len(spans), None]]):
-            t0 = 0.0 if start == 0 else float(spans[start][0])
-            t1 = song["duration"] if nxt[0] >= len(spans) else float(spans[nxt[0]][0])
-            if t1 > t0:
-                secs.append({"type": kind, "start": t0, "end": t1})
-        review.keep(song["tid"], secs, ok=False, by="claude")
+        review.keep(song["tid"], _sections(song, runs), ok=False, by="claude")
         guides[song["tid"]] = GUIDE
         done += 1
     with open(GUIDES + ".tmp", "w", encoding="utf-8") as fh:
@@ -187,13 +190,7 @@ def propose(batch_path: str, labels_path: str) -> None:
         runs = labels.get(k)
         if not runs:
             continue
-        spans, secs = song["spans"], []
-        for (start, kind), nxt in zip(runs, runs[1:] + [[len(spans), None]]):
-            t0 = 0.0 if start == 0 else float(spans[start][0])
-            t1 = song["duration"] if nxt[0] >= len(spans) else float(spans[nxt[0]][0])
-            if t1 > t0:
-                secs.append({"type": kind, "start": t0, "end": t1})
-        review.propose(song["tid"], secs)
+        review.propose(song["tid"], _sections(song, runs))
         done += 1
     print(f"suggested sections for {done} songs (review mode shows them first)")
 

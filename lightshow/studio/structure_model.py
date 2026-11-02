@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import json
 import os
-import sys  # noqa: F401
 
-from .model_worker import ROOT, VENV_PY, ModelWorker  # noqa: F401 - VENV_PY/ROOT are imported from here elsewhere
+from .model_worker import ModelWorker
 
 CACHE_SUFFIX = ".songformer.json"
 WORKER = ModelWorker("lightshow.studio.songformer_infer", "segments")

@@ -110,7 +110,6 @@ class HomeSetup:
         body, code = model_setup.post(asked)
         return web.json_response(body, status=code)
 
-    # -- the phone ------------------------------------------------------------------------------
     # -- the song copies kept, for fixing shows later ---------------------------------------------
     def _copies_dir(self) -> str | None:
         fetch = getattr(getattr(self.studio, "jam", None), "fetch", None)
@@ -173,14 +172,14 @@ class HomeSetup:
         signed_in = bool(sp and sp.signed_in)
         client = bool((cfg.get("spotify") or {}).get("client_id"))
         outs, default_out = _outputs()
-        from .player_browser import hidden_problem, own_hidden_output, pick_hidden_output
+        from .player_browser import hidden_problem, own_hidden_output
         hidden = cfg.get("jam_hidden_output") or ""
         if own_hidden_output():
             hidden_found = not hidden_problem()
         elif hidden:
             hidden_found = any(hidden.lower() in o.lower() for o in outs)
         else:
-            hidden_found = bool(pick_hidden_output(outs, default_out, cfg.get("jam_room_output") or "")[0])
+            hidden_found = bool(self._auto_output(outs, default_out, cfg))
         try:
             from .model_worker import venv_py
             models = os.path.exists(venv_py())

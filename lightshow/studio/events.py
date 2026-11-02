@@ -88,10 +88,9 @@ def _band_onsets(S, freqs, lo, hi, sr, hop, wait_s, sens):
     import librosa
     m = (freqs >= lo) & (freqs <= hi)
     if not m.any():
-        return np.array([]), np.array([]), np.array([], dtype=int)
+        return np.array([]), np.array([], dtype=int)
     env = librosa.onset.onset_strength(S=librosa.amplitude_to_db(S[m], ref=np.max), sr=sr, hop_length=hop)
-    idx = _peaks(env, sr, hop, wait_s, sens)
-    return env, idx, idx
+    return env, _peaks(env, sr, hop, wait_s, sens)
 
 
 def find_hook(y_side, sr, beats, phase, hop):
@@ -110,7 +109,7 @@ def find_hook(y_side, sr, beats, phase, hop):
     mfcc = librosa.feature.mfcc(y=y_side, sr=sr, hop_length=hop, n_mfcc=12)
     feats = []
     for f in frames:
-        a, b = int(f), int(f + (frames[1] - frames[0] if len(frames) > 1 else 8))
+        a, b = int(f), int(f + (frames[1] - frames[0]))
         a, b = max(0, a), min(chroma.shape[1], b)
         if b - a < 2:
             return None
@@ -135,8 +134,7 @@ def find_hook(y_side, sr, beats, phase, hop):
     if best is None:
         return None
     hits = [i for i in range(len(bars)) if sim[best, i] > thresh or i == best]
-    span = (bars[1] - bars[0]) if len(bars) > 1 else 2.0
-    return {"length": round(float(span), 3),
+    return {"length": round(float(bars[1] - bars[0]), 3),
             "times": [round(float(bars[i]), 3) for i in sorted(hits)]}
 
 
@@ -151,8 +149,7 @@ def find_fills(drum_times, duration, beats):
     if counts.max() < 4:
         return []
     nz = counts[counts > 0]
-    typical = float(np.median(nz)) if nz.size else 0.0
-    busy = counts >= max(float(np.percentile(nz, 88)) if nz.size else 0.0, typical + 2)
+    busy = counts >= max(float(np.percentile(nz, 88)), float(np.median(nz)) + 2)
     out, run = [], None
     for i, b in enumerate(busy):
         if b and run is None:
@@ -169,9 +166,6 @@ def find_fills(drum_times, duration, beats):
 # snares from a fat 200 Hz body to a dry 3 kHz crack (a dubstep snare can live around 600 Hz).
 KICK_BANDS = [(30, 70), (40, 100), (50, 130), (60, 160), (80, 200)]
 SNARE_BANDS = [(150, 300), (200, 450), (300, 700), (400, 1000), (700, 1600), (1500, 3500), (2500, 6000)]
-# How a song's drum pattern repeats: (beats per cycle, slots per beat). Four beats in sixteenths is
-# most pop and dance; in triplets, a shuffle or a 6/8 feel; three beats, a waltz.
-LAYOUTS = [(4, 4), (4, 3), (3, 4), (3, 3)]
 NO_DRUMS_BELOW = 3.0       # kick pattern score under which a song is taken to have no drums at all
 FP_FRAMES = 6              # a hit's fingerprint: its first ~140 ms
 FP_MIN_SEPARATION = 0.3    # how much better the kick places must match the fingerprint than the rest
@@ -289,7 +283,7 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
     that stands out in the places the kick does not land and stays quiet where it does.
     """
     import librosa
-    if beats is None or len(beats) < 16:
+    if len(beats) < 16:
         return None
     frame_t = librosa.frames_to_time(np.arange(S_p.shape[1]), sr=sr, hop_length=hop)
     kick_rises = {band: _rise(S_p, freqs, *band)[1] for band in KICK_BANDS}
@@ -311,7 +305,6 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
         return {"has_drums": False, "kick_score": round(sc, 2), "grid": {**grid.to_json(), **how}}   # nothing in the low end keeps time
     allpos = np.arange(grid.n)
     kick_pos = np.where(kprof >= 0.5 * kprof.max())[0]
-    free = np.array([q for q in allpos if q not in set(kick_pos)])
     cal = {"has_drums": True, "grid": {**grid.to_json(), **how}, "kick_band": list(kband), "kick_score": round(sc, 2), "kick_pos": kick_pos.tolist()}
     # The snare's places: where its band jumps hard, and either the kick does not land, or the band
     # jumps far more for the kick band's jump than at the kick's other places. That second case is
@@ -361,7 +354,7 @@ def calibrate_drums(S_p, freqs, sr, hop, beats, phase):
 
 
 def _grid_of(cal, beats, phase):
-    g = (cal or {}).get("grid") or {}
+    g = cal.get("grid") or {}
     return Grid(beats, g.get("beats_per_cycle", 4), g.get("slots_per_beat", 4), g.get("start", phase))
 
 
@@ -433,7 +426,7 @@ def _fingerprint_kicks(S_p, freqs, sr, hop, duration, grid, cal, t_k, s_k):
     return ct[keep], st
 
 
-def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
+def find_drums(S_p, freqs, sr, hop, duration, beats, phase):
     """The kick and snare hits themselves, from the percussive part of the mix.
 
     The bands come from calibrate_drums when the song has a clear pattern; a song whose low end keeps
@@ -514,9 +507,9 @@ def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
             return list(zip(t_k, s_k)), snare, cal
         cal["snare_rejected"] = True
 
-    env_c, idx_c, _ = _band_onsets(S_p, freqs, 1500, 5000, sr, hop, 0.10, 1.6)
+    env_c, idx_c = _band_onsets(S_p, freqs, 1500, 5000, sr, hop, 0.10, 1.6)
     idx_c, t_c, s_c = hits(env_c, idx_c)
-    body, low, crack = band(150, 400), band(30, 150), band(1500, 5000)
+    body, low = band(150, 400), band(30, 150)
     snare = []
     if len(idx_c):
         ref = float(np.percentile(body[idx_c], 90)) + 1e-9
@@ -536,6 +529,15 @@ def find_drums(S_p, freqs, sr, hop, duration, beats=None, phase=0):
 
 
 DRUMS_PRESENT_BELOW = 0.1  # separated drums quieter than this share of the song: the song has no drums
+
+
+def _stem(stems, name, sr, length=None):
+    """A separated track at the song's rate, padded or cut to `length` samples if given."""
+    import librosa
+    x = np.asarray(stems[name], dtype=np.float32)
+    if stems.get("sr", sr) != sr:
+        x = librosa.resample(x, orig_sr=stems["sr"], target_sr=sr)
+    return x if length is None else np.pad(x, (0, max(0, length - len(x))))[:length]
 
 
 def _hit_quality(hits, cal, beats, phase, kind):
@@ -619,10 +621,7 @@ def find_drums_both(S_mix, freqs, sr, hop, duration, beats, phase, mid, stems, m
     alike); the pattern finders above still run, for the calibration the rest of the analysis reads
     (the kick's band, the cycle), and are the fallback where the model cannot run."""
     import librosa
-    d = np.asarray(stems["drums"], dtype=np.float32)
-    if stems.get("sr", sr) != sr:
-        d = librosa.resample(d, orig_sr=stems["sr"], target_sr=sr)
-    d = np.pad(d, (0, max(0, len(mid) - len(d))))[: len(mid)]
+    d = _stem(stems, "drums", sr, len(mid))
     level = float(np.sqrt(np.mean(d ** 2)) / (np.sqrt(np.mean(mid ** 2)) + 1e-9))
     if level < DRUMS_PRESENT_BELOW:
         return [], [], {"has_drums": False, "drum_level": round(level, 3), "source": "stems"}, np.zeros(S_mix.shape[1])
@@ -667,7 +666,6 @@ def stem_attack_hits(S_d, freqs, sr, hop):
     and not one hit found, so the lights pulsed on every beat instead). A kick is a jump in the thump
     below 150 Hz, a snare one in the 1.5-5 kHz crack; each a clear peak (above the song's typical
     attack, at least 70 ms after the last). Returns two lists of (time, strength 0..1)."""
-    import librosa
     from scipy.signal import find_peaks
 
     fps = sr / hop
@@ -798,11 +796,7 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     # else the mix's, as before (the pattern finders then read both, see find_drums_both).
     S_d = None
     if stems and stems.get("drums") is not None and drum_hits is not None:
-        d = np.asarray(stems["drums"], dtype=np.float32)
-        if stems.get("sr", sr) != sr:
-            d = librosa.resample(d, orig_sr=stems["sr"], target_sr=sr)
-        d = np.pad(d, (0, max(0, len(mid) - len(d))))[: len(mid)]
-        S_d = S_p = np.abs(librosa.stft(d, hop_length=hop))
+        S_d = S_p = np.abs(librosa.stft(_stem(stems, "drums", sr, len(mid)), hop_length=hop))
         S_h = None                                       # (the bass comes from its own track)
     else:
         mono_h, mono_p = librosa.effects.hpss(mid)
@@ -815,25 +809,17 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
     # one, which is where a lead synth or a guitar line actually is; else the stereo side channel.
     S_lead = S_side
     if stems and stems.get("other") is not None:
-        o = np.asarray(stems["other"], dtype=np.float32)
-        if stems.get("sr", sr) != sr:
-            o = librosa.resample(o, orig_sr=stems["sr"], target_sr=sr)
-        o = np.pad(o, (0, max(0, len(mid) - len(o))))[: len(mid)]
-        S_lead = np.abs(librosa.stft(o, hop_length=hop))
-    env_lead, idx_lead, _ = _band_onsets(S_lead, freqs, 300, 5000, sr, hop, 0.35, 3.2)
+        S_lead = np.abs(librosa.stft(_stem(stems, "other", sr, len(mid)), hop_length=hop))
+    env_lead, idx_lead = _band_onsets(S_lead, freqs, 300, 5000, sr, hop, 0.35, 3.2)
     # the bass line: from the separated bass track when there is one (nothing else in it), else the
     # harmonic part of the mix below 250 Hz
     S_b, bass_smooth = S_h, 0.25
     if stems and stems.get("bass") is not None:
-        b = np.asarray(stems["bass"], dtype=np.float32)
-        if stems.get("sr", sr) != sr:
-            b = librosa.resample(b, orig_sr=stems["sr"], target_sr=sr)
-        b = np.pad(b, (0, max(0, len(mid) - len(b))))[: len(mid)]
-        S_b, bass_smooth = np.abs(librosa.stft(b, hop_length=hop)), 0.12      # quick enough to follow a wobble
+        S_b, bass_smooth = np.abs(librosa.stft(_stem(stems, "bass", sr, len(mid)), hop_length=hop)), 0.12      # quick enough to follow a wobble
     if S_b is None:                                      # no bass track after all: the mix's harmonic part
         S_b = np.abs(librosa.stft(librosa.effects.harmonic(mid), hop_length=hop))
-    env_bass, idx_bass, _ = _band_onsets(S_b, freqs, 35, 250, sr, hop, 0.30, 2.8)
-    env_drum, idx_drum, _ = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
+    env_bass, idx_bass = _band_onsets(S_b, freqs, 35, 250, sr, hop, 0.30, 2.8)
+    env_drum, idx_drum = _band_onsets(S_p, freqs, 1200, 9000, sr, hop, 0.08, 1.8)
     present = None
     if stems:
         kick, snare, drum_cal, present = find_drums_both(S_p, freqs, sr, hop, duration, beats, phase, mid, stems, drum_hits, S_d=S_d)
@@ -865,23 +851,16 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
 
     hook = find_hook(side, sr, beats, phase, hop)
     cuts = find_cuts(mid, sr, hop)
-    bass_hits = []
-    if stems and stems.get("bass") is not None:
-        bb = np.asarray(stems["bass"], dtype=np.float32)
-        if stems.get("sr", sr) != sr:
-            bb = librosa.resample(bb, orig_sr=stems["sr"], target_sr=sr)
-        bass_hits = find_bass_hits(bb, sr, beats)
     # what makes this kind of song different: 808s, hat rolls, wobbles, a key change (see flavor.py)
     from . import flavor
-    b808, hatrolls, wobbles = [], [], []
+    bass_hits, b808, hatrolls, wobbles = [], [], [], []
     if stems and stems.get("bass") is not None:
+        bb = _stem(stems, "bass", sr)
+        bass_hits = find_bass_hits(bb, sr, beats)
         b808 = flavor.find_808s(bb, sr, bass_hits)
         wobbles = flavor.find_wobbles(bb, sr, beats)
     if stems and stems.get("drums") is not None and (drum_cal or {}).get("has_drums", True) is not False:
-        dd = np.asarray(stems["drums"], dtype=np.float32)
-        if stems.get("sr", sr) != sr:
-            dd = librosa.resample(dd, orig_sr=stems["sr"], target_sr=sr)
-        hatrolls = flavor.find_hat_rolls(dd, sr, beats)
+        hatrolls = flavor.find_hat_rolls(_stem(stems, "drums", sr), sr, beats)
     try:
         key_change = flavor.find_key_change(mid, sr, duration)
     except Exception:  # noqa: BLE001 - a key change is a nicety
@@ -916,7 +895,6 @@ def detect_events(path, beats, duration, phase=0, sr_target=22050, hop=512, feat
                if present is not None else {}),
             **({"vocals": vocals} if vocals else {}), **({"other": other} if other else {}),
         },
-        "stereo": bool(wide),
         "drum_calibration": drum_cal,                   # the bands this song's kick and snare were found in
         "cuts": cuts,                                   # the music drops out for a moment, then comes back
         "entries": entries,                             # the synths and guitars come in after being away

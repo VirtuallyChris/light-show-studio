@@ -5,7 +5,7 @@ Each show is one sound, one Google speaker and one Govee bulb (made for the H600
 of shows can loop at once, for example a witch laughing on one speaker with its bulb in one room,
 and a ghost on another speaker and bulb in the next room.
 
-Start it with **Bulb Studio.vbs** in this folder, or `.venv\Scripts\python -m bulbshow` from the
+Start it with **Bulb Studio.vbs** in this folder, or `.venv\Scripts\python -m bulbstudio` from the
 project folder. It opens on http://127.0.0.1:8770, on this computer only: a phone on the network
 can switch its shows on and off from the party remote, but cannot open the app.
 

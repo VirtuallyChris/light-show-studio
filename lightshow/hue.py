@@ -27,6 +27,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
+from .govee_lan import _clamp8, _resample_colors
+
 DEVICETYPE = "light_show_studio#pc"
 STREAM_PORT = 2100
 STREAM_HZ = 50
@@ -309,15 +311,6 @@ def stream_packet(area_id: str, seq: int, channels: list[tuple[int, int, int, in
     return head + b"".join(struct.pack(">BHHH", ch, r * 257, g * 257, b * 257) for ch, r, g, b in channels)
 
 
-def _resample(colors: list, n: int) -> list:
-    m = len(colors)
-    return [colors[min(m - 1, int((i + 0.5) * m / n))] for i in range(n)]
-
-
-def _c8(v) -> int:
-    return max(0, min(255, int(round(v))))
-
-
 # -- streaming: one per bridge ------------------------------------------------------------------------
 def dtls_transport(ip: str, username: str, clientkey: str):
     from .dtls_psk import DtlsPskClient
@@ -567,11 +560,11 @@ class HueDevice:
         if not colors:
             return
         if self.mode == "stream" and self.stream is not None:
-            cols = colors if len(colors) == len(self.channels) else _resample(colors, len(self.channels))
-            self.stream.set({ch: (_c8(r), _c8(g), _c8(b)) for ch, (r, g, b) in zip(self.channels, cols)})
+            cols = colors if len(colors) == len(self.channels) else _resample_colors(colors, len(self.channels))
+            self.stream.set({ch: (_clamp8(r), _clamp8(g), _clamp8(b)) for ch, (r, g, b) in zip(self.channels, cols)})
         elif self.rest is not None and self.light_id:
             n = len(colors)
-            self.rest.set(self.light_id, tuple(_c8(sum(c[i] for c in colors) / n) for i in range(3)))
+            self.rest.set(self.light_id, tuple(_clamp8(sum(c[i] for c in colors) / n) for i in range(3)))
 
     def turn(self, on: bool) -> None:
         """Off goes to the bridge (stop(off=True) after a show); on is left to the stream or the colors."""
@@ -612,10 +605,6 @@ class HueDevice:
         return {"onOff": 1 if (st.get("on") or {}).get("on") else 0,
                 "brightness": int(round((st.get("dimming") or {}).get("brightness", 100))),
                 "color": {"r": r, "g": g, "b": b}, "colorTemInKelvin": 0}
-
-    @property
-    def label(self) -> str:
-        return f"{self.name or self.sku} @ {self.ip}"
 
 
 # -- every bridge: found, paired, read ----------------------------------------------------------------

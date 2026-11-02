@@ -20,14 +20,12 @@ from __future__ import annotations
 SR = 22050
 
 
-def load_model(device: str = "auto"):
+def load_model():
     from beat_this.inference import Audio2Beats
 
     from . import devices
 
-    if device == "auto":
-        device = devices.device_for("beats_infer")
-    return Audio2Beats(checkpoint_path="final0", device=device, dbn=False), device
+    return Audio2Beats(checkpoint_path="final0", device=devices.device_for("beats_infer"), dbn=False)
 
 
 def find(model, y) -> dict:

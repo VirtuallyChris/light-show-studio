@@ -5,16 +5,17 @@
   const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
   const frac = x => x - Math.floor(x);
   const uid = () => Math.random().toString(36).slice(2, 10);
+  const postJson = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   // ------------------------------------------------------------------ state
   const S = {
     project: null, analysis: null, name: '',
     audio: { ctx: null, buffer: null, source: null, startCtx: 0, startPos: 0, playing: false, pos: 0 },
-    view: { pps: 40, scroll: 0, sel: null, multi: [], drag: null, hoverDrop: null, mouse: null },
+    view: { pps: 40, scroll: 0, sel: null, multi: [], drag: null, hoverDrop: null },
     lights: [], ws: null, wsOpen: false, outputActive: false, lastLightSend: 0,
     cast: { active: false, device: '', state: 'IDLE', pos: 0, at: 0, poll: null, devices: [] },
     defaults: { castOffset: 0, castOffsets: {} },
-    undo: [], redo: [], saveTimer: null, lastFrame: null,
+    undo: [], redo: [], saveTimer: null,
   };
   const HEADER = 96, ROW = { ruler: 22, sections: 20, wave: 84, lane: 48 };
   // The canvases draw in "logical" pixels scaled by UI, which follows the page's text size (the
@@ -130,7 +131,6 @@
   const barOf = b => Math.floor((b - P().phase) / 4);
   const barLabel = b => { const bar = barOf(b); const beat = Math.floor(b - P().phase - bar * 4); return `${bar + 1}.${beat + 1}`; };
   const duration = () => S.analysis ? S.analysis.duration : 0;
-  const endBeat = () => timeToBeat(duration());
 
   /** a clip's own colors: a named palette, a custom color list, or the palette lane */
   function clipPalette(clip, fallback) {
@@ -337,7 +337,7 @@
     if (!P() || !S.name || S.review) return false;   // a song under review is not a show
     collectProject();
     try {
-      const r = await fetch(`/api/projects/${encodeURIComponent(S.name)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(P()) });
+      const r = await postJson(`/api/projects/${encodeURIComponent(S.name)}`, P());
       if (!r.ok) throw new Error(`the studio answered ${r.status}`);
       return true;
     } catch (e) { toast('Save failed: ' + e.message, true); return null; }
@@ -346,7 +346,7 @@
   async function saveBackedUp() {
     if (!P() || !S.name || (S.jam && S.jam.live)) return false;
     clearTimeout(S.saveTimer);
-    try { return (await fetch(`/api/projects/${encodeURIComponent(S.name)}?backup=1`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectProject()) })).ok; }
+    try { return (await postJson(`/api/projects/${encodeURIComponent(S.name)}?backup=1`, collectProject())).ok; }
     catch (e) { return false; }
   }
   const sectionsOf = p => p.sections.map(s => ({ type: s.type, start: +(+s.start).toFixed(3), end: +(+s.end).toFixed(3) }));
@@ -360,16 +360,15 @@
     const sig = sectionsSig(), seen = J.secsSeen && J.secsSeen.key === J.key ? J.secsSeen.sig : null, key = J.key;
     if (sig === seen) { if (say) toast('Nothing to keep: during a party only section changes are kept'); return false; }
     const label = (d.track && d.track.name) || d.project || 'this song';
-    const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     try {
       if (d.kind === 'custom' && d.project) {
         const data = await (await fetch('/api/projects/' + encodeURIComponent(d.project))).json();
         if (!data.saved) throw new Error('your show has no saved version to keep them in');
-        const r = await post('/api/projects/' + encodeURIComponent(d.project), { ...data.saved, sections: JSON.parse(sig) });
+        const r = await postJson('/api/projects/' + encodeURIComponent(d.project), { ...data.saved, sections: JSON.parse(sig) });
         if (!r.ok) throw new Error(`the studio answered ${r.status}`);
       } else {
         if (!d.track || !d.track.id) throw new Error('no song to keep them for');
-        const r = await post('/api/review/truth', { id: d.track.id, ok: false, beat_shift: 0, sections: JSON.parse(sig) });
+        const r = await postJson('/api/review/truth', { id: d.track.id, ok: false, beat_shift: 0, sections: JSON.parse(sig) });
         const out = await r.json();
         if (out.error) throw new Error(out.error === 'no such learned song' ? 'a first listen: its sections can be kept once it is learned' : out.error);
       }
@@ -396,7 +395,7 @@
   async function openPath(path) {
     await modelsReady('the analysis');
     busy(`Analysing ${path}…`);
-    try { const r = await fetch('/api/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }) }); await loadResponse(r); }
+    try { const r = await postJson('/api/open', { path }); await loadResponse(r); }
     catch (e) { toast('Open failed: ' + e, true); } finally { busy(null); }
   }
   async function openProject(name) {
@@ -428,7 +427,7 @@
     S.undo.length = 0; S.redo.length = 0; S.view.sel = null; S.view.multi = []; S.audio.pos = 0;
     busy('Decoding audio…');
     await loadAudio(data.audio_url);
-    zoomFit(); inspector(); renderPalettes(); draw(); refreshRecent();
+    zoomFit(); inspector(); draw();
     toast(`${niceName(S.name)}: ${S.project.bpm.toFixed(1)} bpm, ${S.project.sections.length} sections, ${S.project.drops.length} drops` + (S.analysis.structure_source === 'loudness+songformer' ? ' · timed by SongFormer' : ''));
     if (fresh === 'rebuilt') toast(`${niceName(S.name)}: rebuilt with the latest show logic (the old show is kept as a backup)`);
     else if (fresh === 'edited') toast(`${niceName(S.name)} was built by older show logic. It has your own changes, so it is left as it is: press Auto-build show to rebuild it.`, true);
@@ -468,7 +467,7 @@
   async function reviewSaveCustom() {
     const R = S.review; if (!R || !R.id) return;
     clearTimeout(R.saveT);
-    const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+    const post = (url, body) => postJson(url, body).then(r => r.json());
     try {
       if (R.custom) {
         collectProject(); P().handEdited = true;
@@ -525,7 +524,7 @@
   }
   function reviewBar() {
     const R = S.review, on = !!(R && R.on);
-    $('#reviewBar').hidden = !on; $('#btnReview').hidden = on;
+    $('#reviewBar').hidden = !on;
     if (!on) return;
     $('#revPrev').hidden = $('#revPos').hidden = !!R.edit;              // one song from the song box: nothing to step through
     $('#revDone').title = R.edit ? 'Done: your sections are kept (moved lights make it your own show as you go)' : 'Done, the next song (]): your changes are kept as corrections; with none, it is marked right as it was';
@@ -567,21 +566,18 @@
   });
   /** The song box: your saved shows and every song learned in a jam (its show as the jam plays it), by name. */
   async function refreshRecent() {
-    const esc = x => String(x).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     try {
       const [list, every] = await Promise.all([fetch('/api/projects').then(r => r.json()),
         fetch('/api/review/every').then(r => r.json()).then(d => d.songs || []).catch(() => [])]);
       const to = new Map();
-      for (const p of list) to.set(p.name, { show: p.name, note: p.has_project ? 'your show' : 'song only' });
-      for (const s of every) if (!s.show && !to.has(s.label)) to.set(s.label, { jam: s, note: 'jam song' });
+      for (const p of list) to.set(p.name, { show: p.name });
+      for (const s of every) if (!s.show && !to.has(s.label)) to.set(s.label, { jam: s });
       S.songBox = to;
-      $('#songList').innerHTML = [...to].map(([v, t]) => `<option value="${esc(v)}" label="${t.note}"></option>`).join('');
     } catch (e) { /* server away */ }
   }
   /** Open what the song box names: a saved show, or a jam song in review (one song, no stepping on). */
   async function openNamed(v) {
     const t = S.songBox && S.songBox.get(v); if (!t) return false;
-    $('#recent').value = ''; $('#recent').blur();
     if (t.show) { await openProject(t.show); return true; }
     if (S.review) await reviewStop();
     S.review = { on: true, edit: true, songs: [{ ...t.jam, reviewed: '' }], i: 0, id: null, orig: '' };
@@ -621,7 +617,7 @@
   /** In a jam, play and pause are Spotify's, as on the Party Hub (the user: pausing here did nothing). */
   function jamPlayPause() {
     const st = S.jam.state || {}, playing = st.room ? st.room.playing : !st.paused;
-    fetch('/api/party/playback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: playing ? 'pause' : 'resume' }) })
+    postJson('/api/party/playback', { action: playing ? 'pause' : 'resume' })
       .then(r => r.json()).then(d => { if (!d.ok) toast(d.error || 'Spotify did not answer', true); }).catch(e => toast(String(e), true));
   }
   function updateTransport() { $('#btnPlay').textContent = S.audio.playing ? '❚❚' : '▶'; }
@@ -632,10 +628,14 @@
     const r = await fetch('/api/cast/' + path, isGet ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
     const j = await r.json(); if (j.error) { toast('Cast: ' + j.error, true); throw new Error(j.error); } return j;
   }
+  function castControls(on) {
+    $('#btnCast').textContent = on ? 'Stop cast' : 'Cast'; $('#btnCast').classList.toggle('on', on);
+    for (const id of ['#castOffsetWrap', '#castVolume', '#castLocalWrap', '#btnSync']) $(id).hidden = !on;
+  }
   function castGone() {                                   // the speaker went away without Stop cast being pressed
     clearInterval(S.cast.poll); S.cast.poll = null; clearTimeout(S.cast.syncT);
     S.cast.active = false; S.cast.state = 'IDLE'; stopSource(); S.audio.localCast = false;
-    $('#btnCast').textContent = 'Cast'; $('#btnCast').classList.remove('on'); $('#castOffsetWrap').hidden = true; $('#castVolume').hidden = true; $('#castLocalWrap').hidden = true; $('#btnSync').hidden = true;
+    castControls(false);
   }
   function applyCastStatus(st) {
     const c = S.cast, jam = S.jam && S.jam.live;
@@ -654,8 +654,6 @@
     const playing = st.state === 'PLAYING' || st.state === 'BUFFERING';
     syncLocalToCast();
     if (S.audio.playing !== playing) { S.audio.playing = playing; updateTransport(); }
-    if (st.state === 'IDLE' && c.wasPlaying && st.position >= duration() - 2) { c.wasPlaying = false; }
-    c.wasPlaying = playing;
   }
   async function loadCastDevices(rescan = false) {
     const sel = $('#castDevice'); const cur = sel.value;
@@ -670,7 +668,7 @@
     const startPos = pos();
     busy(`Connecting to ${name}…`);
     if (!(P() && P().settings.castOffsetCustom) && S.defaults.castOffsets[name] != null) $('#castOffset').value = S.defaults.castOffsets[name];
-    try { const st = await castApi('connect', { name }); S.cast.active = true; S.cast.device = name; S.cast.verified = false; S.cast.pos = startPos; S.cast.at = performance.now(); S.cast.state = 'IDLE'; applyCastStatus(st); $('#btnCast').textContent = 'Stop cast'; $('#btnCast').classList.add('on'); $('#castOffsetWrap').hidden = false; $('#castVolume').hidden = false; $('#castLocalWrap').hidden = false; $('#btnSync').hidden = false;
+    try { const st = await castApi('connect', { name }); S.cast.active = true; S.cast.device = name; S.cast.verified = false; S.cast.pos = startPos; S.cast.at = performance.now(); S.cast.state = 'IDLE'; applyCastStatus(st); castControls(true);
       clearInterval(S.cast.poll); S.cast.poll = setInterval(async () => { try { applyCastStatus(await castApi('status')); } catch (e) { } }, 500);
       toast(`Casting to ${name}. Press play.`); }
     finally { busy(null); }
@@ -681,7 +679,7 @@
     stopSource(); S.audio.localCast = false;
     S.cast.active = false; S.cast.state = 'IDLE';
     if (!(S.jam && S.jam.live)) { S.audio.playing = false; S.audio.pos = wasPos; updateTransport(); }   // a jam carries on, on this PC
-    $('#btnCast').textContent = 'Cast'; $('#btnCast').classList.remove('on'); $('#castOffsetWrap').hidden = true; $('#castVolume').hidden = true; $('#castLocalWrap').hidden = true; $('#btnSync').hidden = true;
+    castControls(false);
   }
   async function castPlay(from) {
     if (S.cast.state === 'PAUSED' && Math.abs(from - S.cast.pos) < 0.05) { applyCastStatus(await castApi('resume')); return; }
@@ -826,7 +824,7 @@
         head.innerHTML = g.room ? `<span>${esc(g.room.name)}</span><label class="toggle" title="${g.room.on ? 'Played on. Off: its lights go back to how they were and its speakers mute' : 'Not played on. On: its lights fade back in and its speakers unmute'}"><input type="checkbox" ${g.room.on ? 'checked' : ''} aria-label="${esc(g.room.name)} in the show"></label>` : '<span>Not in a room</span>';
         if (g.room) head.querySelector('input').onchange = async e => {
           g.room.on = e.target.checked; renderLights(); sendSelect(); saveSelection(); S.forceSend = true;
-          try { await fetch('/api/rooms/on', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: g.room.id, on: g.room.on }) }); } catch (err) { /* the next look shows the truth */ }
+          try { await postJson('/api/rooms/on', { id: g.room.id, on: g.room.on }); } catch (err) { /* the next look shows the truth */ }
           loadRooms();
         };
         el.appendChild(head);
@@ -836,13 +834,12 @@
   }
   function renderLight(el, l) {
       const row = document.createElement('label');
-      const rm = roomOf(l);
       if (!lightDriven(l)) row.classList.add('room-off');
       row.innerHTML = `<span class="grip" title="Drag to put the lights in the order they stand around the room">&#8942;&#8942;</span><span class="light-id"><input class="light-name" type="text" maxlength="40" spellcheck="false" placeholder="${l.sku}" title="Click to name this light"><div class="sku">${l.name ? l.sku + ' · ' : ''}${l.ip}${l.online === false ? ' · not answering' : ''}</div></span> <button type="button" class="flip icon small ${l.flip ? 'on' : ''}" title="${l.flip ? 'Flipped: shows run the other way on this light. Click to undo' : 'Flip: run shows the other way on this light (for one mounted right to left)'}">&#8644;</button><input class="seg" type="number" min="1" max="255" value="${l.segments}" title="Segments (LED zones)">`;
       if (mapFlip(l) !== null) row.querySelector('.flip').hidden = true;   // the house map says which way it runs
       const nm = row.querySelector('.light-name'); nm.value = l.name || '';
       nm.onkeydown = e => { if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') nm.value = l.name || ''; nm.blur(); } };
-      nm.onchange = async () => { l.name = nm.value.trim(); await fetch('/api/devices/name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, name: l.name }) }); renderLights(); if (S.view.sel) inspector(); draw(); };
+      nm.onchange = async () => { l.name = nm.value.trim(); await postJson('/api/devices/name', { mac: l.mac, device_id: l.device_id, name: l.name }); renderLights(); if (S.view.sel) inspector(); draw(); };
       if (l.online === false) row.style.opacity = '0.6';
       const grip = row.querySelector('.grip');
       grip.onmousedown = () => { row.draggable = true; };
@@ -856,13 +853,13 @@
         const below = row.classList.contains('drop-below'); row.classList.remove('drop-above', 'drop-below');
         const moving = S.lights.find(x => x.ip === S.dragLight); if (!moving || moving === l) return;
         S.lights.splice(S.lights.indexOf(moving), 1); S.lights.splice(S.lights.indexOf(l) + (below ? 1 : 0), 0, moving);
-        fetch('/api/devices/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: S.lights.map(x => x.mac || x.ip) }) }).catch(() => { });
+        postJson('/api/devices/order', { keys: S.lights.map(x => x.mac || x.ip) }).catch(() => { });
         renderLights(); sendSelect(); draw(); S.forceSend = true;
       };
       row.querySelector('.flip').onclick = e => { e.preventDefault(); l.flip = !l.flip; renderLights(); S.forceSend = true;
-        fetch('/api/devices/flip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: l.mac, device_id: l.device_id, ip: l.ip, flip: l.flip }) }).catch(() => { });
+        postJson('/api/devices/flip', { mac: l.mac, device_id: l.device_id, ip: l.ip, flip: l.flip }).catch(() => { });
         toast(`${lightLabel(l)}: ${l.flip ? 'flipped' : 'normal direction'}`); };
-      row.querySelector('.seg').onchange = async e => { l.segments = parseInt(e.target.value) || 1; await fetch('/api/devices/segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: l.mac || l.ip, segments: l.segments }) }); };
+      row.querySelector('.seg').onchange = async e => { l.segments = parseInt(e.target.value) || 1; await postJson('/api/devices/segments', { key: l.mac || l.ip, segments: l.segments }); };
       el.appendChild(row);
   }
   /** Played on: a light whose room is switched on (with no rooms at all, every light). */
@@ -1075,14 +1072,13 @@
   let roomsDoc = null;
   async function saveRooms(rooms) {
     try {
-      const r = await fetch('/api/rooms?devices=1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rooms }) });
+      const r = await postJson('/api/rooms?devices=1', { rooms });
       roomsDoc = await r.json(); S.rooms = roomsDoc.rooms; renderRooms(); renderLights(); sendSelect(); saveSelection(); S.forceSend = true;
     } catch (e) { toast('Could not save the rooms', true); }
   }
-  async function openRooms(anchor) {
+  async function openRooms() {
     const pop = $('#roomsPop');
     closeMenus(); pop.hidden = false;
-    if (anchor) placePop(pop, anchor);
     if (!roomsDoc) pop.innerHTML = '<div class="hint">Looking for lights and speakers…</div>';
     try { roomsDoc = await (await fetch('/api/rooms?devices=1')).json(); S.rooms = roomsDoc.rooms; } catch (e) { pop.innerHTML = '<div class="hint">Could not load the rooms.</div>'; return; }
     renderRooms();
@@ -1121,8 +1117,7 @@
   const lightKind = l => TUBE_SKUS.has(l.sku) ? 'tubes' : (l.segments || 10) <= 12 ? 'short' : 'long';
   /** the ticked lights belong to the room, not the song: saved with the studio's settings */
   function saveSelection() {
-    fetch('/api/devices/selected', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lights: selectedLights().map(l => ({ mac: l.mac, device_id: l.device_id })) }) }).catch(() => { });
+    postJson('/api/devices/selected', { lights: selectedLights().map(l => ({ mac: l.mac, device_id: l.device_id })) }).catch(() => { });
   }
   const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   /** what to call a light: the name you gave it, or its model and address */
@@ -1673,7 +1668,7 @@
     const lt = S.audio.playing ? t + (parseFloat($('#latency').value) || 0) / 1000 : t;
     const lf = renderFrame(lt, undefined, 'lights');
     wsSend({ type: 'frame', ips: lf.map(f => f.light.ip), frames: lf.map(f => { const px = flipOf(f.light) ? flipPx(f.px) : f.px; return lightKind(f.light) === 'tubes' ? tubeOut(px) : px; }) });
-    S.forceSend = false; S.framesSent = (S.framesSent || 0) + 1; S.lastLightSend = performance.now();
+    S.forceSend = false; S.lastLightSend = performance.now();
   }
   // (the room view's frames go on this clock too: it keeps ticking with the studio minimized or behind)
   function clockTick() { outputTick(); if (S.analysis) sendRoomView(pos()); }
@@ -1781,7 +1776,7 @@
     const pps = a.wave_pps; const i0 = Math.max(0, Math.floor(t0 * pps)), i1 = Math.min(a.peaks.length - 1, Math.ceil(t1 * pps));
     const wg = g.createLinearGradient(0, wy, 0, wy + wh); wg.addColorStop(0, CV.wave2); wg.addColorStop(0.5, CV.wave); wg.addColorStop(1, CV.wave2); g.fillStyle = wg; g.globalAlpha = 0.72;
     if (S.view.pps / pps >= 1) { for (let i = i0; i <= i1; i++) { const x = xOf(i / pps); const ph = a.peaks[i] * (wh / 2 - 4); g.fillRect(x, wy + wh / 2 - ph, Math.max(1, S.view.pps / pps), ph * 2); } }
-    else { const step = pps / S.view.pps; for (let x = HEADER; x < w; x++) { const j0 = Math.floor((tOf(x)) * pps), j1 = Math.floor(tOf(x + 1) * pps); let m = 0; for (let j = j0; j <= j1 && j < a.peaks.length; j++) if (j >= 0) m = Math.max(m, a.peaks[j]); const ph = m * (wh / 2 - 4); g.fillRect(x, wy + wh / 2 - ph, 1, ph * 2); } }
+    else { for (let x = HEADER; x < w; x++) { const j0 = Math.floor((tOf(x)) * pps), j1 = Math.floor(tOf(x + 1) * pps); let m = 0; for (let j = j0; j <= j1 && j < a.peaks.length; j++) if (j >= 0) m = Math.max(m, a.peaks[j]); const ph = m * (wh / 2 - 4); g.fillRect(x, wy + wh / 2 - ph, 1, ph * 2); } }
     g.globalAlpha = 1;
     // energy line
     g.strokeStyle = 'rgba(255,255,255,0.22)'; g.beginPath();
@@ -1862,7 +1857,6 @@
     return n < 3 ? '' : text.slice(0, n).trimEnd() + '\u2026';
   }
   const targetName = t => t === 'long' ? 'strips' : t === 'tubes' ? 'tubes' : 'lamps';
-  function clipSummary(c) { const e = Effects.byId[c.effect]; if (!e) return ''; const parts = []; if (c.target) parts.push(c.target === 'long' ? 'long strips' : targetName(c.target)); if (Array.isArray(c.palette)) parts.push('custom colors'); else if (typeof c.palette === 'string') parts.push(c.palette); for (const [k, d] of Object.entries(e.params)) { const v = c.params[k] ?? d.def; if (d.type === 'beats') parts.push(`${+(+v).toFixed(2)}b`); } if (c.opacity != null && c.opacity < 1) parts.push(`${Math.round(c.opacity * 100)}%`); if (c.blend && c.blend !== 'normal') parts.push(c.blend); return parts.join(' · '); }
   /** The song's words (lyrics.py) along the foot of the waveform, each where it is sung (a backing vocal
    *  dimmer); zoomed out, where the words would run into each other, a line at a time, as many as fit. What
    *  is drawn is kept for compose, which lights up the word (or line) being sung. */
@@ -2085,7 +2079,7 @@
     const r = tl.getBoundingClientRect(); const x = (e.clientX - r.left) / UI, y = (e.clientY - r.top) / UI;
     if (S.analysis && lanesOverflow() > 0 && x > TW() - 12 && y >= lanesTop()) { S.view.drag = { type: 'vbar', y0: y, v0: S.view.vscroll || 0 }; return; }
     const h = hitTest(x, y); if (!h) return;
-    const p = P(); S.view.mouse = { x, y };
+    const p = P();
     if (h.type === 'ruler' || h.type === 'wave') {
       if (h.type === 'wave' && $('#beatEdit').checked) { beginChange(); const t = h.t; const i = p.beats.findIndex(b => b > t); if (i < 0) p.beats.push(t); else p.beats.splice(i, 0, t); S.view.sel = { type: 'beat', index: i < 0 ? p.beats.length - 1 : i }; inspector(); changed(); return; }
       const st = snapTime(h.t, e); seek(st); S.view.sel = null; inspector(); S.view.drag = { type: 'scrub', last: st }; draw(); return;
@@ -2332,7 +2326,7 @@
   /** the selection again, straight after itself: one clip after its own end, a block after the block */
   function duplicateSelection() {
     const items = selectedClips(); if (!items.length) return;
-    const minStart = Math.min(...items.map(i => i.clip.start)), end = Math.max(...items.map(i => i.clip.start + i.clip.len)), minLane = Math.min(...items.map(i => i.li));
+    const minStart = Math.min(...items.map(i => i.clip.start)), end = Math.max(...items.map(i => i.clip.start + i.clip.len));
     beginChange(); const p = P(); const ids = [];
     for (const i of items) {
       const c = { ...i.clip, id: uid(), start: i.clip.start - minStart + end, params: { ...i.clip.params } };
@@ -2388,8 +2382,6 @@
     if (kind === 'effect' && h.type === 'clip') { const { clip } = findClip(h.id); if (Effects.byId[id]) { beginChange(); const wasDefault = JSON.stringify(clip.palette || null) === JSON.stringify(effectColors(clip.effect)); clip.effect = id; clip.params = Effects.defaults(id); if (wasDefault) clip.palette = effectColors(id); S.view.sel = { type: 'clip', id: clip.id }; inspector(); changed(); toast(`Replaced with ${Effects.byId[id].name}, same timing`); } }
     else if (kind === 'effect' && h.type === 'lane') addClip(h.lane, id, b);
     else if (kind === 'effect' && h.type === 'addLane') { P().lanes.push(newLane()); addClip(P().lanes.length - 1, id, b); }
-    else if (kind === 'palette' && h.type === 'clip') { beginChange(); const { clip } = findClip(h.id); clip.palette = id; S.view.sel = { type: 'clip', id: h.id }; inspector(); changed(); toast(`${Effects.byId[clip.effect]?.name || clip.effect}: colors set to ${id}`); }
-    else if (kind === 'palette') toast('Drop a palette onto a clip to recolor it', true);
     else if (kind === 'effect') addClip(0, id, b);
     draw();
   });
@@ -2409,10 +2401,6 @@
       for (const e of items) { const card = document.createElement('div'); card.className = 'effect-card'; card.title = e.desc + '\nDrag onto a layer, or double-click to add at the playhead.'; card.innerHTML = `<div class="sw" style="background:linear-gradient(90deg,${e.swatch[0]},${e.swatch[1]})"></div><div><div class="nm">${e.name}</div><div class="ds">${e.desc.slice(0, 44)}${e.desc.length > 44 ? '…' : ''}</div></div>`; libraryDrag(card, 'effect', e.id); card.ondblclick = () => { if (P()) addClip(e.cat === 'accent' ? P().lanes.length - 1 : 0, e.id, snapBeat(timeToBeat(pos()))); }; list.appendChild(card); }
     }
   }
-  function renderPalettes() {
-    const list = $('#paletteList'); if (!list) return; list.innerHTML = ''; const pals = P() ? P().palettes : Effects.PALETTES;
-    for (const [name, cols] of Object.entries(pals)) { const card = document.createElement('div'); card.className = 'palette-card'; card.innerHTML = `<span class="nm">${name}</span><div class="bar" style="background:linear-gradient(90deg,${cols.join(',')})"></div>`; libraryDrag(card, 'palette', name); card.title = 'Drag onto a clip to give it these colors. Double-click to make it the default for clips without their own.'; card.ondblclick = () => { if (P()) { beginChange(); P().defaultPalette = name; changed(); toast(`Default palette: ${name}`); } }; list.appendChild(card); }
-  }
 
   // ------------------------------------------------------------------ toolbar menus
   const SHORTCUTS = `<h3>Shortcuts</h3><div class="help">
@@ -2427,24 +2415,19 @@
     const open = menu.hidden; closeMenus(); if (!open) return;
     if (fill) menu.innerHTML = fill;
     menu.hidden = false; btn.classList.add('on');
-    if (menu.classList.contains('popover')) placePop(menu, btn);
+    // the ? popover, to the right of its button on the side rail
+    if (menu.classList.contains('popover')) { const r = btn.getBoundingClientRect(); menu.style.left = (r.right + 8) + 'px'; menu.style.top = Math.max(8, Math.min(r.top, innerHeight - menu.offsetHeight - 8)) + 'px'; }
   }
-  /** A popover beside its button: under it, right-aligned, in the top bar; to its right on the side rail. */
-  function placePop(pop, btn) {
-    const r = btn.getBoundingClientRect();
-    if (btn.closest('.rail, .views-rail')) { pop.style.right = 'auto'; pop.style.left = (r.right + 8) + 'px'; pop.style.top = Math.max(8, Math.min(r.top, innerHeight - pop.offsetHeight - 8)) + 'px'; }
-    else { pop.style.left = 'auto'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px'; pop.style.top = (r.bottom + 6) + 'px'; }
-  }
-  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnHelp', '#helpPop']]) { if ($(m).closest('#viewSettings')) continue; $(m).hidden = true; $(b).classList.remove('on'); } }
+  function closeMenus() { for (const [b, m] of [['#btnGridMenu', '#gridMenu'], ['#btnHelp', '#helpPop']]) { $(m).hidden = true; $(b).classList.remove('on'); } }
   $('#btnGridMenu').onclick = e => { e.stopPropagation(); toggleMenu($('#btnGridMenu'), $('#gridMenu')); };
   $('#btnHelp').onclick = e => { e.stopPropagation(); toggleMenu($('#btnHelp'), $('#helpPop'), SHORTCUTS); };
   for (const id of ['#gridMenu', '#helpPop']) $(id).addEventListener('mousedown', e => e.stopPropagation());   // clicks inside keep it open (Tap!)
   // Bulb Studio (an add-on): its button shows while the add-on is on, and opens Bulb Studio in a window of its own (the
   // window opens at once, so it is never taken for a pop-up, and goes to Bulb Studio once it is running)
   const openBulbs = async () => {
-    const win = window.open('', 'lss-bulbshow', 'width=1280,height=800');
+    const win = window.open('', 'lss-bulbstudio', 'width=1280,height=800');
     try {
-      const r = await (await fetch('/api/bulbshow/open', { method: 'POST' })).json();
+      const r = await (await fetch('/api/bulbstudio/open', { method: 'POST' })).json();
       if (r.ok && win) win.location = r.url; else { if (win) win.close(); toast(r.error || 'Bulb Studio did not open', true); }
     } catch (err) { if (win) win.close(); toast('Bulb Studio did not open', true); }
   };
@@ -2452,24 +2435,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
   // narrow windows: the library is a drawer
   $('#btnLib').onclick = e => { e.stopPropagation(); document.body.classList.toggle('lib-open'); };
-  document.addEventListener('mousedown', e => { if (document.body.classList.contains('lib-open') && !e.target.closest('.library') && !e.target.closest('#btnLib, .views-rail')) { document.body.classList.remove('lib-open'); railShown(); } });
-  // the library's tabs: Lights or Effects (kept for next time). A narrow window slides the library out over the
-  // timeline instead (the ☰ button), the tab picked inside it.
-  const narrowWindow = () => matchMedia('(max-width: 1150px)').matches;
-  function railShown() {
-    const p = document.body.dataset.panel || 'effects';
-    for (const b of document.querySelectorAll('.lib-tab[data-panel]')) { b.classList.toggle('on', b.dataset.panel === p); b.setAttribute('aria-selected', b.dataset.panel === p); }
-    for (const el of document.querySelectorAll('.library > .panel[data-panel]')) el.hidden = el.dataset.panel !== p;
-  }
-  function showPanel(name) {
-    document.body.dataset.panel = name;
-    if (narrowWindow()) document.body.classList.add('lib-open');
-    try { localStorage.setItem('lss-panel', name); } catch (e) { /* not kept: fine */ }
-    railShown();
-  }
-  for (const b of document.querySelectorAll('.lib-tab[data-panel]')) b.onclick = e => { e.stopPropagation(); showPanel(b.dataset.panel); };
-  { let p = 'effects'; try { p = localStorage.getItem('lss-panel') || 'effects'; } catch (e) { /* the default */ }
-    document.body.dataset.panel = p === 'lights' ? 'lights' : 'effects'; railShown(); }
+  document.addEventListener('mousedown', e => { if (document.body.classList.contains('lib-open') && !e.target.closest('.library') && !e.target.closest('#btnLib, .views-rail')) document.body.classList.remove('lib-open'); });
 
   // ------------------------------------------------------------------ inspector
   function inspector() {
@@ -3016,7 +2982,6 @@
     p.defaultPalette = S.songPal;
     // Each song gets its own kind of motion in the drops (not comets every time), chosen from the song
     // itself so it is the same on every rebuild, and a song that goes all out may get rainbow drops.
-    const a0 = S.analysis || {};
     pickLook();
     S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
     S.cute = cuteParts();
@@ -3376,7 +3341,6 @@
     //     and rave goes all the way.
     const style = sectionStyle(s);                                   // the song's style, a step either way by how loud this part is
     const hard = style === 'dance' || style === 'rave', chill = style === 'chill';
-    const rainbow = S.albumPalette || S.pairMode || S.noLimits ? {} : { palette: 'Rainbow' };      // with the album's (or the jam's) colors, drops stay in them
     // Two or more lights: some moves go around the room, light to light, instead of along each strip.
     const room = showLights().length >= 2;
     // The beat pulse follows the real drums (kick from the center, snare from the ends), and it is
@@ -4170,7 +4134,7 @@
   $('#castOffset').onchange = () => { if (P()) P().settings.castOffsetCustom = true; scheduleSave(); syncLocalToCast(); };
   $('#btnSync').onclick = () => runSyncCheck(false);
   $('#castLocal').onchange = syncLocalToCast; $('#btnStart').onclick = () => { seek(0); scrollTo(0); };
-  $('#btnZoomIn').onclick = () => zoomAt(1.4, xOf(pos())); $('#btnZoomOut').onclick = () => zoomAt(0.7, xOf(pos())); $('#btnZoomFit').onclick = zoomFit;
+  $('#btnZoomFit').onclick = zoomFit;
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo;
   $('#btnRedetect').onclick = async () => {
     if (!S.analysis) return;
@@ -4191,12 +4155,8 @@
     S.view.sel = null; inspector(); changed(); toast(all ? `Re-detected: ${p.sections.length} sections, ${p.drops.length} drops` : 'Beat grid refreshed; sections and drops kept');
   };
   $('#btnAuto').onclick = () => { if (!P()) return toast('Open a song first'); if (P().lanes.some(l => l.clips.length) && !confirm('Replace all clips with an auto-built show?')) return; autoBuild(); };
-  $('#btnOpen').onclick = () => $('#fileInput').click(); $('#fileInput').onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ''; };
+  $('#fileInput').onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ''; };
   $('#btnPath').onclick = () => { const v = $('#pathInput').value.trim(); if (v) openPath(v); }; $('#pathInput').onkeydown = e => { if (e.key === 'Enter') $('#btnPath').click(); };
-  $('#recent').addEventListener('input', e => { if (!e.inputType || e.inputType === 'insertReplacementText') openNamed(e.target.value); });   // picked from the list
-  $('#recent').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); openNamed(e.target.value) || toast('No song by that name', true); } if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); } });
-  $('#recent').addEventListener('focus', () => refreshRecent());
-  $('#btnReview').onclick = reviewStart;
   $('#revPrev').onclick = () => reviewOpen(S.review.i - 1);
   $('#revDone').onclick = reviewDone;
   $('#revClose').onclick = reviewStop;
@@ -4214,11 +4174,10 @@
   window.addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/closing'); } catch (e) { /* the watchdog still notices */ } });
   $('#latency').onchange = () => {
     S.defaults.lightOffset = parseFloat($('#latency').value) || 0;
-    fetch('/api/settings/light_offset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ms: S.defaults.lightOffset }) }).catch(() => {});
+    postJson('/api/settings/light_offset', { ms: S.defaults.lightOffset }).catch(() => {});
     scheduleSave();
   };
   $('#projectName').onchange = scheduleSave;
-  if ($('#btnNewPalette')) $('#btnNewPalette').onclick = () => { if (!P()) return; const name = prompt('Palette name'); if (!name) return; beginChange(); P().palettes[name] = ['#ff0000', '#0000ff']; renderPalettes(); changed(); };
   window.addEventListener('resize', () => draw());
   window.addEventListener('beforeunload', () => {
     if (S.outputActive) stopOutput();
@@ -4239,7 +4198,7 @@
   // ------------------------------------------------------------------ boot
   fetch('/api/settings').then(r => r.json()).then(s => { S.defaults.castOffset = s.cast_offset_ms || 0; S.defaults.castOffsets = s.cast_offsets || {};
     S.defaults.lightOffset = s.light_offset_ms ?? 30; if (s.tube_curve != null) S.tubeCurve = +s.tube_curve; $('#latency').value = S.defaults.lightOffset; if (!P()) $('#castOffset').value = S.defaults.castOffset; }).catch(() => { });
-  renderLibrary(); renderPalettes(); inspector(); connectWs(); loadLights(); refreshRecent(); loadCastDevices(); loop();
+  renderLibrary(); inspector(); connectWs(); loadLights(); loadCastDevices(); loop();
   bootModels();
   /** As the studio opens, the models load (and warm up) in the model host, out of sight: the studio is
    *  usable at once (a card over it while they came up made it feel slow: the user). Only what needs them,
@@ -4271,6 +4230,6 @@
     }
     busy(null);
   }
-  window.Studio = { S, P, $, niceName, showPanel, openRooms, openBulbs, openNamed, modelsReady, startPartyLights, sectionsSig, dropsOf, flipOf, clipSig, changed, crossfadeLights, setCover, addClip, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, openPath, openProject, renderFrame, calmAt, songCalm, save, _draw, compose,
-    sceneWeights, fullBrightness, draw, inspector, zoomFit, renderPalettes, renderLights, sendSelect, toast, timeToBeat, beatToTime, startOutput, stopOutput, pos, updateTransport, refreshRecent, loudnessGain, contrastPalette, tidySections, applyCastStatus, mainPalette, pickLook, freshenSaved, roomSpace, openRoomView, partyLights, bootModels, modelsReady };
+  window.Studio = { S, P, $, esc, niceName, openRooms, openBulbs, openNamed, reviewStart, modelsReady, startPartyLights, sectionsSig, dropsOf, clipSig, crossfadeLights, setCover, autoBuild, addMoments, addFlavor, withBuildups, showStyle, buildSection, newProject, migrateProject, renderFrame,
+    fullBrightness, draw, inspector, zoomFit, renderLights, toast, timeToBeat, beatToTime, stopOutput, updateTransport, refreshRecent, tidySections, pickLook, freshenSaved, partyLights };
 })();
