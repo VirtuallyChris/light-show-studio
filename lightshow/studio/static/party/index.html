@@ -74,9 +74,10 @@
   @media (prefers-reduced-motion: reduce) { .tab { animation: none; } }
   /* the tab bar */
   .nav { order: 2; flex: none; position: relative; z-index: 20; display: flex; justify-content: center; transform: translateZ(0);
-    padding: 6px max(8px, env(safe-area-inset-left)) calc(env(safe-area-inset-bottom) + 6px) max(8px, env(safe-area-inset-right));
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding: 4px max(8px, env(safe-area-inset-left)) env(safe-area-inset-bottom) max(8px, env(safe-area-inset-right));
     background: var(--nav-bg); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-top: 1px solid var(--line); }
-  .nav-btn { flex: 1; max-width: 140px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 50px; padding: 4px 0;
+  .nav-btn { flex: 1; max-width: 140px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 0; padding: 4px 0 2px;
     background: none; border: 0; border-radius: 12px; color: var(--muted); font: inherit; font-size: 11px; font-weight: 600; }
   .nav-btn svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .nav-btn[aria-current="page"] { color: var(--accent); }
