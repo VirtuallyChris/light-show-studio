@@ -1,6 +1,5 @@
 """Every song at about the same volume: measuring loudness, the correction, and the relay applying it."""
 
-import os
 import shutil
 import tempfile
 import unittest
@@ -99,7 +98,7 @@ class TestRelayLevels(unittest.TestCase):
         self.assertAlmostEqual(float(np.abs(y).max()), 10 ** (-20 / 20), delta=0.002)
 
 
-class TestJamLevels(unittest.TestCase):
+class TestPartyLevels(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
 
@@ -107,13 +106,12 @@ class TestJamLevels(unittest.TestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_levels_are_kept_and_what_played_wins_over_the_copy(self):
-        from types import SimpleNamespace
-        from lightshow.studio.jam import JamEngine, JamLibrary, JamSettings
-        lib = JamLibrary(self.dir)
+        from lightshow.studio.party import PartyEngine, PartyLibrary, PartySettings
+        lib = PartyLibrary(self.dir)
         lib.save_level("abc", "copy", {"lufs": -15.0, "p99": -10.0, "peak": -6.0})
-        self.assertEqual(JamLibrary(self.dir).level("abc")["copy"]["lufs"], -15.0)           # on disk
-        e = JamEngine.__new__(JamEngine)
-        e.library, e.cfg = lib, JamSettings()
+        self.assertEqual(PartyLibrary(self.dir).level("abc")["copy"]["lufs"], -15.0)           # on disk
+        e = PartyEngine.__new__(PartyEngine)
+        e.library, e.cfg = lib, PartySettings()
         g, why = e._level_for("abc")
         self.assertAlmostEqual(g, 10 ** (6 / 20), places=3)
         self.assertIn("YouTube copy", why)
@@ -122,21 +120,21 @@ class TestJamLevels(unittest.TestCase):
         self.assertAlmostEqual(g, 10 ** (3 / 20), places=3)
         self.assertIn("as it played", why)
         self.assertEqual(e._level_for("never-heard"), (1.0, ""))
-        e.cfg = JamSettings(even_levels=False)
+        e.cfg = PartySettings(even_levels=False)
         self.assertEqual(e._level_for("abc"), (1.0, ""))
 
     def test_the_next_songs_level_is_set_where_this_one_ends(self):
         import threading
         from types import SimpleNamespace
-        from lightshow.studio.jam import JamEngine, JamLibrary, JamSettings, JamTrack
-        lib = JamLibrary(self.dir)
+        from lightshow.studio.party import PartyEngine, PartyLibrary, PartySettings, PartyTrack
+        lib = PartyLibrary(self.dir)
         lib.save_level("next", "relay", {"lufs": -15.0, "p99": -10.0, "peak": -6.0})
-        e = JamEngine.__new__(JamEngine)
-        e.library, e.cfg, e.lock, e._planned_level = lib, JamSettings(), threading.RLock(), None
+        e = PartyEngine.__new__(PartyEngine)
+        e.library, e.cfg, e.lock, e._planned_level = lib, PartySettings(), threading.RLock(), None
         e.relay = Relay(sr=SR, channels=2, capacity_s=600.0)
         e.relay.write(np.zeros((100 * SR, 2), dtype=np.int16))                    # 100 s captured
         track = SimpleNamespace(id="now", duration=110.0, name="Now")
-        e.tracks, e.queue = [JamTrack(track, 0.0, "learned", serial=1)], [{"id": "next"}]
+        e.tracks, e.queue = [PartyTrack(track, 0.0, "learned", serial=1)], [{"id": "next"}]
         e.plan_levels()
         self.assertEqual(len(e.relay.levels), 1)
         self.assertAlmostEqual(e.relay.levels[0][0] / SR, 109.7, delta=0.01)

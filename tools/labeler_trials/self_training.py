@@ -18,7 +18,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 from lightshow.studio import labeler as L  # noqa: E402
-from lightshow.studio.jam import JamLibrary  # noqa: E402
+from lightshow.studio.party import PartyLibrary  # noqa: E402
 
 ROUNDS = int(os.environ.get("ROUNDS", 3))
 CONFIGS = [  # (min confidence to keep a pseudo-labeled bar, weight of a pseudo bar against a user's bar)
@@ -45,7 +45,7 @@ def fit(X, y, w):
 
 def main():
     t0 = time.time()
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     songs = L.load_all(lib)
     pcas = L._pca(songs)
     M = {s["tid"]: L.matrix(s, pcas) for s in songs}

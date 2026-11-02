@@ -6,7 +6,7 @@ PyTorch); the studio never imports it. The request and the reply, as the host pa
     request  one JSON line, either
                {"path": "C:/.../song.mp3"}                  a file on disk (always a full path)
                {"samples": N, "sr": 24000}                  followed by N float32 samples
-                                                            (audio from memory: Jam mode never
+                                                            (audio from memory: the party never
                                                             writes captured audio to disk)
     reply    one JSON line
                {"segments": [{"start": 0.0, "end": 15.2, "label": "verse"}, ...], "seconds": 4.1}

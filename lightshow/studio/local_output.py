@@ -1,6 +1,6 @@
-"""Jam output on this PC: the delayed music plays on one of the computer's own outputs.
+"""Party output on this PC: the delayed music plays on one of the computer's own outputs.
 
-Handy for trying Jam mode on headphones, or with a single pair of speakers
+Handy for trying the party on headphones, or with a single pair of speakers
 plugged into the PC. Spotify must play on a *different* output that nobody
 hears (the studio records that one); if both were the same device, the studio
 would record its own delayed copy and feed it back in forever, so it refuses.
@@ -86,7 +86,7 @@ class LocalOutput:
                     del have[:need]
                     player.play(frames)                  # blocks while the device buffer is full: that paces it
                     self.played += len(frames)
-        except Exception as e:  # noqa: BLE001 - shown in the Jam panel; the jam keeps going silently
+        except Exception as e:  # noqa: BLE001 - shown in Settings; the party keeps going silently
             self.error = f"{type(e).__name__}: {e}"
 
     def position(self) -> float:

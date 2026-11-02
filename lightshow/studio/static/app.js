@@ -246,7 +246,7 @@
   // How shows are built (the effects chosen for each part of a song, how hard each style goes) is
   // versioned: SHOW_VERSION goes up with every change to it. A saved show records the version it was
   // built with, and the analysis it was built on; one built by older logic is rebuilt when it is opened
-  // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a jam or as a cue,
+  // (in the studio, then saved, the old one kept as project.before-rebuild.json; in a party or as a moment,
   // in memory), unless it was changed by hand since it was built, which only says so.
   // Saved shows built by an older SHOW_VERSION are built again. What each version changed:
   //   3: each song draws its own mix of effects
@@ -300,7 +300,7 @@
   //   45: a long EDM snare build strobes white alone for its last 16 beats only; before, a build like any other
   //   46: the build's white strobe holds each snare 0.12 s (it was 0.05: one frame of the lights), never past 60%
   //       of the way to the next snare (drumstrobe), so a fast roll still strobes
-  //   47: two colors (the jam's pair) the other way round, the primary on the hits; put back the same night
+  //   47: two colors (the party's pair) the other way round, the primary on the hits; put back the same night
   //   48: a color sung in the lyrics holds the room in it for a bar (3 beats, then a beat's fade), not a 2-beat blip
   const SHOW_VERSION = 48;
   const showStale = (p, a) => !p.built || p.built.show !== SHOW_VERSION || !!(a && a.version != null && p.built.analysis !== a.version);
@@ -321,7 +321,7 @@
     autoBuild(true);
     return 'rebuilt';
   }
-  function changed() { if (P()) P().drops = dropsOf(P()); reviewRebuild(true); reviewCustom(); if (S.jam && S.jam.live && S.jam.onEdit) S.jam.onEdit(); scheduleSave(); draw(); }
+  function changed() { if (P()) P().drops = dropsOf(P()); reviewRebuild(true); reviewCustom(); if (S.relay && S.relay.live && S.relay.onEdit) S.relay.onEdit(); scheduleSave(); draw(); }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); S.project = JSON.parse(S.undo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); S.project = JSON.parse(S.redo.pop()); S.view.sel = null; S.view.multi = []; inspector(); changed(); }
   function scheduleSave() { clearTimeout(S.saveTimer); S.saveTimer = setTimeout(save, 1500); }
@@ -333,7 +333,7 @@
     return P();
   }
   async function save() {
-    if (P() && S.jam && S.jam.live) return jamSave(false);
+    if (P() && S.relay && S.relay.live) return partySave(false);
     if (!P() || !S.name || S.review) return false;   // a song under review is not a show
     collectProject();
     try {
@@ -344,19 +344,19 @@
   }
   /** Save a show rebuilt because it was out of date, keeping the version it replaces. */
   async function saveBackedUp() {
-    if (!P() || !S.name || (S.jam && S.jam.live)) return false;
+    if (!P() || !S.name || (S.relay && S.relay.live)) return false;
     clearTimeout(S.saveTimer);
     try { return (await postJson(`/api/projects/${encodeURIComponent(S.name)}?backup=1`, collectProject())).ok; }
     catch (e) { return false; }
   }
   const sectionsOf = p => p.sections.map(s => ({ type: s.type, start: +(+s.start).toFixed(3), end: +(+s.end).toFixed(3) }));
   const sectionsSig = () => (P() ? JSON.stringify(sectionsOf(P())) : '');
-  /** In a jam, sections fixed by hand (a breakdown, a buildup) are kept as they are changed (the user), never the
-   *  lights (a jam never writes over a saved show): a learned song's go to the section truth, as review mode keeps
-   *  them (the jam plays them from then on, and the labeler learns from them); your own show gets just its
+  /** In a party, sections fixed by hand (a breakdown, a buildup) are kept as they are changed (the user), never the
+   *  lights (a party never writes over a saved show): a learned song's go to the section truth, as review mode keeps
+   *  them (the party plays them from then on, and the labeler learns from them); your own show gets just its
    *  sections, into its saved show. `say`: Ctrl+S, which also says when there is nothing to keep. */
-  async function jamSave(say) {
-    const J = S.jam, d = J.doc, p = P(); if (!d || !p) return false;
+  async function partySave(say) {
+    const J = S.relay, d = J.doc, p = P(); if (!d || !p) return false;
     const sig = sectionsSig(), seen = J.secsSeen && J.secsSeen.key === J.key ? J.secsSeen.sig : null, key = J.key;
     if (sig === seen) { if (say) toast('Nothing to keep: during a party only section changes are kept'); return false; }
     const label = (d.track && d.track.name) || d.project || 'this song';
@@ -379,7 +379,7 @@
   }
   /** Save, and say what happened (the button and Ctrl+S). */
   async function saveNow() {
-    if (S.jam && S.jam.live) return jamSave(true);
+    if (S.relay && S.relay.live) return partySave(true);
     if (!P() || !S.name) return toast('Open a song first.', true);
     if (await save()) toast(`Saved ${niceName(S.name)}`);
   }
@@ -432,7 +432,7 @@
     if (fresh === 'rebuilt') toast(`${niceName(S.name)}: rebuilt with the latest show logic (the old show is kept as a backup)`);
     else if (fresh === 'edited') toast(`${niceName(S.name)} was built by older show logic. It has your own changes, so it is left as it is: press Auto-build show to rebuild it.`, true);
   }
-  // ---- Review: the learned Jam songs with no saved show, one after another, their sections set right by
+  // ---- Review: the learned Party songs with no saved show, one after another, their sections set right by
   // ear (review.py). Moving on keeps any change to the sections in the section truth (what the rules that
   // read songs are tuned against); the check mark says they were right as found. Never saved as a show.
   const secKey = () => JSON.stringify((P() ? P().sections : []).map(s => [s.type, +s.start.toFixed(2), +s.end.toFixed(2)]).concat([P() && P().beats.length ? +P().beats[0].toFixed(3) : 0]));
@@ -453,7 +453,7 @@
   // The lights as built (to tell a hand edit from a rebuild): every clip, and the layers shown
   const clipSig = () => JSON.stringify((P() ? P().lanes : []).map(l => [!!l.hidden, l.clips.map(c => [c.effect, c.start, c.len, c.params, c.palette, c.opacity, c.blend, c.target, c.fadeIn, c.fadeOut])]));
   /** A song under review whose lights are changed by hand (a clip added, moved, recolored...) is a show of its own:
-   *  saved with the song as you go, and the jam plays it. Undone back to the lights as built, it is the jam's own
+   *  saved with the song as you go, and the party plays it. Undone back to the lights as built, it is the party's own
    *  again (that show set aside, to the Recycle Bin). Moving sections alone only keeps the sections (reviewKeep). */
   function reviewCustom() {
     const R = S.review; if (!R || !R.id || !P()) return;
@@ -544,7 +544,7 @@
     await reviewOpen(i);
   }
   // (the song stays on screen, but no longer under its name: a later tweak saved it as a show with no song beside
-  // it, a folder of its own in shows/ that the jam could not play)
+  // it, a folder of its own in shows/ that the party could not play)
   // (made your own show: it stays open as that show, saved like any other from here)
   async function reviewStop() {
     const R = S.review; if (R) await reviewSaveCustom();
@@ -564,23 +564,23 @@
     if (S.review && S.review.id && P() && secKey() !== S.review.orig)
       try { navigator.sendBeacon('/api/review/truth', new Blob([reviewBody(false)], { type: 'application/json' })); } catch (e) { /* closing anyway */ }
   });
-  /** The song box: your saved shows and every song learned in a jam (its show as the jam plays it), by name. */
+  /** The song box: your saved shows and every song learned in a party (its show as the party plays it), by name. */
   async function refreshRecent() {
     try {
       const [list, every] = await Promise.all([fetch('/api/projects').then(r => r.json()),
         fetch('/api/review/every').then(r => r.json()).then(d => d.songs || []).catch(() => [])]);
       const to = new Map();
       for (const p of list) to.set(p.name, { show: p.name });
-      for (const s of every) if (!s.show && !to.has(s.label)) to.set(s.label, { jam: s });
+      for (const s of every) if (!s.show && !to.has(s.label)) to.set(s.label, { relay: s });
       S.songBox = to;
     } catch (e) { /* server away */ }
   }
-  /** Open what the song box names: a saved show, or a jam song in review (one song, no stepping on). */
+  /** Open what the song box names: a saved show, or a party song in review (one song, no stepping on). */
   async function openNamed(v) {
     const t = S.songBox && S.songBox.get(v); if (!t) return false;
     if (t.show) { await openProject(t.show); return true; }
     if (S.review) await reviewStop();
-    S.review = { on: true, edit: true, songs: [{ ...t.jam, reviewed: '' }], i: 0, id: null, orig: '' };
+    S.review = { on: true, edit: true, songs: [{ ...t.relay, reviewed: '' }], i: 0, id: null, orig: '' };
     await reviewOpen(0);
     return true;
   }
@@ -592,8 +592,8 @@
     S.audio.buffer = await S.audio.ctx.decodeAudioData(ab);
   }
   function pos() {
-    if (S.cue && S.cue.live) return clamp(S.cue.pos(), 0, duration());     // a Party Hub cue is playing one of your shows
-    if (S.jam && S.jam.live) return clamp(S.jam.pos(), 0, duration());     // Spotify is driving: the room's place in the track
+    if (S.show_moment && S.show_moment.live) return clamp(S.show_moment.pos(), 0, duration());     // a phone remote moment is playing one of your shows
+    if (S.relay && S.relay.live) return clamp(S.relay.pos(), 0, duration());     // Spotify is driving: the room's place in the track
     if (S.cast.active) { const c = S.cast; const off = (parseFloat($('#castOffset').value) || 0) / 1000; const p = c.state === 'PLAYING' ? c.pos + (performance.now() - c.at) / 1000 : c.pos; return clamp(p - off, 0, duration()); }
     const a = S.audio; return a.playing ? clamp(a.startPos + (a.ctx.currentTime - a.startCtx), 0, duration()) : a.pos;
   }
@@ -612,11 +612,11 @@
   function pause() { if (S.cast.active) { castPause(); return; } const a = S.audio; if (!a.playing) return; a.pos = pos(); a.playing = false; stopSource(); updateTransport(); }
   function stopSource() { const a = S.audio; if (a.source) { try { a.source.onended = null; a.source.stop(); } catch (e) { } a.source = null; } }
   function stopPlayback() { pause(); S.audio.pos = 0; }
-  function seek(t) { if ((S.jam && S.jam.live) || (S.cue && S.cue.live)) return; t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
-  function togglePlay() { if (S.cue && S.cue.live) return toast('A moment is playing: press it again on the Party screen to end it'); if (S.jam && S.jam.live) return jamPlayPause(); S.audio.playing ? pause() : play(); }
-  /** In a jam, play and pause are Spotify's, as on the Party Hub (the user: pausing here did nothing). */
-  function jamPlayPause() {
-    const st = S.jam.state || {}, playing = st.room ? st.room.playing : !st.paused;
+  function seek(t) { if ((S.relay && S.relay.live) || (S.show_moment && S.show_moment.live)) return; t = clamp(t, 0, duration()); if (S.cast.active) { castSeek(t); return; } const a = S.audio; if (a.playing) play(t); else { a.pos = t; pushFrameIfIdle(); } }
+  function togglePlay() { if (S.show_moment && S.show_moment.live) return toast('A moment is playing: press it again on the Party screen to end it'); if (S.relay && S.relay.live) return partyPlayPause(); S.audio.playing ? pause() : play(); }
+  /** In a party, play and pause are Spotify's, as on the phone remote (the user: pausing here did nothing). */
+  function partyPlayPause() {
+    const st = S.relay.state || {}, playing = st.room ? st.room.playing : !st.paused;
     postJson('/api/party/playback', { action: playing ? 'pause' : 'resume' })
       .then(r => r.json()).then(d => { if (!d.ok) toast(d.error || 'Spotify did not answer', true); }).catch(e => toast(String(e), true));
   }
@@ -638,19 +638,19 @@
     castControls(false);
   }
   function applyCastStatus(st) {
-    const c = S.cast, jam = S.jam && S.jam.live;
+    const c = S.cast, relay = S.relay && S.relay.live;
     if (c.active && st.connected === false) {
       castGone();
-      if (jam) toast('The speaker stopped playing, so the party is on this computer now.', true);
+      if (relay) toast('The speaker stopped playing, so the party is on this computer now.', true);
       else { S.audio.playing = false; updateTransport(); toast('The Cast speaker disconnected.', true); }
       return;
     }
     c.state = st.state; c.at = performance.now();
     if (['PLAYING', 'PAUSED', 'BUFFERING'].includes(st.state)) c.pos = st.position;   // only a loaded session has a real position; otherwise keep the playhead
     if (st.volume != null) $('#castVolume').value = Math.round(st.volume * 100);
-    // In a jam the jam owns the clock and play/pause: a speaker's own state must not fight it
+    // In a party the party owns the clock and play/pause: a speaker's own state must not fight it
     // (a stopped Cast flipping "playing" off twice a second held the lights at a paused trickle).
-    if (jam) return;
+    if (relay) return;
     const playing = st.state === 'PLAYING' || st.state === 'BUFFERING';
     syncLocalToCast();
     if (S.audio.playing !== playing) { S.audio.playing = playing; updateTransport(); }
@@ -678,7 +678,7 @@
     try { await castApi('disconnect'); } catch (e) { }
     stopSource(); S.audio.localCast = false;
     S.cast.active = false; S.cast.state = 'IDLE';
-    if (!(S.jam && S.jam.live)) { S.audio.playing = false; S.audio.pos = wasPos; updateTransport(); }   // a jam carries on, on this PC
+    if (!(S.relay && S.relay.live)) { S.audio.playing = false; S.audio.pos = wasPos; updateTransport(); }   // a party carries on, on this PC
     castControls(false);
   }
   async function castPlay(from) {
@@ -712,14 +712,14 @@
    *  session and for every song, so one listen is enough.
    */
   async function runSyncCheck(auto = false) {
-    // during a jam there is no song file to compare against: the jam checks against what it sent
-    const js = S.jam && S.jam.state;
-    if (S.jam && S.jam.live && js && js.output_kind === 'cast') {
-      if (auto) return;                                   // the jam runs its own check when a speaker starts
+    // during a party there is no song file to compare against: the party checks against what it sent
+    const js = S.relay && S.relay.state;
+    if (S.relay && S.relay.live && js && js.output_kind === 'cast') {
+      if (auto) return;                                   // the party runs its own check when a speaker starts
       const btn = $('#btnSync'); btn.disabled = true; btn.textContent = 'Listening…';
       toast('Listening to the room to measure the speaker\u2019s delay\u2026');
       try {
-        const r = await (await fetch('/api/jam/synccheck', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+        const r = await (await fetch('/api/relay/synccheck', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
         if (r.error) toast(r.error, true);
         else if (r.saved_for) toast(`${r.saved_for} is ${r.speaker_offset_ms} ms behind (corrected by ${r.offset_ms > 0 ? '+' : ''}${r.offset_ms} ms).`);
         else toast(r.reason || 'Could not hear the speakers clearly enough. Turn them up or move closer to the mic and try again.', true);
@@ -787,7 +787,7 @@
   const SCAN_EVERY_MS = 30000;
   S.lastScan = performance.now();
   function autoScan() {
-    if (document.hidden || S.audio.playing || (S.jam && S.jam.live) || S.scanning) return;
+    if (document.hidden || S.audio.playing || (S.relay && S.relay.live) || S.scanning) return;
     if (performance.now() - S.lastScan < SCAN_EVERY_MS - 500) return;
     S.scanning = true; S.lastScan = performance.now();
     loadLights(true, true).finally(() => { S.scanning = false; });
@@ -809,7 +809,7 @@
     // armed, not started: the lights keep what they are showing until a song plays
     $('#outputOn').checked = true; S.lightsArmed = true;
   }
-  // The lights, room by room, each room with its switch (as on the Party Hub): a room switched on is played on, one
+  // The lights, room by room, each room with its switch (as on the phone remote): a room switched on is played on, one
   // switched off goes back to how its lights were (the user: the rooms decide, no tick per light). A light in no room
   // is played on only while there are no rooms at all.
   function renderLights() {
@@ -879,7 +879,7 @@
 
   // ------------------------------------------------------------------ rooms
   // Which lights and speakers stand in which room, and which rooms the party is in. A room switched
-  // off (here or on the Party Hub) leaves the show: the studio fades its lights back to how they
+  // off (here or on the phone remote) leaves the show: the studio fades its lights back to how they
   // were and mutes its speakers. The page only needs to know so the room order skips it.
   S.rooms = S.rooms || [];
   function keysOf(l) { return [l.mac, l.device_id, l.ip].filter(Boolean); }
@@ -1134,7 +1134,7 @@
   }
   const wsSend = o => { if (S.wsOpen) S.ws.send(JSON.stringify(o)); };
   function sendSelect() { wsSend({ type: 'select', ips: selectedLights().map(l => l.ip) }); }
-  /** Every light the show drives back to 100% brightness: the jam sends it between songs. */
+  /** Every light the show drives back to 100% brightness: the party sends it between songs. */
   const fullBrightness = () => wsSend({ type: 'full_brightness' });
   function startOutput() { S.lightsArmed = false; if (!S.outputActive && selectedLights().length) wsSend({ type: 'start' }); }
   function stopOutput() { if (S.outputActive) wsSend({ type: 'stop' }); }
@@ -1263,7 +1263,7 @@
    *  song. In a calm song (songCalm) its verses and quieter parts are calm as far as the song is, its
    *  buildups and choruses nearly so (0.8 of it; a chill show's drops 0.6): they swell in too; a part well below the rest of its song
    *  (relLoud) is calm partly whatever the song. Drops and buildups of a song that drives are never calm,
-   *  and the calm lets go over the beat before a drop so the breath and the hit land. A low party level
+   *  and the calm lets go over the beat before a drop so the breath and the hit land. A low Energy
    *  calms the show too (a quarter: a calm background, all swells). */
   const CALM = new WeakMap();
   function calmAt(t) {
@@ -1319,9 +1319,9 @@
     return frame;
   }
 
-  /** The song's main color, as 0..1 RGB: the jam's primary for this song, else its chosen main color,
+  /** The song's main color, as 0..1 RGB: the party's primary for this song, else its chosen main color,
    *  else the first color of its palette. */
-  /** The party level (the Party Hub's slider) is how intense the show is, not only how bright: at 100% the
+  /** The Energy (the phone remote's slider) is how intense the show is, not only how bright: at 100% the
    *  show as built; lower, it calms down, live, as it plays. The strobes, flashes, glitches, blackouts and
    *  black cuts go first (none under half); the one-shots thin out (each kept or not by the level, the same
    *  every time: none at 25%, all from 95%); the drum hits soften to a gentle breath; the moving things ease
@@ -1331,9 +1331,9 @@
     'dropblast', 'fillflood', 'colorslam', 'drumgate', 'dark', 'blackout', 'thunder', 'fireworks', 'strobeRiser', 'rollthunder', 'shockwave']);
   const PARTY_ONE_SHOTS = new Set(['sweepout', 'ripple', 'hookstrike', 'fillrush', 'roomsweep', 'ghostspark', 'wobble', 'deep808', 'ticks', 'heartbeat', 'spotlight']);
   const PARTY_HITS = new Set(['pulse', 'drumhits', 'basshits', 'zonehits', 'buildhits', 'bassnote', 'leadtrace', 'leadglow', 'halves', 'roomsplit', 'hitswap', 'battle', 'blocks', 'alternate', 'roomchase', 'pulsar']);
-  const calmRamp = (lo, hi) => clamp(((S.partyLevel ?? 1) - lo) / (hi - lo), 0, 1);
+  const calmRamp = (lo, hi) => clamp(((S.partyEnergy ?? 1) - lo) / (hi - lo), 0, 1);
   function partyScale(clip) {
-    const L = S.partyLevel ?? 1; if (L >= 0.999) return 1;
+    const L = S.partyEnergy ?? 1; if (L >= 0.999) return 1;
     const fx = clip.effect;
     if (clip.alone) return 0.3 + 0.7 * calmRamp(0.2, 0.9);                     // a build's strobe that plays alone: softer, never gone
     if (clip.blend === 'cut' || PARTY_FLASHY.has(fx)) return calmRamp(0.5, 0.9);
@@ -1347,7 +1347,7 @@
     return 0.55 + 0.45 * calmRamp(0.2, 0.85);                                  // the moving things
   }
   function partyColor() {
-    const p = P(); const hx = (S.jamColors && S.jamColors[0]) || (p && p.settings && p.settings.mainColor)
+    const p = P(); const hx = (S.partyColors && S.partyColors[0]) || (p && p.settings && p.settings.mainColor)
       || (p && (p.palettes[p.defaultPalette] || [])[0]) || '#ffffff';
     return Effects.hex2rgb(Effects.solid(hx));
   }
@@ -1433,13 +1433,13 @@
         let lit = 0; for (let tb = 0; tb < tubes.count; tb++) lit += Math.max(across[tb * 4], across[tb * 4 + 1], across[tb * 4 + 2]);
         layers(dst, n, L.ip + 'm', c => c.target === 'tubes', tubes, clamp(0.15 + 2.2 * lit / tubes.count, 0.15, 1));
       }
-      // The party level (set on the Party Hub): below 100% the song's main color is laid over the whole
+      // The Energy (set on the phone remote): below 100% the song's main color is laid over the whole
       // show, that much more opaque, so the room calms down into one color without going dark.
-      const cover = 0.5 * (1 - clamp(S.partyLevel ?? 1, 0, 1)), pc = cover > 0 ? partyColor() : null;   // (gentler: the show calms itself, partyScale)
+      const cover = 0.5 * (1 - clamp(S.partyEnergy ?? 1, 0, 1)), pc = cover > 0 ? partyColor() : null;   // (gentler: the show calms itself, partyScale)
       if (pc) for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) dst[i * 4 + k] = clamp(dst[i * 4 + k], 0, 1) * (1 - cover) + pc[k] * cover;
       const flat = new Array(n * 3);
       for (let i = 0; i < n; i++) { flat[i * 3] = Math.round(clamp(dst[i * 4], 0, 1) * 255 * master); flat[i * 3 + 1] = Math.round(clamp(dst[i * 4 + 1], 0, 1) * 255 * master); flat[i * 3 + 2] = Math.round(clamp(dst[i * 4 + 2], 0, 1) * 255 * master); }
-      // between songs (the jam): a dim glow of a song's main color where the show is darker (see jam.js
+      // between songs (the party): a dim glow of a song's main color where the show is darker (see party_show.js
       // setGlow), laid on after the brightness follows the music, so the quiet does not fade it away
       const g = S.glowAt ? S.glowAt(t) : null;
       if (g && g.level > 0) for (let i = 0; i < n * 3; i++) flat[i] = Math.max(flat[i], Math.round(g.rgb[i % 3] * g.level * 255));
@@ -1448,7 +1448,7 @@
     return coverOver(smoothKey ? blendIn(smoothKey, calmSmooth(smoothKey, t, out, handFlash ? 0 : calm)) : out);
   }
   /** A cross-fade of the lights from what they last showed into the show now (crossfadeLights): a doorbell's show
-   *  handing back to the jam's as the music comes back, instead of a jump (the user). Every light's last frame is
+   *  handing back to the party's as the music comes back, instead of a jump (the user). Every light's last frame is
    *  kept, for the lights and for the room view, to fade from. */
   const LAST = {};
   function blendIn(key, frame) {
@@ -1470,7 +1470,7 @@
   function crossfadeLights(seconds) {
     S.lightBlend = { t0: performance.now(), dur: Math.max(0.2, seconds) * 1000, from: Object.fromEntries(Object.entries(LAST).map(([k, m]) => [k, new Map(m)])) };
   }
-  /** The Party Hub's modes (the user makes them; the server says, at once over /ws and in the jam state each second):
+  /** The phone remote's color moments (the user makes them; the server says, at once over /ws and in the party state each second):
    *  each fades every light to its color at full brightness over its own time and back to the show (the music fades
    *  with it in the stream, or pauses). The one switched on last is on top. A color picked while one is on moves to it
    *  over up to a second. Seen within a second or two of the switch a fade starts now, with the music, not with a
@@ -1534,7 +1534,7 @@
     roomViewCh.onmessage = e => { if (e.data && e.data.type === 'hello') { S.roomViewAt = performance.now(); roomViewCh.postMessage({ type: 'alive' }); } };
     addEventListener('pagehide', () => { try { roomViewCh.postMessage({ type: 'bye' }); } catch (e) { /* closing anyway */ } });
   }
-  // A phone's room view (the Party Hub's Lights tab) gets the same frames through the studio, 20 a second.
+  // A phone's room view (the phone remote's Lights tab) gets the same frames through the studio, 20 a second.
   function sendRoomView(t) {
     const now = performance.now();
     const local = !!(roomViewCh && S.roomViewAt && now - S.roomViewAt <= 3000) && now - (S.roomViewSent || 0) >= 30;
@@ -1798,9 +1798,9 @@
     p.lanes.forEach((lane, li) => {
       const y = laneTop(li), rows = laneRows(lane); if (!rows) return; g.fillStyle = lane.hidden ? CV.laneHidden : li % 2 ? CV.laneAlt : CV.lane; g.fillRect(HEADER, y, w, laneH(li)); g.strokeStyle = CV.rule; g.beginPath(); g.moveTo(HEADER, y); g.lineTo(w, y); g.stroke();
       // a hidden layer is greyed out as a whole: its clips in grey, faded
-      // (a jam song under review whose lights are the jam's own, untouched: every layer at half, until a change to
-      // the lights makes it your own show; undone back to the jam's, half again)
-      const built = (S.review && S.review.id && !S.review.custom) || (S.jam && S.jam.live && S.jam.auto && !S.jam.custom);   // (the show as built: it follows the sections)
+      // (a party song under review whose lights are the party's own, untouched: every layer at half, until a change to
+      // the lights makes it your own show; undone back to the party's, half again)
+      const built = (S.review && S.review.id && !S.review.custom) || (S.relay && S.relay.live && S.relay.auto && !S.relay.custom);   // (the show as built: it follows the sections)
       const ga = (lane.hidden ? 0.35 : 1) * (built ? 0.5 : 1); g.globalAlpha = ga; g.filter = lane.hidden ? 'grayscale(1)' : 'none';
       for (const c of lane.clips) {
         const x0 = xOf(beatToTime(c.start)), x1 = xOf(beatToTime(c.start + c.len)); if (x1 < HEADER || x0 > w) continue;
@@ -2318,7 +2318,7 @@
     setSelection(ids); changed();
     // the playhead moves to the end of what was pasted, so the next paste lands right after it
     // (not while playing: that would jump the music)
-    if (!S.audio.playing && !(S.jam && S.jam.live)) {
+    if (!S.audio.playing && !(S.relay && S.relay.live)) {
       const t = clamp(beatToTime(end), 0, duration());
       if (S.cast.active) { S.cast.pos = t; S.cast.at = performance.now(); draw(); } else seek(t);
     }
@@ -2815,7 +2815,7 @@
     return w;
   }
   /** Draw the song's own mix of effects (S.mix), its motions, its buildups, and which kinds of light are
-   *  ticked. Jam mode calls it again when it learns a song's style part way through, before building the
+   *  ticked. The party calls it again when it learns a song's style part way through, before building the
    *  rest. The draw is seeded by the song (its length and tempo): the same song gets the same show on
    *  every rebuild, and two songs of one scene get different ones. */
   function pickLook() {
@@ -2969,12 +2969,12 @@
     // coherent across the track, but two drops never open on the same color.
     const mood = S.analysis.mood || {};
     S.songPals = (mood.palettes || [mood.palette]).filter(n => p.palettes[n]);
-    // Jam mode's two colors (the jam's, or the ones picked for this track in the queue) come first
-    S.pairMode = !S.noLimits && !!(S.jamColors && S.jamColors.length === 2);
+    // the party's two colors (the party's, or the ones picked for this track in the queue) come first
+    S.pairMode = !S.noLimits && !!(S.partyColors && S.partyColors.length === 2);
     if (S.noLimits) { S.lookSeed = Math.round((S.analysis.duration || 0) * 10) + Math.round((S.analysis.bpm || 0) * 100);
       const dropPal = (wildPlan().find((x, i) => p.sections[i].type === 'drop') || wildPlan()[0] || { build: ['#ff0000', '#0030ff'] }).build;
       p.palettes['No limits'] = Effects.solidPalette(dropPal); S.songPals = ['No limits']; }
-    else if (S.pairMode) { p.palettes.Jam = Effects.solidPalette(S.jamColors); S.songPals = ['Jam']; }
+    else if (S.pairMode) { p.palettes.Party = Effects.solidPalette(S.partyColors); S.songPals = ['Party']; }
     else if (p.settings && p.settings.mainColor) { p.palettes.Main = mainPalette(p.settings.mainColor); S.songPals = ['Main']; }   // chosen by hand
     else if (S.albumPalette && S.albumPalette.length) { p.palettes.Album = Effects.solidPalette(S.albumPalette); S.songPals = ['Album']; }   // the cover's own colors
     if (!S.songPals.length) S.songPals = [p.defaultPalette];
@@ -2983,7 +2983,7 @@
     // Each song gets its own kind of motion in the drops (not comets every time), chosen from the song
     // itself so it is the same on every rebuild, and a song that goes all out may get rainbow drops.
     pickLook();
-    S.epic = !!(S.pairMode && S.jamRainbow && isEpic());
+    S.epic = !!(S.pairMode && S.partyRainbow && isEpic());
     S.cute = cuteParts();
     const counts = {};
     // The song's own parts (songmap.py): a part heard again gets the look it had (the same drop move, motion,
@@ -3234,10 +3234,10 @@
       return h === null ? hexColor : Effects.hueHex(h + 0.5);        // half way round the color wheel
     }));
   }
-  // In the jam's two colors, a few of these small accents now and then take the jam's extra colors
+  // In the party's two colors, a few of these small accents now and then take the party's extra colors
   // (orange and red at Halloween): little extras, never the base, the comets or the drums.
   const EXTRAS = new Set(['hookstrike', 'sweepout', 'colorslam', 'ghostspark', 'fillrush', 'sparkle', 'meteors', 'ripple', 'whiteflash']);
-  const extraHere = (effect, start) => S.pairMode && S.jamExtras && EXTRAS.has(effect) && Effects.hash(Math.round(start * 4) * 7919 + effect.length * 104729) < 0.35;
+  const extraHere = (effect, start) => S.pairMode && S.partyExtras && EXTRAS.has(effect) && Effects.hash(Math.round(start * 4) * 7919 + effect.length * 104729) < 0.35;
   /** Where an effect that opens from a point starts, mixed up clip by clip (the same on every rebuild):
    *  the middle a little under half the time, else an end or a quarter of the way along. */
   function originFor(effect, start) {
@@ -3255,7 +3255,7 @@
     return h < (st === 'rave' ? 0.55 : 0.3) ? [pal[0], '#000000'] : pal;
   }
   // Motion over a base in the very same colors does nothing (meteors over a gradient of the same pair): it
-  // takes the jam's extra colors then, or in about a third of the sections white (white moving over a
+  // takes the party's extra colors then, or in about a third of the sections white (white moving over a
   // color looked great in Mission's drop), else a color apart from the base. Never white everywhere: every
   // drop's moving things in white made white the drops' own color.
   const whiteMotion = start => Effects.hash(Math.round(start / 16) * 7907 + (S.lookSeed || 0) + 11) < 0.33;
@@ -3295,26 +3295,26 @@
     // (outside a section's build, with two colors: the colors of the section it lands in, not the last one built)
     let sp = null; if (!S.sectionClips && S.pairMode && S.secPals) for (let k = S.secPals.length - 1; k >= 0 && !sp; k--) if (start >= S.secPals[k].b0 && start < S.secPals[k].b1) sp = S.secPals[k];
     const buildPal = sp ? sp.build : S.buildPal, contrastPal = sp ? sp.contrast : S.contrastPal;
-    const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...easeFor(effect, start), ...spaceFor(effect, start, lane), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.jamExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? contrastPal : buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
-      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, buildPal)) c.palette = S.jamExtras ? Effects.solidPalette(S.jamExtras) : whiteMotion(start) ? ['#ffffff'] : [punchColor(start)]; }
+    const c = { id: uid(), effect, start, len, params: { ...Effects.defaults(effect), ...originFor(effect, start), ...easeFor(effect, start), ...spaceFor(effect, start, lane), ...params }, opacity: 1, blend: 'normal', fadeIn: 0, fadeOut: 0, palette: (extraHere(effect, start) ? Effects.solidPalette(S.partyExtras) : null) || (S.pairMode || S.noLimits ? null : effectColors(effect)) || (lane > 0 && OVERLAY.has(effect) ? contrastPal : buildPal) || null, ...extra }; if (!('palette' in extra)) { c.palette = withBlack(effect, start, c.palette);
+      if (lane > 0 && OVERLAY.has(effect) && effect !== 'pulse' && sameColors(c.palette, buildPal)) c.palette = S.partyExtras ? Effects.solidPalette(S.partyExtras) : whiteMotion(start) ? ['#ffffff'] : [punchColor(start)]; }
     if (S.sectionClips && !S.sectionClips.length && S.bedSectionNow && lane === 0) S.bedBase = c; tier(c); P().lanes[freeLaneFor(start, len, lane, null, c.target)].clips.push(c); if (S.sectionClips) S.sectionClips.push(c); return c; }
   function buildSection(s, idx, clearFirst, variant = 0) {
     const p = P(); const b0 = Math.round(timeToBeat(s.start)), b1 = Math.round(timeToBeat(s.end)); const len = b1 - b0; if (len < 1) return;
     if (clearFirst) { for (const lane of p.lanes) lane.clips = lane.clips.filter(c => c.start + c.len <= b0 || c.start >= b1); }
     const fam = S.songPals && S.songPals.length ? S.songPals : [p.defaultPalette];
-    // Two colors (Jam mode): the primary leads, the secondary is "the other one". Nothing else comes
+    // Two colors (the party): the primary leads, the secondary is "the other one". Nothing else comes
     // in: the opposite of the pair is the pair swapped, not the opposite side of the color wheel.
     // (The bright hits take the secondary, so it shows the most: tried the other way round, 2026-10-21, and
     // put back the same night; the user loved it as it was.)
-    const pair = S.pairMode && p.palettes.Jam;
+    const pair = S.pairMode && p.palettes.Party;
     const pidx = S.secPart ? S.secPart.first : idx;                   // (a part heard again: the colors it had)
-    S.buildPal = pair ? p.palettes.Jam.slice() : paletteVariant(fam[pidx % fam.length], pidx);
+    S.buildPal = pair ? p.palettes.Party.slice() : paletteVariant(fam[pidx % fam.length], pidx);
     // Party colors (the user): the song's pair is its drops' colors. The rest of it now and then (about half its
     // parts) takes another of the party's pairs, picked from the song itself so it is the same on every rebuild, a
     // part heard again in the colors it had. A buildup keeps the song's own pair, so the drop lands back on it.
-    if (pair && S.jamPairs && s.type !== 'drop' && s.type !== 'buildup') {
-      const key = q => q.map(x => String(x).toLowerCase()).sort().join(), own = key(S.jamColors || []);
-      const others = S.jamPairs.filter(q => Array.isArray(q) && q.length === 2 && key(q) !== own), seed = songSeed();
+    if (pair && S.partyPairs && s.type !== 'drop' && s.type !== 'buildup') {
+      const key = q => q.map(x => String(x).toLowerCase()).sort().join(), own = key(S.partyColors || []);
+      const others = S.partyPairs.filter(q => Array.isArray(q) && q.length === 2 && key(q) !== own), seed = songSeed();
       if (others.length && Effects.hash(seed * 7 + pidx * 131 + 17) < PARTY_MIX)
         S.buildPal = Effects.solidPalette(others[Math.floor(Effects.hash(seed * 13 + pidx * 97 + 5) * others.length) % others.length]);
     }
@@ -3484,7 +3484,7 @@
         const hardcore = !chill && drumsHere && heavyDrops();
         if (hardcore) {
           // pure primaries, one pair for all of the song's drops (its order swapping drop to drop); the party's
-          // own pair when the jam has one
+          // own pair when the party has one
           const PURE = [['#ff0000', '#0000ff'], ['#ff00ff', '#00ff00'], ['#00ffff', '#ff0000'], ['#0000ff', '#ffff00']];
           const pair = S.pairMode ? (S.buildPal || []).slice(0, 2) : PURE[Math.floor(Effects.hash((S.lookSeed || 0) + 4211) * PURE.length)];
           const pal = variant % 2 ? pair.slice().reverse() : pair;
@@ -3765,7 +3765,7 @@
   }
   function addFlavorHere(fromBeat = -Infinity) {
     const p = P(), a = S.analysis || {}, ev = a.events || {}, style = showStyle(), chill = style === 'chill', hard = style === 'dance' || style === 'rave';
-    // A jam's first listen calls this after every pass: only what is still ahead of the room is added,
+    // A party's first listen calls this after every pass: only what is still ahead of the room is added,
     // nothing twice, and what needs the whole song (the finale, a key change) waits until it is heard.
     const whole = !a.provisional;
     const has = (fx, b) => p.lanes.some(l => l.clips.some(c => c.effect === fx && Math.abs(c.start - b) < 0.5));
@@ -3862,7 +3862,7 @@
       }
       const end = Math.min(lastB, b1), hold = Math.max(4, Math.min(16, lastB - end));
       if (lastB - end >= 2) {
-        const main = (S.jamColors && S.jamColors[0]) || (p.palettes[S.songPal] || [])[0] || '#ffffff';
+        const main = (S.partyColors && S.partyColors[0]) || (p.palettes[S.songPal] || [])[0] || '#ffffff';
         put(8, 'solid', end, hold, {}, { palette: [main], fadeOut: hold, opacity: 1 });
       }
     }
@@ -3930,7 +3930,7 @@
    *    back on a white flash as the music does;
    *  - an entrance (the synths or guitars come in after being away, away from a section's start): a
    *    slam, and the colors flip from there on, so the room feels the band arrive.
-   *  Only from fromBeat on, and never twice: a jam's first listen adds them as each pass hears them. */
+   *  Only from fromBeat on, and never twice: a party's first listen adds them as each pass hears them. */
   function addMoments(fromBeat = -Infinity) {
     const p = P(), a = S.analysis || {};
     const has = (fx, b) => p.lanes.some(l => l.clips.some(c => c.effect === fx && Math.abs(c.start - b) < 0.5));
@@ -3976,12 +3976,12 @@
   const ACCENTS = { chill: { texture: 0 }, groove: { texture: 1 }, dance: { texture: 1 }, rave: { texture: 2 } };
   const ONE_SHOTS = new Set(['sweepout', 'colorslam', 'whiteflash', 'ripple', 'dropblast', 'hookstrike', 'glitch', 'fillflood']);   // (two never within 2 beats)
   /** A one-shot's color: one that stands apart from the section under it, so the moment breaks from it (a
-   *  red fill over a blue verse): the jam's extra colors when it has them, else the stage color farthest
+   *  red fill over a blue verse): the party's extra colors when it has them, else the stage color farthest
    *  round the color wheel from every color of the section. */
   const PUNCH = ['#ff0000', '#0030ff', '#ff0080', '#00ff40', '#00c8ff', '#ffa000', '#8000ff'];
   const hueOf = hx => { const h = Effects.hueOf(hx); return h === null ? null : h * 360; };   // (degrees)
   function punchColor(at = 0) {
-    if (S.jamExtras && S.jamExtras.length) return S.jamExtras[Math.abs(Math.round(at)) % S.jamExtras.length];
+    if (S.partyExtras && S.partyExtras.length) return S.partyExtras[Math.abs(Math.round(at)) % S.partyExtras.length];
     const base = (S.buildPal || []).map(hueOf).filter(h => h !== null);
     if (!base.length) return '#ff0000';
     const gap = h => Math.min(...base.map(x => Math.min(Math.abs(h - x), 360 - Math.abs(h - x))));
@@ -4202,7 +4202,7 @@
   bootModels();
   /** As the studio opens, the models load (and warm up) in the model host, out of sight: the studio is
    *  usable at once (a card over it while they came up made it feel slow: the user). Only what needs them,
-   *  analysing a song, casting, a jam, waits for them first (modelsReady). Done: all ready, or one failed
+   *  analysing a song, casting, a party, waits for them first (modelsReady). Done: all ready, or one failed
    *  (the analysis carries on without it), or nothing to wait for (none installed, a test copy), or two minutes. */
   async function bootModels() {
     const MODEL_NAMES = { songformer_infer: 'sections', stems_infer: 'stems', genre_infer: 'genre', beats_infer: 'beats', drums_infer: 'drums' };

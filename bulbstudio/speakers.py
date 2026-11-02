@@ -72,7 +72,7 @@ class ShowCast(CastManager):
         self.show_browser = browser
 
     def disconnect(self) -> None:
-        """Let the speaker go. It is stopped only while it still plays the show: one taken over (a doorbell cue,
+        """Let the speaker go. It is stopped only while it still plays the show: one taken over (a doorbell moment,
         the party's group, Spotify) is left playing that (CastManager's own disconnect would stop it too)."""
         was = self.cast is not None              # (connect() calls this first, before there is a speaker: keep looking then)
         if was and not self.playing_ours():

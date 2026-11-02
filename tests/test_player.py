@@ -7,7 +7,7 @@ import json
 import types
 import unittest
 
-from lightshow.studio.jam_service import JamService
+from lightshow.studio.party_service import PartyService
 from lightshow.studio.spotify import NowPlaying, PlayerAwareSpotify, PlayerState, SpotifyClient, Track
 
 
@@ -106,15 +106,15 @@ class TestClient(unittest.TestCase):
 
 
 class TestAutoStart(unittest.TestCase):
-    """Music starting on Light Show Studio starts a jam; a reloaded studio takes its music back."""
+    """Music starting on Light Show Studio starts a party; a reloaded studio takes its music back."""
 
     def service(self):
         class Studio:
             port = 0
             class cast:            # noqa: N801
                 cast, name, media_path = None, "", ""
-        self.cfg = {"jam_last": {"speakers": "pc", "pc_device": "Headphones", "target_delay": 30.0}, "jam_fetch": False}
-        svc = JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
+        self.cfg = {"party_last": {"speakers": "pc", "pc_device": "Headphones", "target_delay": 30.0}, "party_fetch": False}
+        svc = PartyService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
         svc.spotify.store.update(client_id="x", refresh_token="r")   # signed in
         self.started, self.transfers = [], []
 
@@ -134,7 +134,7 @@ class TestAutoStart(unittest.TestCase):
         if job:
             job()
 
-    def test_music_starting_starts_a_jam_with_the_last_settings_once(self):
+    def test_music_starting_starts_a_party_with_the_last_settings_once(self):
         svc = self.service()
         self.report(svc, {"device_id": "dev1", "ready": True})
         self.report(svc, {"state": {**SDK_STATE, "paused": True}})
@@ -150,19 +150,19 @@ class TestAutoStart(unittest.TestCase):
         self.report(svc, {"state": {**SDK_STATE, "stamp": 4}})
         self.assertEqual(len(self.started), 2)                    # but it is when the music starts again
 
-    def test_learning_ahead_an_auto_started_jam_keeps_the_short_delay(self):
+    def test_learning_ahead_an_auto_started_party_keeps_the_short_delay(self):
         from unittest import mock
         svc = self.service()
-        self.cfg["jam_fetch"] = True
+        self.cfg["party_fetch"] = True
         with mock.patch("lightshow.studio.fetch_ahead.available", lambda: True):
             self.report(svc, {"device_id": "dev1", "ready": True})
             self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})
         self.assertEqual(len(self.started), 1)
-        self.assertNotIn("target_delay", self.started[0])          # the jam's own learn-ahead delay (10 s), not the last 30 s
+        self.assertNotIn("target_delay", self.started[0])          # the party's own learn-ahead delay (10 s), not the last 30 s
 
     def test_auto_start_can_be_turned_off(self):
         svc = self.service()
-        self.cfg["jam_auto"] = False
+        self.cfg["party_auto"] = False
         self.report(svc, {"device_id": "dev1", "ready": True})
         self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})
         self.assertEqual(self.started, [])
@@ -170,7 +170,7 @@ class TestAutoStart(unittest.TestCase):
     def test_a_reloaded_studio_takes_its_music_back(self):
         svc = self.service()
         self.report(svc, {"device_id": "dev1", "ready": True})
-        self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})       # the jam starts
+        self.report(svc, {"state": {**SDK_STATE, "stamp": 1}})       # the party starts
         self.report(svc, {"device_id": "dev2", "ready": True})        # the window was reloaded: a new player
         self.assertEqual(self.transfers, ["dev2"])
         self.assertEqual(len(self.started), 1)
@@ -192,7 +192,7 @@ class TestHiddenPlayer(unittest.TestCase):
             port = 0
             class cast:            # noqa: N801
                 cast, name, media_path = None, "", ""
-        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc = PartyService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
         svc.spotify.store.update(client_id="x", refresh_token="r")
         svc._hidden_output_name = lambda: "Digital Audio (S/PDIF)"
         svc._same_device = lambda a, b: True                          # Windows' default output is S/PDIF
@@ -202,13 +202,13 @@ class TestHiddenPlayer(unittest.TestCase):
 
 
 class TestCastFollows(unittest.TestCase):
-    """Casting mid-jam moves the room's sound to the Cast speaker, at the point it had reached."""
+    """Casting mid-party moves the room's sound to the Cast speaker, at the point it had reached."""
 
-    def test_the_jam_moves_to_the_cast_and_back(self):
+    def test_the_party_moves_to_the_cast_and_back(self):
         import threading
         import time as _t
         import numpy as np
-        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.party import CastOutput
         from lightshow.studio.relay import Relay
 
         played = []
@@ -242,7 +242,7 @@ class TestCastFollows(unittest.TestCase):
             def room_capture_time(self): return 12.5
             def say(self, m): self.log.append(m)
 
-        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc = PartyService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
         svc.engine, svc.source = Engine(), "studio"
         pc = svc.engine.output
         svc._output_for_real = svc._output_for
@@ -268,10 +268,10 @@ class TestCastFollows(unittest.TestCase):
 
 
 class TestSpeakersAlwaysPlay(unittest.TestCase):
-    def test_a_jam_meant_for_speakers_is_never_left_silent(self):
+    def test_a_party_meant_for_speakers_is_never_left_silent(self):
         import threading
         import time as _t
-        from lightshow.studio.jam import VirtualOutput
+        from lightshow.studio.party import VirtualOutput
 
         class Studio:
             port = 0
@@ -299,7 +299,7 @@ class TestSpeakersAlwaysPlay(unittest.TestCase):
             def say(self, m): self.log.append(m)
 
         for wanted, expect in ((False, "none"), (True, "pc")):
-            svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+            svc = PartyService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
             svc.engine, svc.source, svc.room_wanted = Engine(), "studio", wanted
             svc._output_for = lambda where, *a, **k: PcOut() if where == "pc" else VirtualOutput(_t.monotonic)
             svc._follow_cast()
@@ -315,7 +315,7 @@ class TestCastThatDoesNotPlay(unittest.TestCase):
         import threading
         import time as _t
         import numpy as np
-        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.party import CastOutput
         from lightshow.studio.relay import Relay
 
         class Cast:                                   # a speaker that never starts playing
@@ -355,7 +355,7 @@ class TestCastThatDoesNotPlay(unittest.TestCase):
             def room_capture_time(self): return 10.0
             def say(self, m): self.log.append(m)
 
-        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc = PartyService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
         svc.engine, svc.source, svc.room_wanted = Engine(), "studio", True
         real = svc._output_for
         svc._output_for = lambda where, *a, **k: PcOut() if where == "pc" else real(where, *a, **k)
@@ -381,7 +381,7 @@ class TestAutoSync(unittest.TestCase):
     def test_a_speaker_that_starts_playing_gets_one_sync_check(self):
         import threading
         import time as _t
-        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.party import CastOutput
 
         class Studio:
             port = 0
@@ -402,7 +402,7 @@ class TestAutoSync(unittest.TestCase):
                 self.output.started_at = _t.monotonic()
             def say(self, m): self.log.append(m)
 
-        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc = PartyService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
         e = svc.engine = Engine()
         runs = []
         svc._run_sync = lambda: runs.append(1) or {"saved_for": "Everywhere", "speaker_offset_ms": 250, "offset_ms": 13}
@@ -455,7 +455,7 @@ class TestAutoSync(unittest.TestCase):
         microphone's recording while the lights faded: they stuttered and the studio lagged (the user)."""
         import threading
         import time as _t
-        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.party import CastOutput
 
         class Studio:
             port = 0
@@ -469,21 +469,21 @@ class TestAutoSync(unittest.TestCase):
             def status(self): return {"position": 12.0}
 
         class Engine:
-            cue_hold = False
+            show_moment_hold = False
             def __init__(self):
                 self.lock, self.streaming, self.log = threading.RLock(), True, []
                 self.gate = type("G", (), {"paused": False})()
                 self.output = CastOutput(Cast(), lambda sid: f"http://x/{sid}")
                 self.output.started_at = _t.monotonic() - 10
-                self.no_sync_start = self.output.started_at            # (JamEngine._quiet_start)
+                self.no_sync_start = self.output.started_at            # (PartyEngine._quiet_start)
             def say(self, m): self.log.append(m)
 
-        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc = PartyService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
         e = svc.engine = Engine()
         runs = []
         svc._run_sync = lambda: runs.append(1) or {}
         svc._maybe_auto_sync(e)
-        e.no_sync_start, e.cue_hold = None, True                      # a doorbell holding the room: none either
+        e.no_sync_start, e.show_moment_hold = None, True                      # a doorbell holding the room: none either
         svc._maybe_auto_sync(e)
         _t.sleep(0.1)
         self.assertEqual(runs, [])
@@ -503,10 +503,10 @@ class TestTaskbarIdentity(unittest.TestCase):
 class TestLocalOnly(unittest.TestCase):
     def test_the_token_and_player_routes_answer_this_computer_only(self):
         req = lambda addr: types.SimpleNamespace(remote=addr)
-        self.assertTrue(JamService._local(req("127.0.0.1")))
-        self.assertTrue(JamService._local(req("::1")))
-        self.assertFalse(JamService._local(req("192.168.1.50")))   # a phone or speaker on the network
-        self.assertFalse(JamService._local(req(None)))
+        self.assertTrue(PartyService._local(req("127.0.0.1")))
+        self.assertTrue(PartyService._local(req("::1")))
+        self.assertFalse(PartyService._local(req("192.168.1.50")))   # a phone or speaker on the network
+        self.assertFalse(PartyService._local(req(None)))
 
 
 class TestRoutes(unittest.IsolatedAsyncioTestCase):
@@ -519,15 +519,15 @@ class TestRoutes(unittest.IsolatedAsyncioTestCase):
             class cast:            # noqa: N801
                 cast, name, media_path = None, "", ""
 
-        svc = JamService(Studio, ".", lambda: {}, lambda cfg: None, lambda: "127.0.0.1")
+        svc = PartyService(Studio, ".", lambda: {}, lambda cfg: None, lambda: "127.0.0.1")
         svc.spotify.token = lambda: "TOKEN"
         app = web.Application()
         app.add_routes(svc.routes())
         async with TestClient(TestServer(app)) as client:
             self.assertEqual((await (await client.get("/api/spotify/token")).json())["token"], "TOKEN")
-            await client.post("/api/jam/sdk_state", json={"device_id": "dev9", "ready": True})
-            await client.post("/api/jam/sdk_state", json={"state": SDK_STATE})
-            st = await (await client.get("/api/jam/state")).json()
+            await client.post("/api/relay/sdk_state", json={"device_id": "dev9", "ready": True})
+            await client.post("/api/relay/sdk_state", json={"state": SDK_STATE})
+            st = await (await client.get("/api/relay/state")).json()
             self.assertEqual((st["player"]["ready"], st["player"]["device_id"], st["player"]["track"]), (True, "dev9", "Porter Robinson - Cheerleader"))
             self.assertIn("can_stream", st["spotify"])
 

@@ -319,7 +319,7 @@ class ModelHost:
 
     def warm_all(self) -> None:
         """Start the host and have it load (and warm up) every model now, side by side with the rest of
-        the studio starting: the first song of a jam should find them ready."""
+        the studio starting: the first song of a party should find them ready."""
         if not self.connect():
             return
         for name in MODEL_NAMES:

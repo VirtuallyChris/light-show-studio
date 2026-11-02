@@ -1,6 +1,6 @@
 r"""Learn a whole Spotify playlist ahead, without the studio running: every song not learned yet is found on YouTube,
-analysed, its lyrics and SongFormer's features taken, and its copy kept (shows/_jam/copies), exactly as learn ahead
-does for a jam (fetch_ahead.py). Nothing plays, no light or speaker is touched. A jam started in the studio meanwhile
+analysed, its lyrics and SongFormer's features taken, and its copy kept (shows/_party/copies), exactly as learn ahead
+does for a party (fetch_ahead.py). Nothing plays, no light or speaker is touched. A party started in the studio meanwhile
 wins the graphics card: what is waiting is dropped (run this again later to go on; learned songs are skipped).
 
     .venv\Scripts\python tools\learn_playlist.py <playlist link>
@@ -18,8 +18,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from lightshow.studio import labeler, lyrics  # noqa: E402
 from lightshow.studio.fetch_ahead import FetchAhead, _spotdl_python  # noqa: E402
-from lightshow.studio.jam import JamLibrary  # noqa: E402
-from lightshow.studio.prelisten import playlist_id  # noqa: E402
+from lightshow.studio.party import PartyLibrary  # noqa: E402
+from lightshow.studio.playlist_learning import playlist_id  # noqa: E402
 from lightshow.studio.spotify import SpotifyClient, Track, largest_image, pick_image  # noqa: E402
 
 CONFIG = os.path.join(ROOT, "config.json")
@@ -67,7 +67,7 @@ def _playlist_by_spotdl(pid: str) -> list:
 
 def _jamming() -> bool:
     try:
-        with urllib.request.urlopen("http://localhost:8765/api/jam/state", timeout=3) as r:
+        with urllib.request.urlopen("http://localhost:8765/api/relay/state", timeout=3) as r:
             return bool(json.load(r).get("running"))
     except Exception:  # noqa: BLE001  (the studio is not running)
         return False
@@ -84,7 +84,7 @@ def main(link: str) -> None:
         tracks = SpotifyClient(store, save=lambda: _save_sign_in(store)).playlist_tracks(pid, most=2000)
     except PermissionError:
         tracks = _playlist_by_spotdl(pid)
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     fetch = FetchAhead(lib, keep=lambda: True, lyrics=lyrics.learn, features=labeler.learn_features)
     if not fetch.is_available():
         raise SystemExit("learn ahead is not set up (.venv-spotdl)")
@@ -95,7 +95,7 @@ def main(link: str) -> None:
         time.sleep(5)
         if _jamming():
             fetch.forget()
-            print("a jam started: what is waiting is dropped (run this again later to go on)", flush=True)
+            print("a party started: what is waiting is dropped (run this again later to go on)", flush=True)
             while not fetch.idle():
                 time.sleep(5)
             break

@@ -15,7 +15,7 @@ models.log
 lightshow/studio/_stubs/
 
 # Songs and the shows built on them are yours: kept on this computer, not in git.
-# (That covers Jam mode's learned tracks in shows/_jam/ and the scratch test project too.)
+# (That covers the party's learned tracks in shows/_party/ and the scratch test project too.)
 shows/
 # songs dropped in for testing the analysis: someone else's copyright, never committed
 song_samples/

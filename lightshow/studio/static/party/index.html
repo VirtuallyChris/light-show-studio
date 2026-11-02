@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Light Show Studio</title>
-<meta name="description" content="The Light Show Studio's jam, from your phone: what is playing, what comes next and its colors, play and pause, and how hard the lights go.">
+<meta name="description" content="The Light Show Studio's relay, from your phone: what is playing, what comes next and its colors, play and pause, and how hard the lights go.">
 <meta name="theme-color" content="#f4f4f8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0e0f14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -91,7 +91,7 @@
   .eyebrow { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
   .hint { font-size: 13px; color: var(--muted); }
   .empty { color: var(--muted); text-align: center; padding: 18px 0; }
-  /* party level */
+  /* Energy */
   .party-row { display: flex; align-items: baseline; justify-content: space-between; }
   .party-row .label { margin: 0; }
   .party-val { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -175,9 +175,9 @@
   #themeEdit .mini { font: inherit; font-size: 13px; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; white-space: nowrap; }
   #themeEdit .mini:disabled { opacity: .4; }
   #themeEdit .mini.del { color: var(--muted); padding: 7px 9px; }
-  #themeEdit .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--card2); border-radius: 12px; margin-top: 12px; }
-  #themeEdit .modes button { font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 9px; padding: 8px; }
-  #themeEdit .modes button.on { color: var(--text); background: var(--card); box-shadow: var(--shadow); }
+  #themeEdit .pick-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--card2); border-radius: 12px; margin-top: 12px; }
+  #themeEdit .pick-row button { font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 9px; padding: 8px; }
+  #themeEdit .pick-row button.on { color: var(--text); background: var(--card); box-shadow: var(--shadow); }
   #colorSource { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; padding: 4px; background: var(--card2); border-radius: 12px; margin-top: 10px; }
   #colorSource button { font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 9px; padding: 8px 4px; }
   #colorSource button.on { color: var(--text); background: var(--card); box-shadow: var(--shadow); }
@@ -196,22 +196,22 @@
   .sixteen .sx-grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
   .sixteen .sx-grid button.on { border-color: var(--text); }
   .sixteen .sx-only { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
-  /* cues */
-  .cues { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .cue { position: relative; overflow: hidden; font: inherit; font-size: 17px; font-weight: 650; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 16px; padding: 18px 10px; min-height: 76px; }
-  .cue:active { transform: scale(0.97); }
-  .cue.empty-show { color: var(--muted); font-weight: 500; }
-  .cue.running { color: #fff; border-color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
-  .cue .phase { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
-  .cue .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
-  .cue:disabled { opacity: .45; }
-  .cue.mode[aria-pressed="true"] .phase { display: none; }
-  .cue.mode[aria-pressed="true"] { color: var(--on-text, #fff); border-color: transparent; background: var(--on, #ff6000); }
+  /* moments */
+  .show_moments { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .show_moment { position: relative; overflow: hidden; font: inherit; font-size: 17px; font-weight: 650; color: var(--text); background: var(--card2); border: 1px solid var(--line); border-radius: 16px; padding: 18px 10px; min-height: 76px; }
+  .show_moment:active { transform: scale(0.97); }
+  .show_moment.empty-show { color: var(--muted); font-weight: 500; }
+  .show_moment.running { color: #fff; border-color: transparent; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .show_moment .phase { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
+  .show_moment .prog { position: absolute; left: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.85); width: 0; }
+  .show_moment:disabled { opacity: .45; }
+  .show_moment.mode[aria-pressed="true"] .phase { display: none; }
+  .show_moment.mode[aria-pressed="true"] { color: var(--on-text, #fff); border-color: transparent; background: var(--on, #ff6000); }
   .cover-colors { margin-top: 16px; }
   .cover-colors .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-top: 8px; }
   .cover-colors .grid button { aspect-ratio: 1; border-radius: 10px; border: 2px solid var(--sw-line); padding: 0; }
   .cover-colors .grid button.on { border-color: var(--text); }
-  .cue.mode[aria-pressed="true"]::after { content: 'On'; display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
+  .show_moment.mode[aria-pressed="true"]::after { content: 'On'; display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
   .pre-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   /* party colors */
   .colors[data-bare] { display: none; }
@@ -312,7 +312,7 @@
   </section>
   <section class="card" id="themeCard" hidden>
     <div class="theme-row"><div class="label">Colors tonight</div><button class="mini" id="themeToggle" type="button">Edit colors</button></div>
-    <div class="modes" id="colorSource" role="group" aria-label="Where every song's colors come from"><button data-s="album">Album art</button><button data-s="party">Your colors</button><button data-s="wild">No limits</button></div>
+    <div class="pick-row" id="colorSource" role="group" aria-label="Where every song's colors come from"><button data-s="album">Album art</button><button data-s="party">Your colors</button><button data-s="wild">No limits</button></div>
     <div class="hint" id="themeHint"></div>
     <div class="theme-sw" id="themeSw"></div>
     <div id="themeEdit" hidden></div>
@@ -322,13 +322,13 @@
 <!-- ======================================================== MOMENTS -->
 <section class="tab" id="tab-moments" hidden>
   <section class="card" id="momentsEmpty" hidden><div class="empty">No moments yet. Make them on the computer, in Party.</div></section>
-  <section class="card" id="modesCard" hidden>
-    <div class="cues" id="modes"></div>
-    <div id="modeColors"></div>
+  <section class="card" id="color_momentsCard" hidden>
+    <div class="show_moments" id="color_moments"></div>
+    <div id="colorMomentColors"></div>
   </section>
-  <section class="card" id="cuesCard" hidden>
+  <section class="card" id="showMomentsCard" hidden>
     <div class="label">Play a show</div>
-    <div class="cues" id="cues"></div>
+    <div class="show_moments" id="show_moments"></div>
   </section>
   <button class="stop-party" id="stopParty" type="button" hidden>End the party</button>
 </section>
@@ -384,27 +384,27 @@
     return r.json();
   };
 
-  // ---- the party level: sent while the slider moves (a few times a second), saved by the studio
+  // ---- the Energy: sent while the slider moves (a few times a second), saved by the studio
   const slider = $('#party');
   let sendTimer = null, dragging = false;
   const hint = v => v >= 100 ? 'The full show.' : v <= 0 ? 'Just the song’s color, steady.' : `Calmer: the song’s color, with ${v}% of the show.`;
   const showLevel = v => { $('#partyVal').textContent = v + '%'; $('#partyHint').textContent = hint(v); };
   slider.addEventListener('input', () => {
     dragging = true; const v = +slider.value; showLevel(v);
-    clearTimeout(sendTimer); sendTimer = setTimeout(() => api('level', { level: v / 100 }).catch(() => {}), 120);
+    clearTimeout(sendTimer); sendTimer = setTimeout(() => api('energy', { level: v / 100 }).catch(() => {}), 120);
   });
-  slider.addEventListener('change', () => { api('level', { level: +slider.value / 100 }).catch(() => {}); setTimeout(() => { dragging = false; }, 800); });
+  slider.addEventListener('change', () => { api('energy', { level: +slider.value / 100 }).catch(() => {}); setTimeout(() => { dragging = false; }, 800); });
   // the build-up: from where the slider is to 100% over an hour, a step up as each new song starts (the studio does
   // it, so it carries on with the phone put away); moving the slider by hand stops it
   function showRamp(st) {
-    const rp = st.party_ramp, b = $('#rampBtn');
-    b.hidden = !rp && (st.party_level ?? 1) >= 1;
+    const rp = st.energy_ramp, b = $('#rampBtn');
+    b.hidden = !rp && (st.party_energy ?? 1) >= 1;
     b.textContent = rp ? 'Stop the build-up' : 'Build to 100% over an hour';
     if (rp && !dragging) $('#partyHint').textContent = `Building to 100% as the songs change: ${Math.max(1, Math.round(rp.left_s / 60))} min to go.`;
   }
-  $('#rampBtn').onclick = () => api('ramp', { on: !(state && state.party_ramp) }).then(poll).catch(() => {});
+  $('#rampBtn').onclick = () => api('energy_ramp', { on: !(state && state.energy_ramp) }).then(poll).catch(() => {});
 
-  // ---- colors: a song's own pair (kept for next time), or back to the jam's
+  // ---- colors: a song's own pair (kept for next time), or back to the party's
   // A song out of the party's colors plays in its album cover's: worked out here from the cover, the way
   // the studio does (its strongest bright hue, and a second one well away from it).
   const ART = {};
@@ -412,7 +412,7 @@
     if (!url) return null;
     if (ART[url] !== undefined) return ART[url];
     ART[url] = null;
-    fetch('/api/jam/art?url=' + encodeURIComponent(url)).then(r => r.ok ? r.blob() : null).then(async blob => {
+    fetch('/api/relay/art?url=' + encodeURIComponent(url)).then(r => r.ok ? r.blob() : null).then(async blob => {
       if (!blob) return;
       const img = await createImageBitmap(blob), cv = document.createElement('canvas'); cv.width = cv.height = 48;
       const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 48, 48);
@@ -442,7 +442,7 @@
     // No Limits: the show picks the colors section by section, so a song shows none (the box stays, empty:
     // a tap on the song still opens its vibe and genre). One given its own colors, or its cover's, shows them.
     const bare = wild && !t.own && !t.theme_off;
-    // its own two, the jam's, or its cover's as they will play: a tap on either picks from the sixteen
+    // its own two, the party's, or its cover's as they will play: a tap on either picks from the sixteen
     const [a, b] = t.colors || coverPair(t.image) || ['#808080', '#808080'];
     return `<div class="colors" data-id="${esc(t.id)}" data-a="${esc(a)}" data-b="${esc(b)}" data-only="${t.only ? 1 : ''}" data-own="${t.own ? 1 : ''}" data-name="${esc(t.name || t.label || '')}" data-style="${esc(t.style || '')}" data-vibe="${esc(t.vibe || '')}" data-genre="${esc(t.genre || '')}" data-heard="${esc(t.genre_found || '')}" data-theme="${themed || t.theme_off ? (t.theme_off ? 'cover' : 'party') : ''}"${bare ? ' data-bare="1"' : ''}>${bare ? '' : `
       <button class="sw ${t.colors ? '' : 'fixed'}" data-k="b" style="background:${esc(b)}" aria-label="Primary color"></button>
@@ -579,41 +579,41 @@
     }
   }
 
-  // ---- cues: tap one and a saved show plays at once, to its end, then the music fades back in (cues.py)
+  // ---- moments: tap one and a saved show plays at once, to its end, then the music fades back in (moments.py)
   const PHASE = { starting: 'Starting…', pause: 'Pausing the music…', show: 'Playing', resume: 'Music back…', fade_in: 'Music back…' };
-  let cuesShown = '', cueTick = null;
-  function renderCues(st) {
-    const run = st.cue || {}, live = run.phase && run.phase !== 'done';
-    // the real doorbell rings its own cue: its button only shows while it plays (to end it early)
-    const cues = (st.cues || []).filter(c => c.id !== st.doorbell_cue || (live && run.id === c.id));
-    $('#cuesCard').hidden = !cues.length;
-    const html = cues.map(c => {
+  let showMomentsShown = '', showMomentTick = null;
+  function renderShowMoments(st) {
+    const run = st.show_moment || {}, live = run.phase && run.phase !== 'done';
+    // the real doorbell rings its own moment: its button only shows while it plays (to end it early)
+    const show_moments = (st.show_moments || []).filter(c => c.id !== st.doorbell_show_moment || (live && run.id === c.id));
+    $('#showMomentsCard').hidden = !show_moments.length;
+    const html = show_moments.map(c => {
       const mine = live && run.id === c.id;
-      return `<button class="cue ${mine ? 'running' : ''} ${c.show ? '' : 'empty-show'}" data-id="${esc(c.id)}" ${live && !mine ? 'disabled' : ''}>${esc(c.name)}`
+      return `<button class="show_moment ${mine ? 'running' : ''} ${c.show ? '' : 'empty-show'}" data-id="${esc(c.id)}" ${live && !mine ? 'disabled' : ''}>${esc(c.name)}`
         + (mine ? `<span class="phase">${esc(PHASE[run.phase] || '')}${run.rehearsal ? ' · rehearsal' : ''}</span><span class="prog"></span>` : c.show ? '' : '<span class="phase">no show yet</span>') + '</button>';
     }).join('');
-    if (html !== cuesShown) {
-      cuesShown = html; $('#cues').innerHTML = html;
-      for (const b of $('#cues').querySelectorAll('.cue')) b.onclick = async () => {
-        const c = cues.find(x => x.id === b.dataset.id); if (!c) return;
+    if (html !== showMomentsShown) {
+      showMomentsShown = html; $('#show_moments').innerHTML = html;
+      for (const b of $('#show_moments').querySelectorAll('.show_moment')) b.onclick = async () => {
+        const c = show_moments.find(x => x.id === b.dataset.id); if (!c) return;
         if (!c.show) { alert(`Pick a show for ${c.name} on the computer, in Party.`); return; }
-        if (b.classList.contains('running')) { await fetch('/api/cues/stop', { method: 'POST' }).catch(() => {}); poll(); return; }
-        const r = await fetch('/api/cues/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(x => x.json()).catch(() => ({}));
+        if (b.classList.contains('running')) { await fetch('/api/show_moments/stop', { method: 'POST' }).catch(() => {}); poll(); return; }
+        const r = await fetch('/api/show_moments/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id }) }).then(x => x.json()).catch(() => ({}));
         if (r.error) alert(r.error);
         poll();
       };
     }
-    // a running cue shows on its own button only (the user: a card at the top too pushed the page down), its progress
+    // a running moment shows on its own button only (the user: a card at the top too pushed the page down), its progress
     // moving smoothly between polls
-    clearInterval(cueTick);
+    clearInterval(showMomentTick);
     if (live && run.dur) {
       const at = performance.now(), p0 = run.progress || 0, bar = () => { const w = Math.min(100, 100 * (p0 + (performance.now() - at) / 1000 / run.dur)) + '%';
-        for (const el of document.querySelectorAll('#cues .prog')) el.style.width = w; };
-      bar(); cueTick = setInterval(bar, 100);
+        for (const el of document.querySelectorAll('#show_moments .prog')) el.style.width = w; };
+      bar(); showMomentTick = setInterval(bar, 100);
     }
   }
 
-  // the modes (each one the user's): a button each; on, every light takes its color and the music goes down or pauses.
+  // the color moments (each one the user's): a button each; on, every light takes its color and the music goes down or pauses.
   // One that asks first asks twice (an accidental tap stops the party); off is at once. While one is on its color can
   // be picked; each time it turns on it starts at its own.
   const COVER_COLORS = [['#ffaa5a', 'Warm white', '#ffdcae'], ['#ffffff', 'White'], ['#ff0000', 'Red'], ['#ff6000', 'Orange'],
@@ -622,39 +622,39 @@
   const shownColor = c => { const col = COVER_COLORS.find(x => x[0] === c); return col ? col[2] || col[0] : c; };
   const inkOn = c => { const v = parseInt(shownColor(c).slice(1), 16); return 0.299 * (v >> 16) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255) > 150 ? '#2a1c0c' : '#fff'; };
   const swatches = (picked) => COVER_COLORS.map(([c, name]) => `<button type="button" data-c="${c}" class="${c === picked ? 'on' : ''}" style="background:${shownColor(c)}" aria-label="${name}" title="${name}"></button>`).join('');
-  let modesShown = '', modeBusy = {}, modeColorBusy = {};
-  function showModes(modes) {
-    $('#modesCard').hidden = !modes.length;
-    const sig = modes.map(m => m.id + '|' + m.name + '|' + m.confirm).join(',');
+  let modesShown = '', colorMomentBusy = {}, colorMomentColorBusy = {};
+  function showColorMoments(color_moments) {
+    $('#color_momentsCard').hidden = !color_moments.length;
+    const sig = color_moments.map(m => m.id + '|' + m.name + '|' + m.confirm).join(',');
     if (sig !== modesShown) {
       modesShown = sig;
-      $('#modes').innerHTML = modes.map(m => `<button class="cue mode" type="button" data-mode="${esc(m.id)}" aria-pressed="false">${esc(m.name)}<span class="phase"></span></button>`).join('');
-      for (const b of $('#modes').querySelectorAll('[data-mode]')) b.onclick = () => {
-        const m = ((state && state.modes) || []).find(x => x.id === b.dataset.mode); if (!m) return;
+      $('#color_moments').innerHTML = color_moments.map(m => `<button class="show_moment mode" type="button" data-mode="${esc(m.id)}" aria-pressed="false">${esc(m.name)}<span class="phase"></span></button>`).join('');
+      for (const b of $('#color_moments').querySelectorAll('[data-mode]')) b.onclick = () => {
+        const m = ((state && state.color_moments) || []).find(x => x.id === b.dataset.mode); if (!m) return;
         const on = b.getAttribute('aria-pressed') !== 'true';
         if (on && m.confirm && !(confirm(`Turn on ${m.name}?`) && confirm(`Are you sure? ${m.name} starts now.`))) return;
-        modeBusy[m.id] = performance.now() + 4000; b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        colorMomentBusy[m.id] = performance.now() + 4000; b.setAttribute('aria-pressed', on ? 'true' : 'false');
         if (on) paint(b, m.own || m.color);
-        api('mode', { id: m.id, on }).then(st => { if (st && st.modes) state.modes = st.modes; showModes(state.modes); }).catch(() => { modeBusy[m.id] = 0; });
+        api('color_moment', { id: m.id, on }).then(st => { if (st && st.color_moments) state.color_moments = st.color_moments; showColorMoments(state.color_moments); }).catch(() => { colorMomentBusy[m.id] = 0; });
       };
     }
     const paint = (b, c) => { b.style.setProperty('--on', shownColor(c)); b.style.setProperty('--on-text', inkOn(c)); };
-    for (const m of modes) {
-      const b = $('#modes').querySelector(`[data-mode="${CSS.escape(m.id)}"]`); if (!b) continue;
-      if (performance.now() > (modeBusy[m.id] || 0)) b.setAttribute('aria-pressed', m.on ? 'true' : 'false');
-      if (performance.now() > (modeColorBusy[m.id] || 0)) paint(b, m.color);
+    for (const m of color_moments) {
+      const b = $('#color_moments').querySelector(`[data-mode="${CSS.escape(m.id)}"]`); if (!b) continue;
+      if (performance.now() > (colorMomentBusy[m.id] || 0)) b.setAttribute('aria-pressed', m.on ? 'true' : 'false');
+      if (performance.now() > (colorMomentColorBusy[m.id] || 0)) paint(b, m.color);
       b.querySelector('.phase').textContent = m.pause ? 'Pauses the music' : `Music ${Math.round(m.music * 100)}%`;
     }
     // the colors of the ones that are on
-    const on = modes.filter(m => m.on), box = $('#modeColors'), osig = on.map(m => m.id + m.color).join(',');
-    if (box.dataset.sig !== osig && !on.some(m => performance.now() < (modeColorBusy[m.id] || 0))) {
+    const on = color_moments.filter(m => m.on), box = $('#colorMomentColors'), osig = on.map(m => m.id + m.color).join(',');
+    if (box.dataset.sig !== osig && !on.some(m => performance.now() < (colorMomentColorBusy[m.id] || 0))) {
       box.dataset.sig = osig;
       box.innerHTML = on.map(m => `<div class="cover-colors" data-for="${esc(m.id)}"><div class="label">${esc(m.name)} color</div><div class="grid">${swatches(m.color)}</div></div>`).join('');
       for (const g of box.querySelectorAll('[data-for]')) for (const sw of g.querySelectorAll('[data-c]')) sw.onclick = () => {
-        const id = g.dataset.for; modeColorBusy[id] = performance.now() + 4000;
+        const id = g.dataset.for; colorMomentColorBusy[id] = performance.now() + 4000;
         for (const x of g.querySelectorAll('[data-c]')) x.classList.toggle('on', x === sw);
-        const b = $('#modes').querySelector(`[data-mode="${CSS.escape(id)}"]`); if (b) paint(b, sw.dataset.c);
-        api('mode', { id, color: sw.dataset.c }).catch(() => { modeColorBusy[id] = 0; });
+        const b = $('#color_moments').querySelector(`[data-mode="${CSS.escape(id)}"]`); if (b) paint(b, sw.dataset.c);
+        api('color_moment', { id, color: sw.dataset.c }).catch(() => { colorMomentColorBusy[id] = 0; });
       };
     }
   }
@@ -679,7 +679,7 @@
         <button class="mini" id="setSaveAs">Save as…</button>
         ${pc.set ? `<button class="mini del" id="setDel" aria-label="Delete the set ${esc(pc.set)}">&times;</button>` : ''}
       </div>
-      <div class="modes" role="group" aria-label="How songs get the colors"><button data-m="pick" class="${mode === 'pick' ? 'on' : ''}">Two colors</button><button data-m="mix" class="${mode === 'mix' ? 'on' : ''}">A pair each song</button></div>
+      <div class="pick-row" role="group" aria-label="How songs get the colors"><button data-m="pick" class="${mode === 'pick' ? 'on' : ''}">Two colors</button><button data-m="mix" class="${mode === 'mix' ? 'on' : ''}">A pair each song</button></div>
       <div class="pairs">${pairs.map((p, i) => `<div class="pair-ed" data-i="${i}">
           <button class="sw" data-k="b" style="background:${esc(p[1])}" aria-label="Primary color"></button><button class="sw" data-k="a" style="background:${esc(p[0])}" aria-label="Secondary color"></button>
           ${mode === 'mix' && pairs.length > 1 ? '<button class="rm" aria-label="Remove this pair">&times;</button>' : ''}</div>`).join('')}
@@ -691,7 +691,7 @@
     const save = $('#setSave'); if (save) save.onclick = () => theme({ save: true });
     $('#setSaveAs').onclick = () => { const n = (prompt('Name this set of colors', pc.set || '') || '').trim(); if (n) theme({ save_as: n }); };
     const del = $('#setDel'); if (del) del.onclick = () => { if (confirm(`Delete the set “${pc.set}”? The colors stay as they are.`)) theme({ delete: pc.set }); };
-    for (const b of $('#themeEdit').querySelectorAll('.modes button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ mode: b.dataset.m }); };
+    for (const b of $('#themeEdit').querySelectorAll('.pick-row button')) b.onclick = () => { if (!b.classList.contains('on')) theme({ mode: b.dataset.m }); };
     for (const el of $('#themeEdit').querySelectorAll('.pair-ed')) {
       const i = +el.dataset.i;
       for (const sw of el.querySelectorAll('.sw')) sw.onclick = () => openPairSheet(mode === 'mix' ? `Pair ${i + 1}` : 'Your colors', pairs[i][0], pairs[i][1], (a, b) => {
@@ -726,13 +726,14 @@
     status.title = micOff ? st.sync_warning : '';
     status.className = 'pill' + (st.running && st.streaming && !st.paused && !micOff ? ' live' : '');
     status.hidden = !!(st.running && st.streaming && !st.paused && !micOff);    // all is well: nothing to say (only trouble shows)
-    if (!dragging && document.activeElement !== slider) { slider.value = Math.round((st.party_level ?? 1) * 100); showLevel(+slider.value); }
+    if (!dragging && document.activeElement !== slider) { slider.value = Math.round((st.party_energy ?? 1) * 100); showLevel(+slider.value); }
     showRamp(st);
     const r = st.room;
     // the room's song tints the card: its own pair, else its cover's
     const pair = r && (r.colors || (r.kind !== 'custom' && coverPair(r.image)));
     const card = $('#nowCard');
-    if (pair) { card.style.setProperty('--c1', pair[1]); card.style.setProperty('--c2', pair[0]); }   // (the one seen most first) else { card.style.removeProperty('--c1'); card.style.removeProperty('--c2'); }
+    if (pair) { card.style.setProperty('--c1', pair[1]); card.style.setProperty('--c2', pair[0]); }   // (the one seen most first)
+    else { card.style.removeProperty('--c1'); card.style.removeProperty('--c2'); }
     const idle = msg => `<div class="np idle">${artBox(null)}<div class="title">${msg}</div></div>`;
     // a skip or a step back tapped: the song it goes to, grayed, until the room gets there (a few seconds)
     if (skipping && (!r || r.id !== skipping.from || performance.now() - skipping.at > 25000)) skipping = null;
@@ -771,9 +772,9 @@
         api('playback', { action }).then(poll).catch(() => { skipping = null; shown = ''; render(); });
       }; }
     }
-    renderTheme(st); renderCues(st);
-    showModes(st.modes || []);
-    $('#momentsEmpty').hidden = !!((st.modes || []).length || (st.cues || []).length);
+    renderTheme(st); renderShowMoments(st);
+    showColorMoments(st.color_moments || []);
+    $('#momentsEmpty').hidden = !!((st.color_moments || []).length || (st.show_moments || []).length);
     $('#stopParty').hidden = !st.running;
     clock = r && st.running ? { pos: r.position || 0, at: performance.now(), playing: !!r.playing, dur: r.duration || 0 } : null;
     tickClock();
@@ -791,17 +792,17 @@
   async function startParty() {
     const btn = $('#bStart'); if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
     try {
-      const jam = await (await fetch('/api/jam/state')).json(), last = jam.last || {};
-      if (!(jam.spotify || {}).signed_in) { alert('Connect Spotify on the computer first, in Settings.'); return; }
-      if (last.speakers === 'cast' && jam.cast_device && !(jam.speaker_connected && jam.speaker === jam.cast_device)) await postJson('/api/cast/connect', { name: jam.cast_device }).catch(() => {});
-      const r = await postJson('/api/jam/start', { saved: true });
+      const relay = await (await fetch('/api/relay/state')).json(), last = relay.last || {};
+      if (!(relay.spotify || {}).signed_in) { alert('Connect Spotify on the computer first, in Settings.'); return; }
+      if (last.speakers === 'cast' && relay.cast_device && !(relay.speaker_connected && relay.speaker === relay.cast_device)) await postJson('/api/cast/connect', { name: relay.cast_device }).catch(() => {});
+      const r = await postJson('/api/relay/start', { saved: true });
       if (r && r.error) alert(r.error);
     } catch (e) { alert('Couldn’t reach the computer.'); }
     shown = ''; poll();
   }
   $('#stopParty').onclick = async () => {
     if (!confirm('End the party? The music and the lights stop.')) return;
-    await postJson('/api/jam/stop', {}).catch(() => {});
+    await postJson('/api/relay/stop', {}).catch(() => {});
     shown = ''; poll();
   };
   $('#themeToggle').onclick = () => { const box = $('#themeEdit'); box.hidden = !box.hidden; $('#themeToggle').textContent = box.hidden ? 'Edit colors' : 'Done'; };

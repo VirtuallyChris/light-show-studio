@@ -7,7 +7,6 @@ import os
 import socket
 import struct
 import subprocess
-import sys
 import threading
 import time
 import unittest

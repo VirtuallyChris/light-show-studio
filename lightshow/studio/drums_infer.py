@@ -6,7 +6,7 @@ drums: kick, snare, hi-hat, toms and cymbals, each hit with the time it starts.
 
 It replaced the studio's own kick and snare finder (events.find_drums, still the fallback), which
 looked for a band that repeats in a steady pattern: on 79 drum songs of the user's (Oct 2026, 57
-learned in Jam mode) the model agreed with a second learned transcriber (ADT_STR, 2026, built and
+learned at a party) the model agreed with a second learned transcriber (ADT_STR, 2026, built and
 trained differently) at a median F 0.90 on kicks (the old finder 0.84) and 0.81 on snares (0.55),
 better snares on 75 songs and worse on none, and on the attack itself where the old hits came
 17 ms (kicks) and 34 ms (snares) late, up to a 16th note.

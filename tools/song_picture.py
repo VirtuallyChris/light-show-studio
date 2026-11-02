@@ -1,7 +1,7 @@
 r"""A song as a picture, to be looked at while labeling its sections: the full spectrogram (every pitch over time), the
 waveform's loudness, the stems bar by bar (bass, drums, vocals, other), the kick and snare hits, a grid of numbered bars,
 and (with --labels) the user's own sections drawn over it in color, with the labeler's guess made without that song
-(the trials' folds, labeler_trials/nn_export.py) beneath. From the kept copy (shows/_jam/copies).
+(the trials' folds, labeler_trials/nn_export.py) beneath. From the kept copy (shows/_party/copies).
 
     .venv\Scripts\python tools\song_picture.py <out dir> [--labels] <track id>... | --reviewed
 """
@@ -16,7 +16,7 @@ import numpy as np  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from lightshow.studio import labeler as L  # noqa: E402
-from lightshow.studio.jam import JamLibrary  # noqa: E402
+from lightshow.studio.party import PartyLibrary  # noqa: E402
 
 COLORS = {"intro": "#9e9e9e", "verse": "#4f8fe0", "buildup": "#f2c230", "drop": "#e0412f", "breakdown": "#9c5fd6",
           "outro": "#555555"}
@@ -29,7 +29,7 @@ _OOF: dict = {}
 def _oof() -> dict:
     if not _OOF:
         try:
-            z = np.load(os.path.join(ROOT, "shows", "_jam", "features", "trials", "nn_data.npz"))
+            z = np.load(os.path.join(ROOT, "shows", "_party", "features", "trials", "nn_data.npz"))
             _OOF.update({str(z[f"id{i}"]): z[f"T{i}"] for i in range(int(z["n"])) if not int(z[f"c{i}"])})
         except (OSError, KeyError):
             _OOF["-"] = None
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     out_dir, labels = args[0], "--labels" in args
     ids = [a for a in args[1:] if not a.startswith("--")]
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     if "--reviewed" in args:
         ids = sorted(k for k, v in L.truth(lib.dir).items() if isinstance(v, dict) and v.get("by") != "claude")
     os.makedirs(out_dir, exist_ok=True)

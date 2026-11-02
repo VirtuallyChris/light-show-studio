@@ -3,14 +3,14 @@ from a list rather than written into the code.
 
     GET  /api/setup            the checklist: [{id, title, done, detail}] (the desktop's Setup panel; first run opens it)
     GET  /api/audio/devices    the microphones and outputs on this computer, and which are chosen
-    POST /api/audio/devices    {mic_device?, jam_room_output?, jam_hidden_output?}: "" is the system default
+    POST /api/audio/devices    {mic_device?, party_room_output?, party_hidden_output?}: "" is the system default
     GET  /api/audio/miclevel   a second from the chosen microphone: {level_db} (the Setup panel's test meter)
-    GET  /api/party/link       the address phones open the Party Hub at, and its QR code as SVG
+    GET  /api/party/link       the address phones open the phone remote at, and its QR code as SVG
     GET  /api/models/setup     the AI models' installer (model_setup): where it stands
     POST /api/models/setup     {action: install | cancel, variant?}: from this computer only
 
 The microphone listens for the sync check and the speakers' calibration (calibrate.py); the room output is where the
-house hears this computer in a jam; the hidden output is where Spotify plays unheard while the studio records it.
+house hears this computer in a party; the hidden output is where Spotify plays unheard while the studio records it.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def _inputs() -> tuple[list[str], str]:
 
 
 def _outputs() -> tuple[list[str], str]:
-    """The outputs (soundcard: the names the jam matches against), and the default one."""
+    """The outputs (soundcard: the names the party matches against), and the default one."""
     try:
         import soundcard as sc
         return [s.name for s in sc.all_speakers()], sc.default_speaker().name
@@ -69,7 +69,7 @@ class HomeSetup:
     @staticmethod
     def _auto_output(outs: list[str], default_out: str, cfg: dict) -> str:
         from .player_browser import pick_hidden_output
-        return pick_hidden_output(outs, default_out, cfg.get("jam_room_output") or "")[0]
+        return pick_hidden_output(outs, default_out, cfg.get("party_room_output") or "")[0]
 
     @staticmethod
     def _sound_note(hidden: str, found: bool) -> str:
@@ -112,14 +112,14 @@ class HomeSetup:
 
     # -- the song copies kept, for fixing shows later ---------------------------------------------
     def _copies_dir(self) -> str | None:
-        fetch = getattr(getattr(self.studio, "jam", None), "fetch", None)
+        fetch = getattr(getattr(self.studio, "party", None), "fetch", None)
         return fetch.copies_dir() if fetch else None
 
     def copies(self) -> dict:
         folder = self._copies_dir()
         names = os.listdir(folder) if folder and os.path.isdir(folder) else []
         size = sum(os.path.getsize(os.path.join(folder, n)) for n in names if os.path.isfile(os.path.join(folder, n)))
-        return {"count": len(names), "gb": round(size / 1e9, 2), "keep": self.load_config().get("jam_keep_youtube_copies", True) is not False}
+        return {"count": len(names), "gb": round(size / 1e9, 2), "keep": self.load_config().get("party_keep_youtube_copies", True) is not False}
 
     async def h_copies(self, request):
         return web.json_response(self.copies())
@@ -131,7 +131,7 @@ class HomeSetup:
         body = await request.json()
         if "keep" in body:
             cfg = self.load_config()
-            cfg["jam_keep_youtube_copies"] = bool(body["keep"])
+            cfg["party_keep_youtube_copies"] = bool(body["keep"])
             self.save_config(cfg)
         folder = self._copies_dir()
         if body.get("clear") and folder and os.path.isdir(folder):
@@ -168,12 +168,12 @@ class HomeSetup:
         placed = len(space.get("lights") or {})
         casts = len(getattr(st.cast, "casts", []) or []) if getattr(st, "cast", None) else 0
         room_speakers = sum(len(r.get("speakers") or []) for r in rooms)
-        sp = getattr(getattr(st, "jam", None), "spotify", None)
+        sp = getattr(getattr(st, "party", None), "spotify", None)
         signed_in = bool(sp and sp.signed_in)
         client = bool((cfg.get("spotify") or {}).get("client_id"))
         outs, default_out = _outputs()
         from .player_browser import hidden_problem, own_hidden_output
-        hidden = cfg.get("jam_hidden_output") or ""
+        hidden = cfg.get("party_hidden_output") or ""
         if own_hidden_output():
             hidden_found = not hidden_problem()
         elif hidden:
@@ -212,8 +212,8 @@ class HomeSetup:
         ins, default_in = _inputs()
         outs, default_out = _outputs()
         return {"inputs": ins, "outputs": outs, "default_input": default_in, "default_output": default_out,
-                "mic_device": cfg.get("mic_device") or "", "jam_room_output": cfg.get("jam_room_output") or "",
-                "jam_hidden_output": cfg.get("jam_hidden_output") or "", "hidden_help": hidden_output_help(),
+                "mic_device": cfg.get("mic_device") or "", "party_room_output": cfg.get("party_room_output") or "",
+                "party_hidden_output": cfg.get("party_hidden_output") or "", "hidden_help": hidden_output_help(),
                 "auto_output": self._auto_output(outs, default_out, cfg)}
 
     async def h_devices(self, request):
@@ -222,7 +222,7 @@ class HomeSetup:
     async def h_devices_set(self, request):
         body = await request.json()
         cfg = self.load_config()
-        for k in ("mic_device", "jam_room_output", "jam_hidden_output"):
+        for k in ("mic_device", "party_room_output", "party_hidden_output"):
             if k in body:
                 v = str(body[k] or "").strip()[:200]
                 if v:

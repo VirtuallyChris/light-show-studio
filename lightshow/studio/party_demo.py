@@ -1,8 +1,8 @@
-"""A jam with no Spotify, no speakers and no sound.
+"""A party with no Spotify, no speakers and no sound.
 
 Demo mode runs the real engine on synthetic songs, with a scripted stand-in for
 Spotify that plays them one after another and can be paused and skipped like the
-real thing. It is how Jam mode is tested end to end, and it lets you watch the
+real thing. It is how the party is tested end to end, and it lets you watch the
 whole thing work in the studio before setting anything up.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 import time
 
-from .jam_synth import make_song
+from .party_synth import make_song
 from .loopback import FileCapture
 from .spotify import NowPlaying, Track
 

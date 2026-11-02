@@ -7,7 +7,7 @@ drum and bass, Your Neighbors' indie rock as "Electronic dance music". MAEST kno
 genres ("Rock---Pop Rock", "Electronic---Electro House", "Pop---Indie Pop"). On 60 songs of the user's
 with a known style and their own drive (Oct 2026) the show style came out right for 52 with MAEST
 against 49 with AST (7 of AST's 11 misses too hard, as the party heard: Madeon as rave, Take Mine as
-dance), and 40 of 44 against 38 on the Jam songs not used to place MAEST's styles on the studio's
+dance), and 40 of 44 against 38 on the Party songs not used to place MAEST's styles on the studio's
 scale (genre.DISCOGS_TIER). Its weak spot: Discogs has no future bass or melodic dubstep, so those can
 come out softer. Of the two MAEST checkpoints tried this one (519 styles) did best; the 400-style one
 called loud rock bands dance. (MAEST's licence is non-commercial.)
@@ -17,7 +17,7 @@ Run by models_host.py (model "genre_infer"); the request and the reply, as the h
     request  one JSON line, either
                {"path": "C:/.../song.mp3"}                    a file on disk
                {"samples": N, "sr": 16000}                    followed by N float32 samples
-                                                              (raw audio from memory: Jam mode
+                                                              (raw audio from memory: the party
                                                               never writes captured audio to disk)
     reply    one JSON line
                {"labels": {"Rock---Pop Rock": 0.59, ...}, "windows": 6, "model": "maest", "seconds": 0.6}

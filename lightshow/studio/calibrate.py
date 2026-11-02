@@ -230,7 +230,7 @@ SILENT_DB = -70.0     # a microphone this quiet with the party playing is muted 
 def _relay_pass(engine, seconds, mic_device, margin, recorder) -> dict:
     SRC = 22050
     if engine.room_capture_time() is None:
-        raise RuntimeError("the speakers are not playing the jam yet")
+        raise RuntimeError("the speakers are not playing the party yet")
     with recorder(mic_device, sr=SRC) as rec:
         t0 = engine.clock()
         rc0 = engine.room_capture_time()
@@ -251,7 +251,7 @@ def _relay_pass(engine, seconds, mic_device, margin, recorder) -> dict:
 
 
 def relay_sync_check(engine, seconds: float = 6.0, mic_device=None, margin: float = 1.2, log=print, recorder=None, repeats: int = 2) -> dict:
-    """The sync check for Jam mode: listen to the room and compare with the relay's own buffer.
+    """The sync check for the party: listen to the room and compare with the relay's own buffer.
 
     There is no file to compare against here, but there is something better: the
     relay still holds exactly what was sent to the speakers. The result is how
@@ -272,7 +272,7 @@ def relay_sync_check(engine, seconds: float = 6.0, mic_device=None, margin: floa
     for _ in range(max(2, repeats) + 4):
         r = _relay_pass(engine, seconds, mic_device, margin, recorder or MicRecorder)
         if r.get("silent"):
-            log(f"  jam sync: the microphone heard nothing ({r['level_db']} dB)")
+            log(f"  party sync: the microphone heard nothing ({r['level_db']} dB)")
             return {"offset_ms": 0, "confidence": 0.0, "mic_silent": True, "level_db": r["level_db"], "listens": len(runs) + 1,
                     "reason": "the microphone heard nothing: is it muted?"}
         runs.append(r)
@@ -289,7 +289,7 @@ def relay_sync_check(engine, seconds: float = 6.0, mic_device=None, margin: floa
            "z": round(z, 1), "confidence": round(confidence, 2), "listens": len(runs)}
     if not agree:
         out["reason"] = "the music was too repetitive just then to tell one beat from the next; try again in a moment"
-    log(f"  jam sync: {out['offset_ms']:+d} ms, clear listens {clear} of {offsets} (confidence {out['confidence']})")
+    log(f"  party sync: {out['offset_ms']:+d} ms, clear listens {clear} of {offsets} (confidence {out['confidence']})")
     return out
 
 

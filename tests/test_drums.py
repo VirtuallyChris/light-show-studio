@@ -129,7 +129,6 @@ class TestLayoutsAndStems(unittest.TestCase):
         self.assertEqual(self.cal(y, beats)["grid"]["beats_per_cycle"], 3)
 
     def test_no_drums_in_the_drum_track_means_no_drums(self):
-        import librosa
         from lightshow.studio.events import detect_events
         t = np.arange(int(40 * SR)) / SR
         mix = (0.3 * np.sin(2 * np.pi * 110 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 1.7 * t))).astype(np.float32)   # a strummed-ish tone

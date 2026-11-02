@@ -1,11 +1,11 @@
 """Learn ahead: a song's show is worked out before it plays, from a copy found on YouTube.
 
-The jam normally has to hear a song to learn it, which is why the room stays a song behind. With
+The party normally has to hear a song to learn it, which is why the room stays a song behind. With
 spotDL (https://github.com/spotdl/spotify-downloader) the studio takes a queued song's details from
 Spotify (title, artists, length), finds the same recording on YouTube Music (or YouTube), and
 downloads it. The full analysis runs on it at once, much faster than the song plays, and the
 download is deleted the moment the analysis is done: only the numbers are kept, exactly as a song
-learned by listening is kept (shows/_jam/learned). When the song comes up, the jam lines the saved
+learned by listening is kept (shows/_party/learned). When the song comes up, the party lines the saved
 analysis up with what Spotify actually plays, by ear, so a copy with a slightly different start
 still lands on the beat. A copy whose length is not within a few seconds of Spotify's is taken to be
 another version (a radio edit, a video with an intro) and not used.
@@ -14,7 +14,7 @@ Spotify's own audio is never touched: spotDL reads only the song's details from 
 comes from YouTube, which its terms do not allow; it exists only for as long as the analysis takes.
 
 spotDL lives in its own Python (.venv-spotdl), run as a separate program, so its pinned packages
-never meet the studio's. Without it, nothing here runs and the jam listens as before.
+never meet the studio's. Without it, nothing here runs and the party listens as before.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from .model_worker import ModelWorker
 SPOTDL = os.path.join(data_dir(), ".venv-spotdl", "Scripts" if os.name == "nt" else "bin", "spotdl" + (".exe" if os.name == "nt" else ""))
 SPOTDL_HOME = os.path.join(os.path.expanduser("~"), ".spotdl")   # where `spotdl --download-deno` puts Deno
 LENGTH_SLACK_S = 8.0            # a copy this much longer or shorter than Spotify's is another version (a little
-                                # more silence at an end is fine: the jam checks the copy against Spotify by ear)
+                                # more silence at an end is fine: the party checks the copy against Spotify by ear)
 FETCH_TIMEOUT_S = 240
 RETRY_AFTER_S = 30 * 60         # a song with no usable copy (none found, another version) is tried again after this
 RETRY_DOWNLOAD_S = 5 * 60       # one whose download failed (YouTube refuses now and then: HTTP 403) much sooner
@@ -283,7 +283,7 @@ def _analyze(path: str, cache_dir: str, urgent: bool = False) -> dict:
 
 
 def whole_fingerprint(path: str) -> list:
-    """What the jam matches by ear, for the whole song rather than its first 45 s: a song learned from a
+    """What the party matches by ear, for the whole song rather than its first 45 s: a song learned from a
     copy is checked against what Spotify plays all the way through, not only lined up at its start."""
     import librosa
 
@@ -304,7 +304,7 @@ class FetchAhead:
         self.lyrics = lyrics
         # labeler.learn_features: SongFormer's features for the learned section labeler, from the copy (None: none)
         self.features = features
-        # config jam_keep_youtube_copies (on by default): keep each copy after it is learned, in shows/_jam/copies,
+        # config party_keep_youtube_copies (on by default): keep each copy after it is learned, in shows/_party/copies,
         # so a show can be reviewed and fixed later, and learn from it again instead of downloading it
         self.keep = keep
         self.download, self.to_flac, self.length, self.analyze = download, to_flac, length, analyze
@@ -319,7 +319,7 @@ class FetchAhead:
         self.learned_now = 0
         self.now: str | None = None                   # the song playing unlearned (submit): all effort to it
         self.checked: dict[str, bool] = {}
-        self.order: list[str] = []                    # the jam's queue as last handed over (ids, next first)            # track id -> learned without anything failing (see _learned_well)
+        self.order: list[str] = []                    # the party's queue as last handed over (ids, next first)            # track id -> learned without anything failing (see _learned_well)
         self.threads: list[threading.Thread] = []
 
     # -- what to learn ------------------------------------------------------------------------------
@@ -360,9 +360,9 @@ class FetchAhead:
         return t.id not in held
 
     def submit(self, tracks, first: bool = True, now: str | None = None) -> int:
-        """Songs to learn ahead. The jam's queue goes first, in the queue's own order (the next to play
+        """Songs to learn ahead. The party's queue goes first, in the queue's own order (the next to play
         first, a song just added at its end last), ahead of anything else waiting (a playlist's). `now`: the
-        song already playing unlearned (the jam just started, or a skip to a song not yet learned): it is
+        song already playing unlearned (the party just started, or a skip to a song not yet learned): it is
         downloaded past the two-copy limit and analysed at above-normal priority, all effort on it."""
         if not self.is_available():
             return 0
@@ -393,12 +393,12 @@ class FetchAhead:
         return len(new)
 
     def mismatched(self, track) -> None:
-        """The jam heard that Spotify's version is not this copy: not fetched again tonight."""
+        """The party heard that Spotify's version is not this copy: not fetched again tonight."""
         with self.lock:
             self.failed[track.id] = (self.clock() + 24 * 3600, track.label, "Spotify plays another version")
 
     def forget(self) -> None:
-        """Drop what is waiting (a jam stopped): what is under way finishes."""
+        """Drop what is waiting (a party stopped): what is under way finishes."""
         with self.lock:
             self.waiting.clear()
 
@@ -458,7 +458,7 @@ class FetchAhead:
                     shutil.rmtree(folder, ignore_errors=True)
                     continue
                 kept = self.kept_copy(track)
-                if kept:                                 # kept from before (jam_keep_youtube_copies): no download
+                if kept:                                 # kept from before (party_keep_youtube_copies): no download
                     with self.lock:
                         self.ready.append((track, folder, kept))
                         self.lock.notify_all()
@@ -511,7 +511,7 @@ class FetchAhead:
                 with self.lock:
                     self.ready.append((track, folder, path))
                     self.lock.notify_all()
-            except Exception as e:  # noqa: BLE001 - the jam listens to this one instead
+            except Exception as e:  # noqa: BLE001 - the party listens to this one instead
                 shutil.rmtree(folder, ignore_errors=True)
                 self._fail(track, str(e) or type(e).__name__)
             finally:

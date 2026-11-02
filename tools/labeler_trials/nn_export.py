@@ -11,11 +11,11 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 from lightshow.studio import labeler  # noqa: E402
-from lightshow.studio.jam import JamLibrary  # noqa: E402
+from lightshow.studio.party import PartyLibrary  # noqa: E402
 
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_jam", "features", "trials", "nn_data.npz")
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_party", "features", "trials", "nn_data.npz")
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
-lib = JamLibrary(os.path.join(ROOT, "shows"))
+lib = PartyLibrary(os.path.join(ROOT, "shows"))
 songs = labeler.load_all(lib)
 pcas = labeler._pca(songs)
 rev = [s for s in songs if (s["y"] >= 0).any()]

@@ -6,7 +6,7 @@ its speakers go muted at once. Switched on again, the lights fade back in and th
 
 The speakers are never faded: a Google speaker chimes at every volume change, so a fade was a run of
 beeps. Muting and unmuting is one change each. A speaker's own level is kept as it is: the Party
-Hub's slider still shows, and still sets, the level it plays at once the room is back (a level set
+phone remote's slider still shows, and still sets, the level it plays at once the room is back (a level set
 while muted is only kept, as setting a level unmutes a Google speaker). The levels of the speakers a
 room muted are kept in config.json (room_muted), so only those are ever unmuted, and a studio that
 quits unmutes them on the way out.
@@ -110,7 +110,7 @@ class Rooms:
     # -- whose speakers they are -----------------------------------------------------------------------
     # The studio only ever changes a speaker's volume or mute while it is casting (to it, or to a group it is
     # in: a whole-house group is all of them), and never one someone else is casting to: someone else in the house
-    # was casting to the office speaker, the jam played on this PC, and switching the Office on in the Party Hub unmuted
+    # was casting to the office speaker, the party played on this PC, and switching the Office on in the phone remote unmuted
     # it under her. When the studio lets go of the speakers, every one it muted plays again (Rooms.unmute_all,
     # from CastManager.disconnect), so none is left muted for whoever casts next.
     def casting(self) -> bool:
@@ -164,7 +164,7 @@ class Rooms:
                 level = saved if saved is not None else live
                 if level is None:
                     raise ConnectionError("not answering")
-                self._store(name, level)                 # kept first: the Party Hub shows it from now on
+                self._store(name, level)                 # kept first: the phone remote shows it from now on
                 if self._current(name, g):
                     c.set_volume_muted(True)             # one change: one chime at most, its level untouched
             else:
@@ -189,8 +189,8 @@ class Rooms:
                 self.gen[name] = 0
 
     # -- the levels the party plays at ----------------------------------------------------------------
-    # Every level is kept (config.json speaker_levels): set on the Party Hub, or changed in person (on the
-    # speaker, or in the Google Home app). The person in the room wins: while the jam plays, a speaker found
+    # Every level is kept (config.json speaker_levels): set on the phone remote, or changed in person (on the
+    # speaker, or in the Google Home app). The person in the room wins: while the party plays, a speaker found
     # at another level, still there at the next look, has that level kept as its own, and one muted by hand
     # stays muted; the studio never turns it back (the user). Only a change the studio itself sent in the
     # last SENT_S seconds that the speaker missed is sent again, once (a Google speaker chimes per change).
@@ -200,7 +200,7 @@ class Rooms:
         return dict(self.load_config().get("speaker_levels", {}))
 
     def remember_level(self, name: str, level: float, sent: bool = False) -> None:
-        """Keep a speaker's level. sent: the studio is setting the speaker to it now (the Party Hub), so for a
+        """Keep a speaker's level. sent: the studio is setting the speaker to it now (the phone remote), so for a
         little while a speaker found elsewhere missed it, rather than someone changing it."""
         with self.lock:
             cfg = self.load_config()
@@ -212,7 +212,7 @@ class Rooms:
     clock = staticmethod(time.monotonic)
 
     def keep_as_they_are(self, wait_s: float = 1.5, sleep=time.sleep) -> None:
-        """A group's volume was moved on purpose (the Party Hub's cast volume, the jam casting to "Everywhere"):
+        """A group's volume was moved on purpose (the phone remote's cast volume, the party casting to "Everywhere"):
         each speaker in it moved with it. Once they have settled, the levels they are at are the ones kept (it
         set them all back 5 s later, as if someone had turned them down)."""
         if not self.touch or not self.casting():

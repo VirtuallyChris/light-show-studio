@@ -2,7 +2,7 @@
 
 Two jobs in the studio come down to this: measuring how late the room hears the
 speakers (a microphone recording, found inside the audio that was sent), and
-placing a known song on the jam timeline (the opening of the song, found inside
+placing a known song on the party timeline (the opening of the song, found inside
 what was captured).
 
 What makes it work on real dance music, each point learned by getting it wrong:

@@ -2,11 +2,9 @@
 
 Everything here is fake: no light and no speaker is ever touched."""
 
-import time
 import unittest
 from unittest import mock
 
-from lightshow.studio import rooms as rooms_mod
 from lightshow.studio import server
 from lightshow.studio.rooms import Rooms, clean
 
@@ -121,7 +119,7 @@ class TestSpeakers(unittest.TestCase):
         self.assertEqual(self.r.muted(), {})
 
     def test_switching_rooms_touches_no_speaker_unless_the_studio_casts(self):
-        self.r.cast.cast = None                                        # the jam plays on this PC
+        self.r.cast.cast = None                                        # the party plays on this PC
         self.r.set_on(self.rid, False)
         self.assertEqual(self.r.sync_speakers(wait=True), [])
         self.assertFalse(self.home.muted)
@@ -252,7 +250,7 @@ if __name__ == "__main__":
 
 
 class TestKeptLevels(unittest.TestCase):
-    """Every speaker's level is kept: set on the Party Hub, or changed in person, and the person in the room wins
+    """Every speaker's level is kept: set on the phone remote, or changed in person, and the person in the room wins
     (the user: someone turning a speaker down must not have it turned back up)."""
 
     def setUp(self):
@@ -289,14 +287,14 @@ class TestKeptLevels(unittest.TestCase):
         self.assertEqual(self.look("Living Room"), [])              # once: could be in passing
         self.assertEqual(self.look("Living Room"), ["Living Room: 0.60 -> 0.20 on the speaker, kept"])
         self.assertEqual(self.calls, [])                             # never turned back
-        self.assertEqual(self.rooms.levels(), {"Living Room": 0.2})  # saved: the Party Hub shows it from now on
+        self.assertEqual(self.rooms.levels(), {"Living Room": 0.2})  # saved: the phone remote shows it from now on
         self.look("Living Room"); self.look("Living Room")
         self.assertEqual(self.calls, [])
 
     def test_a_change_the_studio_sent_that_the_speaker_missed_is_sent_again_once(self):
         st = self.speaker("Game Room", 0.3)
         self.look("Game Room")
-        self.rooms.remember_level("Game Room", 0.7, sent=True)        # set on the Party Hub; the speaker missed it
+        self.rooms.remember_level("Game Room", 0.7, sent=True)        # set on the phone remote; the speaker missed it
         self.look("Game Room")
         self.assertEqual(self.look("Game Room"), ["Game Room: missed 0.70, sent again"])
         self.assertEqual(self.calls, [("set", "Game Room", 0.7)])
@@ -306,7 +304,7 @@ class TestKeptLevels(unittest.TestCase):
         st = self.speaker("Game Room", 0.7)
         self.rooms.remember_level("Game Room", 0.7, sent=True)
         self.look("Game Room")
-        self.t += 30.0                                               # well after the Party Hub's change
+        self.t += 30.0                                               # well after the phone remote's change
         st.volume_level = 0.4                                        # turned down in person
         self.look("Game Room"); self.look("Game Room")
         self.assertEqual(self.calls, [])
@@ -331,14 +329,14 @@ class TestKeptLevels(unittest.TestCase):
         a = self.speaker("Kitchen Home", 0.58)
         b = self.speaker("Office speaker", 0.39)
         self.look("Kitchen Home", "Office speaker")
-        a.volume_level, b.volume_level = 0.45, 0.30          # the Everywhere group turned down on the Party Hub
+        a.volume_level, b.volume_level = 0.45, 0.30          # the Everywhere group turned down on the phone remote
         self.rooms.keep_as_they_are(sleep=lambda s: None)
         self.look("Kitchen Home", "Office speaker"); self.look("Kitchen Home", "Office speaker")
         self.assertEqual(self.calls, [])                     # nothing set back
         self.assertEqual(self.rooms.levels(), {"Kitchen Home": 0.45, "Office speaker": 0.3})
 
     def test_not_casting_no_speaker_is_touched(self):
-        """The jam played on this PC while the user's wife cast to the office speaker: hands off."""
+        """The party played on this PC while the user's wife cast to the office speaker: hands off."""
         st = self.speaker("Office", 0.4)
         self.look("Office")
         self.cast.cast = None

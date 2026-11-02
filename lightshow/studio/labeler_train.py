@@ -5,7 +5,7 @@ import os
 
 from ..appdirs import data_dir
 from . import labeler
-from .jam import JamLibrary
+from .party import PartyLibrary
 
 if __name__ == "__main__":
-    labeler.train(JamLibrary(os.path.join(data_dir(), "shows")))
+    labeler.train(PartyLibrary(os.path.join(data_dir(), "shows")))

@@ -1,4 +1,4 @@
-"""Jam mode: somebody else picks the music, the lights still know what is coming.
+"""The party: somebody else picks the music, the lights still know what is coming.
 
 Spotify plays on this PC. The relay captures it and the house speakers play it
 back some tens of seconds late. In that gap the studio does its work:
@@ -16,7 +16,7 @@ ever exists in the relay's rolling memory buffer and is never written anywhere.
 
 The engine is driven by ticks (`poll`, `analyse`) rather than by its own
 threads, so the whole of it can be run in a test with a fake clock, a fake
-Spotify and a file standing in for the sound card. `JamRunner` adds the threads
+Spotify and a file standing in for the sound card. `PartyRunner` adds the threads
 for real use.
 """
 
@@ -94,12 +94,12 @@ def _analysis_version() -> int:
 
 from .analysis import shift_beats  # noqa: E402,F401 - (moved there; the beat fixes use it)
 
-class JamLibrary:
+class PartyLibrary:
     """Shows saved on disk, and what has been learned about tracks heard before."""
 
     def __init__(self, shows_dir: str):
         self.shows_dir = shows_dir
-        self.dir = os.path.join(shows_dir, "_jam")
+        self.dir = os.path.join(shows_dir, "_party")
         self.learned_dir = os.path.join(self.dir, "learned")
         self.links_path = os.path.join(self.dir, "links.json")
         self._links: dict | None = None
@@ -113,7 +113,7 @@ class JamLibrary:
         self._levels: dict | None = None
         self.beat_fixes_path = os.path.join(self.dir, "beat_fixes.json")
         self._levels_lock = threading.Lock()
-        # the caches below (twins, the learned index, the user's sections) are used by the jam, learn ahead, the
+        # the caches below (twins, the learned index, the user's sections) are used by the party, learn ahead, the
         # review and the labeler's threads at once: one lock (a dict changed mid-dump failed a song's start)
         self._cache_lock = threading.RLock()
         self._truth: tuple | None = None                            # (section_truth.json's time, its contents)
@@ -178,7 +178,7 @@ class JamLibrary:
         with open(self.links_path, "w", encoding="utf-8") as fh:
             json.dump(links, fh, indent=1)
 
-    # -- colors picked for a track in the jam queue ------------------------------------------
+    # -- colors picked for a track in the party queue ------------------------------------------
     def colors(self) -> dict:
         """track id -> {"primary": hex, "secondary": hex, "only"?: True}, or {"off": True} for a track that keeps out of
         the party's colors (it plays in its album cover's): kept for the next time the track plays."""
@@ -189,7 +189,7 @@ class JamLibrary:
     def set_colors(self, track_id: str, primary: str | None, secondary: str | None, off: bool = False, only: bool = False) -> None:
         """Give a track its own two colors (only: those two and nothing else, no accents in other colors
         and no rainbow drops), take it out of the party's colors (off: its cover's instead), or (with
-        None) send it back to the jam's colors."""
+        None) send it back to the party's colors."""
         colors = self.colors()
         if off:
             colors[track_id] = {"off": True}
@@ -442,9 +442,9 @@ class JamLibrary:
         _save_json(self.beat_fixes_path, fixes, indent=1)
 
     # -- locked shows: a song whose show the user wants kept exactly as it is ("it's epic") ---------------
-    # shows/_jam/locked/<id>.json holds the show as it was built and the analysis it was built on, so no
-    # change to the show logic, a retrained section labeler, a song learned again or the jam's color settings
-    # can change it; the jam plays it as it is. Removing the file unlocks the song.
+    # shows/_party/locked/<id>.json holds the show as it was built and the analysis it was built on, so no
+    # change to the show logic, a retrained section labeler, a song learned again or the party's color settings
+    # can change it; the party plays it as it is. Removing the file unlocks the song.
     def _locked_path(self, track_id: str) -> str:
         return os.path.join(self.dir, "locked", re.sub(r"[^A-Za-z0-9]", "", track_id) + ".json")
 
@@ -475,7 +475,7 @@ class JamLibrary:
         _save_json(path, {"label": label, "locked_at": time.strftime("%Y-%m-%d %H:%M"), "project": project, "analysis": analysis})
 
     def lyrics(self, track_id: str) -> dict | None:
-        """The song's lyrics with word times (lyrics.py; shows/_jam/lyrics/<id>.json), slimmed to what a
+        """The song's lyrics with word times (lyrics.py; shows/_party/lyrics/<id>.json), slimmed to what a
         show needs: words {t, end, w, line, bg?, p} and lines {t, end, text}. None when there are none (not
         learned yet, or an instrumental). Read again only when the file changes: learn ahead may write it
         after the song has started."""
@@ -577,7 +577,7 @@ class JamLibrary:
             _save_json(self.levels_path, self._levels)
 
     def save_learned(self, track: Track, analysis: dict, source: str = "heard") -> None:
-        """source: "heard" (the jam listened to it) or "youtube" (learned ahead from a copy, see fetch_ahead)."""
+        """source: "heard" (the party listened to it) or "youtube" (learned ahead from a copy, see fetch_ahead)."""
         os.makedirs(self.learned_dir, exist_ok=True)
         prev = self.learned(track.id) or {}
         doc = {"version": _analysis_version(), "track": track.to_json(), "plays": int(prev.get("plays", 0)) + (source == "heard"),
@@ -662,7 +662,7 @@ class FeatureTrack:
         bands = np.clip((bands - lo) / (hi - lo + 1e-9), 0, 1)
         peaks = self.peaks[pa:pb]
         peaks = peaks / (peaks.max() + 1e-9) if len(peaks) else peaks
-        # time before anything was recorded (a song already playing when the jam began) is silence,
+        # time before anything was recorded (a song already playing when the party began) is silence,
         # so index 0 is still the song's first moment
         if a0 < 0:
             energy, bands = np.concatenate([np.zeros(-a0), energy]), np.concatenate([np.zeros((-a0, bands.shape[1])), bands])
@@ -787,7 +787,7 @@ class CastOutput:
             self.stream.close()
         self.stream, self.sid = stream, self.sid + 1
         self.started_at = time.monotonic()
-        self.cast.play_stream(self.stream_url(self.sid), "audio/wav", "Light Show Jam")
+        self.cast.play_stream(self.stream_url(self.sid), "audio/wav", "Light Show Party")
 
     def position(self) -> float:
         return float(self.cast.status().get("position", 0.0))
@@ -813,7 +813,7 @@ class CastOutput:
 
 # ============================================================================== engine
 @dataclass
-class JamTrack:
+class PartyTrack:
     track: Track
     start: float                        # capture time of the track's 0:00
     kind: str                           # custom | learned | live
@@ -854,7 +854,7 @@ class JamTrack:
 
 
 @dataclass
-class JamSettings:
+class PartySettings:
     target_delay: float = 90.0          # how far behind the capture head the room should be (90 s: time for a full analysis)
     max_gap: float = 6.0                # most silence to add between two songs when growing the delay back
     analyse_every: float = 6.0          # new audio needed before the live analysis runs again
@@ -888,20 +888,20 @@ def _settle_learned(a: dict) -> None:
     settle_sections(a)
 
 
-class JamEngine:
-    def __init__(self, relay: Relay, spotify: SpotifyClient, library: JamLibrary, output, gate: Gate | None = None,
-                 settings: JamSettings | None = None, clock=time.monotonic, analyse_fn=None, cache_dir: str | None = None,
+class PartyEngine:
+    def __init__(self, relay: Relay, spotify: SpotifyClient, library: PartyLibrary, output, gate: Gate | None = None,
+                 settings: PartySettings | None = None, clock=time.monotonic, analyse_fn=None, cache_dir: str | None = None,
                  genre_fn=None, segment_fn=None):
         self.relay, self.spotify, self.library, self.output = relay, spotify, library, output
         self.gate = gate or Gate()
-        self.cfg = settings or JamSettings()
+        self.cfg = settings or PartySettings()
         self.clock = clock
         self.cache_dir = cache_dir
         self.features = FeatureTrack(relay)
         # each mended pause seam is said in the log, and the audio either side of the last few kept to listen to
         self.seam_dir = os.path.join(library.dir, "seams")
         relay.on_seam = self._seam
-        self.tracks: list[JamTrack] = []
+        self.tracks: list[PartyTrack] = []
         self.queue: list[dict] = []       # what is queued, each with its kind, worked out when fetched
         self.now: NowPlaying | None = None
         self.lock = threading.RLock()
@@ -924,12 +924,12 @@ class JamEngine:
         self._last_seen = None            # (track id, progress, when, playing) from the previous poll
         self.handover: str | None = None  # None | 'armed' | 'filling': opening with a song from disk
         self.opening = False              # the opening song started with Spotify: the delay is whatever it buffered
-        # A Party Hub cue holds the room: where it stopped (a capture time), kept while the speakers play
+        # A phone remote moment holds the room: where it stopped (a capture time), kept while the speakers play
         # something else, so the room picks up exactly there afterwards.
         self.held_at: float | None = None
-        self.cue_hold = False             # while a cue runs, nothing but the cue lets the room go
-        self.cue_in_stream = False        # the cue's song is played inside the stream: the speakers are never paused
-        # After a cue the music is back in the speakers' stream at once, while Spotify (resumed) is still paused
+        self.show_moment_hold = False             # while a moment runs, nothing but the moment lets the room go
+        self.show_moment_in_stream = False        # the moment's song is played inside the stream: the speakers are never paused
+        # After a moment the music is back in the speakers' stream at once, while Spotify (resumed) is still paused
         # until the next poll sees it: the room plays meanwhile (it said paused, and the lights fading back in
         # were held at 5 frames a second with their clock stopped)
         self.music_back = False
@@ -955,7 +955,7 @@ class JamEngine:
     def room_capture_time(self) -> float | None:
         """The capture time the room is hearing right now, or None when it hears nothing of ours."""
         if self.held_at is not None:
-            return self.held_at                          # a cue has the speakers: the room waits where it stopped
+            return self.held_at                          # a moment has the speakers: the room waits where it stopped
         if not self.streaming or not self.output.stream:
             return None
         return self.output.stream.capture_time_at(self.output.position() - self.output.offset)
@@ -975,7 +975,7 @@ class JamEngine:
         first = self.tracks[0].start if self.tracks else self.relay.capture_time
         return max(0.0, self.relay.capture_time - max(first, self.relay.oldest_time))
 
-    def track_at(self, capture_time: float) -> JamTrack | None:
+    def track_at(self, capture_time: float) -> PartyTrack | None:
         for i in range(len(self.tracks) - 1, -1, -1):
             t = self.tracks[i]
             if capture_time >= max(t.start, t.heard_from if t.heard_from is not None else t.start) - 0.05:
@@ -984,7 +984,7 @@ class JamEngine:
         return None
 
     @property
-    def current(self) -> JamTrack | None:
+    def current(self) -> PartyTrack | None:
         """The track at the capture head: what Spotify is playing, not what the room hears."""
         return self.tracks[-1] if self.tracks else None
 
@@ -1028,12 +1028,12 @@ class JamEngine:
                         self._paused_at, self._resume_watch = self.clock(), None
                         self.output.pause()
                 return
-            if self.gate.paused and not self.cue_hold:
+            if self.gate.paused and not self.show_moment_hold:
                 self.gate.paused, self.music_back = False, False
                 self.say("resumed")
-                if self.streaming and not self.cue_in_stream:
+                if self.streaming and not self.show_moment_in_stream:
                     self._resume_output()
-                self.cue_in_stream = False
+                self.show_moment_in_stream = False
                 head = self.relay.capture_time
 
             est_start = head - np_.progress - self.cfg.capture_latency
@@ -1059,7 +1059,7 @@ class JamEngine:
                 return
             self._begin_track(np_.track, est_start, cur, restarted=same)
 
-    def _seek(self, cur: JamTrack, est_start: float, head: float) -> None:
+    def _seek(self, cur: PartyTrack, est_start: float, head: float) -> None:
         """A seek within a song whose show is whole (learned, or yours): the show carries on from the new
         place instead of the song starting over as a first listen. A new stretch of the same song begins
         where the seek is heard (the room gets there when it gets there), and it is lined up by ear on
@@ -1067,7 +1067,7 @@ class JamEngine:
         at = max(est_start, head - 0.3)                    # where the recording jumps (Spotify is asked once a second)
         cur.end, cur.skipped = at, True
         self.serial += 1
-        jt = JamTrack(cur.track, est_start, cur.kind, cur.project, serial=self.serial)
+        jt = PartyTrack(cur.track, est_start, cur.kind, cur.project, serial=self.serial)
         jt.heard_from, jt.source, jt.spotify_genres = at, cur.source, cur.spotify_genres
         jt.analysis, jt.genre, jt.version, jt.horizon, jt.ref, jt.saved = cur.analysis, cur.genre, cur.version + 1, cur.horizon, cur.ref, True
         self.tracks.append(jt)
@@ -1090,7 +1090,7 @@ class JamEngine:
         prep.clear()
         prep[track.id] = (learned, _ref_of(a0))
 
-    def _begin_track(self, track: Track, est_start: float, prev: JamTrack | None, restarted: bool) -> None:
+    def _begin_track(self, track: Track, est_start: float, prev: PartyTrack | None, restarted: bool) -> None:
         natural = False
         if prev is not None and prev.end is None:
             expected_end = prev.start + prev.track.duration
@@ -1098,7 +1098,7 @@ class JamEngine:
             # later (a gap), or earlier by the crossfade. A change in a song's last stretch is taken
             # as its end too: the room hears the old song up to where Spotify left it, then the new
             # one, and the song is kept as heard. (This was added when songs seemed to end 20 s
-            # early; that turned out to be songs already playing when the jam began, measured from
+            # early; that turned out to be songs already playing when the party began, measured from
             # the wrong start, since fixed. The rule stays: a skip that late loses little.)
             early = max(self.cfg.crossfade + 1.5, min(self.cfg.outro, 0.5 * prev.track.duration))
             natural = not restarted and -early <= est_start - expected_end <= 3.0
@@ -1116,14 +1116,14 @@ class JamEngine:
         learned = ready[0] if ready else None if project else self.library.learned(track.id)
         kind = "custom" if project else "learned" if learned else "live"
         self.serial += 1
-        # A song already playing when the jam began started before the recording did: its start
+        # A song already playing when the party began started before the recording did: its start
         # is earlier than anything held. Clamping it to the recording's first moment measured the
         # whole song from the wrong place, and a first listen was saved shifted by however far in
         # the song already was (Ego: 15.7 s, lights that far ahead every time it came back).
-        jt = JamTrack(track, est_start, kind, project, serial=self.serial)
+        jt = PartyTrack(track, est_start, kind, project, serial=self.serial)
         try:
             jt.spotify_genres = list(getattr(self.spotify, "artist_genres", lambda t: [])(track))
-        except Exception:  # noqa: BLE001 - genres are a hint; the jam goes on without them
+        except Exception:  # noqa: BLE001 - genres are a hint; the party goes on without them
             jt.spotify_genres = []
         if learned:
             jt.source = learned.get("source", "heard")
@@ -1168,9 +1168,9 @@ class JamEngine:
         middle of one, as after a doorbell): it leaves out just enough of the end of the song it is in, the
         excess, and plays the next one from its first beat, back at 1 s behind the target. It waits for the next
         song to have begun at the capture head; already past where it should have left, it goes at once. Not
-        while paused or held by a cue, nor in the 20 s after the speakers got a fresh stream or resumed."""
+        while paused or held by a moment, nor in the 20 s after the speakers got a fresh stream or resumed."""
         with self.lock:
-            if not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
+            if not self.streaming or self.gate.paused or self.show_moment_hold or self.output.stream is None:
                 return None
             if self.clock() - self._streamed_at < 20.0 or self.clock() - self._resumed_at < 20.0:
                 return None
@@ -1198,12 +1198,12 @@ class JamEngine:
             return f"delay {d:.0f}s -> {d - left:.0f}s"
 
     def _open_stream(self, at: float) -> RelayStream:
-        """A stream of the jam from capture time `at` for the speakers (a virtual one is not paced)."""
+        """A stream of the party from capture time `at` for the speakers (a virtual one is not paced)."""
         return self.relay.open_stream(at, pace=not isinstance(self.output, VirtualOutput))
 
     def _quiet_start(self) -> None:
         """The stream just started is the room carrying on (a doorbell's song, the music back after it, a catch-up
-        between songs): the speaker's delay has not changed, so no sync check follows it (jam_service
+        between songs): the speaker's delay has not changed, so no sync check follows it (party_service
         _maybe_auto_sync). One ran 8 s into a doorbell, listening to its song, and again as the music came
         back, crunching the microphone's recording while the lights faded: they stuttered, the studio lagged."""
         self.no_sync_start = getattr(self.output, "started_at", None)
@@ -1218,11 +1218,11 @@ class JamEngine:
         (it chimes as it does), or keeps it but takes half a minute to play again (a 9 minute pause: the room
         sat silent, fell 36 s behind, and keep_delay jumped half a minute of the song): past RESUME_FRESH_S,
         or with its session gone, it gets a fresh stream from where the room stopped (playing in a second or
-        two, nothing skipped), and with it a new sync check (jam_service._maybe_auto_sync). A short pause just
+        two, nothing skipped), and with it a new sync check (party_service._maybe_auto_sync). A short pause just
         resumes, watched by keep_playing."""
         cast = getattr(self.output, "cast", None)
         if self.clock() - self._streamed_at < 8.0:
-            # the speakers were just handed a fresh stream (a cue over, a skip): it is the room's already; no
+            # the speakers were just handed a fresh stream (a moment over, a skip): it is the room's already; no
             # resume, no watch (one more fresh stream on a speaker still starting was a glitch)
             self._speaker_dropped, self._paused_room, self._paused_at, self._resume_watch = False, None, None, None
             return
@@ -1248,18 +1248,18 @@ class JamEngine:
 
     def keep_playing(self) -> str | None:
         """The speaker's own pause (tapped on the speaker, or the Cast controls on a phone) paused the party
-        for everyone: it plays on at once. Pausing the party is Spotify's to do (the phone, the Party Hub):
-        then, as for a cue or the studio closing, the speakers are left paused. A speaker stopped there (its
+        for everyone: it plays on at once. Pausing the party is Spotify's to do (the phone, the phone remote):
+        then, as for a moment or the studio closing, the speakers are left paused. A speaker stopped there (its
         session ended: the speaker's own "next", as there is no next) for 2 s gets a fresh stream, back at
         the target delay. (Its "back" asks for the stream again: restarted where the room was, see
-        jam_service.stream.)"""
+        party_service.stream.)"""
         cast = getattr(self.output, "cast", None)
         with self.lock:
-            if (cast is not None and self.streaming and self.gate.paused and not self.cue_hold and not self._speaker_dropped
+            if (cast is not None and self.streaming and self.gate.paused and not self.show_moment_hold and not self._speaker_dropped
                     and self._paused_room is not None and getattr(cast, "state", "") not in self.SPEAKER_LIVE):
                 self._speaker_dropped = True              # paused long enough for the speaker to let go (_resume_output)
                 self.say("the speaker ended its Cast session during the pause: it restarts when the music does")
-            if cast is None or not self.streaming or self.gate.paused or self.cue_hold or self.output.stream is None:
+            if cast is None or not self.streaming or self.gate.paused or self.show_moment_hold or self.output.stream is None:
                 self._idle_seen = 0
                 return None
             # a plain resume (_resume_output) the speaker did not pick up: the room has not moved on since, so a
@@ -1341,7 +1341,7 @@ class JamEngine:
         gain, _ = self._level_for(nxt.get("id") or "")
         self.relay.set_level(due - 0.3, gain)
 
-    def _measure_level(self, jt: JamTrack) -> None:
+    def _measure_level(self, jt: PartyTrack) -> None:
         """A song that played whole, from its start, is measured as the speakers got it (in the background),
         kept for next time, and set beside what its YouTube copy said."""
         start, end = jt.start, jt.end
@@ -1374,7 +1374,7 @@ class JamEngine:
         level = np.abs(x[: len(x) // win * win].astype(np.int32)).max(axis=1).reshape(-1, win).mean(axis=1)
         return t0 + (int(np.argmin(level)) + 0.5) * win / self.relay.sr
 
-    def _flush(self, jt: JamTrack) -> None:
+    def _flush(self, jt: PartyTrack) -> None:
         """A skip: drop what was waiting and put the room on the new track at once."""
         if not self.streaming:
             return
@@ -1401,9 +1401,9 @@ class JamEngine:
             self.streaming = False
             self.output.stop()
 
-    # ------------------------------------------------------------------ cues
-    def hold(self, why: str = "a cue has the speakers: the room holds where it is") -> float | None:
-        """A cue stops the party (or the studio is closing): the room stops at once, where it is, and
+    # ------------------------------------------------------------------ moments
+    def hold(self, why: str = "a moment has the speakers: the room holds where it is") -> float | None:
+        """A moment stops the party (or the studio is closing): the room stops at once, where it is, and
         Spotify is paused (the buffer is held, as for a pause on the phone). Returns where the room stopped."""
         with self.lock:
             rc = self.room_capture_time()
@@ -1411,7 +1411,7 @@ class JamEngine:
                 self.gate.paused = True
                 if self.streaming:
                     self.output.pause()
-            self.held_at, self.cue_hold, self.music_back = rc, True, False
+            self.held_at, self.show_moment_hold, self.music_back = rc, True, False
             self.say(why)
         self.relay.hold()                                # (what Spotify plays as it pauses: see Relay.hold)
         try:
@@ -1420,8 +1420,8 @@ class JamEngine:
             pass
         return rc
 
-    def cue_insert(self, pcm: np.ndarray, fade_in_s: float) -> bool:
-        """A cue's song, played inside the room's own stream: the speakers get one fresh stream (as for a
+    def show_moment_insert(self, pcm: np.ndarray, fade_in_s: float) -> bool:
+        """A moment's song, played inside the room's own stream: the speakers get one fresh stream (as for a
         skip, they drop what they held) that cuts from where the room is straight into the song, plays it to
         its end, then the music from where it held, fading in over fade_in_s. Nothing is paused or loaded on
         the speakers in between, so the song starts at once. Spotify is paused meanwhile (the buffer is
@@ -1440,12 +1440,12 @@ class JamEngine:
             fresh = self._open_stream(at)
             fresh.insert(pcm, int(fade_in_s * sr))
             self.gate.paused = True                       # Spotify's pause is not the room's: nothing to pause
-            self.cue_hold, self.cue_in_stream, self.music_back = True, True, False
+            self.show_moment_hold, self.show_moment_in_stream, self.music_back = True, True, False
             self.held_at = at                            # where the music picks up after the song
             self.output.start_stream(fresh)
             self._streamed_at = self.clock()             # (keep_delay leaves a fresh stream alone while it settles)
             self._quiet_start()
-            self.say("a cue: its song plays in the room's stream, the music holds where it is")
+            self.say("a moment: its song plays in the room's stream, the music holds where it is")
         self.relay.hold()                                # (what Spotify plays as it pauses: see Relay.hold)
         try:
             self.spotify.pause()
@@ -1457,7 +1457,7 @@ class JamEngine:
         """The music turned down (a party mode) or back up, fading over `seconds` from what the room hears
         now, the speakers' own volume left alone. They hold up to 20 s already sent, so playing they get a fresh
         stream from where the room is with the fade in it, as the music comes back after a doorbell. With the room
-        held (a cue, a pause) nothing is heard: the music is simply at its new level when it plays again."""
+        held (a moment, a pause) nothing is heard: the music is simply at its new level when it plays again."""
         with self.lock:
             playing = self.streaming and self.output.stream is not None and self.held_at is None and self._room_playing()
             rc = self.room_capture_time()
@@ -1491,7 +1491,7 @@ class JamEngine:
             self.say(f"Spotify's pause mended: {info['cut_s']:.2f}s it played twice left out (match {info['match']:.2f}){gap}")
         else:
             self.say(f"Spotify's pause: nothing played twice found (best match {info['match']:.2f}), joined{gap}")
-        print(f"[jam] {self.log[-1][9:]}")                # (in studio.log too: the jam's own log goes with the studio)
+        print(f"[party] {self.log[-1][9:]}")                # (in studio.log too: the party's own log goes with the studio)
         if around is None:
             return
         sr, d = self.relay.sr, self.seam_dir
@@ -1507,33 +1507,33 @@ class JamEngine:
                 pass
         threading.Thread(target=keep, daemon=True, name="seam-keep").start()
 
-    def cue_position(self) -> float | None:
-        """How far the room is into a cue's song played in the stream (the speakers' own position)."""
+    def show_moment_position(self) -> float | None:
+        """How far the room is into a moment's song played in the stream (the speakers' own position)."""
         with self.lock:
-            if not (self.cue_hold and self.cue_in_stream and self.output.stream is not None):
+            if not (self.show_moment_hold and self.show_moment_in_stream and self.output.stream is not None):
                 return None
             return max(0.0, self.output.position() - self.output.offset)
 
-    def cue_over(self) -> None:
-        """The cue's song is over and the music fades back in, already in the stream: the room is the jam's
+    def show_moment_over(self) -> None:
+        """The moment's song is over and the music fades back in, already in the stream: the room is the party's
         again, and Spotify resumes behind it."""
         with self.lock:
-            self.held_at, self.cue_hold = None, False
+            self.held_at, self.show_moment_hold = None, False
             self.music_back = self.streaming and self.output.stream is not None
-            self.say("the cue is over: the music fades back in")
+            self.say("the moment is over: the music fades back in")
         try:
             self.spotify.resume()
         except Exception:  # noqa: BLE001
             pass
 
     def release(self, restart: bool, fade_in: float = 0.0) -> None:
-        """The cue is over: the room carries on from where it stopped. When the cue played on the
-        jam's own speakers (restart), they get the jam's stream back from that point and play it at
+        """The moment is over: the room carries on from where it stopped. When the moment played on the
+        party's own speakers (restart), they get the party's stream back from that point and play it at
         once, fading in over fade_in seconds; then Spotify resumes (otherwise the next poll lets the
         paused room run again)."""
         with self.lock:
-            at, self.held_at, self.cue_hold = self.held_at, None, False
-            if self.cue_in_stream:
+            at, self.held_at, self.show_moment_hold = self.held_at, None, False
+            if self.show_moment_in_stream:
                 restart = True                            # cut short: the song is still in the stream
             if restart and self.streaming and at is not None:
                 # it plays from there at once: the buffer already holds what comes next
@@ -1545,7 +1545,7 @@ class JamEngine:
                 self._resume_watch = None
                 self._quiet_start()
                 self.music_back = True
-            self.say("the cue is over: the room carries on")
+            self.say("the moment is over: the room carries on")
         try:
             self.spotify.resume()
         except Exception:  # noqa: BLE001
@@ -1553,7 +1553,7 @@ class JamEngine:
 
     # ------------------------------------------------------------------ opening song
     def arm_handover(self) -> None:
-        """Open the night with a song from disk and slide into the jam behind it.
+        """Open the night with a song from disk and slide into the party behind it.
 
         A buffer can only fill while the room is listening to something else. So
         the studio plays one of your own shows first, holds Spotify paused, lets
@@ -1572,14 +1572,14 @@ class JamEngine:
 
     def open_with_song(self) -> None:
         """The opening song plays from its start while Spotify plays, unheard, from the start too: the
-        buffer fills for a whole song, and the room joins the jam as the opener ends, a song behind."""
+        buffer fills for a whole song, and the room joins the party as the opener ends, a song behind."""
         with self.lock:
             self.handover, self.auto_start, self.opening = "filling", False, True
 
     def handover_tick(self, remaining: float | None, playing: bool) -> None:
         """Call about once a second with how much of the opening song is left."""
         with self.lock:
-            if self.cue_hold:                                # a cue has the speakers: the jam joins once it is over
+            if self.show_moment_hold:                                # a moment has the speakers: the party joins once it is over
                 return
             if self.handover == "armed" and remaining is not None and remaining <= self.cfg.target_delay:
                 ok = False
@@ -1593,7 +1593,7 @@ class JamEngine:
             elif self.handover == "filling" and (not playing or (remaining is not None and remaining <= 0.4)):
                 self.handover, self.auto_start = None, True
                 if self.opening:
-                    # the jam stays as far behind as the opener let it get (Spotify may have started a little
+                    # The party stays as far behind as the opener let it get (Spotify may have started a little
                     # late): aiming further back would only add silence between the next songs
                     self.opening = False
                     self.cfg.target_delay = max(20.0, min(self.cfg.target_delay, self.buffered()))
@@ -1631,7 +1631,7 @@ class JamEngine:
         if cur and cur.kind == "live" and cur.end is None and cur.genre is None and head - cur.start >= 30.0:
             return self._genre(cur, min(head - cur.start, cur.track.duration))
         if cur and cur.kind == "live" and cur.end is None and self.cfg.light_live:
-            # While it is learned ahead, an unlearned song just glows slowly (jam.js buildLight): no beat
+            # While it is learned ahead, an unlearned song just glows slowly (party_show.js buildLight): no beat
             # is followed, so the live beat tracker no longer runs every few seconds, and the PC's effort
             # goes to learning the song.
             return None
@@ -1642,7 +1642,7 @@ class JamEngine:
                 return self._pass(cur, have, final=False)
         return None
 
-    def _upgrade(self, jt: JamTrack) -> str | None:
+    def _upgrade(self, jt: PartyTrack) -> str | None:
         """The song playing was learned ahead while it played (from its copy): the full analysis from
         here on, lined up by ear like any learned song."""
         learned = self.library.learned(jt.track.id)
@@ -1658,7 +1658,7 @@ class JamEngine:
         self.say(f"{jt.track.label}: learned ahead while it played, the full show from here")
         return f"upgraded {jt.track.name}"
 
-    def _align(self, jt: JamTrack, head: float) -> bool:
+    def _align(self, jt: PartyTrack, head: float) -> bool:
         heard = max(jt.start, self.relay.oldest_time, jt.heard_from if jt.heard_from is not None else jt.start)
         have = (jt.end or head) - heard                     # what was actually recorded of it (since a seek, if one)
         # With the room only seconds behind (learning ahead), the song has to be lined up before the
@@ -1682,7 +1682,7 @@ class JamEngine:
             return False
         reach = WIDE_REACH if wide else 2.0
         w0 = max(self.relay.oldest_time, jt.start - reach, heard if jt.heard_from is not None else -1e18)
-        # A song already playing when the jam began has no opening in the recording: match the
+        # A song already playing when the party began has no opening in the recording: match the
         # part of the saved song that the recording's first moment could be, not its first seconds.
         q0 = max(0.0, w0 - (jt.start - reach))            # song time at w0 for the earliest start searched
         if int(q0 * fps) + int(8 * fps) > env.shape[1]:     # nothing saved that far into it (a seek past what is kept)
@@ -1712,7 +1712,7 @@ class JamEngine:
             self.say(f"could not line up {jt.track.name} by ear ({why}); using Spotify's clock")
         return True
 
-    def _verify(self, jt: JamTrack, head: float) -> str | None:
+    def _verify(self, jt: PartyTrack, head: float) -> str | None:
         """A song learned from a copy, checked again while it plays: the last ten seconds heard against
         the same stretch of the copy. Still on the beat: nothing to do (or a small slip put right).
         Not the same music any more (another edit from here): its show is built as it plays."""
@@ -1743,7 +1743,7 @@ class JamEngine:
             return f"re-aligned {jt.track.name}"
         return None
 
-    def _mismatch(self, jt: JamTrack, peak: float) -> None:
+    def _mismatch(self, jt: PartyTrack, peak: float) -> None:
         """What Spotify plays is not the copy this song was learned from (another version, or the wrong
         song found): its show is built as it plays instead, from Spotify's own audio, like a first
         listen, and that copy is not used again.
@@ -1770,7 +1770,7 @@ class JamEngine:
             except Exception:  # noqa: BLE001
                 pass
 
-    def _reference(self, jt: JamTrack):
+    def _reference(self, jt: PartyTrack):
         if jt.kind == "custom" and jt.project:
             song = self.library.project_song(jt.project)
             if song and self.cache_dir is not False:
@@ -1781,7 +1781,7 @@ class JamEngine:
                     self.say(f"could not read the analysis of {jt.project}: {e}")
         return None
 
-    def _genre(self, jt: JamTrack, have: float) -> str:
+    def _genre(self, jt: PartyTrack, have: float) -> str:
         """Decide how hard this track's lights should go, from half a minute of it and its artist's genres."""
         from .genre import style_from
 
@@ -1804,7 +1804,7 @@ class JamEngine:
                 jt.analysis["genre"] = g
         return f"{jt.track.name}: {g['style']} ({', '.join(g['genres'] or g['spotify'] or ['no genre found'])})"
 
-    def _pass(self, jt: JamTrack, have: float, final: bool) -> str:
+    def _pass(self, jt: PartyTrack, have: float, final: bool) -> str:
         y = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=True, pad=True)   # song time 0 is sample 0
         events = final or (jt.passes % self.cfg.events_every == self.cfg.events_every - 1)
         stereo = self.relay.audio(jt.start, jt.start + have, SR_ANALYSIS, mono=False, pad=True) if events else None
@@ -1824,7 +1824,7 @@ class JamEngine:
             jt.analysis, jt.horizon, jt.version = a, have, jt.version + 1
         return f"analysed {have:.0f}s of {jt.track.name}: {a['bpm']:.1f} bpm, {len(a['sections'])} sections, {len(a['drops'])} drops"
 
-    def _finish(self, jt: JamTrack) -> str:
+    def _finish(self, jt: PartyTrack) -> str:
         have = jt.end - jt.start
         jt.saved = True
         if self.cfg.light_live:
@@ -1984,10 +1984,10 @@ class JamEngine:
 
 
 # ============================================================================== runner
-class JamRunner:
+class PartyRunner:
     """Threads around the engine for real use: capture is already running, this polls and analyses."""
 
-    def __init__(self, engine: JamEngine, file_status=None):
+    def __init__(self, engine: PartyEngine, file_status=None):
         self.engine = engine
         self.file_status = file_status            # () -> (seconds left of a song from disk, playing?) for the hand-over
         self.stop_flag = threading.Event()

@@ -16,7 +16,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_jam", "features", "trials")
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_party", "features", "trials")
 os.makedirs(HERE, exist_ok=True)
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
@@ -40,7 +40,7 @@ n = int(z["n"])
 S = []
 for i in range(n):
     tid = str(z[f"id{i}"])
-    e2 = np.load(os.path.join(REPO, "shows", "_jam", "features", tid + ".emb2.npy"))
+    e2 = np.load(os.path.join(REPO, "shows", "_party", "features", tid + ".emb2.npy"))
     S.append({"E": e2, "y": z[f"y{i}"], "sp": z[f"sp{i}"], "r": z[f"r{i}"], "w": z[f"w{i}"], "f": int(z[f"f{i}"]),
               "d": str(z[f"d{i}"]), "T": z[f"T{i}"], "c": int(z[f"c{i}"])})
 

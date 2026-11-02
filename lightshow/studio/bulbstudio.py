@@ -1,5 +1,5 @@
 """Bulb Studio (bulbstudio/, an app of its own on this PC) from the studio: its shows, which are running and on
-which speaker, and switching one on or off from the Party Hub's Lights tab (the user).
+which speaker, and switching one on or off from the phone remote's Lights tab (the user).
 
 The two talk over Bulb Studio's own API on 127.0.0.1. When it is not open, its shows are read from its folder (all
 off), and switching one on starts it without a window, the way the studio starts with no console: it keeps the
@@ -128,7 +128,7 @@ class BulbStudio:
         return False
 
     def set(self, sid: str, on: bool, busy: set[str] = frozenset()) -> dict:
-        """Switch a show on or off. A show on a speaker in `busy` (the jam's) is not started: it would take the
+        """Switch a show on or off. A show on a speaker in `busy` (the party's) is not started: it would take the
         speaker from the party. Returns {ok, error}."""
         shows = self._from_app()
         if not on:

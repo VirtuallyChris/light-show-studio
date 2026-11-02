@@ -11,7 +11,7 @@ from lightshow.studio import player_browser, setup
 
 def studio(**kw):
     base = dict(known=[], rooms=SimpleNamespace(list=lambda: []), space=SimpleNamespace(load=lambda: {}),
-                cast=SimpleNamespace(casts=[]), jam=SimpleNamespace(spotify=SimpleNamespace(signed_in=False)))
+                cast=SimpleNamespace(casts=[]), party=SimpleNamespace(spotify=SimpleNamespace(signed_in=False)))
     return SimpleNamespace(**{**base, **kw})
 
 
@@ -42,8 +42,8 @@ class TestSetup(unittest.TestCase):
         self.assertIn("VB-Cable", item["detail"])
 
     def test_an_output_named_in_settings_must_be_there(self):
-        self.assertTrue(self.sound(["Speakers", "Digital Audio (S/PDIF)"], "Speakers", {"jam_hidden_output": "S/PDIF"})["done"])
-        self.assertFalse(self.sound(["Speakers"], "Speakers", {"jam_hidden_output": "S/PDIF"})["done"])
+        self.assertTrue(self.sound(["Speakers", "Digital Audio (S/PDIF)"], "Speakers", {"party_hidden_output": "S/PDIF"})["done"])
+        self.assertFalse(self.sound(["Speakers"], "Speakers", {"party_hidden_output": "S/PDIF"})["done"])
 
     def test_mac_and_linux_have_nothing_to_set_up(self):
         with mock.patch.object(player_browser, "own_hidden_output", lambda: True), mock.patch.object(player_browser, "hidden_problem", lambda: ""):
@@ -66,7 +66,7 @@ class TestSetup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "a.flac"), "wb") as fh:
                 fh.write(b"x" * 1000)
-            s = self.make(jam=SimpleNamespace(fetch=SimpleNamespace(copies_dir=lambda: d), spotify=None))
+            s = self.make(party=SimpleNamespace(fetch=SimpleNamespace(copies_dir=lambda: d), spotify=None))
             self.assertEqual(s.copies()["count"], 1)
             self.assertTrue(s.copies()["keep"])              # kept by default: shows can be fixed later
             asyncio.run(s.h_copies_set(Req({"keep": False})))
@@ -96,8 +96,8 @@ class TestSetup(unittest.TestCase):
     def test_a_home_set_up_is_done(self):
         rooms = [{"name": "Living Room", "lights": ["a"], "speakers": ["Kitchen Home"]}]
         space = {"plan": {"shapes": {"rooms": [{"name": "Living Room", "poly": [[0, 0], [1, 0], [1, 1]]}]}}, "lights": {"a": {}}}
-        s = self.make({"jam_hidden_output": "CABLE"}, known=[1], rooms=SimpleNamespace(list=lambda: rooms),
-                      space=SimpleNamespace(load=lambda: space), jam=SimpleNamespace(spotify=SimpleNamespace(signed_in=True)))
+        s = self.make({"party_hidden_output": "CABLE"}, known=[1], rooms=SimpleNamespace(list=lambda: rooms),
+                      space=SimpleNamespace(load=lambda: space), party=SimpleNamespace(spotify=SimpleNamespace(signed_in=True)))
         with mock.patch.object(setup, "_outputs", return_value=(["CABLE Input (VB-Audio Virtual Cable)"], "")):
             items = {i["id"]: i for i in s.checklist()}
         for k in ("lights", "rooms", "map", "speakers", "spotify", "sound"):
@@ -112,11 +112,11 @@ class TestSetup(unittest.TestCase):
             async def json(self): return self.body
         with mock.patch.object(setup, "_inputs", return_value=(["Mic, MME"], "Mic, MME")), \
                 mock.patch.object(setup, "_outputs", return_value=(["Speakers"], "Speakers")):
-            asyncio.run(s.h_devices_set(Req({"mic_device": "Mic, MME", "jam_room_output": "Speakers"})))
-            self.assertEqual((self.cfg["mic_device"], self.cfg["jam_room_output"]), ("Mic, MME", "Speakers"))
+            asyncio.run(s.h_devices_set(Req({"mic_device": "Mic, MME", "party_room_output": "Speakers"})))
+            self.assertEqual((self.cfg["mic_device"], self.cfg["party_room_output"]), ("Mic, MME", "Speakers"))
             asyncio.run(s.h_devices_set(Req({"mic_device": ""})))
         self.assertNotIn("mic_device", self.cfg)
-        self.assertEqual(self.cfg["jam_room_output"], "Speakers")
+        self.assertEqual(self.cfg["party_room_output"], "Speakers")
 
     def test_the_phone_gets_the_lan_address_and_a_qr_code(self):
         with mock.patch.object(setup.govee_lan, "local_ip", return_value="192.168.1.20"):

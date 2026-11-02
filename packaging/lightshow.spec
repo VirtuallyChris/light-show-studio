@@ -63,7 +63,7 @@ else:
     icon = os.path.join(ROOT, "lightshow", "studio", "static", "icon-512.png")   # (Pillow turns it into .icns)
 
 binaries = collect_dynamic_libs("xgboost")
-if sys.platform == "darwin":                               # the audio helper Jam mode records with, built by the release workflow
+if sys.platform == "darwin":                               # the audio helper the party records with, built by the release workflow
     binaries += [(os.path.join(SPECPATH, "mac", "audiotap"), os.path.join("lightshow", "studio", "bin"))]
 a = Analysis([os.path.join(SPECPATH, "entry.py")], pathex=[ROOT], datas=datas, binaries=binaries, hiddenimports=hidden,
              excludes=excludes, noarchive=False)

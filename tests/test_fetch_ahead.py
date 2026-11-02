@@ -78,7 +78,7 @@ class TestFetchAhead(unittest.TestCase):
         f, lib, folders, order = self.make()
         lib.dir = tempfile.mkdtemp(prefix="lss-test-")
         self.addCleanup(shutil.rmtree, lib.dir, True)
-        f.keep = lambda: True                                             # jam_keep_youtube_copies: true
+        f.keep = lambda: True                                             # party_keep_youtube_copies: true
         f.submit([track(1)])
         self.assertTrue(self.wait(lambda: len(lib.learned) == 1 and f.idle()))
         self.assertTrue(os.path.exists(os.path.join(lib.dir, "copies", "t1.flac")))
@@ -90,21 +90,21 @@ class TestFetchAhead(unittest.TestCase):
 
     def test_each_song_gets_its_lyrics_from_the_copy_before_it_goes(self):
         f, lib, folders, order = self.make()
-        lib.dir = "jam-dir"
+        lib.dir = "party-dir"
         got = []
-        f.lyrics = lambda t, path, jam_dir: got.append((t.id, os.path.exists(path), jam_dir)) or {"words": [], "source": "lrclib"}
+        f.lyrics = lambda t, path, party_dir: got.append((t.id, os.path.exists(path), party_dir)) or {"words": [], "source": "lrclib"}
         f.submit([track(1), track(2)])
         self.assertTrue(self.wait(lambda: len(lib.learned) == 2 and f.idle()))
-        self.assertEqual(got, [("t1", True, "jam-dir"), ("t2", True, "jam-dir")])     # the copy still there
+        self.assertEqual(got, [("t1", True, "party-dir"), ("t2", True, "party-dir")])     # the copy still there
         self.assertTrue(all(not os.path.exists(d) for d in folders))
 
     def test_lyrics_that_fail_do_not_stop_the_song_being_learned(self):
         f, lib, folders, order = self.make()
-        lib.dir = "jam-dir"
+        lib.dir = "party-dir"
         logs = []
         f.log = logs.append
 
-        def broken(t, path, jam_dir):
+        def broken(t, path, party_dir):
             raise RuntimeError("no card")
         f.lyrics = broken
         f.submit([track(1)])
@@ -135,8 +135,8 @@ class TestFetchAhead(unittest.TestCase):
 
     def test_no_lyrics_while_the_song_playing_now_waits_to_be_learned(self):
         f, lib, folders, order = self.make()
-        lib.dir = "jam-dir"
-        f.lyrics = lambda t, path, jam_dir: self.fail("the song playing now waits")
+        lib.dir = "party-dir"
+        f.lyrics = lambda t, path, party_dir: self.fail("the song playing now waits")
         f.now = "t2"
         f.ready.append((track(2), "f", "p"))
         f._lyrics(track(1), "copy.flac")
@@ -150,7 +150,7 @@ class TestFetchAhead(unittest.TestCase):
         self.assertEqual(calls[0], ("t1", True))                            # first, and at above-normal priority
         self.assertTrue(all(not u for tid, u in calls[1:]))                 # the songs ahead as before
 
-    def test_another_version_or_no_copy_is_left_to_the_jam(self):
+    def test_another_version_or_no_copy_is_left_to_the_party(self):
         f, lib, folders, _ = self.make(lengths={"t2": 240.0}, missing={"t3"})
         f.submit([track(1), track(2), track(3)])
         self.assertTrue(self.wait(f.idle))
@@ -168,7 +168,7 @@ class TestFetchAhead(unittest.TestCase):
         f.download = lambda t, folder: (gate.wait(2), real(t, folder))[1]
         f.submit([track(1), track(2), track(3)], first=False)             # a playlist
         self.assertTrue(self.wait(lambda: f.busy["download"] is not None))
-        f.submit([track(7)], first=True)                                  # the jam's next song
+        f.submit([track(7)], first=True)                                  # the party's next song
         gate.set()
         self.assertTrue(self.wait(lambda: len(lib.learned) == 4 and f.idle()))
         self.assertEqual(order, ["t1", "t7", "t2", "t3"])
@@ -294,13 +294,13 @@ class TestErrorsAreShown(unittest.TestCase):
 
 
 class TestLearnedWhilePlaying(unittest.TestCase):
-    """The jam hands its queue over, and a first listen learned ahead meanwhile takes the full show."""
+    """The party hands its queue over, and a first listen learned ahead meanwhile takes the full show."""
 
     def test_the_queue_is_handed_over_and_a_playing_song_upgraded(self):
         import shutil
         import tempfile
 
-        from tests.test_jam import Sim, song
+        from tests.test_party import Sim, song
         d = tempfile.mkdtemp()
         try:
             a, ta = song(128.0, 1)

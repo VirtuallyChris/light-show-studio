@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_jam", "features", "trials")
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "shows", "_party", "features", "trials")
 os.makedirs(HERE, exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from lightshow.studio.labeler import smooth  # noqa: E402

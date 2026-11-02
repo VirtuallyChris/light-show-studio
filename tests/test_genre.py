@@ -1,6 +1,6 @@
 """Genre and show style: run with  .venv\\Scripts\\python -m unittest tests.test_genre -v
 
-The style rules are tested on their own. The Jam engine is tested with a
+The style rules are tested on their own. The Party engine is tested with a
 stand-in for the model, so no model or GPU is needed. One test runs the real
 model on a synthetic song if the model environment is installed; it reads
 audio from memory and plays nothing.
@@ -15,8 +15,8 @@ import warnings
 import numpy as np
 
 from lightshow.studio.genre import WORKER, spotify_level, style_from
-from lightshow.studio.spotify import SpotifyClient, Track, parse_track
-from tests.test_jam import SR, Sim, song
+from lightshow.studio.spotify import SpotifyClient, parse_track
+from tests.test_party import SR, Sim, song
 
 warnings.filterwarnings("ignore")
 
@@ -110,7 +110,7 @@ class TestSpotifyGenres(unittest.TestCase):
         self.assertEqual(sum(1 for u in calls if "/artists/" in u), 1)
 
 
-class TestJamGenre(unittest.TestCase):
+class TestPartyGenre(unittest.TestCase):
     def test_a_first_listen_gets_its_style_from_memory_and_keeps_it(self):
         d = tempfile.mkdtemp()
         try:

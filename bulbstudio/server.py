@@ -67,8 +67,8 @@ class App:
                  cast: bool = True, quit_when_closed: bool = False, quit_when_idle: bool = False, speakers=None):
         self.port, self.shows_dir, self.config_path = port, shows_dir, config_path
         self.lights, self.quit_when_closed = lights, quit_when_closed
-        # Started with no window (the Party Hub switching a show on): quit once no show runs and no window is
-        # open, after IDLE_GRACE_S (which also gives the Party Hub time to start its show after starting this)
+        # Started with no window (the phone remote switching a show on): quit once no show runs and no window is
+        # open, after IDLE_GRACE_S (which also gives the phone remote time to start its show after starting this)
         self.quit_when_idle = quit_when_idle
         self.IDLE_GRACE_S, self.WATCH_S = 30.0, 5.0
         os.makedirs(shows_dir, exist_ok=True)
@@ -544,7 +544,7 @@ def open_app_window(url: str) -> bool:
 
 
 def keeps_log(open_browser: bool, stay: bool) -> bool:
-    """Started without a console (the .vbs launcher), or by the studio with no window (the Party Hub switching
+    """Started without a console (the .vbs launcher), or by the studio with no window (the phone remote switching
     a show on: its output goes nowhere, so a party's lost speakers left no trace): keep bulbstudio.log."""
     return sys.stdout is None or not (open_browser or stay)
 

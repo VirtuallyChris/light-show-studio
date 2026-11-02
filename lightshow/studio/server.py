@@ -26,13 +26,13 @@ from .analysis import analyze_cached
 from .winpaths import local_appdata
 from . import audiotrim
 from .cast import CastManager, CONTENT_TYPES as CAST_TYPES
-from .jam_service import JamService
+from .party_service import PartyService
 from .rooms import Rooms, FADE_S
 from .review import Review
-from .cues import CueRunner, LiveHooks
-from . import addons
+from .show_moments import ShowMomentRunner, LiveHooks
+from . import addons, config_names
 from .doorbell import Doorbell
-from ..appdirs import data_dir, popen_outside
+from ..appdirs import data_dir, move_data, popen_outside
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -42,7 +42,7 @@ CONFIG_PATH = os.path.join(DATA, "config.json")
 AUDIO_EXT = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aiff", ".aif", ".opus"}
 
 
-# config.json is read and saved by several threads (the jam, learn ahead, rooms, the web handlers). Saved whole
+# config.json is read and saved by several threads (the party, learn ahead, rooms, the web handlers). Saved whole
 # through a temporary file and swapped in, so a reader never sees half of it; and a read that fails on a bad file
 # hands back the last good one, not {}: a save after {} wrote an almost empty config (lights, rooms, offsets gone).
 _CONFIG_LOCK = threading.RLock()
@@ -55,7 +55,7 @@ def load_config() -> dict:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as fh:
                 text = fh.read()
-            cfg = addons.upgrade(json.loads(text))
+            cfg = config_names.upgrade(json.loads(text))
             _CONFIG_GOOD = text
             return cfg
         except FileNotFoundError:
@@ -93,7 +93,7 @@ def _songs_in(pdir: str) -> list[str]:
 
 
 def _lan_only(request) -> None:
-    if not JamService._lan(request):
+    if not PartyService._lan(request):
         raise web.HTTPForbidden()
 
 
@@ -573,14 +573,14 @@ class Studio:
         self.port = port
         self.quit_when_closed = quit_when_closed
         self.ws_clients = 0
-        # the room view on the Party Hub (a phone): the studio page's room view frames, passed on while one watches
+        # the room view on the phone remote (a phone): the studio page's room view frames, passed on while one watches
         self.studio_sockets: set = set()                 # the studio pages (their /ws): told how many watch
         self.room_watchers: dict = {}                    # each phone's socket -> sending a frame now (one at a time)
         self.room_last: str | None = None                # the latest frame, for a phone that just opened it
         self._watch_task = None
         self.last_client = 0.0
         self._lengths: dict = {}                         # (song file, date) -> its length
-        self._pcm: dict = {}                             # (song file, date) -> a cue's song decoded (_cue_pcm)
+        self._pcm: dict = {}                             # (song file, date) -> a moment's song decoded (_moment_pcm)
         self.known: list[govee_lan.GoveeDevice] = []    # (and hue.HueDevice: the same methods)
         self.hue = hue.HueManager(load_config, save_config)
         self.scan_lock = asyncio.Lock()                  # one scan at a time: they all listen on the same UDP port
@@ -610,23 +610,25 @@ class Studio:
         # (port 8798) and never starts one
         from .bulbstudio import BulbStudio
         self.bulbstudio = BulbStudio(port=8770 if lights else 8798, launch=lights)
-        # cues play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
-        self.cues = CueRunner(load_config, save_config, self._show_length,
-                              live=(lambda: LiveHooks(self.cast, self.jam, self._show_song, self._show_length, pcm=self._cue_pcm)) if lights else None)
-        # the Reolink doorbell rings a cue; a test copy (no lights) never connects to it
-        self.doorbell = Doorbell(load_config, save_config, on_ring=lambda cid: self.cues.run(cid))
+        # moments play for real; a test copy (no lights) only ever rehearses them, so it never makes a sound
+        self.show_moments = ShowMomentRunner(load_config, save_config, self._show_length,
+                              live=(lambda: LiveHooks(self.cast, self.party, self._show_song, self._show_length, pcm=self._show_moment_pcm)) if lights else None)
+        # the Reolink doorbell rings a moment; a test copy (no lights) never connects to it
+        self.doorbell = Doorbell(load_config, save_config, on_ring=lambda cid: self.show_moments.run(cid))
         self.doorbell_live = lights
         self.app = web.Application(client_max_size=512 * 1024 * 1024, middlewares=[no_cache])
-        self.jam = JamService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
-        self.review = Review(self.jam.library, read_only=self.read_only)   # learned songs' sections, set right by ear
+        if lights:                                               # (a test copy leaves your data where it is)
+            move_data(os.path.join(SHOWS_DIR, "_jam"), os.path.join(SHOWS_DIR, "_party"))
+        self.party = PartyService(self, SHOWS_DIR, load_config, save_config, govee_lan.local_ip)
+        self.review = Review(self.party.library, read_only=self.read_only)   # learned songs' sections, set right by ear
         # the house mapped in space (the party app's map page): where every segment of every light is
         from .space import Space
         self.space = Space(SHOWS_DIR, make_output=lambda: LightOutput(enabled=lights),
                            show_running=lambda: self.output.active, known=lambda: self.known,
                            segments_of=self._light_segments, read_only=self.read_only)
-        self.jam.player_enabled = player
+        self.party.player_enabled = player
         if lights:                                       # the real studio (a test copy loads no models of its own)
-            self.jam.warm_ahead()
+            self.party.warm_ahead()
         from .setup import HomeSetup
         self.setup = HomeSetup(self, load_config, save_config, port)
         # the Home Assistant add-on: told when the show has the lights (a test copy never tells it anything)
@@ -649,11 +651,11 @@ class Studio:
             web.get("/api/rooms", self.rooms_get),
             web.post("/api/rooms", self.rooms_set),
             web.post("/api/rooms/on", self.rooms_on),
-            web.get("/api/cues", self.cues_get),
-            web.post("/api/cues", self.cues_set),
-            web.post("/api/cues/run", self.cues_run),
-            web.post("/api/cues/stop", self.cues_stop),
-            web.get("/api/cues/now", self.cues_now),
+            web.get("/api/show_moments", self.show_moments_get),
+            web.post("/api/show_moments", self.show_moments_set),
+            web.post("/api/show_moments/run", self.show_moments_run),
+            web.post("/api/show_moments/stop", self.show_moments_stop),
+            web.get("/api/show_moments/now", self.show_moments_now),
             web.get("/api/doorbell", self.doorbell_get),
             web.post("/api/doorbell", self.doorbell_set),
             web.get("/api/addons", self.addons_get),
@@ -681,7 +683,7 @@ class Studio:
             web.post("/api/cast/volume", self.cast_volume),
             web.get("/api/cast/status", self.cast_status),
             web.post("/api/cast/synccheck", self.cast_sync_check),
-            *self.jam.routes(),
+            *self.party.routes(),
             *self.review.routes(),
             *self.space.routes(),
             *self.setup.routes(),
@@ -711,7 +713,7 @@ class Studio:
                 await asyncio.get_running_loop().run_in_executor(None, fn)
             except Exception:  # noqa: BLE001
                 pass
-        await step(self.jam.close_player)
+        await step(self.party.close_player)
         await step(self.rooms.unmute_all)
         await step(self.bulbstudio.quit)                  # Bulb Studio closes with the studio
         try:
@@ -722,13 +724,12 @@ class Studio:
 
     # -- rooms ---------------------------------------------------------------------------
     async def _rooms_at_start(self, app):
-        """A room left off last time stays off: its speakers go quiet again (in the background). The
-        cues' shows are analysed now too, so a tapped cue never waits for it."""
-        asyncio.get_running_loop().run_in_executor(None, self._warm_cues)
+        """A room left off last time stays off: its speakers go quiet again (in the background). The moments' shows are analysed now too, so a tapped moment never waits for it."""
+        asyncio.get_running_loop().run_in_executor(None, self._warm_show_moments)
         if any(not r["on"] and r["speakers"] for r in self.rooms.list()):
             asyncio.get_running_loop().run_in_executor(None, self.rooms.sync_speakers)
 
-    # -- cues ----------------------------------------------------------------------------
+    # -- moments ----------------------------------------------------------------------------
     def _show_length(self, name: str) -> float:
         pdir = os.path.join(SHOWS_DIR, safe_name(name))
         song = _songs_in(pdir)
@@ -737,7 +738,7 @@ class Studio:
         path = os.path.join(pdir, song[0])
         try:
             key = (path, os.path.getmtime(path))
-            if key not in self._lengths:                  # asked every second by the Jam panel: read each song once
+            if key not in self._lengths:                  # asked every second by Settings: read each song once
                 self._lengths[key] = float(audiotrim.total_duration(path))
             return self._lengths[key]
         except Exception:  # noqa: BLE001
@@ -753,7 +754,7 @@ class Studio:
         ip = govee_lan.local_ip() or "127.0.0.1"
         return f"http://{ip}:{self.port}/api/audio/{name}", os.path.join(pdir, song[0])
 
-    def _cue_shows(self) -> list[dict]:
+    def _show_moment_shows(self) -> list[dict]:
         out = []
         if os.path.isdir(SHOWS_DIR):
             for name in sorted(os.listdir(SHOWS_DIR), key=str.lower):
@@ -762,24 +763,23 @@ class Studio:
                 out.append({"name": name, "length": round(self._show_length(name), 1)})
         return out
 
-    def _warm_cues(self) -> None:
-        """Analyse each cue's show ahead of time (cached), and decode its song into memory, so a tapped
-        cue's song and lights start at once."""
-        for c in self.cues.list():
+    def _warm_show_moments(self) -> None:
+        """Analyse each moment's show ahead of time (cached), and decode its song into memory, so a tapped
+        moment's song and lights start at once."""
+        for c in self.show_moments.list():
             for show in c["shows"]:                       # (every one it may pick)
                 try:
                     _, path = self._show_song(show)
                     analyze_cached(path, os.path.join(os.path.dirname(path), "cache"))
-                    self._cue_pcm(show)
-                except Exception:  # noqa: BLE001 - a missing show is shown on the Party Hub, not here
+                    self._show_moment_pcm(show)
+                except Exception:  # noqa: BLE001 - a missing show is shown on the phone remote, not here
                     pass
 
-    CUE_PCM_MAX_S = 600                                   # a longer song is not kept in memory: it plays the old way
-    CUE_SR = 44100                                        # the jam's own rate (its relay)
+    SHOW_MOMENT_PCM_MAX_S = 600                                   # a longer song is not kept in memory: it plays the old way
+    SHOW_MOMENT_SR = 44100                                        # the party's own rate (its relay)
 
-    def _cue_pcm(self, name: str):
-        """A cue's song decoded to the jam's rate, as int16 frames, kept in memory (by file and date) so a
-        cue plays it inside the jam's stream at once. None if it cannot be (missing, too long)."""
+    def _show_moment_pcm(self, name: str):
+        """A moment's song decoded to the party's rate, as int16 frames, kept in memory (by file and date) so a moment plays it inside the party's stream at once. None if it cannot be (missing, too long)."""
         try:
             _, path = self._show_song(name)
             key = (path, os.path.getmtime(path))
@@ -787,45 +787,45 @@ class Studio:
             return None
         cache = self._pcm
         if key not in cache:
-            if self._show_length(name) > self.CUE_PCM_MAX_S:
+            if self._show_length(name) > self.SHOW_MOMENT_PCM_MAX_S:
                 return None
             import librosa
             import numpy as np
-            y, _ = librosa.load(path, sr=self.CUE_SR, mono=False)
+            y, _ = librosa.load(path, sr=self.SHOW_MOMENT_SR, mono=False)
             y = np.atleast_2d(y)
             y = np.vstack([y, y]) if y.shape[0] == 1 else y[:2]
-            cache[key] = (np.ascontiguousarray((np.clip(y.T, -1.0, 1.0) * 32767).astype(np.int16)), self.CUE_SR)
+            cache[key] = (np.ascontiguousarray((np.clip(y.T, -1.0, 1.0) * 32767).astype(np.int16)), self.SHOW_MOMENT_SR)
             for k in [k for k in cache if k[0] == path and k != key]:
                 cache.pop(k)                              # an older copy of the same file
         return cache[key]
 
-    async def cues_get(self, request):
+    async def show_moments_get(self, request):
         _lan_only(request)
-        shows = await asyncio.get_running_loop().run_in_executor(None, self._cue_shows)
-        return web.json_response({"cues": self.cues.list(), "shows": shows, "running": self.cues.status()})
+        shows = await asyncio.get_running_loop().run_in_executor(None, self._show_moment_shows)
+        return web.json_response({"show_moments": self.show_moments.list(), "shows": shows, "running": self.show_moments.status()})
 
-    async def cues_set(self, request):
+    async def show_moments_set(self, request):
         _lan_only(request)
-        cues = self.cues.replace((await request.json()).get("cues", []))
-        asyncio.get_running_loop().run_in_executor(None, self._warm_cues)
-        return web.json_response({"cues": cues})
+        show_moments = self.show_moments.replace((await request.json()).get("show_moments", []))
+        asyncio.get_running_loop().run_in_executor(None, self._warm_show_moments)
+        return web.json_response({"show_moments": show_moments})
 
-    async def cues_run(self, request):
-        """Run a cue: the music fades out, a saved show plays, the music comes back."""
+    async def show_moments_run(self, request):
+        """Run a moment: the music fades out, a saved show plays, the music comes back."""
         _lan_only(request)
         try:
-            return web.json_response(self.cues.run(str((await request.json()).get("id", ""))))
+            return web.json_response(self.show_moments.run(str((await request.json()).get("id", ""))))
         except (LookupError, ValueError, RuntimeError) as e:
             return web.json_response({"error": str(e)}, status=400)
 
-    async def cues_now(self, request):
-        """The cue running now (asked often by the studio page, so a cue's lights start with its song)."""
+    async def show_moments_now(self, request):
+        """The moment running now (asked often by the studio page, so a moment's lights start with its song)."""
         _lan_only(request)
-        return web.json_response(self.jam._room_cue())
+        return web.json_response(self.party._room_show_moment())
 
-    async def cues_stop(self, request):
+    async def show_moments_stop(self, request):
         _lan_only(request)
-        return web.json_response(self.cues.stop())
+        return web.json_response(self.show_moments.stop())
 
     # -- the doorbell --------------------------------------------------------------------
     def _doorbell_wanted(self) -> bool:
@@ -842,7 +842,7 @@ class Studio:
         return web.json_response({"addons": addons.status(load_config())})
 
     async def addons_set(self, request):
-        """Switch an add-on on or off ({id, on}): its card shows on the Party Hub, and it starts (or stops) at once."""
+        """Switch an add-on on or off ({id, on}): its card shows on the phone remote, and it starts (or stops) at once."""
         _lan_only(request)
         body = await request.json()
         try:
@@ -861,7 +861,7 @@ class Studio:
         return web.json_response({**self.doorbell.status(), "live": self.doorbell_live})
 
     async def doorbell_set(self, request):
-        """The doorbell's address, user, password (kept if left empty), which cue it rings, on or off."""
+        """The doorbell's address, user, password (kept if left empty), which moment it rings, on or off."""
         _lan_only(request)
         self.doorbell.save(await request.json())
         if self._doorbell_wanted():
@@ -914,7 +914,7 @@ class Studio:
         return web.json_response(self._rooms_doc(devices))
 
     async def rooms_set(self, request):
-        """Replace the rooms (names, lights, speakers, on or off), from the studio or the Party Hub."""
+        """Replace the rooms (names, lights, speakers, on or off), from the studio or the phone remote."""
         _lan_only(request)
         self.rooms.replace((await request.json()).get("rooms", []))
         await self.apply_rooms()
@@ -962,10 +962,10 @@ class Studio:
             except Exception:  # noqa: BLE001
                 pass
             try:                                          # the music first: held at once, then the speakers stopped
-                self.jam.hush()                           # (a Cast speaker would play out what it had buffered)
-                if self.jam.engine is not None:
-                    self.jam.engine.stop()
-                self.jam._stop()
+                self.party.hush()                           # (a Cast speaker would play out what it had buffered)
+                if self.party.engine is not None:
+                    self.party.engine.stop()
+                self.party._stop()
             except Exception:  # noqa: BLE001
                 pass
             try:
@@ -978,7 +978,7 @@ class Studio:
             except Exception:  # noqa: BLE001
                 pass
             try:
-                self.jam.close_player()
+                self.party.close_player()
             except Exception:  # noqa: BLE001
                 pass
             try:                                          # the models and the learn-ahead process, at once
@@ -1000,7 +1000,7 @@ class Studio:
 
         loop = asyncio.get_running_loop()
         # the music stops the moment the window goes, not after the wait below (or the shutting down)
-        hushed = loop.run_in_executor(None, self.jam.hush)
+        hushed = loop.run_in_executor(None, self.party.hush)
 
         async def later():
             await asyncio.sleep(2.5)
@@ -1009,7 +1009,7 @@ class Studio:
             else:                                         # a reload: the page is back, the room carries on
                 try:
                     await hushed
-                    await loop.run_in_executor(None, self.jam.unhush)
+                    await loop.run_in_executor(None, self.party.unhush)
                 except Exception:  # noqa: BLE001
                     pass
         self._closing_task = asyncio.create_task(later())
@@ -1020,7 +1020,7 @@ class Studio:
         or {"models": null} when there are none to wait for (not installed, learn ahead off, a test copy)."""
         from .model_worker import HOST
         loop = asyncio.get_running_loop()
-        expected = (not self.read_only) and self.jam._fetch_on()       # models to wait for at all
+        expected = (not self.read_only) and self.party._fetch_on()       # models to wait for at all
         got = await loop.run_in_executor(None, HOST.status) if expected else None
         return web.json_response({"models": got, "expected": expected})
 
@@ -1091,7 +1091,7 @@ class Studio:
         names = cfg.get("light_names", {})
         flipped = cfg.get("flipped_lights", {})             # lights mounted the other way round, by MAC
         # Which lights the shows play on is a property of the room, not of a song: one
-        # selection, kept here, that every show, the preview and Jam mode all use.
+        # selection, kept here, that every show, the preview and the party all use.
         chosen = cfg.get("selected_lights")
         default = str(cfg.get("default_light") or "").upper()
         out = []
@@ -1362,7 +1362,7 @@ class Studio:
                                   "light_offset_ms": cfg.get("light_offset_ms", 30), "tube_curve": float(cfg.get("tube_curve", 2.5))})
 
     async def set_light_offset(self, request):
-        """The lights' offset belongs to the lights, not to a song: one value for every show and jam."""
+        """The lights' offset belongs to the lights, not to a song: one value for every show and party."""
         ms = float((await request.json()).get("ms", 30))
         cfg = load_config()
         cfg["light_offset_ms"] = max(-2000.0, min(2000.0, ms))
@@ -1383,7 +1383,7 @@ class Studio:
 
     async def cast_connect(self, request):
         body = await request.json()
-        self.jam._cast_failed = None                  # pressing Cast tries the speaker again, even one that failed
+        self.party._cast_failed = None                  # pressing Cast tries the speaker again, even one that failed
         return await self._cast_call(self.cast.connect, body.get("name", ""))
 
     async def cast_disconnect(self, request):
@@ -1472,7 +1472,7 @@ class Studio:
                     async with self.scan_lock:
                         await loop.run_in_executor(None, self.output.start)
                     await ws.send_json({"type": "started"})
-                elif kind == "full_brightness":                 # between songs (the jam page, on a new song)
+                elif kind == "full_brightness":                 # between songs (the party page, on a new song)
                     await loop.run_in_executor(None, self.output.full_brightness)
                 elif kind == "stop":
                     async with self.scan_lock:
@@ -1487,11 +1487,11 @@ class Studio:
             self.ws_clients -= 1
             self.last_client = time.monotonic()
         if self.output.active:                          # (off the event loop: restoring the lights takes 3-4 s, and a
-            async with self.scan_lock:                  # page reloaded mid-jam froze everything, the speakers' stream too)
+            async with self.scan_lock:                  # page reloaded mid-party froze everything, the speakers' stream too)
                 await loop.run_in_executor(None, self.output.stop)
         return ws
 
-    # -- the room view on the Party Hub -------------------------------------------------
+    # -- the room view on the phone remote -------------------------------------------------
     def _room_out(self, text: str) -> None:
         """A room view frame from the studio page, to every phone watching. One still busy with the last gets
         none (a slow phone skips frames rather than falling behind)."""
@@ -1510,7 +1510,7 @@ class Studio:
             self.room_watchers[w] = False
 
     async def tell_studio(self, msg: dict) -> None:
-        """A message for every studio page (its /ws), at once: the Party Hub's orange switches."""
+        """A message for every studio page (its /ws), at once: the phone remote's orange switches."""
         for s in list(self.studio_sockets):
             try:
                 await s.send_json(msg)
@@ -1521,7 +1521,7 @@ class Studio:
         await self.tell_studio({"type": "roomview_watchers", "n": len(self.room_watchers)})
 
     async def roomview_ws(self, request):
-        """A phone's room view (roomview.html?remote=1 on the Party Hub): the frames the studio page draws for its
+        """A phone's room view (roomview.html?remote=1 on the phone remote): the frames the studio page draws for its
         own room view window, passed on while it is open. Its own socket, never /ws: a /ws closing hands the
         lights back."""
         _lan_only(request)

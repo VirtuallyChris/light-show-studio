@@ -1,5 +1,5 @@
 r"""SongFormer's audio embeddings (MuQ + MusicFM, averaged to 0.48 s steps) and three of its label heads, for every
-learned Jam song with a kept copy, into shows/_jam/features/<id>.npz / .emb2.npy / .json (section_labeler.py reads
+learned Party song with a kept copy, into shows/_party/features/<id>.npz / .emb2.npy / .json (section_labeler.py reads
 them). The studio's model environment, on the graphics card (about 3 s a song; a long song retries with a 150 s window):
 
     .venv-songformer\Scripts\python tools\songformer_features.py [ids...]
@@ -11,10 +11,10 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-JAM = os.path.join(REPO, "shows", "_jam")
-out_dir, device, threads = os.path.join(JAM, "features"), "cuda", 4
-ids = sys.argv[1:] or sorted({f[:-5] for f in os.listdir(os.path.join(JAM, "copies")) if f.endswith(".flac")}
-                             & {f[:-5] for f in os.listdir(os.path.join(JAM, "learned")) if f.endswith(".json")})
+PARTY = os.path.join(REPO, "shows", "_party")
+out_dir, device, threads = os.path.join(PARTY, "features"), "cuda", 4
+ids = sys.argv[1:] or sorted({f[:-5] for f in os.listdir(os.path.join(PARTY, "copies")) if f.endswith(".flac")}
+                             & {f[:-5] for f in os.listdir(os.path.join(PARTY, "learned")) if f.endswith(".json")})
 os.makedirs(out_dir, exist_ok=True)
 
 import numpy as np
@@ -45,7 +45,7 @@ for tid in ids:
           if meta.get("peak_gpu_mb") and meta["t_embed"] < 30:
               continue
       ec()
-      path = os.path.join(REPO, "shows", "_jam", "copies", f"{tid}.flac")
+      path = os.path.join(REPO, "shows", "_party", "copies", f"{tid}.flac")
       t0 = time.time()
       y, _ = librosa.load(path, sr=SR)
       audio = torch.tensor(y).to(dev)

@@ -10,6 +10,6 @@
     "doorbell": false,
     "bulbstudio": false
   },
-  "jam_hidden_output": "CABLE Input",
-  "jam_opener": ""
+  "party_hidden_output": "CABLE Input",
+  "party_opener": ""
 }

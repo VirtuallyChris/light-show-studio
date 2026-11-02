@@ -1,4 +1,4 @@
-"""The lyrics a learned song's show gets (JamLibrary.lyrics): slimmed, missing is None, read again when rewritten."""
+"""The lyrics a learned song's show gets (PartyLibrary.lyrics): slimmed, missing is None, read again when rewritten."""
 
 import json
 import os
@@ -6,13 +6,13 @@ import tempfile
 import time
 import unittest
 
-from lightshow.studio.jam import JamLibrary
+from lightshow.studio.party import PartyLibrary
 
 
-class TestJamLyrics(unittest.TestCase):
+class TestPartyLyrics(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.lib = JamLibrary(self.tmp.name)
+        self.lib = PartyLibrary(self.tmp.name)
         os.makedirs(os.path.join(self.lib.dir, "lyrics"), exist_ok=True)
 
     def tearDown(self):

@@ -72,8 +72,8 @@ because it drives the lights. Bulb Studio opens on the computer only; on the pho
 Everything about your home stays in `config.json` and `shows/` on your computer,
 never in git: the lights and their addresses, the rooms, the map, the speakers'
 measured delays, your Spotify sign-in, the add-ons' settings. Other settings you
-may set there: `jam_opener` (a saved show the party opens with when it is not
-learning ahead) and `jam_hidden_output` (see **The party**).
+may set there: `party_opener` (a saved show the party opens with when it is not
+learning ahead) and `party_hidden_output` (see **The party**).
 
 ### Philips Hue
 
@@ -415,10 +415,10 @@ line by line), moved onto the copy's own timeline by matching them to what Whisp
 forced onto the vocals by a CTC aligner (wav2vec2 MMS_FA, torchaudio) for every word's
 start and end. A song LRCLIB does not have keeps Whisper's own words. Learning ahead does it
 for every queued song right after learning it, while the copy is still on disk, and writes
-`shows\_jam\lyrics\<track id>.json` (about 8 s a song; the model loads the first time it is
+`shows\_party\lyrics\<track id>.json` (about 8 s a song; the model loads the first time it is
 needed, about 3 GB of the card). It never holds up the song playing now, and a song whose
 lyrics fail is learned all the same. `tools\lyrics_backfill.py` does the same for copies
-already kept (`jam_keep_youtube_copies`), waiting while a party streams. It needs one more
+already kept (`party_keep_youtube_copies`), waiting while a party streams. It needs one more
 package in the model environment:
 
 ```bash
@@ -602,7 +602,7 @@ and glitches for bass music, candlelight for folk) and, with the vibe on Auto, s
 vibe too (Dubstep is Rave, Folk is Chill). **Your colors / Album art** at the top of the
 sheet does what the song's little color chip does: that song alone, in the night's colors
 or its album cover's, kept for the track. Vibe and genre are kept for that track
-(`shows/_jam/styles.json`, `shows/_jam/genres.json`), and the song playing is rebuilt in
+(`shows/_party/styles.json`, `shows/_party/genres.json`), and the song playing is rebuilt in
 them at once.
 
 **Colors tonight** sets the colors for every song: **Album art** (each song in its album
@@ -639,7 +639,7 @@ music fades back in where it left off. Tap the running moment to end its show ea
 a name and its shows (any saved show; with more than one, one is picked at random each time).
 Doorbell and Shot o'clock are there to start with (the doorbell cuts straight to its show,
 then fades the music back in); **+ Add a moment** adds more. They are kept in config.json
-(`cues`), with whether the music fades out and back in, and over how many seconds (up to 30).
+(`show_moments`), with whether the music fades out and back in, and over how many seconds (up to 30).
 
 **At a party, the show's song plays inside the party's own stream.** The speakers get
 one fresh stream, the way a skip jumps at once, that crossfades from the room's
@@ -753,12 +753,12 @@ channel (their "Topic" channel first, which carries the album audio), never a li
 take, a cover or a remix; the full analysis runs on it, in a process of its own at below-normal priority
 on at most four cores (the models on the GPU), so the lights and the music always
 come first (about 45 s for a 3-minute song, while
-the next one downloads). The copy is then kept in `shows/_jam/copies`, so its show can
+the next one downloads). The copy is then kept in `shows/_party/copies`, so its show can
 be reviewed and fixed later, and a song learned again (after an analysis update) is
 learned from it with no download. Copies take up disk space: **Keep a copy of each song**
 in Settings shows how much, can delete them, and can stop keeping them
-(`"jam_keep_youtube_copies": false`), leaving only the analysis, with the songs the party
-learned by listening (`shows/_jam/learned`).
+(`"party_keep_youtube_copies": false`), leaving only the analysis, with the songs the party
+learned by listening (`shows/_party/learned`).
 A copy whose length is not within 4 seconds of Spotify's is another version and is
 not used. The speakers only ever play Spotify's own audio, relayed as always; the
 copy is never heard, so a music video's intro never reaches the room.
@@ -826,7 +826,7 @@ Each track is one of three kinds:
 | | |
 |---|---|
 | **your show** | The track matches a show you built (by title and artist, or by length; or pin it yourself). Your show plays, lined up to the music by ear. |
-| **learned** | The track has played through at a party before. The studio kept its analysis: beat grid, sections, drops, the riff and the fills. It gets a full auto-built show from the first beat. Numbers only are kept, in `shows/_jam/learned/`. |
+| **learned** | The track has played through at a party before. The studio kept its analysis: beat grid, sections, drops, the riff and the fills. It gets a full auto-built show from the first beat. Numbers only are kept, in `shows/_party/learned/`. |
 | **first listen** | Analyzed as it arrives. The show for the part the room has not reached is rebuilt every few seconds as more is learned; what is already playing is never changed under you. About half a minute in, the genre model has heard enough to pick the show style, and what is ahead is rebuilt in it. When it finishes it becomes *learned*. |
 
 **Setting up (once).** All of Spotify's steps are in **Settings**, **Spotify**.
@@ -849,7 +849,7 @@ Each track is one of three kinds:
      - **Windows** (Microsoft Edge): the studio picks an output you aren't using
        (S/PDIF, a monitor's HDMI, VB-Cable if you have it) and mutes it while the
        player runs, then puts it back. **Spotify plays into** in Fine tuning, or
-       `jam_hidden_output`, chooses one yourself. A computer with only one output needs
+       `party_hidden_output`, chooses one yourself. A computer with only one output needs
        [VB-Cable](https://vb-audio.com/Cable/) (free).
      - **Mac** (Google Chrome, macOS 14.2 or later): macOS asks once for permission
        to record audio.
@@ -876,12 +876,12 @@ Each track is one of three kinds:
      paused or started again before it starts one by itself.
    - **The Spotify app** on this computer. In Windows' Volume mixer, set the Spotify
      app's output to the hidden output (CABLE Input).
-   To use another hidden output, set `jam_hidden_output` in `config.json` to part
+   To use another hidden output, set `party_hidden_output` in `config.json` to part
    of its name (`"S/PDIF"` for a PC's unused digital output).
 5. Under **Plays on** (top of **Party**), choose where the delayed music is heard: a
    **Cast** speaker or group, **This computer**, or **Nowhere (preview)**, to watch the
    show build without sound. This computer plays on Windows' default output (pin another
-   with **The room hears this computer on** in Fine tuning, or `jam_room_output` in
+   with **The room hears this computer on** in Fine tuning, or `party_room_output` in
    `config.json`). The studio refuses to start if the default output is the hidden one,
    since it would record its own delayed copy. The lights assume this computer's output is
    heard 0.3 s after it is sent; for Bluetooth headphones, which add their own delay, set
@@ -1303,7 +1303,7 @@ pretend Spotify: no sound, no speakers, no sign-in. It is the quickest way to
 see what a party looks like, and it is how the party is tested:
 
 ```bash
-.venv\Scripts\python -m unittest tests.test_jam
+.venv\Scripts\python -m unittest tests.test_party
 ```
 
 ## How it works

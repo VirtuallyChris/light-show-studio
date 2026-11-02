@@ -3,7 +3,6 @@
 Nothing is played: the speaker is stood in for, and the stream is read in memory.
 """
 
-import io
 import unittest
 
 import numpy as np
@@ -51,8 +50,8 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
         import threading
         from aiohttp import web
         from aiohttp.test_utils import TestClient, TestServer
-        from lightshow.studio.jam import CastOutput
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party import CastOutput
+        from lightshow.studio.party_service import PartyService
 
         loads, playing = [], {"position": 0.0}
 
@@ -75,25 +74,25 @@ class TestReconnect(unittest.IsolatedAsyncioTestCase):
                 self.lock, self.relay, self.log = threading.RLock(), relay, []
                 self.gate = type("G", (), {"paused": False})()
                 self.cfg = type("C", (), {"target_delay": 45.0})()
-                self.output = CastOutput(Cast(), lambda sid: f"http://x/api/jam/stream.wav?sid={sid}", )
+                self.output = CastOutput(Cast(), lambda sid: f"http://x/api/relay/stream.wav?sid={sid}", )
                 self.output.start_stream(relay.open_stream(10.0))
             def room_capture_time(self): return 12.0
             def say(self, m): self.log.append(m)
 
-        svc = JamService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
+        svc = PartyService(Studio, ".", lambda: {}, lambda c: None, lambda: "127.0.0.1")
         svc.engine = eng = Engine()
         app = web.Application()
         app.add_routes(svc.routes())
         async with TestClient(TestServer(app)) as client:
-            r = await client.get("/api/jam/stream.wav?sid=1")        # the speaker's first request: a short probe
+            r = await client.get("/api/relay/stream.wav?sid=1")        # the speaker's first request: a short probe
             await r.content.read(4 * 1000)
             r.close()
-            r = await client.get("/api/jam/stream.wav?sid=1")        # it asks again before playing: no restart
+            r = await client.get("/api/relay/stream.wav?sid=1")        # it asks again before playing: no restart
             self.assertEqual(r.status, 200)
             await r.content.read(4 * 5000)
             r.close()
             playing["position"] = 42.0                               # it played for a while...
-            r = await client.get("/api/jam/stream.wav?sid=1")        # ...then the connection broke and it came back
+            r = await client.get("/api/relay/stream.wav?sid=1")        # ...then the connection broke and it came back
             self.assertEqual(r.status, 410)
             for _ in range(50):
                 if eng.output.sid == 2:
@@ -110,7 +109,7 @@ if __name__ == "__main__":
 
 
 class TestSpeakerVolumes(unittest.TestCase):
-    """The Party Hub's settings: every speaker's volume, read and set (stand-in speakers: nothing plays)."""
+    """The phone remote's settings: every speaker's volume, read and set (stand-in speakers: nothing plays)."""
 
     def test_volumes_are_read_and_set_per_speaker(self):
         from types import SimpleNamespace

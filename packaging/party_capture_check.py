@@ -1,7 +1,7 @@
-"""Does Jam mode's capture really work on this Mac or Linux machine? python packaging/jam_capture_check.py
+"""Does the party's capture really work on this Mac or Linux machine? python packaging/party_capture_check.py
 
 The studio's own code from end to end, with no Spotify and no account: the hidden player's browser is started on a page
-playing a 440 Hz tone, kept from the speakers as in a jam, and recorded by the jam's recorder process. Fails unless the
+playing a 440 Hz tone, kept from the speakers as in a party, and recorded by the party's recorder process. Fails unless the
 recording is that tone. Run by the release workflow. On a Mac, macOS must allow audio recording, and asks the first time.
 """
 
@@ -75,5 +75,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     code = main()
-    print("jam capture:", "ok" if code == 0 else "FAILED", flush=True)
+    print("party capture:", "ok" if code == 0 else "FAILED", flush=True)
     os._exit(code)

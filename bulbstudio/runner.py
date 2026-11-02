@@ -8,7 +8,7 @@ worth sending (a cloud bulb only sends changes, within Govee's allowance).
 
 Several runners run at once, one per show, each with its own speaker and bulb.
 
-A speaker that stops playing the show (a doorbell cue or the party's group cast taking it over, or a Wi-Fi
+A speaker that stops playing the show (a doorbell moment or the party's group cast taking it over, or a Wi-Fi
 drop) does not end it: the show stays on, lets the speaker go, and takes it back RETRY_S later, from where
 the room was. Only while another app (Spotify, YouTube...) is playing on it does the show wait for it.
 

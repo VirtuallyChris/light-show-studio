@@ -1,7 +1,7 @@
 """Where the relay's audio comes from.
 
 The real recording is audio_io.ProcessCapture. FileCapture feeds audio from
-memory instead. It exists so the whole of Jam mode can be run and tested with no
+memory instead. It exists so the whole of the party can be run and tested with no
 sound, no speakers and no Spotify.
 """
 

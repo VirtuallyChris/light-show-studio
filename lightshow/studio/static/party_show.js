@@ -1,4 +1,4 @@
-/* Jam mode in the studio.
+/* the party in the studio.
  *
  * Spotify plays on this PC, the speakers play it back late, and the server works
  * out what the room is hearing and how each track should be shown. This file
@@ -7,13 +7,13 @@
  * is, and rebuilds the part of a first listen that has not been reached yet
  * each time the analysis learns more.
  *
- * A jam never saves: tracks it builds have no project name, and app.js refuses
- * to save while a jam is live, so a saved show cannot be overwritten from here.
+ * A party never saves: tracks it builds have no project name, and app.js refuses
+ * to save while a party is live, so a saved show cannot be overwritten from here.
  */
 (() => {
   const St = window.Studio; if (!St) return;
   const { S, $, toast } = St;
-  const J = S.jam = { live: false, state: null, key: null, version: -1, anchor: null, built: [], fetching: false,
+  const J = S.relay = { live: false, state: null, key: null, version: -1, anchor: null, built: [], fetching: false,
     pos() { const a = this.anchor; if (!a) return 0; return a.playing ? a.position + (performance.now() - a.at) / 1000 : a.position; } };
 
   const api = async (path, body) => {
@@ -23,12 +23,12 @@
     return j;
   };
   // ------------------------------------------------------------------ colors
-  // Every jam song is shown in two colors: the ones picked for that track (kept for next time), else
-  // the jam's own pair, else (jam set to "album cover") its cover's. A show you made keeps its own.
+  // Every party song is shown in two colors: the ones picked for that track (kept for next time), else
+  // the party's own pair, else (the party set to "album cover") its cover's. A show you made keeps its own.
   // The party's colors can be switched off for every song, or for one: then its cover's colors.
-  const themeOn = () => ((J.state || {}).jam_colors || {}).on !== false;
+  const themeOn = () => ((J.state || {}).color_settings || {}).on !== false;
   function colorsFor(track) {
-    const st = J.state || {}, own = track && (st.track_colors || {})[track.id], jc = st.jam_colors || {};
+    const st = J.state || {}, own = track && (st.track_colors || {})[track.id], jc = st.color_settings || {};
     if (!themeOn() || (own && own.off)) return null;
     if (own) return [own.primary, own.secondary];
     if (jc.wild) return null;                                       // No Limits: the show picks its colors section by section
@@ -41,7 +41,7 @@
    *  wheel (purple and green get red and orange). The server's extras_for does the same for the phone. */
   const onlyTwo = track => !!(track && ((J.state || {}).track_colors || {})[track.id] || {}).only;
   function extrasFor(pair, track) {
-    const jc = (J.state || {}).jam_colors || {};
+    const jc = (J.state || {}).color_settings || {};
     if (!jc.extras || !themeOn() || !pair || pair.length < 2 || onlyTwo(track)) return null;
     const hue = hx => { const r = parseInt(hx.slice(1, 3), 16) / 255, g = parseInt(hx.slice(3, 5), 16) / 255, b = parseInt(hx.slice(5, 7), 16) / 255;
       const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; if (!mx || d / mx < 0.2 || mx < 0.2) return null;
@@ -55,15 +55,15 @@
   }
   /** The party's pairs, for the rest of a song: its own pair is its drops' colors, and the other parts now and then
    *  take another of these (app.js buildSection; the user). None for a song kept to just its two colors. */
-  const pairsFor = track => { const jc = (J.state || {}).jam_colors || {};
+  const pairsFor = track => { const jc = (J.state || {}).color_settings || {};
     return themeOn() && !onlyTwo(track) && Array.isArray(jc.pairs) && jc.pairs.length > 1 ? jc.pairs : null; };
   /** No Limits Colors: every section in the stage colors that suit it (app.js wildPlan), for every song
    *  but one given its own colors (or its cover's) by hand */
-  const wildOn = track => { const jc = (J.state || {}).jam_colors || {}, own = track && ((J.state || {}).track_colors || {})[track.id];
+  const wildOn = track => { const jc = (J.state || {}).color_settings || {}, own = track && ((J.state || {}).track_colors || {})[track.id];
     return themeOn() && !!jc.wild && !own; };
   /** rainbow drops for the songs that go all out, in "a different pair each song" */
-  const rainbowOn = track => { const jc = (J.state || {}).jam_colors || {}; return themeOn() && jc.mode === 'mix' && !!jc.rainbow && !onlyTwo(track); };
-  /** The song in the room got new colors (here, or on the Party Hub): build its show again in them. */
+  const rainbowOn = track => { const jc = (J.state || {}).color_settings || {}; return themeOn() && jc.mode === 'mix' && !!jc.rainbow && !onlyTwo(track); };
+  /** The song in the room got new colors (here, or on the phone remote): build its show again in them. */
   // A vibe or a genre picked by hand for a song the analysis gets wrong. The genre gives the show the words
   // the genre effects listen for, and (the vibe left to the analysis) the vibe that goes with it.
   const trackGenre = t => { const k = t && ((J.state || {}).track_genres || {})[t.id]; return k && ((J.state || {}).genre_choices || []).find(g => g.key === k) || null; };
@@ -86,13 +86,13 @@
     if (!J.live || !J.doc || J.doc.kind === 'custom' || J.doc.locked || J.custom) return;   // (a locked show, or one made yours, keeps its colors)
     // not while the song's show is still being loaded (a cover can arrive half way): the load uses it itself
     if (!St.P() || J.key !== J.doc.key) return;
-    if (J.doc.light) { S.jamColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
-    S.jamColors = colorsFor(J.doc.track); S.jamPairs = pairsFor(J.doc.track); S.jamExtras = extrasFor(S.jamColors, J.doc.track); S.jamRainbow = rainbowOn(J.doc.track); S.noLimits = wildOn(J.doc.track); J.colorSig = colorSig();
+    if (J.doc.light) { S.partyColors = colorsFor(J.doc.track); J.colorSig = colorSig(); buildLight(); return; }
+    S.partyColors = colorsFor(J.doc.track); S.partyPairs = pairsFor(J.doc.track); S.partyExtras = extrasFor(S.partyColors, J.doc.track); S.partyRainbow = rainbowOn(J.doc.track); S.noLimits = wildOn(J.doc.track); J.colorSig = colorSig();
     const restyle = (St.P().settings || {}).style !== (trackStyle(J.doc.track) || undefined);
     applyStyle(J.doc.track);
     if (restyle) { St.pickLook(); J.style = St.showStyle(); }
     try { St.autoBuild(true); J.built = sectionKeys(); } catch (e) { console.error(e); }
-    J.clips = St.clipSig();                                        // (rebuilt by the jam, not by hand)
+    J.clips = St.clipSig();                                        // (rebuilt by the party, not by hand)
     St.draw();
   }
 
@@ -100,23 +100,23 @@
   async function tick() {
     if (J.fetching) return; J.fetching = true;
     try {
-      const st = await api('jam/state'); const was = J.state && J.state.running;
+      const st = await api('relay/state'); const was = J.state && J.state.running;
       J.state = st;
-      if (typeof st.party_level === 'number' && st.party_level !== S.partyLevel) { S.partyLevel = st.party_level; S.forceSend = true; }
-      for (const m of st.modes || []) St.setCover(m.id, m);                         // (the Party Hub's modes)
+      if (typeof st.party_energy === 'number' && st.party_energy !== S.partyEnergy) { S.partyEnergy = st.party_energy; S.forceSend = true; }
+      for (const m of st.color_moments || []) St.setCover(m.id, m);                         // (the phone remote's color moments)
       if (J.live && J.doc && J.doc.kind !== 'custom' && J.colorSig !== undefined && colorSig() !== J.colorSig) recolor();   // changed on the phone: at once
       if (st.running && !was && st.auto_started) toast('Music started on Light Show Studio: the party started by itself');
-      await cueTick(st.cue);
-      if (C.run) { /* a cue has the room: the jam waits */ }
+      await showMomentTick(st.show_moment);
+      if (C.run) { /* a moment has the room: the party waits */ }
       else if (st.running && st.streaming) await follow(st); else if (J.live && !(st.running)) leave();
     } catch (e) { /* server away */ } finally { J.fetching = false; }
   }
 
-  // ------------------------------------------------------------------ cues
-  // A Party Hub cue (the doorbell, shot o'clock) stops the party for one of your saved shows. In a jam
+  // ------------------------------------------------------------------ moments
+  // A phone remote moment (the doorbell, shot o'clock) stops the party for one of your saved shows. In a party
   // the server plays the show's song inside the room's own stream (otherwise on the speakers, or leaves
   // it to this page on this PC); this page plays the show's lights, following the speaker, then hands
-  // the room back to the jam. Every cue's show is kept loaded here, and the running cue is asked for
+  // the room back to the party. Every moment's show is kept loaded here, and the running moment is asked for
   // five times a second, so its lights start with its song instead of a second or two after.
   const C = { run: null, shows: {} };
   function showData(name) {
@@ -124,86 +124,86 @@
       .then(d => { if (d.error) delete C.shows[name]; return d; }).catch(e => { delete C.shows[name]; return { error: String(e) }; });
     return C.shows[name];
   }
-  async function preloadCues() {
+  async function preloadShowMoments() {
     try {
-      const d = await (await fetch('/api/cues')).json(), want = new Set((d.cues || []).flatMap(c => c.shows || [c.show]).filter(Boolean));   // (every show a cue may pick)
+      const d = await (await fetch('/api/show_moments')).json(), want = new Set((d.show_moments || []).flatMap(c => c.shows || [c.show]).filter(Boolean));   // (every show a moment may pick)
       for (const n of Object.keys(C.shows)) if (!want.has(n)) delete C.shows[n];
       for (const n of want) showData(n);
     } catch (e) { /* the studio is away: next time */ }
   }
-  preloadCues(); setInterval(preloadCues, 60000);
-  async function cueTick(cue) {
-    // As the music comes back (fade_in) the lights cross-fade from the cue's show into the jam's over that very
+  preloadShowMoments(); setInterval(preloadShowMoments, 60000);
+  async function showMomentTick(show_moment) {
+    // As the music comes back (fade_in) the lights cross-fade from the moment's show into the party's over that very
     // fade: what is left of it as this page sees it begin, so both end together (the user: the same cross-fade as
     // that doorbell's). A doorbell with no fade back: the lights change over at once, as the music does.
-    const active = !!(cue && cue.phase && cue.phase !== 'done' && cue.show), showing = active && cue.phase === 'show';
-    if (active) showData(cue.show);
-    if (showing && C.run !== cue.run && C.ended !== cue.run) await cueStart(cue);   // (a slower answer may still say it shows)
+    const active = !!(show_moment && show_moment.phase && show_moment.phase !== 'done' && show_moment.show), showing = active && show_moment.phase === 'show';
+    if (active) showData(show_moment.show);
+    if (showing && C.run !== show_moment.run && C.ended !== show_moment.run) await showMomentStart(show_moment);   // (a slower answer may still say it shows)
     else if (!showing && C.run) {
-      const left = cue && cue.phase === 'fade_in' ? (cue.dur || 0) * (1 - (cue.progress || 0)) : 0;
+      const left = show_moment && show_moment.phase === 'fade_in' ? (show_moment.dur || 0) * (1 - (show_moment.progress || 0)) : 0;
       if (left > 0.05) St.crossfadeLights(left);
-      cueEnd();
+      showMomentEnd();
     }
   }
   setInterval(async () => {
     if (C.asking || !J.state || !J.state.running) return;
     C.asking = true;
-    try { await cueTick(await (await fetch('/api/cues/now')).json()); } catch (e) { } finally { C.asking = false; }
+    try { await showMomentTick(await (await fetch('/api/show_moments/now')).json()); } catch (e) { } finally { C.asking = false; }
   }, 200);
-  async function cueStart(cue) {
-    if (C.run) cueEnd();
-    C.run = cue.run;
-    // the jam's show is kept as it is, to take up again the moment the cue is over (not loaded again)
-    C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, jam: J.live, playing: S.audio.playing,
+  async function showMomentStart(show_moment) {
+    if (C.run) showMomentEnd();
+    C.run = show_moment.run;
+    // the party's show is kept as it is, to take up again the moment the moment is over (not loaded again)
+    C.prev = { analysis: S.analysis, project: S.project, name: S.name, buffer: S.audio.buffer, relay: J.live, playing: S.audio.playing,
                key: J.key, doc: J.doc, version: J.version, built: J.built, style: J.style, drums: J.drums,
-               palette: S.albumPalette, colors: S.jamColors, pairs: S.jamPairs, extras: S.jamExtras, rainbow: S.jamRainbow, wild: S.noLimits, glow: S.glowAt };
-    S.glowAt = null;                                                // (a cue's show has no songs either side)
-    J.live = false; J.key = null;                                   // the jam steps aside; the room is held
+               palette: S.albumPalette, colors: S.partyColors, pairs: S.partyPairs, extras: S.partyExtras, rainbow: S.partyRainbow, wild: S.noLimits, glow: S.glowAt };
+    S.glowAt = null;                                                // (a moment's show has no songs either side)
+    J.live = false; J.key = null;                                   // the party steps aside; the room is held
     // how far into the show the server already is (the page looks once a second), kept up to date below
-    const asked = performance.now(), into = (cue.progress || 0) * (cue.dur || 0);
-    const data = await showData(cue.show);
-    if (C.run !== cue.run) return;
-    if (data.error) { toast(`${cue.name}: ${data.error}`, true); return; }
+    const asked = performance.now(), into = (show_moment.progress || 0) * (show_moment.dur || 0);
+    const data = await showData(show_moment.show);
+    if (C.run !== show_moment.run) return;
+    if (data.error) { toast(`${show_moment.name}: ${data.error}`, true); return; }
     // the show itself, without touching playback (opening a song the usual way would pause the speaker)
-    adopt(data.analysis, cue.show, data.saved || null, data); S.name = '';  // never saved over while it plays
+    adopt(data.analysis, show_moment.show, data.saved || null, data); S.name = '';  // never saved over while it plays
     if (!data.saved) try { St.autoBuild(true); } catch (e) { console.error(e); }
     const started = asked - into * 1000;                             // when the show began, on this page's clock
-    if (cue.via === 'cast') {
+    if (show_moment.via === 'cast') {
       // the lights follow the speaker's own position, less its measured delay
-      const off = ((S.defaults.castOffsets || {})[cue.device] ?? S.defaults.castOffset ?? 0) / 1000;
+      const off = ((S.defaults.castOffsets || {})[show_moment.device] ?? S.defaults.castOffset ?? 0) / 1000;
       C.cast = { pos: 0, at: performance.now(), state: 'BUFFERING' };
       C.poll = setInterval(async () => { try { const s = await (await fetch('/api/cast/status')).json(); C.cast = { pos: s.position || 0, at: performance.now(), state: s.state }; } catch (e) { } }, 400);
       C.pos = () => Math.max(0, (C.cast.state === 'PLAYING' ? C.cast.pos + (performance.now() - C.cast.at) / 1000 : C.cast.pos) - off);
-    } else if (cue.via === 'pc' && cue.stream) {
-      C.pos = () => (performance.now() - started) / 1000;          // in the jam's stream on this PC: lights only
-    } else if (cue.via === 'pc') {
+    } else if (show_moment.via === 'pc' && show_moment.stream) {
+      C.pos = () => (performance.now() - started) / 1000;          // in the party's stream on this PC: lights only
+    } else if (show_moment.via === 'pc') {
       // this PC plays the song itself
       try {
         const a = S.audio; if (!a.ctx) a.ctx = new (window.AudioContext || window.webkitAudioContext)();
         const buf = await a.ctx.decodeAudioData(await (await fetch(data.audio_url)).arrayBuffer());
-        if (C.run !== cue.run) return;
+        if (C.run !== show_moment.run) return;
         if (a.ctx.state === 'suspended') await a.ctx.resume();
         C.src = a.ctx.createBufferSource(); C.src.buffer = buf; C.src.connect(a.ctx.destination);
         const lag = (performance.now() - started) / 1000;            // the server's clock started when it asked
         C.src.start(0, Math.min(lag, Math.max(0, buf.duration - 0.1))); C.t0 = a.ctx.currentTime - lag;
         C.pos = () => Math.max(0, S.audio.ctx.currentTime - C.t0);
-      } catch (e) { toast(`${cue.name}: could not play the song here`, true); C.pos = () => (performance.now() - started) / 1000; }
+      } catch (e) { toast(`${show_moment.name}: could not play the song here`, true); C.pos = () => (performance.now() - started) / 1000; }
     } else C.pos = () => (performance.now() - started) / 1000;      // a silent preview: the lights only
-    S.cue = { live: true, pos: () => C.pos() };
+    S.show_moment = { live: true, pos: () => C.pos() };
     S.audio.playing = true; St.updateTransport();
     St.startPartyLights();
     S.forceSend = true; St.zoomFit(); St.draw();
   }
-  function cueEnd() {
+  function showMomentEnd() {
     clearInterval(C.poll); C.poll = null;
     if (C.src) { try { C.src.stop(); } catch (e) { } C.src = null; }
-    S.cue = null;
+    S.show_moment = null;
     const p = C.prev || {}; C.ended = C.run; C.run = null; C.prev = null;
     S.analysis = p.analysis; S.project = p.project; S.name = p.name || ''; S.audio.buffer = p.buffer;
-    if (p.jam) {
-      // the jam's show again, as it was: the next tick anchors it to the room, nothing is loaded
+    if (p.relay) {
+      // the party's show again, as it was: the next tick anchors it to the room, nothing is loaded
       J.live = true; J.key = p.key; J.doc = p.doc; J.version = p.version; J.built = p.built; J.style = p.style; J.drums = p.drums;
-      S.albumPalette = p.palette; S.jamColors = p.colors; S.jamPairs = p.pairs || null; S.jamExtras = p.extras; S.jamRainbow = p.rainbow; S.noLimits = p.wild; S.glowAt = p.glow || null;
+      S.albumPalette = p.palette; S.partyColors = p.colors; S.partyPairs = p.pairs || null; S.partyExtras = p.extras; S.partyRainbow = p.rainbow; S.noLimits = p.wild; S.glowAt = p.glow || null;
       S.forceSend = true;
       setTimeout(tick, 0);                                           // where the room is now, not a second from now
     }
@@ -240,7 +240,7 @@
   }
 
   function buildFailed(room, e) {
-    console.error('Jam show build failed', e);
+    console.error('Party show build failed', e);
     if (J.failedKey !== room.key) toast(`${room.label}: the show could not be built (${e.message}). The lights keep time with what there is.`, true);
     J.failedKey = room.key;
   }
@@ -284,7 +284,7 @@
     let pal = null;
     try {
       // decoded from the bytes (an <img> waits while the window is hidden)
-      const r = await fetch('/api/jam/art?url=' + encodeURIComponent(url));
+      const r = await fetch('/api/relay/art?url=' + encodeURIComponent(url));
       if (!r.ok) return undefined;
       const img = await createImageBitmap(await r.blob());
       const cv = document.createElement('canvas'); cv.width = cv.height = 48;
@@ -317,7 +317,7 @@
   // costs only the build (25-60 ms). A first listen is not readied: it changes as it is heard.
   function prefetch(t) {
     if (!t || !t.key || t.key === J.key || t.kind === 'live' || (J.pre && J.pre.key === t.key)) return;
-    const doc = api('jam/analysis?key=' + encodeURIComponent(t.key));
+    const doc = api('relay/analysis?key=' + encodeURIComponent(t.key));
     const pal = doc.then(d => albumPalette(d.track));
     const proj = doc.then(d => (d.kind === 'custom' && d.project ? fetch('/api/projects/' + encodeURIComponent(d.project)).then(r => r.json()) : null));
     J.pre = { key: t.key, doc, pal, proj };
@@ -354,11 +354,11 @@
     let pre = J.pre && J.pre.key === room.key ? J.pre : null;
     J.glowIn = pre && pre.hex || null;                              // the glow this song's start takes over from
     let doc = pre ? await pre.doc.catch(() => null) : null;
-    if (!doc || doc.kind !== room.kind) { pre = null; doc = await api('jam/analysis?key=' + encodeURIComponent(room.key)); }
+    if (!doc || doc.kind !== room.kind) { pre = null; doc = await api('relay/analysis?key=' + encodeURIComponent(room.key)); }
     J.live = true; J.doc = doc;
     S.albumPalette = pre ? await pre.pal.catch(() => albumPalette(doc.track)) : await albumPalette(doc.track);
-    S.jamColors = doc.kind === 'custom' ? null : colorsFor(doc.track); S.jamPairs = doc.kind === 'custom' ? null : pairsFor(doc.track);
-    S.jamExtras = extrasFor(S.jamColors, doc.track); S.jamRainbow = rainbowOn(doc.track); S.noLimits = doc.kind !== 'custom' && wildOn(doc.track); J.colorSig = colorSig();
+    S.partyColors = doc.kind === 'custom' ? null : colorsFor(doc.track); S.partyPairs = doc.kind === 'custom' ? null : pairsFor(doc.track);
+    S.partyExtras = extrasFor(S.partyColors, doc.track); S.partyRainbow = rainbowOn(doc.track); S.noLimits = doc.kind !== 'custom' && wildOn(doc.track); J.colorSig = colorSig();
     clearTimeout(J.saveT); J.auto = J.custom = J.secsByHand = false; J.savedAs = null;   // (see J.onEdit)
     if (doc.kind === 'custom' && doc.project) {
       const data = (pre && await pre.proj.catch(() => null)) || await (await fetch('/api/projects/' + encodeURIComponent(doc.project))).json();
@@ -367,7 +367,7 @@
       if (!data.saved) try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
       if (J.failedKey !== room.key) toast(`${room.label}: playing your show`);
     } else if (doc.locked) {
-      // locked by the user (jam.py JamLibrary.lock): the show exactly as it was kept, on the analysis it was
+      // locked by the user (party.py PartyLibrary.lock): the show exactly as it was kept, on the analysis it was
       // built on; nothing is built, restyled or recolored (it is not saved anywhere either: S.name stays empty)
       adopt(doc.analysis, room.label, null);
       S.project = JSON.parse(JSON.stringify(doc.locked)); St.migrateProject(S.project);
@@ -381,23 +381,23 @@
       adopt(doc.analysis, room.label, null);
       applyStyle(doc.track);                                          // a vibe picked for it by hand
       try { St.autoBuild(true); } catch (e) { buildFailed(room, e); }
-      J.built = sectionKeys(); J.auto = true;                         // the jam's own show: it follows the sections
+      J.built = sectionKeys(); J.auto = true;                         // the party's own show: it follows the sections
       if (J.failedKey !== room.key) toast(doc.kind === 'learned' ? `${room.label}: heard before, full show` : `${room.label}: first listen, building as it plays`);
     }
     setGlow();
     St.fullBrightness();                                            // between songs: every light back to 100%
     J.key = room.key; J.version = doc.version; J.lastFeat = performance.now(); J.style = St.showStyle();
-    J.secsSeen = { key: room.key, sig: St.sectionsSig() };          // (section changes from here on are kept: app.js jamSave)
+    J.secsSeen = { key: room.key, sig: St.sectionsSig() };          // (section changes from here on are kept: app.js partySave)
     J.clips = St.clipSig();                                         // (the lights as built: a change to them is a hand edit)
     J.drums = !!(S.analysis && S.analysis.events && S.analysis.events.kick && S.analysis.events.kick.length);
     St.zoomFit(); St.inspector(); St.draw();
   }
 
-  /** A section moved in a jam (as under review): the jam's own show follows it, rebuilt the way it is when the song
+  /** A section moved in a party (as under review): the party's own show follows it, rebuilt the way it is when the song
    *  is heard better (reconcile: what changed, the part playing now from the next beat on), its layers dimmed to
    *  say so. Lights changed by hand (a clip added, moved, recolored...) make it your own show: saved as you go
-   *  (review.py make_custom), played by the jam from then on, and no longer rebuilt; undone back to the lights as
-   *  built, it is the jam's own again. Your own saved shows are never rebuilt. (app.js changed() calls this.) */
+   *  (review.py make_custom), played by the party from then on, and no longer rebuilt; undone back to the lights as
+   *  built, it is the party's own again. Your own saved shows are never rebuilt. (app.js changed() calls this.) */
   J.onEdit = () => {
     if (!J.live || !J.auto || !J.doc) return;
     const label = (J.doc.track && J.doc.track.name) || 'This song';
@@ -429,13 +429,13 @@
     } catch (e) { toast('Your show was not saved: ' + e.message, true); }
   }
 
-  /** Learning ahead, a song playing before it is learned (the jam just started, a skip to a song not yet
+  /** Learning ahead, a song playing before it is learned (the party just started, a skip to a song not yet
    *  learned) is a stopgap until its copy is: the song's main color glowing slowly up and down (a 4 s swell,
    *  never dark), no beat followed and nothing else worked out, so the PC's effort goes to learning it (its
    *  analysis runs at above-normal priority meanwhile, fetch_ahead.submit). */
   function buildLight() {
     const p = St.P(); if (!p || !S.analysis) return;
-    const col = (S.jamColors && S.jamColors[0]) || (S.albumPalette && S.albumPalette[0]) || '#ffffff';
+    const col = (S.partyColors && S.partyColors[0]) || (S.albumPalette && S.albumPalette[0]) || '#ffffff';
     p.bpm = S.analysis.bpm || 120; p.phase = S.analysis.downbeat_phase || 0; p.beats = (S.analysis.beats || []).slice();
     for (const lane of p.lanes) lane.clips = [];
     p.paletteClips = [];
@@ -451,7 +451,7 @@
 
   /** A first listen has learned more: take the new grid and rebuild only what the room has not reached. */
   async function refresh(room, featuresOnly = false) {
-    const doc = await api('jam/analysis?key=' + encodeURIComponent(room.key));
+    const doc = await api('relay/analysis?key=' + encodeURIComponent(room.key));
     if (!doc.analysis || room.key !== J.key) return;
     const a = doc.analysis, p = St.P();
     S.analysis = a; J.lastFeat = performance.now(); applyGenre(J.doc && J.doc.track);
@@ -474,7 +474,7 @@
     St.addMoments(nowBeat);                                        // cuts and entrances this pass heard, still ahead of the room
     St.addFlavor(nowBeat);                                         // and the song's own flavor: spotlights, wobbles, the finale once it is all heard
     J.built = keys; J.version = doc.version; J.style = style; J.drums = drumsNow;
-    J.clips = St.clipSig();                                        // (the jam's own rebuild, not a hand edit)
+    J.clips = St.clipSig();                                        // (the party's own rebuild, not a hand edit)
     St.draw();
   }
 
@@ -557,7 +557,7 @@
 
   function leave() {
     S.glowAt = null;
-    S.albumPalette = null; S.jamColors = null; S.jamPairs = null; S.jamExtras = null; S.jamRainbow = false; S.noLimits = false; J.doc = null;
+    S.albumPalette = null; S.partyColors = null; S.partyPairs = null; S.partyExtras = null; S.partyRainbow = false; S.noLimits = false; J.doc = null;
     if (!J.live) return;
     J.live = false; J.key = null; J.version = -1; J.anchor = null; S.audio.playing = false; S.audio.pos = 0;
     St.updateTransport(); St.stopOutput(); St.draw();

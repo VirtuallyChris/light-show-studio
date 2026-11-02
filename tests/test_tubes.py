@@ -1,7 +1,6 @@
 """The kitchen's meteor tubes (H6821, 240 LEDs in one frame) and big changes sent the moment they are drawn."""
 
 import base64
-import json
 import unittest
 from unittest import mock
 

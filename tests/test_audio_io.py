@@ -44,11 +44,11 @@ class TestProcessOutput(unittest.TestCase):
             with Busy():
                 out.start_stream(relay.open_stream(0.0))
                 self.assertEqual(out.error, "")
-                t0 = time.perf_counter()
+                p0, t0 = out.position(), time.perf_counter()        # (it may have been playing a while by now, on a busy machine)
                 time.sleep(8.0)
                 # With the clock overall, not drifting. (Not a rate over a few seconds: when this process hogs its own
                 # interpreter the fake device may wait for audio and then catch up, which only looks like running fast.)
-                ahead = out.position() - (time.perf_counter() - t0)
+                ahead = out.position() - p0 - (time.perf_counter() - t0)
             self.assertLess(abs(ahead), 0.6, f"{ahead:+.3f} s from the clock after 8 s")
         finally:
             out.stop()

@@ -35,17 +35,17 @@
   let deviceId = '';          // repeated with every report, so a restarted studio learns it again
   const post = (path, body) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
   function status(text, cls) { $('#title').textContent = text; $('#dot').className = 'dot' + (cls ? ' ' + cls : ''); }
-  function problem(text) { $('#err').hidden = !text; $('#err').textContent = text || ''; post('/api/jam/sdk_state', { error: text || '' }); }
+  function problem(text) { $('#err').hidden = !text; $('#err').textContent = text || ''; post('/api/relay/sdk_state', { error: text || '' }); }
 
   // what the studio needs from the player's state, and nothing else
   function report(st) {
-    if (!st || !st.track_window || !st.track_window.current_track) { post('/api/jam/sdk_state', { device_id: deviceId, ready: !!deviceId, state: {} }); $('#now').textContent = 'nothing yet'; return; }
+    if (!st || !st.track_window || !st.track_window.current_track) { post('/api/relay/sdk_state', { device_id: deviceId, ready: !!deviceId, state: {} }); $('#now').textContent = 'nothing yet'; return; }
     const t = st.track_window.current_track;
     // The SDK's `position` is where the track was when `timestamp` was taken, not now: between
     // its events it stands still. Bring it up to the moment of sending.
     const age = typeof st.timestamp === 'number' ? Date.now() - st.timestamp : null;
     const pos = st.paused || age === null || age < 0 || age > 3600e3 ? st.position : st.position + age;
-    post('/api/jam/sdk_state', { device_id: deviceId, ready: !!deviceId, state: { position_ms: pos, raw_position_ms: st.position, stamp: st.timestamp || null, paused: st.paused,
+    post('/api/relay/sdk_state', { device_id: deviceId, ready: !!deviceId, state: { position_ms: pos, raw_position_ms: st.position, stamp: st.timestamp || null, paused: st.paused,
       track: { id: t.id, uri: t.uri, name: t.name, duration_ms: t.duration_ms, artists: (t.artists || []).map(a => ({ name: a.name, uri: a.uri })),
         album: { images: ((t.album && t.album.images) || []).map(i => ({ url: i.url, width: i.width })) } } } });
     $('#now').textContent = `${(t.artists || []).map(a => a.name).join(', ')} – ${t.name}${st.paused ? '  (paused)' : ''}`;
@@ -77,11 +77,11 @@
     player.addListener('ready', ({ device_id }) => {
       status('Light Show Studio is ready in Spotify', 'ok'); problem('');
       deviceId = device_id;
-      post('/api/jam/sdk_state', { device_id, ready: true });
+      post('/api/relay/sdk_state', { device_id, ready: true });
       $('#here').hidden = false;
-      $('#here').onclick = () => post('/api/jam/player/transfer', {});
+      $('#here').onclick = () => post('/api/relay/player/transfer', {});
     });
-    player.addListener('not_ready', () => { deviceId = ''; status('Reconnecting to Spotify…', 'warn'); post('/api/jam/sdk_state', { device_id: '', ready: false }); });
+    player.addListener('not_ready', () => { deviceId = ''; status('Reconnecting to Spotify…', 'warn'); post('/api/relay/sdk_state', { device_id: '', ready: false }); });
     player.addListener('player_state_changed', report);
     player.addListener('initialization_error', ({ message }) => { status('This browser cannot play Spotify', 'warn'); problem(`${message}. The studio player needs Microsoft Edge or Google Chrome, with protected content allowed in its site settings.`); });
     player.addListener('authentication_error', ({ message }) => { status('Spotify sign-in needed', 'warn'); problem(`${message}. Press "Sign in to Spotify" in the app's Settings again.`); });

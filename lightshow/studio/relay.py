@@ -1,6 +1,6 @@
 """A delayed relay: audio goes in now and comes out for the speakers later.
 
-Jam mode plays somebody else's stream (Spotify, running on this PC) through the
+the party plays somebody else's stream (Spotify, running on this PC) through the
 house speakers, but a little late. Everything the PC plays is captured into a
 rolling buffer in memory, and the Cast speakers pull their audio from a point
 some tens of seconds behind the newest sample. That gap is the whole trick: the
@@ -332,7 +332,7 @@ class RelayStream:
         self.segments: list[list[int]] = []             # [stream_frame, capture_frame or -1 for silence, length]
         self.gaps: list[list[int]] = []                 # [at_capture_frame, silence_frames_left]
         self.gain: tuple | None = None                  # (from stream frame, frames, gain from, gain to): a fade
-        self.cut: dict | None = None                    # a cue's song played into the stream first (see insert)
+        self.cut: dict | None = None                    # a moment's song played into the stream first (see insert)
         self.lev = relay.level_at(self.cursor)          # the song level being applied (glides to a new song's)
         self.started_at = relay.clock()
         self.closed = False
@@ -351,14 +351,14 @@ class RelayStream:
         self.gaps.sort()
 
     def fade(self, seconds: float, to: float, start: float | None = None) -> None:
-        """Fade what the stream hands out from here (a cue's fade): to 0 for out, to 1 for in, from the
+        """Fade what the stream hands out from here (a moment's fade): to 0 for out, to 1 for in, from the
         level it is at now (or start). The speakers hear it once they reach this point of the stream."""
         with self.relay.cond:
             g0 = self._gain_at(self.sent) if start is None else float(start)
             self.gain = (self.sent, max(1, int(seconds * self.relay.sr)), g0, float(to))
 
     def insert(self, pcm: np.ndarray, after: int) -> None:
-        """Play other audio (a cue's song, int16 frames) before the stream's own: the song alone, to its very
+        """Play other audio (a moment's song, int16 frames) before the stream's own: the song alone, to its very
         end, then the music from where it held, fading in from silence over `after` frames (the user: let it
         finish fully, then fade back in; the songs overlapping each other's ends was a mess)."""
         with self.relay.cond:
@@ -418,7 +418,7 @@ class RelayStream:
                 return None
             max_frames = min(max_frames, allowed)
         with r.cond:
-            if self.cut is not None:                        # a cue's song plays first
+            if self.cut is not None:                        # a moment's song plays first
                 return self._read_cut(max_frames)
             # a gap that falls at the cursor goes out first
             if self.gaps and self.gaps[0][0] <= self.cursor:

@@ -125,7 +125,7 @@ class CastManager:
     def new_media_status(self, status) -> None:
         # Times reported by the device count from the start of the stream it was
         # given, which begins at self.base seconds into the song.
-        # A late word about the stream before this one (each jam stream has its own address): its position, minutes in,
+        # A late word about the stream before this one (each party stream has its own address): its position, minutes in,
         # put back over the new one's 0 made a doorbell look long over at once, and its lights were skipped (the user)
         cid = getattr(status, "content_id", None)
         if cid and self.media_url and cid != self.media_url:
@@ -189,7 +189,7 @@ class CastManager:
         return self.status()
 
     def play_stream(self, url: str, content_type: str, title: str) -> dict:
-        """Play an endless live stream (Jam mode's relay) rather than a file.
+        """Play an endless live stream (the party's relay) rather than a file.
 
         There is nothing to seek in and no length; the position the speaker
         reports is simply how much of the stream it has played.
@@ -241,7 +241,7 @@ class CastManager:
             self.cast.set_volume(max(0.0, min(1.0, level)))
         return self.status()
 
-    # -- every speaker's own volume (the Party Hub's settings) ----------------------------------
+    # -- every speaker's own volume (the phone remote's settings) ----------------------------------
     def _device(self, name: str):
         if not self.casts:
             self.discover()

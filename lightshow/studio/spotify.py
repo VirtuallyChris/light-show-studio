@@ -1,6 +1,6 @@
 """A small Spotify Web API client: who is playing what, and what is queued.
 
-Jam mode never asks Spotify for audio, because Spotify does not give it out. It
+the party never asks Spotify for audio, because Spotify does not give it out. It
 asks only what any remote control could: the current track and how far in it is,
 whether it is paused, and what comes next. It can also pause and resume, which
 is how the studio times the hand-over from an opening song on disk.
@@ -28,7 +28,7 @@ TOKEN_URL = "https://accounts.spotify.com/api/token"
 API = "https://api.spotify.com/v1"
 # `streaming` (with the two profile scopes it requires) lets the studio run its own Spotify
 # player, which appears in Spotify Connect as "Light Show Studio"
-# (the two playlist scopes let pre-listen read a party playlist, private ones included)
+# (the two playlist scopes let learning a playlist read a party playlist, private ones included)
 SCOPES = ("user-read-playback-state user-read-currently-playing user-modify-playback-state "
           "streaming user-read-email user-read-private playlist-read-private playlist-read-collaborative")
 

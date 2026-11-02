@@ -240,8 +240,8 @@ class RunnerTest(unittest.TestCase):
         return r, clock
 
     def test_a_speaker_taken_over_is_taken_back(self):
-        # the party (2026-10-30): a show whose speaker was taken (a doorbell cue, the party's group, a Wi-Fi drop)
-        # ended, and Bulb Studio, started from the Party Hub, then quit; the show was switched on again by hand
+        # The party (2026-10-30): a show whose speaker was taken (a doorbell moment, the party's group, a Wi-Fi drop)
+        # ended, and Bulb Studio, started from the phone remote, then quit; the show was switched on again by hand
         r, clock = self.playing_runner()
         first = r.speakers.opened[0]
         first.state = "IDLE"
@@ -727,7 +727,7 @@ class SpeakersTest(unittest.TestCase):
 class LogTest(unittest.TestCase):
     def test_started_hidden_by_the_studio_it_keeps_a_log(self):
         from bulbstudio.server import keeps_log
-        self.assertTrue(keeps_log(open_browser=False, stay=False))          # the Party Hub's start: output to nowhere
+        self.assertTrue(keeps_log(open_browser=False, stay=False))          # the phone remote's start: output to nowhere
         self.assertFalse(keeps_log(open_browser=True, stay=False))          # in a console with its window
         self.assertFalse(keeps_log(open_browser=False, stay=True))          # a launch config (the test copy)
 
@@ -750,7 +750,7 @@ class ShowCastTest(unittest.TestCase):
         dev.disconnect.assert_called_once()
 
     def test_a_speaker_taken_over_is_left_playing(self):
-        sc, dev = self.cast_playing("http://pc:8765/api/jam/stream/7")      # the party's group, a doorbell cue
+        sc, dev = self.cast_playing("http://pc:8765/api/relay/stream/7")      # the party's group, a doorbell moment
         sc.disconnect()
         dev.media_controller.stop.assert_not_called()
         dev.disconnect.assert_called_once()

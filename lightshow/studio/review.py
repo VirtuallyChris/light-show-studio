@@ -1,10 +1,10 @@
-"""Review mode: step through the learned Jam songs that have no saved show, set their sections right in the
+"""Review mode: step through the learned Party songs that have no saved show, set their sections right in the
 studio, and keep what the user says as the truth the section labeler learns from (labeler.py).
 
-A song can be reviewed when it was learned (shows/_jam/learned/<id>.json) and its copy kept
-(shows/_jam/copies/<id>.flac): the studio plays the copy, the learned analysis is the one a Jam uses (its
+A song can be reviewed when it was learned (shows/_party/learned/<id>.json) and its copy kept
+(shows/_party/copies/<id>.flac): the studio plays the copy, the learned analysis is the one a Party uses (its
 sections settled by the current rules), and nothing is saved as a show. What the user gives back goes to
-shows/_jam/section_truth.json under the track id:
+shows/_party/section_truth.json under the track id:
 
     {"name": "Artist - Title", "drops": [drop starts], "sections": [{"type", "start", "end"}, ...],
      "reviewed": "corrected" | "right as found", "added": "YYYY-MM-DD"}
@@ -192,8 +192,8 @@ class Review:
         return sorted(({k: s[k] for k in ("id", "label", "show")} for s in keep), key=lambda s: s["label"].lower())
 
     def make_custom(self, track_id: str, project: dict) -> str:
-        """A jam song edited by hand becomes a show of its own: shows/<Artist - Title>/ with the song's kept copy
-        and the show, and the track pinned to it (links.json), so the jam plays it from then on."""
+        """A party song edited by hand becomes a show of its own: shows/<Artist - Title>/ with the song's kept copy
+        and the show, and the track pinned to it (links.json), so the party plays it from then on."""
         t = self._head(track_id)
         if not t or not os.path.exists(self.copy_path(track_id)):
             raise ValueError("That song is not learned, or its copy is gone.")
@@ -213,7 +213,7 @@ class Review:
         return name
 
     def drop_custom(self, track_id: str, name: str) -> bool:
-        """Undone back to the jam's own show: the show make_custom made for the song is set aside (to the Recycle
+        """Undone back to the party's own show: the show make_custom made for the song is set aside (to the Recycle
         Bin) and the track no longer pinned to it. Only a show pinned to this song, by this name."""
         if self.read_only or not name or self.library.links().get(track_id) != name:
             return False
@@ -243,7 +243,7 @@ class Review:
 
     def keep(self, track_id: str, sections: list, ok: bool, beat_shift: float = 0.0, by: str | None = None) -> dict:
         """The user's word on a song's sections, into the truth (written whole, through a temporary file);
-        beat_shift: seconds the user moved its beat grid, added to the song's beat fix (jam.py). by="claude": a review
+        beat_shift: seconds the user moved its beat grid, added to the song's beat fix (party.py). by="claude": a review
         Claude made by itself (tools/claude_review.py), marked so: the labeler learns less from it, it is never scored
         against, and the user's own review of the song replaces it."""
         t = self._head(track_id)

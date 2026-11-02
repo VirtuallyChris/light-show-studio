@@ -26,7 +26,7 @@ The parts that need no model (LRC parsing, matching, placing lines, writing) run
 needs the model environment (.venv-songformer: CUDA PyTorch, Demucs, faster-whisper), where it is one
 of the model host's models ("lyrics", loaded the first time it is asked: about 3 GB of the card).
 Learn ahead (fetch_ahead.py) asks it for each queued song right after the song is learned, while the
-copy is still on disk, and the answer goes to shows/_jam/lyrics/<track id>.json (learn()).
+copy is still on disk, and the answer goes to shows/_party/lyrics/<track id>.json (learn()).
 """
 
 from __future__ import annotations
@@ -447,8 +447,8 @@ def read(path: str) -> dict | None:
 # ---------------------------------------------------------------- the studio's side
 
 
-def lyrics_path(jam_dir: str, track_id: str) -> str:
-    return os.path.join(jam_dir, "lyrics", f"{track_id}.json")
+def lyrics_path(party_dir: str, track_id: str) -> str:
+    return os.path.join(party_dir, "lyrics", f"{track_id}.json")
 
 
 def _worker():
@@ -462,11 +462,11 @@ def _worker():
 WORKER = None
 
 
-def learn(track, path: str, jam_dir: str, ask=None) -> dict | None:
+def learn(track, path: str, party_dir: str, ask=None) -> dict | None:
     """A queued song's lyrics, from its copy just learned (the model host does the work): written to
-    shows/_jam/lyrics/<track id>.json and returned. None when the models cannot run (nothing written,
+    shows/_party/lyrics/<track id>.json and returned. None when the models cannot run (nothing written,
     so it is tried again the next time the song is learned); a song that has lyrics is not redone."""
-    out = lyrics_path(jam_dir, track.id)
+    out = lyrics_path(party_dir, track.id)
     if os.path.exists(out):
         return read(out)
     req = {"path": os.path.abspath(path), "title": track.name, "artist": (track.artists or [""])[0],

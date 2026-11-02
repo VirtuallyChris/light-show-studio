@@ -1,11 +1,11 @@
-"""Pre-listen: a party playlist learned ahead of time. Fakes only: no Spotify, nothing plays."""
+"""learning a playlist: a party playlist learned ahead of time. Fakes only: no Spotify, nothing plays."""
 
 import threading
 import unittest
 from types import SimpleNamespace
 
-from lightshow.studio import prelisten as pl
-from lightshow.studio.prelisten import PreListen, playlist_id
+from lightshow.studio import playlist_learning as pl
+from lightshow.studio.playlist_learning import PreListen, playlist_id
 from lightshow.studio.spotify import Track
 
 
@@ -51,14 +51,14 @@ class TestPreListen(unittest.TestCase):
     def setUp(self):
         self.saved = (pl.CHECK_S, pl.TAKEOVER_S)
         pl.CHECK_S, pl.TAKEOVER_S = 0.02, 0.06
-        self.jam = []
+        self.party = []
 
     def tearDown(self):
         pl.CHECK_S, pl.TAKEOVER_S = self.saved
 
     def make(self, tracks, lib):
         sp = FakeSpotify(tracks)
-        p = PreListen(sp, lib, start_jam=lambda: self.jam.append("start"), stop_jam=lambda: self.jam.append("stop"),
+        p = PreListen(sp, lib, start_party=lambda: self.party.append("start"), stop_party=lambda: self.party.append("stop"),
                       device_id=lambda: "studio-device")
         return p, sp
 
@@ -84,7 +84,7 @@ class TestPreListen(unittest.TestCase):
         self.assertTrue(self.wait(p, lambda: not p.status()["running"]))
         self.assertIn("learned all 2", p.status()["note"])
         self.assertTrue(sp.paused)
-        self.assertEqual(self.jam, ["start", "stop"])
+        self.assertEqual(self.party, ["start", "stop"])
 
     def test_a_phone_taking_spotify_back_stops_it(self):
         p, sp = self.make([track(1), track(2)], FakeLibrary())
@@ -94,13 +94,13 @@ class TestPreListen(unittest.TestCase):
         self.assertTrue(self.wait(p, lambda: not p.status()["running"]))
         self.assertIn("iPhone", p.status()["note"])
         self.assertFalse(sp.paused)                                       # never pauses someone else's music
-        self.assertEqual(self.jam, ["start", "stop"])
+        self.assertEqual(self.party, ["start", "stop"])
 
     def test_nothing_to_learn(self):
         p, sp = self.make([track(1)], FakeLibrary(learned={"t1"}))
         st = p.start("queue")
         self.assertFalse(st["running"])
-        self.assertEqual(self.jam, [])
+        self.assertEqual(self.party, [])
         self.assertIsNone(sp.played)
 
     def test_playlist_links(self):

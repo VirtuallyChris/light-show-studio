@@ -19,13 +19,13 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from lightshow.studio import labeler as L  # noqa: E402
-from lightshow.studio.jam import JamLibrary  # noqa: E402
+from lightshow.studio.party import PartyLibrary  # noqa: E402
 from lightshow.studio.review import Review  # noqa: E402
 
 
 GUIDE = 2                     # the labeling guide's version: redo picks Claude's reviews made under an older one
-GUIDES = os.path.join(ROOT, "shows", "_jam", "claude_guide.json")     # track id -> the guide its review followed
-TRIALS = os.path.join(ROOT, "shows", "_jam", "features", "trials", "nn_data.npz")
+GUIDES = os.path.join(ROOT, "shows", "_party", "claude_guide.json")     # track id -> the guide its review followed
+TRIALS = os.path.join(ROOT, "shows", "_party", "features", "trials", "nn_data.npz")
 
 
 def _guides() -> dict:
@@ -39,7 +39,7 @@ def _guides() -> dict:
 def prep(n: int, batch_path: str, text_path: str, redo: bool = False) -> None:
     """The next n songs nobody has reviewed, the most doubted first; redo: Claude's own reviews made under an older
     guide come after them, to be labeled again."""
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     m = L._load()
     if not m:
         raise SystemExit("no labeler trained yet")
@@ -72,7 +72,7 @@ def prep(n: int, batch_path: str, text_path: str, redo: bool = False) -> None:
 def blind(n: int, seed: int, batch_path: str, text_path: str) -> None:
     """n of the user's own reviewed songs, to be labeled without seeing the user's answer: the labeler column is the
     trees trained without that song (the trials' folds, nn_export.py), so nothing in the table knows the answer."""
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     z = np.load(TRIALS)
     oof = {str(z[f"id{i}"]): z[f"T{i}"] for i in range(int(z["n"])) if not int(z[f"c{i}"])}
     truth = L.truth(lib.dir)
@@ -139,7 +139,7 @@ def _sections(song: dict, runs: list) -> list:
 
 def score(batch_path: str, labels_path: str) -> None:
     """A blind batch's labels against the user's own, bar by bar (weighted by bar length), beside the trees'."""
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     z = np.load(TRIALS)
     oof = {str(z[f"id{i}"]): z[f"T{i}"] for i in range(int(z["n"]))}
     batch = json.load(open(batch_path, encoding="utf-8"))
@@ -159,7 +159,7 @@ def score(batch_path: str, labels_path: str) -> None:
 
 
 def keep(batch_path: str, labels_path: str) -> None:
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     batch = json.load(open(batch_path, encoding="utf-8"))
     labels = json.load(open(labels_path, encoding="utf-8"))
     review = Review(lib)
@@ -182,7 +182,7 @@ def keep(batch_path: str, labels_path: str) -> None:
 
 def propose(batch_path: str, labels_path: str) -> None:
     """The sections given, as suggestions for the user to judge in review mode (review.py proposals), not reviews."""
-    lib = JamLibrary(os.path.join(ROOT, "shows"))
+    lib = PartyLibrary(os.path.join(ROOT, "shows"))
     batch = json.load(open(batch_path, encoding="utf-8"))
     labels = json.load(open(labels_path, encoding="utf-8"))
     review, done = Review(lib), 0

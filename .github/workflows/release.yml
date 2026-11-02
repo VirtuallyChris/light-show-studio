@@ -41,8 +41,8 @@ jobs:
       - run: pip install --prefer-binary -r requirements.txt -r requirements-addons.txt
       - run: python -m unittest discover -s tests
 
-  jam-capture:
-    name: Jam capture (${{ matrix.os }})
+  party-capture:
+    name: Party capture (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -72,11 +72,11 @@ jobs:
             done
           done
       - run: pip install --prefer-binary -r requirements.txt
-      - run: python packaging/jam_capture_check.py
+      - run: python packaging/party_capture_check.py
 
   build:
     name: Build ${{ matrix.asset }}
-    needs: [tests, jam-capture]
+    needs: [tests, party-capture]
     strategy:
       fail-fast: false
       matrix:
@@ -111,7 +111,7 @@ jobs:
           # would otherwise be compiled from source, and fail
           pip install --prefer-binary -r requirements.txt -r requirements-addons.txt pyinstaller pillow
           echo "LSS_VERSION=${LSS_VERSION#v}" >> "$GITHUB_ENV"
-      - name: Mac audio helper (Jam mode)
+      - name: Mac audio helper (the party)
         if: runner.os == 'macOS'
         run: swiftc -O -target "$(uname -m)-apple-macos14.2" -framework CoreAudio -framework AudioToolbox -framework Foundation -o packaging/mac/audiotap packaging/mac/audiotap.swift
       - name: Build the app

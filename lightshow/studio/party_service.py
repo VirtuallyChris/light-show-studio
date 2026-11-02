@@ -1,4 +1,4 @@
-"""Jam mode's place in the studio server: starting and stopping it, and its HTTP routes."""
+"""The party's place in the studio server: starting and stopping it, and its HTTP routes."""
 
 from __future__ import annotations
 
@@ -16,22 +16,22 @@ from aiohttp import web
 
 from . import loopback
 from . import webjson
-from .jam import CastOutput, JamEngine, JamLibrary, JamRunner, JamSettings, VirtualOutput
+from .party import CastOutput, PartyEngine, PartyLibrary, PartyRunner, PartySettings, VirtualOutput
 from .loopback import Gate
 from .relay import Relay
 from .spotify import PlayerAwareSpotify, PlayerState, SpotifyClient
 
 
-# the start settings remembered for next time (and for a jam that starts itself)
+# the start settings remembered for next time (and for a party that starts itself)
 LAST_KEYS = ("device", "speakers", "pc_device", "target_delay", "crossfade", "skip_jumps", "source")
-DEFAULT_OPENER = ""                                   # a jam opens with this saved show (config.json jam_opener), if it is there
+DEFAULT_OPENER = ""                                   # a party opens with this saved show (config.json party_opener), if it is there
 
 
 def extras_for(pair) -> list[str] | None:
     """The two "now and then" colors for a pair: the hues farthest from both, evenly spread across the
     wider gap between them on the color wheel, either side of its middle (purple and green get red and
     orange). The studio's
-    jam.js does the same, so the phone shows what the lights will do."""
+    party_show.js does the same, so the phone shows what the lights will do."""
     if not pair or len(pair) < 2:
         return None
     hues = []
@@ -55,63 +55,63 @@ def _hex_color(v) -> str | None:
 
 
 def _summary(library, tid: str) -> dict:
-    """A learned song's problems, mood and genre (JamLibrary.summary: without parsing the whole file)."""
+    """A learned song's problems, mood and genre (PartyLibrary.summary: without parsing the whole file)."""
     if hasattr(library, "summary"):
         return library.summary(tid) or {}
     return (library.learned(tid) or {}).get("analysis") or {}
 
 
-class JamService:
+class PartyService:
     def __init__(self, studio, shows_dir: str, load_config, save_config, local_ip):
         self.studio, self.shows_dir = studio, shows_dir
         self.load_config, self.save_config, self.local_ip = load_config, save_config, local_ip
-        self.library = JamLibrary(shows_dir)
+        self.library = PartyLibrary(shows_dir)
         # learn ahead: queued songs learned before they play, from a copy found on YouTube (fetch_ahead)
         from . import labeler, lyrics
         from .fetch_ahead import FetchAhead
-        self.fetch = FetchAhead(self.library, keep=lambda: bool(self.load_config().get("jam_keep_youtube_copies", True)),
+        self.fetch = FetchAhead(self.library, keep=lambda: bool(self.load_config().get("party_keep_youtube_copies", True)),
                                 lyrics=lyrics.learn, features=labeler.learn_features)
         cfg = self.load_config()
-        if cfg and "jam_keep_youtube_copies" not in cfg:     # written in, so the setting is there to see and change
-            cfg["jam_keep_youtube_copies"] = True
+        if cfg and "party_keep_youtube_copies" not in cfg:     # written in, so the setting is there to see and change
+            cfg["party_keep_youtube_copies"] = True
             self.save_config(cfg)
         self._assigned: dict[str, int] = {}                  # track id -> the pair it got in "mix"
         self._moods: dict[str, dict | None] = {}             # track id -> its learned mood (or None)
-        # Party level, 0..1: how much of the show comes through. Below 1 the studio lays the song's main
+        # Energy, 0..1: how much of the show comes through. Below 1 the studio lays the song's main
         # color over every show, more and more opaque, so the room calms down without going dark.
-        self.party_level = float(load_config().get("party_level", 1.0))
-        # Built up to 100% over a while (the Party Hub's button under the slider): {from, start (epoch s), minutes, song}.
+        self.party_energy = float(load_config().get("party_energy", 1.0))
+        # Built up to 100% over a while (the phone remote's button under the slider): {from, start (epoch s), minutes, song}.
         # Kept in the config, so a restart carries on with it.
-        self.party_ramp: dict | None = load_config().get("party_ramp") or None
-        # the party modes switched on (Party Hub buttons the user makes): {mode id: {on, at (monotonic s), color, paused}};
+        self.energy_ramp: dict | None = load_config().get("energy_ramp") or None
+        # the color moments switched on (phone remote buttons the user makes): {mode id: {on, at (monotonic s), color, paused}};
         # not kept over a restart
-        self.mode_on: dict[str, dict] = {}
+        self.color_moment_on: dict[str, dict] = {}
         self.store = dict(load_config().get("spotify", {}))
         self.spotify = SpotifyClient(self.store, save=self._save_store)
         self.player = PlayerState()                     # the studio's own Spotify player, as its page reports it
-        # pre-listen: the studio's own player hears a party playlist ahead of time, through a silent jam
-        from .prelisten import PreListen
-        self.prelisten = PreListen(self.spotify, self.library,
-                                   start_jam=lambda: self._start({"source": "studio", "speakers": "none", "target_delay": 20, "prelisten": True}),
-                                   stop_jam=self._stop, device_id=lambda: self.player.device_id,
+        # Learning a playlist: the studio's own player hears a party playlist ahead of time, through a silent party
+        from .playlist_learning import PreListen
+        self.playlist_learning = PreListen(self.spotify, self.library,
+                                   start_party=lambda: self._start({"source": "studio", "speakers": "none", "target_delay": 20, "playlist_learning": True}),
+                                   stop_party=self._stop, device_id=lambda: self.player.device_id,
                                    fetch=self.fetch if self._fetch_on() else None)
         self.player_enabled = True                      # False: a test copy that must not register a Spotify speaker
         from .player_browser import BROWSER_NAME, HIDDEN_OUTPUT, HiddenPlayer, own_hidden_output
         self.player_browser = BROWSER_NAME
         self.hidden = HiddenPlayer(f"http://127.0.0.1:{studio.port}/static/player.html",
-                                   HIDDEN_OUTPUT if own_hidden_output() else load_config().get("jam_hidden_output", HIDDEN_OUTPUT),
-                                   avoid=lambda: load_config().get("jam_room_output") or "")
-        self.engine: JamEngine | None = None
-        self.runner: JamRunner | None = None
+                                   HIDDEN_OUTPUT if own_hidden_output() else load_config().get("party_hidden_output", HIDDEN_OUTPUT),
+                                   avoid=lambda: load_config().get("party_room_output") or "")
+        self.engine: PartyEngine | None = None
+        self.runner: PartyRunner | None = None
         self.capture = None
         self.demo = None
         self.mode = ""
-        self.source = ""                                # where Spotify plays for the running jam: studio / app
+        self.source = ""                                # where Spotify plays for the running party: studio / app
         self.auto_armed = True                          # auto-start fires on playback beginning, not on it carrying on
-        self.auto_started = False                       # the running jam was started by playback, not by a button
+        self.auto_started = False                       # the running party was started by playback, not by a button
         self.auto_error = ""
-        self.opener: dict | None = None                 # the opening song, while a jam opens with one
-        self.room_wanted = False                        # the running jam is to be heard in the room (not a preview)
+        self.opener: dict | None = None                 # the opening song, while a party opens with one
+        self.room_wanted = False                        # the running party is to be heard in the room (not a preview)
         self._switching = False                         # the room's sound is moving to another output
         self._cast_failed = None                        # the Cast speaker that would not play, until Cast is pressed again
         self._cast_ok_at = 0.0                          # when the Cast speaker was last seen playing, or not due to
@@ -136,24 +136,24 @@ class JamService:
 
     def routes(self) -> list:
         return [
-            web.get("/api/jam/state", self.state),
-            web.get("/api/jam/outputs", self.outputs),
-            web.post("/api/jam/start", self.start),
-            web.post("/api/jam/stop", self.stop),
-            web.post("/api/jam/handover", self.handover),
-            web.post("/api/jam/synccheck", self.sync_check),
-            web.post("/api/jam/demo/{action}", self.demo_action),
-            web.get("/api/jam/analysis", self.analysis),
-            web.get("/api/jam/stream.wav", self.stream),
+            web.get("/api/relay/state", self.state),
+            web.get("/api/relay/outputs", self.outputs),
+            web.post("/api/relay/start", self.start),
+            web.post("/api/relay/stop", self.stop),
+            web.post("/api/relay/handover", self.handover),
+            web.post("/api/relay/synccheck", self.sync_check),
+            web.post("/api/relay/demo/{action}", self.demo_action),
+            web.get("/api/relay/analysis", self.analysis),
+            web.get("/api/relay/stream.wav", self.stream),
             web.post("/api/spotify/client", self.set_client),
             web.get("/api/spotify/login", self.login),
             web.get("/api/spotify/callback", self.callback),
             web.post("/api/spotify/signout", self.signout),
             web.get("/api/spotify/token", self.token),
-            web.post("/api/jam/sdk_state", self.sdk_state),
-            web.post("/api/jam/prefs", self.prefs),
-            web.post("/api/jam/colors", self.colors),
-            # the Party Hub: a phone app on the home network (Jam mode)
+            web.post("/api/relay/sdk_state", self.sdk_state),
+            web.post("/api/relay/prefs", self.prefs),
+            web.post("/api/relay/colors", self.colors),
+            # the phone remote: a phone app on the home network (the party)
             web.get("/party", self.party_page),
             web.get("/party/", self.party_slash),
             web.get("/party/manifest.webmanifest", self.party_manifest),
@@ -161,25 +161,25 @@ class JamService:
             web.post("/api/party/colors", self.party_colors),
             web.post("/api/party/theme", self.party_theme),
             web.post("/api/party/style", self.party_style),
-            web.post("/api/jam/style", self.track_style),
+            web.post("/api/relay/style", self.track_style),
             web.post("/api/party/genre", self.party_genre),
-            web.post("/api/jam/genre", self.track_genre),
+            web.post("/api/relay/genre", self.track_genre),
             web.post("/api/party/playback", self.party_playback),
-            web.post("/api/party/level", self.party_level_set),
-            web.post("/api/party/ramp", self.party_ramp_set),
-            web.post("/api/party/mode", self.party_mode_set),
-            web.post("/api/party/modes", self.party_modes_set),
+            web.post("/api/party/energy", self.party_energy_set),
+            web.post("/api/party/energy_ramp", self.energy_ramp_set),
+            web.post("/api/party/color_moment", self.color_moment_set),
+            web.post("/api/party/color_moments", self.color_moments_set),
             web.get("/api/party/volumes", self.party_volumes),
             web.post("/api/party/volume", self.party_volume),
             web.get("/api/party/bulbstudio", self.party_bulbstudio),
             web.post("/api/party/bulbstudio", self.party_bulbstudio_set),
             web.post("/api/bulbstudio/open", self.bulbstudio_open),
             web.post("/api/party/even", self.party_even),
-            web.post("/api/prelisten", self.prelisten_start),
-            web.post("/api/prelisten/stop", self.prelisten_stop),
-            web.get("/api/jam/art", self.art),
-            web.post("/api/jam/player/open", self.player_open),
-            web.post("/api/jam/player/transfer", self.player_transfer),
+            web.post("/api/playlist_learning", self.playlist_learning_start),
+            web.post("/api/playlist_learning/stop", self.playlist_learning_stop),
+            web.get("/api/relay/art", self.art),
+            web.post("/api/relay/player/open", self.player_open),
+            web.post("/api/relay/player/transfer", self.player_transfer),
         ]
 
     # -- lifecycle -----------------------------------------------------------------------
@@ -207,8 +207,8 @@ class JamService:
     FETCH_DELAY_S = 5.0
 
     def warm_ahead(self) -> None:
-        """Start the learn-ahead process and load its models now, with the studio, not when a jam starts
-        (42 s later, last time, and the first song of the jam waited for it). The real studio only."""
+        """Start the learn-ahead process and load its models now, with the studio, not when a party starts
+        (42 s later, last time, and the first song of the party waited for it). The real studio only."""
         from . import labeler
         threading.Thread(target=labeler.warm, daemon=True, name="labeler-warm").start()   # (~1 s: not on the first song)
         if self._fetch_on():
@@ -221,28 +221,28 @@ class JamService:
         """Learn ahead is on (the default where spotDL is installed): songs are learned before they play,
         so the room needs to be only seconds behind, not a song."""
         from . import fetch_ahead
-        return bool(self.load_config().get("jam_fetch", True)) and fetch_ahead.available()
+        return bool(self.load_config().get("party_fetch", True)) and fetch_ahead.available()
 
     def _start(self, body: dict) -> dict:
         self._stop()
         demo = bool(body.get("demo"))
-        ahead = not demo and not body.get("prelisten") and self._fetch_on()
+        ahead = not demo and not body.get("playlist_learning") and self._fetch_on()
         if ahead and "target_delay" not in body:
-            body = {**body, "target_delay": float(self.load_config().get("jam_fetch_delay", self.FETCH_DELAY_S))}
+            body = {**body, "target_delay": float(self.load_config().get("party_fetch_delay", self.FETCH_DELAY_S))}
         relay = Relay(sr=44100, channels=2, capacity_s=600.0)
         gate = Gate()
-        cfg = JamSettings(target_delay=float(body.get("target_delay", 90.0)), max_gap=float(body.get("max_gap", 6.0)),
+        cfg = PartySettings(target_delay=float(body.get("target_delay", 90.0)), max_gap=float(body.get("max_gap", 6.0)),
                           crossfade=max(0.0, min(12.0, float(body.get("crossfade", 0.0)))),
                           skip_jumps=bool(body.get("skip_jumps", False)), light_live=ahead,
-                          even_levels=bool(self.load_config().get("jam_even_levels", True)),
-                          level_target=float(self.load_config().get("jam_level_target", -9.0)))
+                          even_levels=bool(self.load_config().get("party_even_levels", True)),
+                          level_target=float(self.load_config().get("party_energy_target", -9.0)))
         hidden_name = self._hidden_output_name()
         if not demo and hidden_name is None:
             from .player_browser import hidden_problem
             raise ValueError(hidden_problem() or self.hidden.no_output_note())
         where = body.get("speakers", "cast")
         # Speakers asked for (Cast or this PC) means the room always hears it: on the Cast speaker
-        # when one is connected, otherwise on this PC. Only "none" is a silent preview. (A jam that
+        # when one is connected, otherwise on this PC. Only "none" is a silent preview. (A party that
         # started by itself with "cast" saved and no speaker connected used to fall silent.)
         self.room_wanted = where in ("cast", "pc") and not demo
         if where in ("cast", "pc") and not demo:
@@ -250,16 +250,16 @@ class JamService:
         elif where == "cast" and self.studio.cast.cast is None:
             where = "none"
         output = self._output_for(where, hidden_name, check=not demo)
-        # A jam opens with one of your saved shows (config.json jam_opener, unless another is chosen): it plays
-        # in the room with its lights while Spotify plays, unheard, behind it, and the room joins the jam as
-        # it ends, a whole song behind. So the jam is always a song ahead: each song is heard to its end
+        # A party opens with one of your saved shows (config.json party_opener, unless another is chosen): it plays
+        # in the room with its lights while Spotify plays, unheard, behind it, and the room joins the party as
+        # it ends, a whole song behind. So the party is always a song ahead: each song is heard to its end
         # before the room gets to it, and gets its full show from the first beat.
         # (learning ahead, the room is only seconds behind: no opening song is needed to fill a buffer)
-        opener = None if demo or ahead or body.get("prelisten") or where not in ("cast", "pc") else self._opener_plan(body)
+        opener = None if demo or ahead or body.get("playlist_learning") or where not in ("cast", "pc") else self._opener_plan(body)
         if opener:
             cfg.target_delay = max(20.0, opener[1] - 2.0)
         if demo:
-            from .jam_demo import DemoSpotify
+            from .party_demo import DemoSpotify
             self.demo = DemoSpotify(relay, gate)
             spotify = self.demo
         else:
@@ -276,15 +276,15 @@ class JamService:
             self.capture = ProcessCapture(relay, hidden_name, gate)   # records the hidden output, from its own process
             self.capture.start()
         # the demo learns its synthetic songs too, but in a folder of its own, not among the real ones
-        library = JamLibrary(os.path.join(self.shows_dir, "_jam", "demo")) if demo else self.library
+        library = PartyLibrary(os.path.join(self.shows_dir, "_party", "demo")) if demo else self.library
         from . import structure_model
         from .genre import WORKER
         genre_fn = WORKER.classify_audio if WORKER.available() else None
         segment_fn = structure_model.run_audio if structure_model.available() else None
-        self.engine = JamEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
+        self.engine = PartyEngine(relay, spotify, library, output, gate, cfg, genre_fn=genre_fn, segment_fn=segment_fn)
         if self._music_gain() < 1.0:
             relay.set_duck(0.0, 0.0, self._music_gain())         # (started while a mode has the music down: down from the start)
-        self.runner = JamRunner(self.engine, file_status=self._file_status)
+        self.runner = PartyRunner(self.engine, file_status=self._file_status)
         if ahead:
             self.engine.on_queue = lambda tracks, now=None: self.fetch.submit(tracks, first=True, now=now)
             self.engine.on_context = lambda tracks: self.fetch.submit(tracks, first=False)     # behind the queue
@@ -298,26 +298,26 @@ class JamService:
         self.opener = None
         if opener:
             self._begin_opener(*opener, via=where)
-        self.engine.say(f"jam started: {self.mode}, aiming {cfg.target_delay:.0f}s behind")
+        self.engine.say(f"party started: {self.mode}, aiming {cfg.target_delay:.0f}s behind")
         self.source = "demo" if demo else body.get("source", "app")
         self.auto_started = bool(body.get("auto"))
-        if body.get("prelisten"):
-            self.mode = "pre-listen: learning songs, nothing plays in the room"
-        if not demo and not body.get("prelisten"):             # a pre-listen never becomes the jam you start next
+        if body.get("playlist_learning"):
+            self.mode = "Learning a playlist: learning songs, nothing plays in the room"
+        if not demo and not body.get("playlist_learning"):             # a learning a playlist never becomes the party you start next
             cfg_all = self.load_config()
             last = {k: body[k] for k in LAST_KEYS if k in body}
             if ahead:                                        # the delay learning ahead is kept on its own
-                cfg_all["jam_fetch_delay"] = float(last.pop("target_delay", self.FETCH_DELAY_S))
-                last["target_delay"] = cfg_all.get("jam_last", {}).get("target_delay", 90.0)
-            cfg_all["jam_last"] = last
+                cfg_all["party_fetch_delay"] = float(last.pop("target_delay", self.FETCH_DELAY_S))
+                last["target_delay"] = cfg_all.get("party_last", {}).get("target_delay", 90.0)
+            cfg_all["party_last"] = last
             self.save_config(cfg_all)
         return self._state()
 
     # -- the opening song --------------------------------------------------------------------------------
     def _opener_choice(self) -> str:
-        """The saved show a jam opens with ("" for none: the jam starts 90 s behind instead)."""
+        """The saved show a party opens with ("" for none: the party starts 90 s behind instead)."""
         cfg = self.load_config()
-        name = cfg.get("jam_opener", DEFAULT_OPENER)
+        name = cfg.get("party_opener", DEFAULT_OPENER)
         return name if name and self._length(name) >= 60 else ""
 
     def _length(self, name: str) -> float:
@@ -330,10 +330,10 @@ class JamService:
         return (name, length) if name and length >= 60 else None
 
     def _begin_opener(self, name: str, length: float, via: str) -> None:
-        """Play the opening show in the room (its song on the jam's speakers, or this page on this PC, and
+        """Play the opening show in the room (its song on the party's speakers, or this page on this PC, and
         its lights) while Spotify fills the buffer behind it."""
         import uuid
-        self.engine.open_with_song()                          # the room joins the jam as the opener ends
+        self.engine.open_with_song()                          # the room joins the party as the opener ends
         if via == "cast" and self.studio.cast.cast is not None:
             url, path = self.studio._show_song(name)
             self.studio.cast.play(url, path, name, 0.0)
@@ -345,12 +345,12 @@ class JamService:
             np = self.engine.spotify.now_playing()
             if np is not None and not np.playing:
                 self.engine.spotify.resume()
-        except Exception:  # noqa: BLE001 - nothing to resume yet: the jam fills as soon as music plays
+        except Exception:  # noqa: BLE001 - nothing to resume yet: the party fills as soon as music plays
             pass
-        self.engine.say(f"opening with {name}: the room joins the jam as it ends, a song behind")
+        self.engine.say(f"opening with {name}: the room joins the party as it ends, a song behind")
 
     def opener_status(self) -> dict:
-        """The opening song as the page plays it (shaped like a cue): over once the jam has the speakers."""
+        """The opening song as the page plays it (shaped like a moment): over once the party has the speakers."""
         o = self.opener
         if not o:
             return {}
@@ -367,12 +367,12 @@ class JamService:
             # Raw audio. MP3 was tried to lighten the Wi-Fi load, but libsndfile's MP3 encoder
             # (1.2.2, the one installed) turned music into noise: 0.59 correlation with the original
             # and noise 36 dB above the music over 16 kHz. It sounded "like death" on the speakers.
-            return CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/jam/stream.wav?sid={sid}",
+            return CastOutput(self.studio.cast, lambda sid: f"http://{ip}:{self.studio.port}/api/relay/stream.wav?sid={sid}",
                               self._speaker_offset)
         if where == "pc":
             from .audio_io import ProcessOutput
             from .local_output import DEFAULT_OFFSET_S
-            pc_device = self.load_config().get("jam_room_output") or None          # the default output, unless set
+            pc_device = self.load_config().get("party_room_output") or None          # the default output, unless set
             if check and self._same_device(hidden_name if hidden_name is not None else self._hidden_output_name(), pc_device):
                 raise ValueError(f"The default output is {hidden_name or self.hidden.hidden_output}, the output Spotify plays "
                                  "into unheard. Set your speakers or headphones as the default output in your sound settings.")
@@ -384,7 +384,7 @@ class JamService:
         return "cast" if isinstance(out, CastOutput) else "pc" if hasattr(out, "device_name") else "none"
 
     def _follow_cast(self) -> None:
-        """Casting moves the jam: a Cast speaker connected mid-jam takes the room's sound, and when
+        """Casting moves the party: a Cast speaker connected mid-party takes the room's sound, and when
         it goes away the sound comes back to this PC. Checked every time the page asks for the state."""
         e = self.engine
         if e is None or self.source == "demo" or self._switching:
@@ -442,7 +442,7 @@ class JamService:
                         new.pause()
                 self.mode = "spotify to " + new.name
                 e.say(f"the room is now on {new.name}")
-        except Exception as ex:  # noqa: BLE001 - shown in the log; the jam carries on where it was
+        except Exception as ex:  # noqa: BLE001 - shown in the log; the party carries on where it was
             if self.engine is not None:
                 self.engine.say(f"could not move the sound to {want}: {ex}")
         finally:
@@ -453,7 +453,7 @@ class JamService:
         self.hidden.stop()
 
     def _hidden_output_name(self) -> str | None:
-        """What the jam records: an output's name, or on a Mac the tap's. None if there is nothing to record."""
+        """What the party records: an output's name, or on a Mac the tap's. None if there is nothing to record."""
         if sys.platform == "darwin":
             from . import mac_capture
             return mac_capture.DEVICE if mac_capture.available() else None
@@ -475,7 +475,7 @@ class JamService:
         """The studio's window is closing: the music stops at once (the room's speakers hold where they are and
         Spotify pauses), before anything else shuts down. A reload brings it back (unhush). Whether it did."""
         eng = self.engine
-        if eng is None or eng.cue_hold:
+        if eng is None or eng.show_moment_hold:
             return False
         eng.hold("the studio is closing: the music stops")
         self._hushed = True
@@ -487,14 +487,14 @@ class JamService:
             return
         self._hushed = False
         eng = self.engine
-        if eng is not None and eng.cue_hold:
+        if eng is not None and eng.show_moment_hold:
             eng.release(False)
 
     STUDIO_DEVICE = "Light Show Studio"
 
     def keep_on_studio_once(self, eng, last: float, now: float) -> float:
-        """One look: a jam playing from the studio whose music Spotify plays somewhere else (resumed on the phone
-        itself after a pause) is handed back to the studio's player, at most every 15 s. The jam would take it
+        """One look: a party playing from the studio whose music Spotify plays somewhere else (resumed on the phone
+        itself after a pause) is handed back to the studio's player, at most every 15 s. The party would take it
         for playing while the studio recorded silence. Returns when it last handed back."""
         if self.source != "studio" or not self.player.device_id or now - last < 15.0:
             return last
@@ -517,7 +517,7 @@ class JamService:
                 last = self.keep_on_studio_once(eng, last, time.monotonic())
 
     def _keep_levels(self, eng) -> None:
-        """While this jam plays, every 5 s: the party's speakers (the rooms that are on, and the one cast to) at
+        """While this party plays, every 5 s: the party's speakers (the rooms that are on, and the one cast to) at
         the levels kept for them (Rooms.keep_levels): one changed in person keeps its new level; one that missed
         a change the studio just sent gets it again."""
         rooms, cast = getattr(self.studio, "rooms", None), getattr(self.studio, "cast", None)
@@ -527,7 +527,7 @@ class JamService:
             time.sleep(5.0)
             if self.engine is not eng:
                 return
-            if not eng.streaming or eng.cue_hold or eng.gate.paused:
+            if not eng.streaming or eng.show_moment_hold or eng.gate.paused:
                 continue
             names = [s for r in rooms.list() if r["on"] for s in r["speakers"]]
             if cast is not None and getattr(cast, "cast", None) is not None and cast.name and cast.name not in names:
@@ -552,7 +552,7 @@ class JamService:
 
     @staticmethod
     def _same_device(capture: str | None, playback: str | None) -> bool:
-        """Would the jam play on the very output it is recording? (None means the default output.)"""
+        """Would the party play on the very output it is recording? (None means the default output.)"""
         if capture == playback:
             return True
         try:
@@ -571,14 +571,14 @@ class JamService:
                 "spotify": {"signed_in": self.spotify.signed_in, "client_id": self.spotify.client_id, "error": self.spotify.last_error,
                             "can_stream": self.spotify.can_stream},
                 "speaker_connected": self.studio.cast.cast is not None, "speaker": self.studio.cast.name,
-                "last": self._last(), "cast_device": self.load_config().get("jam_cast_device", ""), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
-                "jam_colors": self._jam_colors(), "track_colors": self.library.colors(), "track_styles": self.library.styles(),
+                "last": self._last(), "cast_device": self.load_config().get("party_cast_device", ""), "auto": self._auto_on(), "auto_error": self.auto_error, "auto_started": self.auto_started,
+                "color_settings": self._color_settings(), "track_colors": self.library.colors(), "track_styles": self.library.styles(),
                 "track_genres": self.library.genres(), "genre_choices": self._genre_choices(),
-                "party_level": self.party_level, "modes": self.modes_status(),
-                "cue": self._room_cue(),
-                "prelisten": self.prelisten.status(), "opener_choice": self._opener_choice(),
+                "party_energy": self.party_energy, "color_moments": self.color_moments_status(),
+                "show_moment": self._room_show_moment(),
+                "playlist_learning": self.playlist_learning.status(), "opener_choice": self._opener_choice(),
                 "fetch": {**self.fetch.status(), "on": self._fetch_on(),
-                          "delay": float(self.load_config().get("jam_fetch_delay", self.FETCH_DELAY_S))}}
+                          "delay": float(self.load_config().get("party_fetch_delay", self.FETCH_DELAY_S))}}
         if self.engine is None:
             return base
         st = self.engine.state()
@@ -594,7 +594,7 @@ class JamService:
         if self.capture is not None and getattr(self.capture, "lost", 0):
             st["capture"]["lost_s"] = round(self.capture.lost, 2)
         if self._ramp_step((st.get("room") or {}).get("key")):
-            base["party_level"] = self.party_level
+            base["party_energy"] = self.party_energy
         played = [st.get("room"), st.get("ahead"), *(st.get("queue") or [])]
         for t in played:                                     # learning ahead: where each first listen stands
             if t and t.get("kind") == "live" and t.get("id") and base["fetch"]["on"]:
@@ -626,38 +626,38 @@ class JamService:
             body = {**self._last(), **body}
             if self._fetch_on():                              # (learning ahead keeps its own delay)
                 body.pop("target_delay", None)
-        if self.prelisten.busy() and self.prelisten.fetch is None:   # a real jam always wins (one learning from copies needs no Spotify)
-            await asyncio.get_running_loop().run_in_executor(None, self.prelisten.stop, "a jam was started")
+        if self.playlist_learning.busy() and self.playlist_learning.fetch is None:   # a real party always wins (one learning from copies needs no Spotify)
+            await asyncio.get_running_loop().run_in_executor(None, self.playlist_learning.stop, "a party was started")
         return await self._run(self._start, body)
 
-    # -- pre-listen ------------------------------------------------------------------------------
-    async def prelisten_start(self, request):
+    # -- learning a playlist ------------------------------------------------------------------------------
+    async def playlist_learning_start(self, request):
         """Learn a playlist's songs (or the queue's) ahead of the party: {source: a playlist link, or "queue"}."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        if self.engine is not None and not self.prelisten.busy() and self.prelisten.fetch is None:
-            return web.json_response({"error": "stop the jam first: Spotify can only play one thing at a time"}, status=400)
+        if self.engine is not None and not self.playlist_learning.busy() and self.playlist_learning.fetch is None:
+            return web.json_response({"error": "stop the party first: Spotify can only play one thing at a time"}, status=400)
         source = str((await request.json()).get("source") or "").strip()
-        return await self._run(self.prelisten.start, source)
+        return await self._run(self.playlist_learning.start, source)
 
-    async def prelisten_stop(self, request):
+    async def playlist_learning_stop(self, request):
         if not self._lan(request):
             raise web.HTTPForbidden()
-        return await self._run(self.prelisten.stop)
+        return await self._run(self.playlist_learning.stop)
 
     async def stop(self, request):
         return await self._run(lambda: (self._stop(), self._state())[1])
 
     async def handover(self, request):
         if self.engine is None:
-            return web.json_response({"error": "start the jam first"}, status=400)
+            return web.json_response({"error": "start the party first"}, status=400)
         return await self._run(lambda: (self.engine.arm_handover(), self._state())[1])
 
     async def sync_check(self, request):
         if self.engine is None or not self.engine.streaming:
-            return web.json_response({"error": "the speakers are not playing the jam yet"}, status=400)
+            return web.json_response({"error": "the speakers are not playing the party yet"}, status=400)
         if self._syncing:
-            return web.json_response({"error": "a sync check is already listening; its result will be in the Jam log"}, status=409)
+            return web.json_response({"error": "a sync check is already listening; its result will be in the Party log"}, status=409)
         self._syncing = True
 
         def run():
@@ -686,14 +686,14 @@ class JamService:
     SILENT_RETRY_S = 30.0        # a muted microphone: listen again this often until it hears the room
 
     def _maybe_auto_sync(self, e) -> None:
-        """Once a Cast speaker has been playing the jam for a few seconds (a new cast, a reconnect, a
+        """Once a Cast speaker has been playing the party for a few seconds (a new cast, a reconnect, a
         restart), listen to the room and correct its delay. A speaker's delay can change when it or
         its group reconnects, and nothing else would notice. It only listens; nothing is played."""
         out = e.output
         if not isinstance(out, CastOutput) or self._auto_sync_off or self._syncing:
             return
         started = getattr(out, "started_at", 0.0)
-        if getattr(e, "cue_hold", False) or (started and started == getattr(e, "no_sync_start", None)):
+        if getattr(e, "show_moment_hold", False) or (started and started == getattr(e, "no_sync_start", None)):
             return                                       # a doorbell, the music back after it, a catch-up: no new delay
         retry = self._sync_retry_at
         if not started or e.gate.paused or (started == self._synced_start and not (retry and time.monotonic() >= retry)):
@@ -761,8 +761,8 @@ class JamService:
         except Exception:  # noqa: BLE001
             played = 0.0
         if isinstance(out, CastOutput) and played >= self.RECONNECT_AFTER_S:
-            if eng.gate.paused and not eng.cue_hold:
-                # the party is paused: a paused speaker's connection idles out and it asks again, every ten
+            if eng.gate.paused and not eng.show_moment_hold:
+                # The party is paused: a paused speaker's connection idles out and it asks again, every ten
                 # minutes or so; restarting it there was a cast (the speaker's sound) each time, all night (the
                 # user). Left be: it gets a fresh stream from the paused spot when the music plays again.
                 if not eng._speaker_dropped:
@@ -797,7 +797,7 @@ class JamService:
         if e is None or e.output is not out:
             return
         with e.lock:
-            if e.gate.paused and not e.cue_hold:
+            if e.gate.paused and not e.show_moment_hold:
                 e._speaker_dropped = True                    # (paused meanwhile: it restarts with the music)
                 return
             rc = e.room_capture_time()
@@ -818,7 +818,7 @@ class JamService:
 
     async def login(self, request):
         if not self.spotify.client_id:
-            return web.Response(text="Enter your Spotify app's Client ID in the Jam panel first.", status=400)
+            return web.Response(text="Enter your Spotify app's Client ID in Settings first.", status=400)
         raise web.HTTPFound(self.spotify.auth_url(self.redirect_uri))
 
     async def callback(self, request):
@@ -867,12 +867,12 @@ class JamService:
     def _after_report(self, report: dict, before_dev: str, was_playing: bool):
         """What a player report sets going, if anything: returns a job for a worker thread.
 
-        - Something starts playing on Light Show Studio with no jam running: start one,
+        - Something starts playing on Light Show Studio with no party running: start one,
           with the settings last used. It fires on playback beginning, so after Stop the
-          music can carry on without a jam until it is paused or changed.
+          music can carry on without a party until it is paused or changed.
         - The player came back under a new device id (the studio window was reloaded)
-          while it was playing a jam: Spotify stopped when the old one vanished, so
-          playback is handed back. The jam's buffer covers the gap.
+          while it was playing a party: Spotify stopped when the old one vanished, so
+          playback is handed back. The party's buffer covers the gap.
         """
         p = self.player
         playing = p.ready and p.track is not None and not p.paused
@@ -900,11 +900,11 @@ class JamService:
         try:
             self._start(body)
             self.auto_error = ""
-        except Exception as e:  # noqa: BLE001 - shown in the Jam panel
+        except Exception as e:  # noqa: BLE001 - shown in Settings
             self.auto_error = f"{type(e).__name__}: {e}"
 
     def _opener_room(self) -> dict | None:
-        """The opening song as the Party Hub shows it in the room (one of your saved shows, from disk)."""
+        """The opening song as the phone remote shows it in the room (one of your saved shows, from disk)."""
         o = self.opener_status()
         if o.get("phase") != "show":
             return None
@@ -912,17 +912,17 @@ class JamService:
                 "duration": o["dur"], "position": round(o["progress"] * o["dur"], 1), "playing": True, "colors": None, "own": False,
                 "theme_off": False}
 
-    def _room_cue(self) -> dict:
-        """What the room is playing instead of the jam: a cue, else the opening song."""
-        cue = self.studio.cues.status() if getattr(self.studio, "cues", None) else {}
-        if cue.get("phase") and cue.get("phase") != "done":
-            if self.opener:                                   # a cue cut the opening song short: the jam follows the cue
+    def _room_show_moment(self) -> dict:
+        """What the room is playing instead of the party: a moment, else the opening song."""
+        show_moment = self.studio.show_moments.status() if getattr(self.studio, "show_moments", None) else {}
+        if show_moment.get("phase") and show_moment.get("phase") != "done":
+            if self.opener:                                   # a moment cut the opening song short: the party follows the moment
                 self.opener["cut"] = True
-            return cue
-        return self.opener_status() or cue
+            return show_moment
+        return self.opener_status() or show_moment
 
     def _last(self) -> dict:
-        return {"source": "studio", "speakers": "pc", "target_delay": 90.0, **self.load_config().get("jam_last", {})}
+        return {"source": "studio", "speakers": "pc", "target_delay": 90.0, **self.load_config().get("party_last", {})}
 
     # extras: two more colors a few of the small accents take now and then (orange and red at Halloween)
     DEFAULT_COLORS = {"on": True, "mode": "album", "primary": "#8000ff", "secondary": "#00ff00", "extras": False, "accent1": "#ff6000", "accent2": "#ff0000",
@@ -970,7 +970,7 @@ class JamService:
 
     def _assign_colors(self, tracks: list) -> dict:
         """In "mix": the pair each of these tracks (in play order) gets. Once given, a track keeps its pair."""
-        jc = self._jam_colors()
+        jc = self._color_settings()
         pairs = jc.get("pairs") or []
         if jc.get("mode") != "mix" or not pairs:
             return {}
@@ -986,14 +986,14 @@ class JamService:
             out[tid] = pairs[prev % len(pairs)]
         return out
 
-    def _jam_colors(self) -> dict:
-        """The jam's own colors: every song in a primary and a secondary, or ("album") its cover's."""
-        return {**self.DEFAULT_COLORS, **self.load_config().get("jam_colors", {})}
+    def _color_settings(self) -> dict:
+        """The party's own colors: every song in a primary and a secondary, or ("album") its cover's."""
+        return {**self.DEFAULT_COLORS, **self.load_config().get("color_settings", {})}
 
-    # -- the Party Hub ---------------------------------------------------------------------
+    # -- the phone remote ---------------------------------------------------------------------
     @staticmethod
     def _lan(request) -> bool:
-        """The Party Hub answers phones on the home network (and this computer), never the internet."""
+        """The phone remote answers phones on the home network (and this computer), never the internet."""
         try:
             ip = ipaddress.ip_address((request.remote or "").split("%")[0])
         except ValueError:
@@ -1008,29 +1008,29 @@ class JamService:
         return resp
 
     async def party_slash(self, request):
-        """/party/ typed by hand (or a bookmark with the slash): the Party Hub, not a 404."""
+        """/party/ typed by hand (or a bookmark with the slash): the phone remote, not a 404."""
         raise web.HTTPFound("/party")
 
     async def party_manifest(self, request):
         return web.json_response({
-            "name": "Party Hub", "short_name": "Party Hub", "start_url": "/party", "scope": "/party",
+            "name": "phone remote", "short_name": "phone remote", "start_url": "/party", "scope": "/party",
             "display": "standalone", "background_color": "#0e0f14", "theme_color": "#0e0f14",
             "icons": [{"src": "/static/party/icon-192.png", "sizes": "192x192", "type": "image/png"},
                       {"src": "/static/party/icon-512.png", "sizes": "512x512", "type": "image/png"}]},
             content_type="application/manifest+json")
 
-    def _doorbell_cue(self) -> str:
-        """The cue the real doorbell rings, while it is set up (the Party Hub leaves its button out: the bell rings it)."""
+    def _doorbell_show_moment(self) -> str:
+        """The moment the real doorbell rings, while it is set up (the phone remote leaves its button out: the bell rings it)."""
         cfg = getattr(self, "load_config", dict)() or {}
         if not (cfg.get("addons") or {}).get("doorbell"):
             return ""
         bell = cfg.get("doorbell") or {}
-        return str(bell.get("cue") or "") if bell.get("on") and bell.get("host") else ""
+        return str(bell.get("show_moment") or "") if bell.get("on") and bell.get("host") else ""
 
     def _party(self) -> dict:
-        """What the Party Hub shows: the song in the room, what comes next, and each one's colors."""
+        """What the phone remote shows: the song in the room, what comes next, and each one's colors."""
         st = self._state()
-        jc, own_all, assigned = st.get("jam_colors", {}), st.get("track_colors", {}), st.get("assigned_colors", {})
+        jc, own_all, assigned = st.get("color_settings", {}), st.get("track_colors", {}), st.get("assigned_colors", {})
         styles, genres = st.get("track_styles", {}), st.get("track_genres", {})
 
         def colors(t):
@@ -1064,18 +1064,18 @@ class JamService:
         return {"running": bool(st.get("running")), "streaming": bool(st.get("streaming")), "paused": bool(st.get("paused")),
                 "mode": st.get("mode"), "delay": st.get("delay"), "target_delay": st.get("target_delay"),
                 "sync_warning": st.get("sync_warning", ""),
-                "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_level": self.party_level,
-                "party_ramp": getattr(self, "ramp_status", lambda: None)(),
-                "modes": getattr(self, "modes_status", lambda: [])(),
-                "even_levels": bool(getattr(self, "load_config", dict)().get("jam_even_levels", True)),
+                "color_mode": jc.get("mode"), "theme_on": bool(jc.get("on", True)), "party_energy": self.party_energy,
+                "energy_ramp": getattr(self, "ramp_status", lambda: None)(),
+                "color_moments": getattr(self, "color_moments_status", lambda: [])(),
+                "even_levels": bool(getattr(self, "load_config", dict)().get("party_even_levels", True)),
                 "color_source": "album" if not jc.get("on", True) else "wild" if jc.get("wild") else "album" if jc.get("mode") not in ("pick", "mix") else "party",
                 "theme": ([jc.get("primary"), jc.get("secondary")] if jc.get("mode") == "pick" else jc.get("pairs") if jc.get("mode") == "mix" else []),
                 "rooms": self.studio.rooms.list() if getattr(self.studio, "rooms", None) else [],
-                "cues": self.studio.cues.list() if getattr(self.studio, "cues", None) else [],
-                "doorbell_cue": getattr(self, "_doorbell_cue", lambda: "")(),
+                "show_moments": self.studio.show_moments.list() if getattr(self.studio, "show_moments", None) else [],
+                "doorbell_show_moment": getattr(self, "_doorbell_show_moment", lambda: "")(),
                 "addons": {k: bool(v) for k, v in ((getattr(self, "load_config", dict)() or {}).get("addons") or {}).items()},
-                "prelisten": self.prelisten.status() if getattr(self, "prelisten", None) else {},
-                "cue": self.studio.cues.status() if getattr(self.studio, "cues", None) else {},
+                "playlist_learning": self.playlist_learning.status() if getattr(self, "playlist_learning", None) else {},
+                "show_moment": self.studio.show_moments.status() if getattr(self.studio, "show_moments", None) else {},
                 "room": (self._opener_room() if hasattr(self, "_opener_room") else None) or item(room, {"position": room.get("position"), "playing": room.get("playing")} if room else None),
                 "upcoming": [item(t) for t in up[:12]], "genre_choices": st.get("genre_choices") or [],
                 "spotify_now": (ahead or {}).get("id"),            # the song Spotify plays now (a skip goes to the one after)
@@ -1088,7 +1088,7 @@ class JamService:
 
     async def party_colors(self, request):
         """From the phone: a track's own two colors (kept for next time), a track out of the party's colors
-        ({track_id, theme: false}: its cover's), back to the jam's, or the party's colors on or off ({on})."""
+        ({track_id, theme: false}: its cover's), back to the party's, or the party's colors on or off ({on})."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
@@ -1168,7 +1168,7 @@ class JamService:
         return fn
 
     async def party_volumes(self, request):
-        """The speaker the jam plays on (its volume is the cast's), and every speaker and group's own."""
+        """The speaker the party plays on (its volume is the cast's), and every speaker and group's own."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         cast = self.studio.cast
@@ -1301,39 +1301,39 @@ class JamService:
             raise web.HTTPForbidden()
         on = bool((await request.json()).get("on", True))
         cfg = self.load_config()
-        cfg["jam_even_levels"] = on
+        cfg["party_even_levels"] = on
         self.save_config(cfg)
         if self.engine is not None:
             self.engine.even_levels(on)
         return web.json_response({"even_levels": on})
 
-    async def party_level_set(self, request):
+    async def party_energy_set(self, request):
         """The slider: the level, at once (a build-up under way stops: the hand on the slider wins)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
-        self.party_level = max(0.0, min(1.0, float((await request.json()).get("level", 1.0))))
-        self.party_ramp = None
+        self.party_energy = max(0.0, min(1.0, float((await request.json()).get("level", 1.0))))
+        self.energy_ramp = None
         self._save_level()
-        return web.json_response({"party_level": self.party_level, "party_ramp": None})
+        return web.json_response({"party_energy": self.party_energy, "energy_ramp": None})
 
-    # -- the party level, built up over an hour ---------------------------------------------
+    # -- the Energy, built up over an hour ---------------------------------------------
     # The button under the slider (the user): from where it is to 100% over an hour, moving only as a new song
     # starts in the room (each song plays at one level, the next a step up), to where the hour says it should be.
     RAMP_MINUTES = 60
 
     def _save_level(self) -> None:
         cfg = self.load_config()
-        cfg["party_level"] = round(self.party_level, 3)
-        if self.party_ramp:
-            cfg["party_ramp"] = self.party_ramp
+        cfg["party_energy"] = round(self.party_energy, 3)
+        if self.energy_ramp:
+            cfg["energy_ramp"] = self.energy_ramp
         else:
-            cfg.pop("party_ramp", None)
+            cfg.pop("energy_ramp", None)
         self.save_config(cfg)
 
     def _ramp_step(self, song_key: str | None, now: float | None = None) -> bool:
         """A new song in the room during a build-up: the level to where the hour has got to (100% ends it).
         True when the level moved."""
-        r = self.party_ramp
+        r = self.energy_ramp
         if not r or not song_key or song_key == r.get("song"):
             return False
         r["song"] = song_key
@@ -1343,39 +1343,39 @@ class JamService:
             return False
         now = time.time() if now is None else now
         k = max(0.0, min(1.0, (now - float(r["start"])) / (60.0 * float(r.get("minutes") or self.RAMP_MINUTES))))
-        was = self.party_level
-        self.party_level = max(was, round(float(r["from"]) + (1.0 - float(r["from"])) * k, 2))   # (never down)
-        if self.party_level >= 1.0:
-            self.party_level, self.party_ramp = 1.0, None
+        was = self.party_energy
+        self.party_energy = max(was, round(float(r["from"]) + (1.0 - float(r["from"])) * k, 2))   # (never down)
+        if self.party_energy >= 1.0:
+            self.party_energy, self.energy_ramp = 1.0, None
         self._save_level()
-        return self.party_level != was
+        return self.party_energy != was
 
     def ramp_status(self) -> dict | None:
-        r = self.party_ramp
+        r = self.energy_ramp
         if not r:
             return None
         minutes = float(r.get("minutes") or self.RAMP_MINUTES)
         return {"from": r["from"], "minutes": minutes, "left_s": max(0, round(float(r["start"]) + 60 * minutes - time.time()))}
 
-    async def party_ramp_set(self, request):
+    async def energy_ramp_set(self, request):
         """The button: {on} starts a build-up from the level now to 100% over an hour, or stops it."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        if body.get("on") and self.party_level < 1.0:
+        if body.get("on") and self.party_energy < 1.0:
             room = None
             if self.engine is not None:
                 room = (self.engine.state().get("room") or {}).get("key")
-            self.party_ramp = {"from": round(self.party_level, 3), "start": time.time(),
+            self.energy_ramp = {"from": round(self.party_energy, 3), "start": time.time(),
                                "minutes": float(body.get("minutes") or self.RAMP_MINUTES), "song": room, "waiting": room is None}
         else:
-            self.party_ramp = None
+            self.energy_ramp = None
         self._save_level()
-        return web.json_response({"party_level": self.party_level, "party_ramp": self.ramp_status()})
+        return web.json_response({"party_energy": self.party_energy, "energy_ramp": self.ramp_status()})
 
-    # -- party modes -------------------------------------------------------------------------------
-    # Buttons on the Party Hub that hold the party for a moment, each one made by the user (Party Hub: More settings,
-    # Modes): every light one color at full brightness (the studio page draws it), and the music turned down in the
+    # -- color moments -------------------------------------------------------------------------------
+    # Buttons on the phone remote that hold the party for a moment, each one made by the user (phone remote: More settings,
+    # Color moments): every light one color at full brightness (the studio page draws it), and the music turned down in the
     # stream (the speakers stay at their volume) or paused, fading in and out over the mode's own time. A mode may
     # ask twice before it turns on (an accidental tap would stop the party). Its color can be changed while it is on;
     # each time it turns on it starts at its own.
@@ -1392,11 +1392,11 @@ class JamService:
         return c if len(c) == 7 and c[0] == "#" and all(ch in "0123456789abcdef" for ch in c[1:]) else None
 
     @classmethod
-    def clean_modes(cls, modes) -> list[dict]:
-        """Modes as kept: {id, name, music (0..1 of itself), pause, fade (s), color, confirm}, checked."""
+    def clean_color_moments(cls, color_moments) -> list[dict]:
+        """Color moments as kept: {id, name, music (0..1 of itself), pause, fade (s), color, confirm}, checked."""
         import uuid
         out, ids = [], set()
-        for m in modes if isinstance(modes, list) else []:
+        for m in color_moments if isinstance(color_moments, list) else []:
             if not isinstance(m, dict):
                 continue
             mid = re.sub(r"[^a-z0-9_-]", "", str(m.get("id") or "").lower())[:40]
@@ -1409,22 +1409,22 @@ class JamService:
                         "color": cls._cover_color(m.get("color")) or "#ffaa5a", "confirm": bool(m.get("confirm", True))})
         return out[:cls.MAX_MODES]
 
-    def modes(self) -> list[dict]:
+    def color_moments(self) -> list[dict]:
         cfg = self.load_config()
-        return self.clean_modes(cfg["party_modes"]) if "party_modes" in cfg else [dict(m) for m in self.DEFAULT_MODES]
+        return self.clean_color_moments(cfg["color_moments"]) if "color_moments" in cfg else [dict(m) for m in self.DEFAULT_MODES]
 
-    def modes_status(self) -> list[dict]:
+    def color_moments_status(self) -> list[dict]:
         """Every mode, on or off, its color now, and how long ago it was switched (the studio page fades from then)."""
         now, out = time.monotonic(), []
-        for m in self.modes():
-            st = self.mode_on.get(m["id"]) or {"on": False, "at": -1e9}
+        for m in self.color_moments():
+            st = self.color_moment_on.get(m["id"]) or {"on": False, "at": -1e9}
             out.append({**m, "own": m["color"], "on": bool(st["on"]), "age": round(max(0.0, now - st["at"]), 2), "color": st.get("color") or m["color"]})
         return out
 
     def _music_gain(self) -> float:
-        """The music's level with the modes that are on: the quietest one asks for (1: none on)."""
-        ms = {m["id"]: m for m in self.modes()}
-        return min([ms[i]["music"] for i, st in self.mode_on.items() if st.get("on") and i in ms and not ms[i]["pause"]] or [1.0])
+        """The music's level with the color moments that are on: the quietest one asks for (1: none on)."""
+        ms = {m["id"]: m for m in self.color_moments()}
+        return min([ms[i]["music"] for i, st in self.color_moment_on.items() if st.get("on") and i in ms and not ms[i]["pause"]] or [1.0])
 
     def _music_playing(self) -> bool:
         now = getattr(self.engine, "now", None) if self.engine is not None else None
@@ -1432,10 +1432,10 @@ class JamService:
 
     def _mode(self, mid: str, on: bool | None, color: str | None = None) -> dict:
         """Switch a mode on (its own color, or the one asked for) or off, or only change its color."""
-        m = next((x for x in self.modes() if x["id"] == mid), None)
+        m = next((x for x in self.color_moments() if x["id"] == mid), None)
         if m is None:
             raise ValueError(f"no mode {mid!r}")
-        st = self.mode_on.setdefault(mid, {"on": False, "at": -1e9, "paused": False})
+        st = self.color_moment_on.setdefault(mid, {"on": False, "at": -1e9, "paused": False})
         if on is not None and on != st["on"]:
             if m["pause"]:
                 if on:
@@ -1454,48 +1454,48 @@ class JamService:
                     self.engine.duck_music(self._music_gain(), m["fade"])
         elif color:
             st["color"] = color
-        return {"modes": self.modes_status()}
+        return {"color_moments": self.color_moments_status()}
 
-    async def party_mode_set(self, request):
+    async def color_moment_set(self, request):
         """A mode's button: {id, on?, color? (#rrggbb)}. The studio page is told first, so the lights change as the
         music does (a pause asks Spotify, which takes a moment)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
         mid, on, color = str(body.get("id") or ""), (bool(body["on"]) if "on" in body else None), self._cover_color(body.get("color"))
-        was = next((x for x in self.modes_status() if x["id"] == mid), None)
+        was = next((x for x in self.color_moments_status() if x["id"] == mid), None)
         if was is None:
             return web.json_response({"error": f"no mode {mid!r}"}, status=404)
         ahead = {**was, "age": 0} if on is None or on == was["on"] else {**was, "on": on, "age": 0, "color": (color or (was["color"] if not on else next(
-            m["color"] for m in self.modes() if m["id"] == mid)))}
+            m["color"] for m in self.color_moments() if m["id"] == mid)))}
         if on is None and color:
             ahead["color"] = color
         await self._tell_studio(mid, ahead)
         return await self._run(self._mode, mid, on, color)
 
-    def _set_modes(self, modes) -> dict:
-        """Keep the modes as edited on the Party Hub; one taken away while it is on is switched off first."""
-        new = self.clean_modes(modes)
+    def _set_color_moments(self, color_moments) -> dict:
+        """Keep the color moments as edited on the phone remote; one taken away while it is on is switched off first."""
+        new = self.clean_color_moments(color_moments)
         keep, before = {m["id"] for m in new}, self._music_gain()
-        for mid, st in list(self.mode_on.items()):
+        for mid, st in list(self.color_moment_on.items()):
             if st.get("on") and mid not in keep:
                 self._mode(mid, False)
         cfg = self.load_config()
-        cfg["party_modes"] = new
+        cfg["color_moments"] = new
         self.save_config(cfg)
-        for mid in list(self.mode_on):
+        for mid in list(self.color_moment_on):
             if mid not in keep:
-                del self.mode_on[mid]
+                del self.color_moment_on[mid]
         if self.engine is not None and self._music_gain() != before:
             self.engine.duck_music(self._music_gain(), 1.0)       # (a mode on, edited to a new level: over a second)
-        return {"modes": self.modes_status()}
+        return {"color_moments": self.color_moments_status()}
 
-    async def party_modes_set(self, request):
-        """The modes as edited: {modes: [{id?, name, music, pause, fade, color, confirm}]}."""
+    async def color_moments_set(self, request):
+        """The color moments as edited: {color moments: [{id?, name, music, pause, fade, color, confirm}]}."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        return await self._run(self._set_modes, body.get("modes"))
+        return await self._run(self._set_color_moments, body.get("color_moments"))
 
     async def _tell_studio(self, name: str, state: dict) -> None:
         tell = getattr(self.studio, "tell_studio", None)
@@ -1503,15 +1503,15 @@ class JamService:
             await tell({"type": "cover", "name": name, "state": state})
 
     async def colors(self, request):
-        """Set the jam's colors ({mode, primary, secondary}), or one track's ({track_id, primary,
-        secondary}; without the colors, the track goes back to the jam's)."""
+        """Set the party's colors ({mode, primary, secondary}), or one track's ({track_id, primary,
+        secondary}; without the colors, the track goes back to the party's)."""
         if not self._local(request):
             raise web.HTTPForbidden()
         body = await request.json()
         if body.get("track_id"):
             self._set_track_colors(body)
         else:
-            self._set_jam_colors(body)
+            self._set_color_settings(body)
         # off the event loop: handing out pairs afresh reads what was learned about each queued track
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._state))
 
@@ -1519,12 +1519,12 @@ class JamService:
     # "album": its cover's), and named sets of them (a Halloween set...) to switch between.
     SET_KEYS = ("mode", "primary", "secondary", "pairs", "rainbow", "wild")
 
-    def _set_jam_colors(self, body: dict) -> None:
+    def _set_color_settings(self, body: dict) -> None:
         """Change the party's colors: {on}, {mode}, {primary, secondary}, {pairs}, {extras}, {rainbow}, {wild}; and the
         named sets: {use: name} puts one on, {save_as: name} keeps the colors as they are under a name,
         {save: true} keeps them in the set they came from, {delete: name} forgets one."""
         cfg = self.load_config()
-        cur = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}
+        cur = {**self.DEFAULT_COLORS, **cfg.get("color_settings", {})}
         sets = dict(cfg.get("color_sets") or {})
         if body.get("use") in sets:
             cur.update({k: v for k, v in sets[body["use"]].items() if k in self.SET_KEYS})
@@ -1557,35 +1557,35 @@ class JamService:
             if cur.get("set") == body["delete"]:
                 cur["set"] = ""
         self._assigned.clear()                                  # pairs or mode changed: hand them out afresh
-        cfg["jam_colors"], cfg["color_sets"] = cur, sets
+        cfg["color_settings"], cfg["color_sets"] = cur, sets
         self.save_config(cfg)
 
     def _color_sets(self) -> dict:
         """The party's colors for the phone: as they are, the set they came from (and whether they have been
         changed since), and every set's name."""
         cfg = self.load_config()
-        cur, sets = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {})}, cfg.get("color_sets") or {}
+        cur, sets = {**self.DEFAULT_COLORS, **cfg.get("color_settings", {})}, cfg.get("color_sets") or {}
         name = cur.get("set") if cur.get("set") in sets else ""
         edited = bool(name) and any(sets[name].get(k) != cur.get(k) for k in self.SET_KEYS)
         return {"mode": cur["mode"], "primary": cur["primary"], "secondary": cur["secondary"], "pairs": cur["pairs"],
                 "set": name, "edited": edited, "sets": sorted(sets, key=str.lower)}
 
     async def party_theme(self, request):
-        """From the phone: the party's colors and their named sets (see _set_jam_colors)."""
+        """From the phone: the party's colors and their named sets (see _set_color_settings)."""
         if not self._lan(request):
             raise web.HTTPForbidden()
         body = await request.json()
-        await asyncio.get_running_loop().run_in_executor(None, self._set_jam_colors, body)
+        await asyncio.get_running_loop().run_in_executor(None, self._set_color_settings, body)
         return web.json_response(await asyncio.get_running_loop().run_in_executor(None, self._party))
 
     def _set_theme_on(self, on: bool) -> None:
         """The party's colors for every song, or (off) every song in its own album cover's colors."""
         cfg = self.load_config()
-        cfg["jam_colors"] = {**self.DEFAULT_COLORS, **cfg.get("jam_colors", {}), "on": bool(on)}
+        cfg["color_settings"] = {**self.DEFAULT_COLORS, **cfg.get("color_settings", {}), "on": bool(on)}
         self.save_config(cfg)
 
     def _auto_on(self) -> bool:
-        return bool(self.load_config().get("jam_auto", True))
+        return bool(self.load_config().get("party_auto", True))
 
     async def art(self, request):
         """Album art, relayed so the studio page may read its colors. Spotify's image server only."""
@@ -1615,25 +1615,25 @@ class JamService:
         body = await request.json()
         cfg = self.load_config()
         if "auto" in body:
-            cfg["jam_auto"] = bool(body["auto"])
+            cfg["party_auto"] = bool(body["auto"])
             self.auto_armed = True
         if body.get("source") in ("studio", "app"):
-            cfg["jam_last"] = {**cfg.get("jam_last", {}), "source": body["source"]}
+            cfg["party_last"] = {**cfg.get("party_last", {}), "source": body["source"]}
         for key in ("speakers", "crossfade", "skip_jumps"):
             if key in body:
-                cfg["jam_last"] = {**cfg.get("jam_last", {}), key: body[key]}
+                cfg["party_last"] = {**cfg.get("party_last", {}), key: body[key]}
         if "cast_device" in body:                             # the speaker it plays on, connected when it starts
-            cfg["jam_cast_device"] = str(body["cast_device"] or "")
+            cfg["party_cast_device"] = str(body["cast_device"] or "")
         if "delay" in body:                                   # (learning ahead keeps its own)
             if self._fetch_on():
-                cfg["jam_fetch_delay"] = float(body["delay"])
+                cfg["party_fetch_delay"] = float(body["delay"])
             else:
-                cfg["jam_last"] = {**cfg.get("jam_last", {}), "target_delay": float(body["delay"])}
-        if "opener" in body:                                  # the saved show every jam opens with ("" for none)
-            cfg["jam_opener"] = str(body["opener"] or "")
+                cfg["party_last"] = {**cfg.get("party_last", {}), "target_delay": float(body["delay"])}
+        if "opener" in body:                                  # the saved show every party opens with ("" for none)
+            cfg["party_opener"] = str(body["opener"] or "")
         if "fetch" in body:                                   # learn ahead from YouTube copies
-            cfg["jam_fetch"] = bool(body["fetch"])
-            self.prelisten.fetch = self.fetch if body["fetch"] else None
+            cfg["party_fetch"] = bool(body["fetch"])
+            self.playlist_learning.fetch = self.fetch if body["fetch"] else None
         self.save_config(cfg)
         return web.json_response(self._state())
 

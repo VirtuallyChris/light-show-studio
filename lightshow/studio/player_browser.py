@@ -43,7 +43,7 @@ from ..appdirs import popen_outside
 
 HOME = os.path.join(local_appdata(), "lanlightshow")
 PROFILE = os.path.join(HOME, "player-browser")
-# Part of the output's name (VB-Cable's, by default); config.json jam_hidden_output. Mac and Linux make their own.
+# Part of the output's name (VB-Cable's, by default); config.json party_hidden_output. Mac and Linux make their own.
 AUTO = "auto"
 HIDDEN_OUTPUT = {"darwin": mac_capture.DEVICE, "linux": linux_audio.DESCRIPTION}.get(sys.platform, AUTO)
 MUTED_NOTE = os.path.join(HOME, "muted-output.txt")     # the output this studio muted, should it crash before unmuting
@@ -61,7 +61,7 @@ def hidden_problem() -> str:
         return mac_capture.problem()
     if sys.platform == "win32":
         return ""
-    return "" if linux_audio.available() else "Jam mode needs PulseAudio or PipeWire (the pactl command) to record Spotify's sound"
+    return "" if linux_audio.available() else "the party needs PulseAudio or PipeWire (the pactl command) to record Spotify's sound"
 
 
 def pick_hidden_output(outputs: list[str], default: str = "", avoid: str = "") -> tuple[str, bool]:
@@ -181,7 +181,7 @@ class HiddenPlayer:
     """Runs the windowless player, keeps its sound on the hidden output, and puts it back on exit."""
 
     def __init__(self, url: str, hidden_output: str = HIDDEN_OUTPUT, avoid=lambda: ""):
-        """`avoid`: the output the room hears, never to be picked (config.json jam_room_output)."""
+        """`avoid`: the output the room hears, never to be picked (config.json party_room_output)."""
         self.url, self.hidden_output, self.avoid = url, hidden_output, avoid
         self.muted = ""                                    # the output this player muted
         self.proc: subprocess.Popen | None = None

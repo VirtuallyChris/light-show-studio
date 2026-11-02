@@ -33,7 +33,7 @@ def main() -> None:
     from .fetch_ahead import analyze_here
     from . import priority
     reply({"ready": True})
-    # load the models now, while the jam's first song plays: loaded at the first song to learn they
+    # load the models now, while the party's first song plays: loaded at the first song to learn they
     # took minutes, and that song's show came at its end (a request waits for its model's load)
     import threading
     from . import beats_model, drum_model, genre, stems, structure_model

@@ -1,30 +1,29 @@
-"""Cues: buttons on the Party Hub that stop the party for a moment (a doorbell, shot o'clock).
+"""Moments: buttons on the phone remote that stop the party for a moment (a doorbell, shot o'clock).
 
-A cue cuts straight to one of your saved shows (its sound on the speakers, its lights in the room),
+A moment cuts straight to one of your saved shows (its sound on the speakers, its lights in the room),
 plays it to its very end, then the music fades back in over MUSIC_BACK_S, from where it stopped. (The
-user asked for exactly this: no fade out first, no songs overlapping, the same 2 s fade in after every
-cue; the per-cue fade settings are gone.) In a jam the room is behind Spotify; Spotify is paused, the
+user asked for exactly this: no fade out first, no songs overlapping, the same 2 s fade in after every moment; the per-moment fade settings are gone.) In a party the room is behind Spotify; Spotify is paused, the
 buffer held, and the room picks up exactly where it stopped.
 
-In a jam on the speakers (or this PC), the show's song is played inside the jam's own stream: the
+In a party on the speakers (or this PC), the show's song is played inside the party's own stream: the
 speakers get one fresh stream, as for a skip, with the song first and the music after it, fading in.
 The speakers are never paused, and never load the show's song, so nothing waits in between. The songs
 are decoded ahead of time and kept in memory.
 
 The fade is in the audio itself, never on the speakers' volume: a Google speaker chimes at every
-volume change. Without a jam there is no audio of ours to fade, and the music just stops and starts.
+volume change. Without a party there is no audio of ours to fade, and the music just stops and starts.
 
 Where the show plays:
-- the jam is on Cast speakers (or the studio is casting): the show's song goes to the same speaker
+- the party is on Cast speakers (or the studio is casting): the show's song goes to the same speaker
   or group, and the studio page plays its lights following that speaker; afterwards the speakers get
-  the jam's stream back from exactly where the room stopped;
-- the jam is on this PC (or there is no jam and no cast): the studio page plays the song on this PC
+  the party's stream back from exactly where the room stopped;
+- the party is on this PC (or there is no party and no cast): the studio page plays the song on this PC
   and its lights;
-- a silent preview jam: the lights only.
-Without a jam, Spotify is paused only if something is playing, and resumed only if it was.
+- a silent preview party: the lights only.
+Without a party, Spotify is paused only if something is playing, and resumed only if it was.
 
-A test copy of the studio (--no-lights) runs every cue as a rehearsal: each step happens on its real
-timing and the Party Hub follows along, but no speaker, light or Spotify is touched.
+A test copy of the studio (--no-lights) runs every moment as a rehearsal: each step happens on its real
+timing and the phone remote follows along, but no speaker, light or Spotify is touched.
 """
 
 from __future__ import annotations
@@ -35,16 +34,16 @@ import threading
 import time
 import uuid
 
-DEFAULT_CUES = [
+DEFAULT_SHOW_MOMENTS = [
     {"id": "doorbell", "name": "Doorbell", "show": ""},
     {"id": "shot", "name": "Shot o'clock", "show": ""},
 ]
-MUSIC_BACK_S = 2.0         # after every cue, the music fades back in over this
+MUSIC_BACK_S = 2.0         # after every moment, the music fades back in over this
 
 
-def clean(cues) -> list[dict]:
+def clean(show_moments) -> list[dict]:
     out, ids = [], set()
-    for c in cues if isinstance(cues, list) else []:
+    for c in show_moments if isinstance(show_moments, list) else []:
         if not isinstance(c, dict):
             continue
         cid = str(c.get("id") or "")
@@ -52,14 +51,14 @@ def clean(cues) -> list[dict]:
             cid = uuid.uuid4().hex[:10]
         ids.add(cid)
         # its shows: one picked at random each time it runs (a doorbell's spooky ones); "show" is the first,
-        # for a cue saved with one show and for whatever reads only that
+        # for a moment saved with one show and for whatever reads only that
         shows = []
         for s in (c.get("shows") if isinstance(c.get("shows"), list) else [c.get("show")]):
             s = str(s or "").strip()[:120]
             if s and s not in shows:
                 shows.append(s)
         shows = shows[:20]
-        out.append({"id": cid, "name": str(c.get("name") or "").strip()[:30] or f"Cue {len(out) + 1}",
+        out.append({"id": cid, "name": str(c.get("name") or "").strip()[:30] or f"Moment {len(out) + 1}",
                     "show": shows[0] if shows else "", "shows": shows})
     return out[:12]
 
@@ -87,48 +86,48 @@ class Rehearsal:
 
 
 class LiveHooks:
-    """The real thing: the jam (or the studio's cast), Spotify and the speakers."""
+    """The real thing: the party (or the studio's cast), Spotify and the speakers."""
 
-    def __init__(self, cast, jam, song, show_length, pcm=None):
-        self.cast, self.jam = cast, jam                  # CastManager, JamService
+    def __init__(self, cast, party, song, show_length, pcm=None):
+        self.cast, self.party = cast, party                  # CastManager, PartyService
         self.song = song                                 # show name -> (audio URL for the speaker, file path)
         self.show_length = show_length
-        self.pcm = pcm                                   # show name -> (int16 frames, rate) at the jam's rate, or None
-        self.engine = jam.engine if jam is not None else None
-        kind = jam._output_kind(self.engine.output) if self.engine is not None else None
+        self.pcm = pcm                                   # show name -> (int16 frames, rate) at the party's rate, or None
+        self.engine = party.engine if party is not None else None
+        kind = party._output_kind(self.engine.output) if self.engine is not None else None
         if kind == "cast" or (kind is None and cast.cast is not None):
             self.via = "cast"
         elif kind == "none":
-            self.via = "none"                            # a silent preview jam: the lights only
+            self.via = "none"                            # a silent preview party: the lights only
         else:
             self.via = "pc"
         self.device = cast.name if self.via == "cast" else ""
         self.paused_spotify = False
 
-    # -- a cue played inside the jam's stream ---------------------------------------------------
-    def stream_cue(self, name: str) -> float | None:
-        """Put the show's song into the jam's stream, the music fading back in after it. Returns its length,
-        or None when it cannot be (no jam on speakers, or the song is not ready)."""
-        why = ("no jam" if self.engine is None else "the jam is not on speakers" if self.via not in ("cast", "pc")
-               else "the jam's speakers have not started" if not getattr(self.engine, "streaming", False) else "" if self.pcm else "no audio loader")
+    # -- a moment played inside the party's stream ---------------------------------------------------
+    def stream_show_moment(self, name: str) -> float | None:
+        """Put the show's song into the party's stream, the music fading back in after it. Returns its length,
+        or None when it cannot be (no party on speakers, or the song is not ready)."""
+        why = ("no party" if self.engine is None else "the party is not on speakers" if self.via not in ("cast", "pc")
+               else "the party's speakers have not started" if not getattr(self.engine, "streaming", False) else "" if self.pcm else "no audio loader")
         got = None if why else self.pcm(name)
         if not why and got is None:
             why = f"{name}'s audio could not be loaded"
         if not why:
             frames, rate = got
-            if self.engine.cue_insert(frames, MUSIC_BACK_S):
+            if self.engine.show_moment_insert(frames, MUSIC_BACK_S):
                 return len(frames) / float(rate)
             why = "no stream to put it in"
         if self.engine is not None and hasattr(self.engine, "say"):
-            self.engine.say(f"a cue the old way (its song loaded on the speakers): {why}")
+            self.engine.say(f"a moment the old way (its song loaded on the speakers): {why}")
         return None
 
-    def cue_position(self) -> float | None:
-        return self.engine.cue_position() if self.engine is not None else None
+    def show_moment_position(self) -> float | None:
+        return self.engine.show_moment_position() if self.engine is not None else None
 
     def music_back(self) -> None:
         """The song is over; the music fades back in (already in the stream)."""
-        self.engine.cue_over()
+        self.engine.show_moment_over()
 
     def cut_short(self, fade_in: float) -> None:
         """Ended early: the music comes back from where it held, fading in."""
@@ -138,7 +137,7 @@ class LiveHooks:
         if self.engine is not None:
             self.engine.hold()
             return
-        sp = getattr(self.jam, "spotify", None)
+        sp = getattr(self.party, "spotify", None)
         try:
             if sp is not None and sp.signed_in and sp.now_playing().playing:
                 sp.pause()
@@ -161,21 +160,21 @@ class LiveHooks:
                 pass
 
     def resume_music(self, fade_in: float = 0.0) -> bool:
-        """The music comes back, fading in when it is the jam's own audio. True if it fades."""
+        """The music comes back, fading in when it is the party's own audio. True if it fades."""
         if self.engine is not None:
-            # the speakers (or this PC) get the jam's stream back from where the room stopped
+            # the speakers (or this PC) get the party's stream back from where the room stopped
             restart = self.via in ("cast", "pc")
             self.engine.release(restart=restart, fade_in=fade_in if restart else 0.0)
             return restart and fade_in > 0
         if self.paused_spotify:
             try:
-                self.jam.spotify.resume()
+                self.party.spotify.resume()
             except Exception:  # noqa: BLE001
                 pass
         return False
 
 
-class CueRunner:
+class ShowMomentRunner:
     def __init__(self, load_config, save_config, show_length, clock=time.monotonic, sleep=time.sleep, live=None):
         self.load_config, self.save_config = load_config, save_config
         self.show_length = show_length
@@ -186,16 +185,16 @@ class CueRunner:
         self.stop_flag = threading.Event()
         self.state: dict = {}
         self.hooks = None
-        self.bags: dict[str, list[str]] = {}             # cue id -> its shows still to come this round
+        self.bags: dict[str, list[str]] = {}             # moment id -> its shows still to come this round
         self.last_show: dict[str, str] = {}
 
-    def pick(self, cue: dict) -> str:
-        """One of the cue's shows at random, none again until every one has played (a shuffled bag, refilled
+    def pick(self, show_moment: dict) -> str:
+        """One of the moment's shows at random, none again until every one has played (a shuffled bag, refilled
         when empty), and a new round never starting with the one just played."""
-        shows = cue.get("shows") or ([cue["show"]] if cue.get("show") else [])
+        shows = show_moment.get("shows") or ([show_moment["show"]] if show_moment.get("show") else [])
         if len(shows) <= 1:
             return shows[0] if shows else ""
-        cid = cue["id"]
+        cid = show_moment["id"]
         bag = [s for s in self.bags.get(cid, []) if s in shows]
         if not bag:
             bag = random.sample(shows, len(shows))
@@ -205,16 +204,16 @@ class CueRunner:
         self.bags[cid], self.last_show[cid] = bag, show
         return show
 
-    # -- the cues -------------------------------------------------------------------------------
+    # -- the moments -------------------------------------------------------------------------------
     def list(self) -> list[dict]:
         cfg = self.load_config()
-        return clean(cfg["cues"]) if "cues" in cfg else clean(DEFAULT_CUES)
+        return clean(cfg["show_moments"]) if "show_moments" in cfg else clean(DEFAULT_SHOW_MOMENTS)
 
-    def replace(self, cues) -> list[dict]:
+    def replace(self, show_moments) -> list[dict]:
         cfg = self.load_config()
-        cfg["cues"] = clean(cues)
+        cfg["show_moments"] = clean(show_moments)
         self.save_config(cfg)
-        return cfg["cues"]
+        return cfg["show_moments"]
 
     # -- running one ----------------------------------------------------------------------------
     def status(self) -> dict:
@@ -228,20 +227,20 @@ class CueRunner:
         return bool(self.thread and self.thread.is_alive())
 
     def run(self, cid: str, hooks=None) -> dict:
-        cue = next((c for c in self.list() if c["id"] == cid), None)
-        if cue is None:
-            raise LookupError("no such cue")
-        if not cue["show"]:
-            raise ValueError(f"{cue['name']} has no show yet: pick one in Settings")
+        show_moment = next((c for c in self.list() if c["id"] == cid), None)
+        if show_moment is None:
+            raise LookupError("no such show_moment")
+        if not show_moment["show"]:
+            raise ValueError(f"{show_moment['name']} has no show yet: pick one in Settings")
         if self.busy():
-            raise RuntimeError(f"{self.state.get('name', 'A cue')} is still running")
-        cue = {**cue, "show": self.pick(cue)}
+            raise RuntimeError(f"{self.state.get('name', 'A moment')} is still running")
+        show_moment = {**show_moment, "show": self.pick(show_moment)}
         self.hooks = hooks or (self.live() if self.live else Rehearsal(self.show_length))
         self.stop_flag.clear()
-        self.state = {"id": cue["id"], "name": cue["name"], "phase": "starting", "rehearsal": isinstance(self.hooks, Rehearsal), "steps": [],
-                      "run": uuid.uuid4().hex[:8], "show": cue["show"], "via": getattr(self.hooks, "via", "none"),
+        self.state = {"id": show_moment["id"], "name": show_moment["name"], "phase": "starting", "rehearsal": isinstance(self.hooks, Rehearsal), "steps": [],
+                      "run": uuid.uuid4().hex[:8], "show": show_moment["show"], "via": getattr(self.hooks, "via", "none"),
                       "device": getattr(self.hooks, "device", "")}
-        self.thread = threading.Thread(target=self._run, args=(cue,), daemon=True)
+        self.thread = threading.Thread(target=self._run, args=(show_moment,), daemon=True)
         self.thread.start()
         return self.status()
 
@@ -259,15 +258,15 @@ class CueRunner:
         while self.clock() < end:
             self.sleep(min(0.1, max(0.0, end - self.clock())))
 
-    def _run(self, cue: dict) -> None:
+    def _run(self, show_moment: dict) -> None:
         h = self.hooks
-        dur = h.stream_cue(cue["show"]) if hasattr(h, "stream_cue") else None
+        dur = h.stream_show_moment(show_moment["show"]) if hasattr(h, "stream_show_moment") else None
         if dur:
             return self._run_in_stream(h, dur)
         try:
             self._phase("pause")
             h.pause_music()
-            dur = h.play_show(cue["show"])
+            dur = h.play_show(show_moment["show"])
             self._phase("show", dur)
             end = self.clock() + dur
             while self.clock() < end and not self.stop_flag.is_set():
@@ -288,7 +287,7 @@ class CueRunner:
             self._phase("done")
 
     def _run_in_stream(self, h, dur: float) -> None:
-        """The song is in the jam's stream already: follow it by the speakers' own position (they take a
+        """The song is in the party's stream already: follow it by the speakers' own position (they take a
         moment to start a fresh stream) to its very end, then hand the room back as the music fades in."""
         self.state["stream"] = True                      # the page plays only its lights, never its sound
         self._phase("show", dur)
@@ -298,7 +297,7 @@ class CueRunner:
                 if self.stop_flag.is_set():
                     stopped = True
                     break
-                p = h.cue_position()
+                p = h.show_moment_position()
                 at = p if p is not None else self.clock() - t0
                 left = dur - at
                 if left <= 0 or self.clock() - t0 > dur + 10:

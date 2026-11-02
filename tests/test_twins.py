@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-from lightshow.studio.jam import JamLibrary, _analysis_version
+from lightshow.studio.party import PartyLibrary, _analysis_version
 
 
 def write(lib, tid, name, artists, duration, energy):
@@ -21,7 +21,7 @@ def write(lib, tid, name, artists, duration, energy):
 class TwinsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.lib = JamLibrary(self.tmp.name)
+        self.lib = PartyLibrary(self.tmp.name)
         rng = np.random.default_rng(1)
         self.e = np.abs(rng.normal(size=30 * 200))
 

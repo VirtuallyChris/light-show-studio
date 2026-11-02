@@ -1,4 +1,4 @@
-r"""Lyrics with word times for every kept Jam copy: shows\_jam\copies\<track id>.flac -> shows\_jam\lyrics\<track id>.json
+r"""Lyrics with word times for every kept Party copy: shows\_party\copies\<track id>.flac -> shows\_party\lyrics\<track id>.json
 
 Run from the project folder, in the model environment (it needs the graphics card, ~5 GB of it):
 
@@ -6,9 +6,9 @@ Run from the project folder, in the model environment (it needs the graphics car
     .venv-songformer\Scripts\python tools\lyrics_backfill.py --force      every copy, again
     .venv-songformer\Scripts\python tools\lyrics_backfill.py --only ID    one song (or several: --only A B)
 
-Songs that already have a lyrics file are skipped, so it can be stopped and started again. While a Jam
+Songs that already have a lyrics file are skipped, so it can be stopped and started again. While a Party
 is streaming it waits (the studio's own models need the card then), and asks again every minute.
-The learned analyses (shows\_jam\learned) are only read, for the Spotify name and length of a song.
+The learned analyses (shows\_party\learned) are only read, for the Spotify name and length of a song.
 Nothing is played and no light is touched.
 """
 import argparse
@@ -30,7 +30,7 @@ STATE_URL = "http://127.0.0.1:8765/api/party/state"
 
 
 def jamming() -> bool:
-    """True while the studio is streaming a Jam (no answer: the studio is not running)."""
+    """True while the studio is streaming a Party (no answer: the studio is not running)."""
     try:
         with urllib.request.urlopen(STATE_URL, timeout=3) as r:
             return bool(json.loads(r.read()).get("streaming"))
@@ -69,11 +69,11 @@ def main() -> int:
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")      # song names in any alphabet
 
-    jam = os.path.join(args.shows, "_jam")
-    copies = sorted(glob.glob(os.path.join(jam, "copies", "*.flac")))
+    party = os.path.join(args.shows, "_party")
+    copies = sorted(glob.glob(os.path.join(party, "copies", "*.flac")))
     if args.only:
         copies = [c for c in copies if os.path.splitext(os.path.basename(c))[0] in set(args.only)]
-    out_dir = os.path.join(jam, "lyrics")
+    out_dir = os.path.join(party, "lyrics")
     todo = [c for c in copies if args.force or not os.path.exists(os.path.join(out_dir, os.path.basename(c)[:-5] + ".json"))]
     print(f"{len(copies)} copies, {len(todo)} to do", flush=True)
     if not todo:
@@ -83,14 +83,14 @@ def main() -> int:
     failures = []
     for k, copy in enumerate(todo, 1):
         while not args.cpu and jamming():
-            print("  a Jam is streaming: waiting", flush=True)
+            print("  a Party is streaming: waiting", flush=True)
             time.sleep(60)
         if models is None:
             t = time.monotonic()
             models = lyrics.Models(device="cpu" if args.cpu else None)
             print(f"models loaded in {time.monotonic() - t:.0f} s", flush=True)
         tid = os.path.splitext(os.path.basename(copy))[0]
-        info = song_info(copy, os.path.join(jam, "learned"))
+        info = song_info(copy, os.path.join(party, "learned"))
         try:
             data = lyrics.lyrics_for(models, copy, info["title"], info["artist"], info["album"], info["duration"])
             data["track_id"] = tid

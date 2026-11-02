@@ -1,15 +1,15 @@
-"""Pre-listen: learn a party playlist's songs ahead of the party.
+"""Learning a playlist: learn a party playlist's songs ahead of the party.
 
 Spotify's audio only plays in real time (it is protected, and never kept), so a song can only be
-learned by hearing it. Pre-listen does the hearing ahead of time: the studio's own hidden Spotify
+learned by hearing it. Learning a playlist does the hearing ahead of time: the studio's own hidden Spotify
 player plays each song of a playlist (or the queue) that is not learned yet, into the output nobody
-hears, through a silent jam (the room hears nothing; no speaker is touched). The jam learns each song
+hears, through a silent party (the room hears nothing; no speaker is touched). The party learns each song
 as it ends, exactly as it would at a party, and keeps only what it learned. When every song is
-learned, Spotify pauses and the silent jam stops. A playlist of three hours takes three hours, so
+learned, Spotify pauses and the silent party stops. A playlist of three hours takes three hours, so
 it is something to start the night before.
 
-One Spotify account plays one thing at a time: while pre-listen runs, the account is busy. If
-Spotify starts playing anywhere else (a phone taking over), or a real jam is started, pre-listen
+One Spotify account plays one thing at a time: while learning a playlist runs, the account is busy. If
+Spotify starts playing anywhere else (a phone taking over), or a real party is started, learning a playlist
 steps aside at once.
 
 With learn ahead (fetch_ahead: a copy of each song found on YouTube, analysed and deleted) nothing
@@ -38,10 +38,10 @@ def playlist_id(text: str) -> str | None:
 
 
 class PreListen:
-    def __init__(self, spotify, library, start_jam, stop_jam, device_id, device_name="Light Show Studio",
+    def __init__(self, spotify, library, start_party, stop_party, device_id, device_name="Light Show Studio",
                  clock=time.monotonic, sleep=time.sleep, fetch=None):
         self.spotify, self.library = spotify, library
-        self.start_jam, self.stop_jam = start_jam, stop_jam         # the silent jam that does the learning
+        self.start_party, self.stop_party = start_party, stop_party         # the silent party that does the learning
         self.device_id = device_id                                  # () -> the studio player's Spotify device id
         self.device_name = device_name
         self.clock, self.sleep = clock, sleep
@@ -71,7 +71,7 @@ class PreListen:
     # -- running -------------------------------------------------------------------------------------
     def start(self, source: str) -> dict:
         if self.busy():
-            raise RuntimeError("pre-listen is already running")
+            raise RuntimeError("learning a playlist is already running")
         tracks = self._tracks(source)
         todo = self._unlearned(tracks)
         self.state = {"running": bool(todo), "source": "the queue" if source == "queue" else "the playlist",
@@ -86,7 +86,7 @@ class PreListen:
             self.fetch.submit(todo, first=False)
             run = self._run_fetched
         else:
-            self.start_jam()                                # silent: the room hears nothing, nothing is kept but what is learned
+            self.start_party()                                # silent: the room hears nothing, nothing is kept but what is learned
             run = self._run
         self.thread = threading.Thread(target=run, args=(todo,), daemon=True)
         self.thread.start()
@@ -112,7 +112,7 @@ class PreListen:
             except Exception:  # noqa: BLE001
                 pass
         try:
-            self.stop_jam()
+            self.stop_party()
         except Exception:  # noqa: BLE001
             pass
         self.state.update(running=False, current=None, note=note)

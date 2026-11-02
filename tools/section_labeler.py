@@ -1,7 +1,7 @@
 r"""The learned section labeler (lightshow/studio/labeler.py), by hand:
 
     .venv\Scripts\python tools\section_labeler.py eval      the rules against the labeler, leaving one song out at a time
-    .venv\Scripts\python tools\section_labeler.py train     fit it on every reviewed song (shows/_jam/labeler.joblib) and
+    .venv\Scripts\python tools\section_labeler.py train     fit it on every reviewed song (shows/_party/labeler.joblib) and
                                                           rank the songs to review next (review_order.json)
     .venv\Scripts\python tools\section_labeler.py export    this home's trained labeler becomes the one the app ships
                                                           (lightshow/studio/data/section_labeler, for everyone)
@@ -18,10 +18,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from lightshow.appdirs import data_dir  # noqa: E402
 from lightshow.studio import labeler  # noqa: E402
-from lightshow.studio.jam import JamLibrary  # noqa: E402
+from lightshow.studio.party import PartyLibrary  # noqa: E402
 
 if __name__ == "__main__":
-    lib = JamLibrary(os.path.join(data_dir(), "shows"))
+    lib = PartyLibrary(os.path.join(data_dir(), "shows"))
     cmd = sys.argv[1] if len(sys.argv) > 1 else "eval"
     if "--fresh" in sys.argv and os.path.isdir(labeler.CACHE):
         for f in os.listdir(labeler.CACHE):

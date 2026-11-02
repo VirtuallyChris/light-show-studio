@@ -95,7 +95,7 @@ class TestSongFormerPath(unittest.TestCase):
 @unittest.skipUnless(structure_model.available(), "the model environment is not installed")
 class TestRealSongFormer(unittest.TestCase):
     def test_songformer_answers_for_audio_from_memory(self):
-        from lightshow.studio.jam_synth import make_song
+        from lightshow.studio.party_synth import make_song
         s = make_song(bpm=128.0, sr=24000, seed=1)
         segs = structure_model.run_audio(s["audio"].mean(axis=1), 24000)
         self.assertTrue(segs, structure_model.WORKER.last_error)
@@ -155,7 +155,7 @@ class TestTiming(unittest.TestCase):
 class TestBuildupsOnlyWhereTheyClimb(unittest.TestCase):
     def test_a_drop_gets_a_buildup_only_when_the_music_climbs_into_it(self):
         from lightshow.studio import analysis as A
-        from lightshow.studio.jam_synth import make_song
+        from lightshow.studio.party_synth import make_song
         s = make_song(bpm=128.0, sr=A.SR, seed=1)       # intro, verse, buildup, drop, breakdown, drop, outro
         a = A.analyze_audio(s["audio"].mean(axis=1), A.SR, events=False)
         types = [x["type"] for x in a["sections"]]

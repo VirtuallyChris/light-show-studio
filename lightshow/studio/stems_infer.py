@@ -11,7 +11,7 @@ and the reply, as the host passes them:
     request  one JSON line, either
                {"path": "C:/.../song.mp3"}                        a file on disk (a full path)
                {"samples": N, "sr": 44100, "channels": 2}         followed by N*channels float32
-                                                                  samples, interleaved (Jam mode:
+                                                                  samples, interleaved (the party:
                                                                   audio from memory, never a file)
     reply    one JSON line
                {"stems": {"n": n, "sr": 22050, "order": ["drums", "bass", "other"]},

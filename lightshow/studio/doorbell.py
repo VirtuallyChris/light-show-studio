@@ -1,12 +1,12 @@
-"""A Reolink doorbell: when someone presses it, a Party Hub cue runs (the doorbell's own show).
+"""A Reolink doorbell: when someone presses it, a phone remote moment runs (the doorbell's own show).
 
 The doorbell is reached on the home network with reolink_aio (the library Home Assistant's Reolink
 integration uses): the studio logs in once, subscribes to the doorbell's own event push (Reolink's
 "Baichuan" protocol, port 9000), and on every event asks whether the visitor button is pressed. A
-press is counted once (on the way down), and not again within RING_GAP_S, nor while a cue is running.
+press is counted once (on the way down), and not again within RING_GAP_S, nor while a moment is running.
 The connection is checked every minute and made again if the doorbell drops off the Wi-Fi.
 
-The settings (address, user, password, which cue) are kept in config.json under "doorbell"; the
+The settings (address, user, password, which moment) are kept in config.json under "doorbell"; the
 password is never sent back to a page.
 """
 
@@ -24,13 +24,13 @@ def public(cfg: dict) -> dict:
     """The doorbell's settings as a page may see them: never the password itself."""
     d = dict(cfg.get("doorbell") or {})
     return {"host": d.get("host", ""), "username": d.get("username", "admin"), "has_password": bool(d.get("password")),
-            "cue": d.get("cue", "doorbell"), "on": bool(d.get("on", True))}
+            "show_moment": d.get("show_moment", "doorbell"), "on": bool(d.get("on", True))}
 
 
 class Doorbell:
     def __init__(self, load_config, save_config, on_ring, make_host=None, clock=time.monotonic):
         self.load_config, self.save_config = load_config, save_config
-        self.on_ring = on_ring                       # (cue id) -> None: what a press does
+        self.on_ring = on_ring                       # (moment id) -> None: what a press does
         self.make_host = make_host or self._reolink_host
         self.clock = clock
         self.task: asyncio.Task | None = None
@@ -41,7 +41,7 @@ class Doorbell:
         self.last_ring_at: float | None = None       # wall-clock time of it, for the page
         self.connected = False
         self.error = ""
-        self.note = ""                               # what the last press did, when it could not run its cue
+        self.note = ""                               # what the last press did, when it could not run its moment
         self.name = ""
 
     @staticmethod
@@ -56,7 +56,7 @@ class Doorbell:
         """Change the settings (an empty or missing password keeps the one saved) and connect again."""
         cfg = self.load_config()
         d = dict(cfg.get("doorbell") or {})
-        for k in ("host", "username", "cue"):
+        for k in ("host", "username", "show_moment"):
             if k in body:
                 d[k] = str(body[k] or "").strip()[:120]
         if body.get("password"):
@@ -126,7 +126,7 @@ class Doorbell:
             except asyncio.CancelledError:
                 await self._logout()
                 raise
-            except Exception as e:  # noqa: BLE001 - shown on the Party Hub; tried again shortly
+            except Exception as e:  # noqa: BLE001 - shown on the phone remote; tried again shortly
                 self.connected, self.error = False, f"{type(e).__name__}: {e}"[:200]
                 await self._logout()
                 await asyncio.sleep(RETRY_S)
@@ -144,7 +144,7 @@ class Doorbell:
         if now_pressed and not was and self.clock() - self.last_ring >= RING_GAP_S:
             self.last_ring, self.last_ring_at = self.clock(), time.time()
             try:
-                self.on_ring(self.settings().get("cue") or "doorbell")
+                self.on_ring(self.settings().get("show_moment") or "doorbell")
                 self.note = ""
-            except Exception as e:  # noqa: BLE001 - a cue that cannot run (no show yet, one running) is shown, not raised
+            except Exception as e:  # noqa: BLE001 - a moment that cannot run (no show yet, one running) is shown, not raised
                 self.note = f"rang, but {e}"[:200]

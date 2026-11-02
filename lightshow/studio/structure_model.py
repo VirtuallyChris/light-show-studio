@@ -69,7 +69,7 @@ def save_features(audio_path: str, out_dir: str, name: str) -> dict | None:
 
 
 def run_audio(y, sr: int) -> list[dict] | None:
-    """SongFormer on audio held in memory (Jam mode). Nothing is written to disk."""
+    """SongFormer on audio held in memory (the party). Nothing is written to disk."""
     return WORKER.ask_audio(y, sr) if available() else None
 
 

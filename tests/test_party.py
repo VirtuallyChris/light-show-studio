@@ -1,4 +1,4 @@
-"""Jam mode, tested without a sound: run with  .venv\\Scripts\\python -m unittest tests.test_jam -v
+"""The party, tested without a sound: run with  .venv\\Scripts\\python -m unittest tests.test_party -v
 
 A fake clock, a fake Spotify, synthetic songs fed in place of the sound card and
 an imaginary perfect speaker. Nothing is played, no lights are driven and the
@@ -16,7 +16,7 @@ import warnings
 
 import numpy as np
 
-from lightshow.studio.jam import JamEngine, JamLibrary, JamSettings, VirtualOutput, align_start, live_bands
+from lightshow.studio.party import PartyEngine, PartyLibrary, PartySettings, VirtualOutput, align_start, live_bands
 from lightshow.studio.loopback import FileCapture, Gate
 from lightshow.studio.relay import Relay, wav_stream_header
 from lightshow.studio.spotify import NowPlaying, SpotifyClient, Track
@@ -81,9 +81,9 @@ class Sim:
         self.gate = Gate()
         self.spotify = FakeSpotify(self.clock, lag)
         self.out = VirtualOutput(self.clock)
-        self.library = JamLibrary(shows_dir)
-        cfg = JamSettings(target_delay=target, analyse_every=14.0, events_every=99, capture_latency=0.0, **settings)
-        self.engine = JamEngine(self.relay, self.spotify, self.library, self.out, self.gate, cfg, self.clock, cache_dir=False)
+        self.library = PartyLibrary(shows_dir)
+        cfg = PartySettings(target_delay=target, analyse_every=14.0, events_every=99, capture_latency=0.0, **settings)
+        self.engine = PartyEngine(self.relay, self.spotify, self.library, self.out, self.gate, cfg, self.clock, cache_dir=False)
         self.capture = FileCapture(self.relay, np.zeros((1, 2), dtype=np.float32), self.gate)
         self.did, self.ticks = [], 0
 
@@ -255,7 +255,7 @@ class TestLibrary(unittest.TestCase):
             os.makedirs(os.path.join(self.dir, name))
             _touch(os.path.join(self.dir, name, "project.json"), b"{}")
             _touch(os.path.join(self.dir, name, "song.mp3"))
-        self.lib = JamLibrary(self.dir)
+        self.lib = PartyLibrary(self.dir)
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -271,7 +271,7 @@ class TestLibrary(unittest.TestCase):
         t = Track("9", "If You're Too Shy (Let Me Know)", ["The 1975"], 300)
         self.assertIsNone(self.lib.match_project(t))                           # artist is not in the folder name
         self.lib.link("9", "If Youre Too Shy (Let Me Know)")
-        self.assertEqual(JamLibrary(self.dir).match_project(t), "If Youre Too Shy (Let Me Know)")
+        self.assertEqual(PartyLibrary(self.dir).match_project(t), "If Youre Too Shy (Let Me Know)")
         self.lib.link("9", "")
         self.assertIsNone(self.lib.match_project(t))
 
@@ -290,7 +290,7 @@ class TestLearnedTwins(unittest.TestCase):
     """One recording under two Spotify ids (the single and the album): learned once, known under both."""
 
     def test_a_twin_is_found_by_artist_name_and_length_and_adopted(self):
-        lib = JamLibrary(tempfile.mkdtemp())
+        lib = PartyLibrary(tempfile.mkdtemp())
         lib.save_learned(Track("single1", "Set It on Fire", ["Knox Hamilton"], 206.6), {"bpm": 120.0, "problems": []}, source="youtube")
         album = Track("album2", "Set It on Fire", ["Knox Hamilton", "Someone"], 206.7)
         self.assertEqual(lib.twin_of(album), "single1")
@@ -378,7 +378,7 @@ class TestEngine(unittest.TestCase):
 
         # learned ahead from a "copy" that is really another recording (here: the other song)
         other = analyze_audio(self.b["audio"].mean(axis=1), SR, events=False)
-        JamLibrary(self.dir).save_learned(self.ta, other, source="youtube")
+        PartyLibrary(self.dir).save_learned(self.ta, other, source="youtube")
         sim = Sim(self.dir, target=20.0)
         told = []
         sim.engine.on_mismatch = told.append
@@ -393,7 +393,7 @@ class TestEngine(unittest.TestCase):
     def test_a_song_learned_ahead_is_lined_up_before_a_room_ten_seconds_behind_hears_it(self):
         from lightshow.studio.analysis import analyze_audio
 
-        JamLibrary(self.dir).save_learned(self.ta, analyze_audio(self.a["audio"].mean(axis=1), SR, events=False), source="youtube")
+        PartyLibrary(self.dir).save_learned(self.ta, analyze_audio(self.a["audio"].mean(axis=1), SR, events=False), source="youtube")
         sim = Sim(self.dir, target=10.0, lag=0.35)                                # Spotify's answers run 350 ms stale
         sim.run(3.0, analyse=False)
         true_start = sim.relay.capture_time
@@ -414,7 +414,7 @@ class TestEngine(unittest.TestCase):
         mono = self.a["audio"].mean(axis=1)
         copy = analyze_audio(mono, SR, events=False)
         copy["align_bands"] = match_features(mono, SR, HOP).tolist()               # learned from a copy: the whole song
-        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        PartyLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
         sim = Sim(self.dir, target=10.0)
         told = []
         sim.engine.on_mismatch = told.append
@@ -435,7 +435,7 @@ class TestEngine(unittest.TestCase):
         mono = self.a["audio"].mean(axis=1)
         copy = analyze_audio(mono, SR, events=False)
         copy["align_bands"] = match_features(mono, SR, HOP).tolist()
-        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        PartyLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
         sim = Sim(self.dir, target=10.0, light_live=True)
         told = []
         sim.engine.on_mismatch = told.append
@@ -457,7 +457,7 @@ class TestEngine(unittest.TestCase):
         mono[: int(5.0 * SR)] = 0.02 * np.sin(np.arange(int(5.0 * SR)) * 0.05)
         copy = analyze_audio(mono, SR, events=False)
         copy["align_bands"] = match_features(mono, SR, HOP).tolist()
-        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        PartyLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
         sim = Sim(self.dir, target=3.0)
         told = []
         sim.engine.on_mismatch = told.append
@@ -476,7 +476,7 @@ class TestEngine(unittest.TestCase):
         mono = self.a["audio"].mean(axis=1)
         copy = analyze_audio(mono, SR, events=False)
         copy["align_bands"] = match_features(mono, SR, HOP).tolist()
-        JamLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
+        PartyLibrary(self.dir).save_learned(self.ta, copy, source="youtube")
         sim = Sim(self.dir, target=3.0)
         told = []
         sim.engine.on_mismatch = told.append
@@ -507,7 +507,7 @@ class TestEngine(unittest.TestCase):
         doc = sim.engine.analysis_json(t.key)
         self.assertTrue(doc["light"])
         a = doc["analysis"]
-        # nothing is worked out for it, not even the beat (the lights only glow: jam.js buildLight): a plain
+        # nothing is worked out for it, not even the beat (the lights only glow: party_show.js buildLight): a plain
         # grid, so all the PC's effort goes to learning the song from its copy
         self.assertEqual(a["bpm"], 120.0)
         sim.run(self.a["duration"] - 18)
@@ -520,7 +520,7 @@ class TestEngine(unittest.TestCase):
         from lightshow.studio.analysis import analyze_audio
 
         mono = self.a["audio"].mean(axis=1)
-        JamLibrary(self.dir).save_learned(self.ta, analyze_audio(mono, SR, events=False))
+        PartyLibrary(self.dir).save_learned(self.ta, analyze_audio(mono, SR, events=False))
         sim = Sim(self.dir, target=20.0, lag=0.35)                                # Spotify's answers run 350 ms stale
         lead_in = 3.0
         sim.run(lead_in, analyse=False)                                           # silence before the music starts
@@ -540,7 +540,7 @@ class TestEngine(unittest.TestCase):
         from lightshow.studio.analysis import analyze_audio
 
         mono = self.a["audio"].mean(axis=1)
-        lib = JamLibrary(self.dir)
+        lib = PartyLibrary(self.dir)
         lib.save_learned(self.ta, analyze_audio(mono, SR, events=False))
         kept_analysis = {"bpm": 99.0, "beats": [0.5, 1.1], "sections": [], "drops": [], "duration": 30.0}
         kept_show = {"name": "kept", "lanes": [{"clips": [{"effect": "solid", "start": 0, "len": 4}]}]}
@@ -559,7 +559,7 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(doc["analysis"]["bpm"], lib.learned(self.ta.id)["analysis"]["bpm"])
 
     def test_a_song_already_playing_is_measured_from_its_real_start(self):
-        # The jam begins 15 s into a song. Everything learned must still be in the song's own time.
+        # The party begins 15 s into a song. Everything learned must still be in the song's own time.
         sim = Sim(self.dir, target=20.0)
         e = sim.engine
         sim.play(self.a, self.ta, at=15.0)
@@ -579,7 +579,7 @@ class TestEngine(unittest.TestCase):
     def test_a_learned_song_already_playing_is_lined_up_by_ear(self):
         from lightshow.studio.analysis import analyze_audio
 
-        JamLibrary(self.dir).save_learned(self.ta, analyze_audio(self.a["audio"].mean(axis=1), SR, events=False))
+        PartyLibrary(self.dir).save_learned(self.ta, analyze_audio(self.a["audio"].mean(axis=1), SR, events=False))
         sim = Sim(self.dir, target=20.0, lag=0.35)
         true_start = sim.relay.capture_time - 20.0                               # it has been playing for 20 s
         sim.play(self.a, self.ta, at=20.0)
@@ -721,7 +721,7 @@ class TestLookAhead(unittest.TestCase):
     def engine(self, queue, ctx, songs):
         import threading
         from types import SimpleNamespace
-        e = JamEngine.__new__(JamEngine)
+        e = PartyEngine.__new__(PartyEngine)
         e.lock, e.tracks, e.queue, e._context_uri = threading.RLock(), [], [], None
         e.library = SimpleNamespace(match_project=lambda t: None, has_learned=lambda tid: False)
         e.say = lambda msg: None
@@ -807,12 +807,12 @@ class TestUpNext(unittest.TestCase):
 
 
 class TestMusicOnTheStudio(unittest.TestCase):
-    """The jam's music resumed somewhere else (the phone itself) is handed back to the studio's player."""
+    """The party's music resumed somewhere else (the phone itself) is handed back to the studio's player."""
 
     def service(self, device, playing=True, source="studio"):
         from types import SimpleNamespace
-        from lightshow.studio.jam_service import JamService
-        svc = JamService.__new__(JamService)
+        from lightshow.studio.party_service import PartyService
+        svc = PartyService.__new__(PartyService)
         svc.source, svc.player = source, SimpleNamespace(device_id="studio-dev")
         self.moved = []
         svc.spotify = SimpleNamespace(transfer_playback=lambda dev, play=True: self.moved.append(dev) or True)
@@ -827,7 +827,7 @@ class TestMusicOnTheStudio(unittest.TestCase):
         svc.keep_on_studio_once(eng, last, 105.0)                                  # not again within 15 s
         self.assertEqual(self.moved, ["studio-dev"])
 
-    def test_left_alone_on_the_studio_paused_or_a_jam_from_the_phone(self):
+    def test_left_alone_on_the_studio_paused_or_a_party_from_the_phone(self):
         for device, playing, source in [("Light Show Studio", True, "studio"), ("iPhone", False, "studio"), ("iPhone", True, "app")]:
             svc, eng = self.service(device, playing, source)
             svc.keep_on_studio_once(eng, -1e9, 100.0)
@@ -835,16 +835,16 @@ class TestMusicOnTheStudio(unittest.TestCase):
 
 
 class TestSpeakerPause(unittest.TestCase):
-    """A pause on the speaker itself does not pause the party; Spotify's pause, a cue or closing does."""
+    """A pause on the speaker itself does not pause the party; Spotify's pause, a moment or closing does."""
 
     def engine(self, state):
         import threading
         from types import SimpleNamespace
-        from lightshow.studio.jam import CastOutput
+        from lightshow.studio.party import CastOutput
         self.calls = []
         cast = SimpleNamespace(state=state, resume=lambda: self.calls.append("resume"), name="Speaker")
-        e = JamEngine.__new__(JamEngine)
-        e.lock, e.streaming, e.cue_hold, e._streamed_at = threading.RLock(), True, False, -1e9
+        e = PartyEngine.__new__(PartyEngine)
+        e.lock, e.streaming, e.show_moment_hold, e._streamed_at = threading.RLock(), True, False, -1e9
         e._paused_room, e._speaker_dropped, e._paused_at, e._resume_watch = None, False, None, None
         self.now, self.room = 100.0, None
         e.gate, e.cfg, e.clock, e.log = SimpleNamespace(paused=False), SimpleNamespace(target_delay=5.0), lambda: self.now, []
@@ -861,11 +861,11 @@ class TestSpeakerPause(unittest.TestCase):
         self.assertEqual(e.keep_playing(), "resumed the speaker")
         self.assertEqual(self.calls, ["resume"])
 
-    def test_the_party_paused_on_spotify_or_by_a_cue_stays_paused(self):
+    def test_the_party_paused_on_spotify_or_by_a_show_moment_stays_paused(self):
         e, cast = self.engine("PAUSED")
         e.gate.paused = True
         self.assertIsNone(e.keep_playing())
-        e.gate.paused, e.cue_hold = False, True
+        e.gate.paused, e.show_moment_hold = False, True
         self.assertIsNone(e.keep_playing())
         self.assertEqual(self.calls, [])
 
@@ -923,7 +923,7 @@ class TestSpeakerPause(unittest.TestCase):
         self.assertEqual(self.calls, ["resume", ("fresh stream", 42.0)])
 
     def test_a_resume_just_after_a_fresh_stream_leaves_it_be(self):
-        """A cue over: release gave the speakers a fresh stream, then Spotify resumed. Watching that resume and giving
+        """A moment over: release gave the speakers a fresh stream, then Spotify resumed. Watching that resume and giving
         another fresh stream to speakers still starting the first was the glitch on the way back."""
         e, cast = self.engine("BUFFERING")
         e.output.resume = lambda: self.calls.append("resume")
@@ -963,18 +963,18 @@ class TestClosingHush(unittest.TestCase):
     """Closing the studio stops the music at once; a reload brings it back."""
 
     def test_hush_holds_the_room_and_a_reload_releases_it(self):
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party_service import PartyService
         calls = []
 
         class Eng:
-            cue_hold = False
+            show_moment_hold = False
 
             def hold(self, why=""):
-                calls.append(("hold", why)); self.cue_hold = True
+                calls.append(("hold", why)); self.show_moment_hold = True
 
             def release(self, restart, fade_in=0.0):
-                calls.append(("release", restart)); self.cue_hold = False
-        svc = JamService.__new__(JamService)
+                calls.append(("release", restart)); self.show_moment_hold = False
+        svc = PartyService.__new__(PartyService)
         svc.engine = Eng()
         self.assertTrue(svc.hush())
         self.assertEqual(calls[0][0], "hold")
@@ -982,10 +982,10 @@ class TestClosingHush(unittest.TestCase):
         self.assertEqual(calls[-1], ("release", False))
         svc.unhush()                                                       # once only
         self.assertEqual(len(calls), 2)
-        svc.engine.cue_hold = True                                         # a cue holds the room: left to it
+        svc.engine.show_moment_hold = True                                         # a moment holds the room: left to it
         self.assertFalse(svc.hush())
         svc.engine = None
-        self.assertFalse(svc.hush())                                       # no jam: nothing to stop
+        self.assertFalse(svc.hush())                                       # no party: nothing to stop
 
 
 class TestPausedSpeakerAsksAgain(unittest.TestCase):
@@ -1006,14 +1006,14 @@ class TestPausedSpeakerAsksAgain(unittest.TestCase):
     def service(self, paused):
         import threading
         from types import SimpleNamespace
-        from lightshow.studio.jam import CastOutput
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party import CastOutput
+        from lightshow.studio.party_service import PartyService
         out = CastOutput.__new__(CastOutput)
         out.sid, out.stream, out.position = "s1", object(), lambda: 30.0
-        eng = SimpleNamespace(output=out, gate=SimpleNamespace(paused=paused), cue_hold=False, _speaker_dropped=False, log=[],
+        eng = SimpleNamespace(output=out, gate=SimpleNamespace(paused=paused), show_moment_hold=False, _speaker_dropped=False, log=[],
                               lock=threading.RLock())
         eng.say = eng.log.append
-        svc = JamService.__new__(JamService)
+        svc = PartyService.__new__(PartyService)
         svc.engine, svc._served = eng, {"s1": 30.0}
         svc._restart_cast = lambda o: eng.log.append("RESTARTED")
         return svc, eng, out
@@ -1064,19 +1064,19 @@ class TestHandover(unittest.TestCase):
 
 
 class TestOpeningSong(unittest.TestCase):
-    """A jam opens with a saved show: Spotify plays unheard from the start, the room joins as the opener
+    """A party opens with a saved show: Spotify plays unheard from the start, the room joins as the opener
     ends, a whole song behind. Virtual only: no speaker, no lights."""
 
-    def run_opener(self, sim, opener_s, spotify_late=0.0, cue_at=None):
+    def run_opener(self, sim, opener_s, spotify_late=0.0, show_moment_at=None):
         e = sim.engine
         e.open_with_song()
         t = 0.0
         while t < opener_s + 30:
             if spotify_late and t >= spotify_late and not sim.spotify.playing:
                 sim.spotify.resume()
-            if cue_at is not None and t == cue_at[0]:
+            if show_moment_at is not None and t == show_moment_at[0]:
                 e.hold()
-            if cue_at is not None and t == cue_at[1]:
+            if show_moment_at is not None and t == show_moment_at[1]:
                 e.release(restart=True)
             sim.run(1.0, analyse=False)
             t += 1.0
@@ -1089,7 +1089,7 @@ class TestOpeningSong(unittest.TestCase):
         d = tempfile.mkdtemp()
         try:
             a, ta = song(128.0, 1)
-            sim = Sim(d, target=98.0)                 # the jam service aims at the opener's length, less a little
+            sim = Sim(d, target=98.0)                 # the party service aims at the opener's length, less a little
             sim.play(a, ta)                           # Spotify plays from the start, unheard
             t = self.run_opener(sim, 100.0)
             self.assertTrue(sim.engine.streaming)
@@ -1113,14 +1113,14 @@ class TestOpeningSong(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
-    def test_a_cue_during_the_opener_holds_the_hand_over(self):
+    def test_a_show_moment_during_the_opener_holds_the_hand_over(self):
         d = tempfile.mkdtemp()
         try:
             a, ta = song(128.0, 1)
             sim = Sim(d, target=98.0)
             sim.play(a, ta)
-            t = self.run_opener(sim, 100.0, cue_at=(95.0, 110.0))
-            self.assertGreaterEqual(t, 110.0)         # not while the cue had the speakers
+            t = self.run_opener(sim, 100.0, show_moment_at=(95.0, 110.0))
+            self.assertGreaterEqual(t, 110.0)         # not while the moment had the speakers
             self.assertTrue(sim.engine.streaming)
         finally:
             shutil.rmtree(d, ignore_errors=True)
@@ -1130,41 +1130,41 @@ class TestColorSets(unittest.TestCase):
     """The party's colors, and named sets of them (a Halloween set) to switch between."""
 
     def service(self):
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party_service import PartyService
 
         class Studio:
             port = 0
             class cast:            # noqa: N801
                 cast, name, media_path = None, "", ""
         self.cfg = {}
-        return JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
+        return PartyService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
 
     def test_sets_are_saved_switched_and_forgotten(self):
         svc = self.service()
-        svc._set_jam_colors({"mode": "pick", "primary": "#ff8000", "secondary": "#8000ff"})
-        svc._set_jam_colors({"save_as": "Halloween"})
+        svc._set_color_settings({"mode": "pick", "primary": "#ff8000", "secondary": "#8000ff"})
+        svc._set_color_settings({"save_as": "Halloween"})
         c = svc._color_sets()
         self.assertEqual((c["set"], c["edited"], c["sets"]), ("Halloween", False, ["Halloween"]))
-        svc._set_jam_colors({"mode": "mix", "pairs": [["#ff0000", "#00ff00"], ["#ffffff", "#ff0000"]], "save_as": "Christmas"})
-        svc._set_jam_colors({"use": "Halloween"})                         # back to the orange and purple
+        svc._set_color_settings({"mode": "mix", "pairs": [["#ff0000", "#00ff00"], ["#ffffff", "#ff0000"]], "save_as": "Christmas"})
+        svc._set_color_settings({"use": "Halloween"})                         # back to the orange and purple
         c = svc._color_sets()
         self.assertEqual((c["mode"], c["primary"], c["secondary"], c["set"]), ("pick", "#ff8000", "#8000ff", "Halloween"))
-        svc._set_jam_colors({"secondary": "#00ff00"})                     # changed: the set is marked edited...
+        svc._set_color_settings({"secondary": "#00ff00"})                     # changed: the set is marked edited...
         self.assertTrue(svc._color_sets()["edited"])
-        svc._set_jam_colors({"save": True})                               # ...until it is saved
+        svc._set_color_settings({"save": True})                               # ...until it is saved
         self.assertFalse(svc._color_sets()["edited"])
         self.assertEqual(self.cfg["color_sets"]["Halloween"]["secondary"], "#00ff00")
-        svc._set_jam_colors({"delete": "Halloween"})
+        svc._set_color_settings({"delete": "Halloween"})
         c = svc._color_sets()
         self.assertEqual((c["set"], c["sets"]), ("", ["Christmas"]))
         self.assertEqual(c["primary"], "#ff8000")                         # the colors stay as they are
 
 
 class TestOpenerService(unittest.TestCase):
-    """The service side: which show opens, how far behind the jam aims, and what the page plays."""
+    """The service side: which show opens, how far behind the party aims, and what the page plays."""
 
     def service(self, lengths, cfg=None):
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party_service import PartyService
 
         class Studio:
             port = 0
@@ -1172,38 +1172,38 @@ class TestOpenerService(unittest.TestCase):
                 cast, name, media_path = None, "", ""
             _show_length = staticmethod(lambda name: lengths.get(name, 0.0))
         self.cfg = dict(cfg or {})
-        return JamService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
+        return PartyService(Studio, ".", lambda: dict(self.cfg), lambda c: self.cfg.update(c), lambda: "127.0.0.1")
 
     def test_the_show_set_in_config_opens_and_none_unless_one_is(self):
         shy = "If Youre Too Shy (Let Me Know)"
         svc = self.service({shy: 245.0, "Cheerleader": 180.0, "Jingle": 20.0})
         self.assertIsNone(svc._opener_plan({}))                 # a new home: no opening song until one is set
-        self.cfg["jam_opener"] = shy                            # (one home's choice, kept in its config.json)
+        self.cfg["party_opener"] = shy                            # (one home's choice, kept in its config.json)
         self.assertEqual(svc._opener_choice(), shy)
         self.assertEqual(svc._opener_plan({}), (shy, 245.0))
-        self.cfg["jam_opener"] = "Cheerleader"
+        self.cfg["party_opener"] = "Cheerleader"
         self.assertEqual(svc._opener_plan({}), ("Cheerleader", 180.0))
-        self.cfg["jam_opener"] = "Jingle"                   # too short to fill a buffer: no opener
+        self.cfg["party_opener"] = "Jingle"                   # too short to fill a buffer: no opener
         self.assertEqual(svc._opener_choice(), "")
         self.assertIsNone(svc._opener_plan({}))
-        self.cfg["jam_opener"] = ""                         # none: the jam starts 90 s behind as before
+        self.cfg["party_opener"] = ""                         # none: the party starts 90 s behind as before
         self.assertIsNone(svc._opener_plan({}))
-        self.assertIsNone(self.service({}, {"jam_opener": shy})._opener_plan({}))   # not saved here: nothing to open with
+        self.assertIsNone(self.service({}, {"party_opener": shy})._opener_plan({}))   # not saved here: nothing to open with
 
-    def test_the_page_plays_the_opener_until_the_jam_has_the_room(self):
+    def test_the_page_plays_the_opener_until_the_party_has_the_room(self):
         import time as _time
         svc = self.service({})
         svc.engine = type("E", (), {"streaming": False})()
         svc.opener = {"id": "opener", "name": "Opening song", "show": "Cheerleader", "via": "pc", "device": "",
                       "run": "r1", "t0": _time.monotonic() - 30.0, "dur": 180.0, "rehearsal": False}
-        st = svc._room_cue()
+        st = svc._room_show_moment()
         self.assertEqual((st["phase"], st["show"], st["via"]), ("show", "Cheerleader", "pc"))
         self.assertAlmostEqual(st["progress"], 30 / 180, delta=0.02)
         left, playing = svc._file_status()                  # this PC's page plays it: its own clock says how much is left
         self.assertAlmostEqual(left, 150.0, delta=1.0)
         self.assertTrue(playing)
-        svc.engine.streaming = True                         # the jam has the speakers: the opener is over
-        self.assertEqual(svc._room_cue()["phase"], "done")
+        svc.engine.streaming = True                         # the party has the speakers: the opener is over
+        self.assertEqual(svc._room_show_moment()["phase"], "done")
 
     def test_the_phone_shows_the_opening_song_in_the_room(self):
         import time as _time
@@ -1214,12 +1214,12 @@ class TestOpenerService(unittest.TestCase):
         room = svc._opener_room()
         self.assertEqual((room["label"], room["kind"], room["opener"]), ("If Youre Too Shy (Let Me Know)", "custom", True))
         self.assertAlmostEqual(room["position"], 60.0, delta=1.0)
-        svc.engine.streaming = True                         # the jam has the room: Spotify's songs from here
+        svc.engine.streaming = True                         # the party has the room: Spotify's songs from here
         self.assertIsNone(svc._opener_room())
 
 
-class TestCueFades(unittest.TestCase):
-    """A cue's fades are made in the jam's own audio, never on a speaker's volume. Fakes only."""
+class TestShowMomentFades(unittest.TestCase):
+    """A moment's fades are made in the party's own audio, never on a speaker's volume. Fakes only."""
 
     def test_the_stream_fades_what_it_hands_out(self):
         clock = Clock()
@@ -1240,7 +1240,7 @@ class TestCueFades(unittest.TestCase):
         s2.read(500, timeout=0)
         self.assertIsNone(s2.gain)                          # done fading: back to plain copying
 
-    def test_after_a_cue_the_music_comes_back_fading_in(self):
+    def test_after_a_show_moment_the_music_comes_back_fading_in(self):
         d = tempfile.mkdtemp()
         try:
             a, ta = song(128.0, 1)
@@ -1257,8 +1257,8 @@ class TestCueFades(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
-class TestCueInTheStream(unittest.TestCase):
-    """A cue's song played inside the jam's own stream: straight in, to its end, then the music fading back in.
+class TestShowMomentInTheStream(unittest.TestCase):
+    """A moment's song played inside the party's own stream: straight in, to its end, then the music fading back in.
     Fakes only."""
 
     def test_the_song_plays_alone_to_its_end_then_the_music_fades_in(self):
@@ -1289,16 +1289,16 @@ class TestCueInTheStream(unittest.TestCase):
             e = sim.engine
             starts, room = sim.out.starts, e.room_capture_time()
             pcm = np.zeros((SR * 6, 2), dtype=np.int16)
-            self.assertTrue(e.cue_insert(pcm, 2.0))
+            self.assertTrue(e.show_moment_insert(pcm, 2.0))
             self.assertEqual(sim.out.starts, starts + 1)                 # one fresh stream, as for a skip
             self.assertFalse(sim.spotify.playing)                        # the buffer is held
             self.assertAlmostEqual(e.held_at, room, delta=0.05)
             paused_at = sim.out.paused_at
             sim.run(3.0, analyse=False)
             self.assertEqual(sim.out.paused_at, paused_at)               # the speakers never paused
-            self.assertAlmostEqual(e.cue_position(), 3.0, delta=0.6)    # the room is 3 s into the song
+            self.assertAlmostEqual(e.show_moment_position(), 3.0, delta=0.6)    # the room is 3 s into the song
             sim.run(1.0, analyse=False)
-            e.cue_over()                                                 # the song over: the music fades back in
+            e.show_moment_over()                                                 # the song over: the music fades back in
             self.assertTrue(sim.spotify.playing)
             sim.run(4.0, analyse=False)
             self.assertFalse(e.gate.paused)
@@ -1317,10 +1317,10 @@ class TestCueInTheStream(unittest.TestCase):
             sim.play(a, ta)
             sim.run(14.0, analyse=False)
             e = sim.engine
-            e.cue_insert(np.zeros((SR * 2, 2), dtype=np.int16), 2.0)
+            e.show_moment_insert(np.zeros((SR * 2, 2), dtype=np.int16), 2.0)
             self.assertFalse(e.state()["room"]["playing"])               # the song alone: the room holds
             sim.run(2.5, analyse=False)
-            e.cue_over()
+            e.show_moment_over()
             self.assertTrue(e.gate.paused)                               # Spotify not seen playing yet...
             self.assertTrue(e.state()["room"]["playing"])                # ...but the room hears the music
             sim.run(3.0, analyse=False)
@@ -1330,9 +1330,8 @@ class TestCueInTheStream(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
-    def test_a_cue_rung_while_the_speakers_start_a_fresh_stream_still_plays_in_it(self):
-        """Rung 2 s after keep_delay gave the speakers a fresh stream: the room's place was not known yet, so the
-        cue was played the old way (loaded on the speakers: a pause, the music back late, glitches)."""
+    def test_a_show_moment_rung_while_the_speakers_start_a_fresh_stream_still_plays_in_it(self):
+        """Rung 2 s after keep_delay gave the speakers a fresh stream: the room's place was not known yet, so the moment was played the old way (loaded on the speakers: a pause, the music back late, glitches)."""
         d = tempfile.mkdtemp()
         try:
             a, ta = song(128.0, 1)
@@ -1342,7 +1341,7 @@ class TestCueInTheStream(unittest.TestCase):
             e = sim.engine
             e.room_capture_time = lambda: None                           # the speakers' place: not known this moment
             starts = sim.out.starts
-            self.assertTrue(e.cue_insert(np.zeros((SR * 4, 2), dtype=np.int16), 1.0))
+            self.assertTrue(e.show_moment_insert(np.zeros((SR * 4, 2), dtype=np.int16), 1.0))
             self.assertEqual(sim.out.starts, starts + 1)
             self.assertAlmostEqual(e.held_at, e.relay.capture_time - 10.0, delta=1.0)   # where the room should be
         finally:
@@ -1423,7 +1422,7 @@ class TestStreamRoute(unittest.IsolatedAsyncioTestCase):
         from aiohttp import web
         from aiohttp.test_utils import TestClient, TestServer
 
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party_service import PartyService
 
         class Studio:
             port = 0
@@ -1432,7 +1431,7 @@ class TestStreamRoute(unittest.IsolatedAsyncioTestCase):
 
         d = tempfile.mkdtemp()
         try:
-            svc = JamService(Studio, d, lambda: {}, lambda cfg: None, lambda: "127.0.0.1")
+            svc = PartyService(Studio, d, lambda: {}, lambda cfg: None, lambda: "127.0.0.1")
             sim = Sim(d, target=5.0)
             a, ta = song(128.0, 1)
             sim.play(a, ta)
@@ -1442,18 +1441,18 @@ class TestStreamRoute(unittest.IsolatedAsyncioTestCase):
             app = web.Application()
             app.add_routes(svc.routes())
             async with TestClient(TestServer(app)) as client:
-                self.assertEqual((await client.get("/api/jam/stream.wav?sid=99")).status, 404)      # a stale speaker request
-                resp = await client.get("/api/jam/stream.wav?sid=1")
+                self.assertEqual((await client.get("/api/relay/stream.wav?sid=99")).status, 404)      # a stale speaker request
+                resp = await client.get("/api/relay/stream.wav?sid=1")
                 self.assertEqual(resp.headers["Content-Type"], "audio/wav")
                 head = await resp.content.readexactly(44)
                 self.assertEqual(head[:4], b"RIFF")
                 body = await resp.content.readexactly(4 * 2000)
                 self.assertGreater(int(np.abs(np.frombuffer(body, dtype=np.int16)).max()), 100)   # real audio, not silence
                 resp.close()
-                st = await (await client.get("/api/jam/state")).json()
+                st = await (await client.get("/api/relay/state")).json()
                 self.assertTrue(st["running"] and st["streaming"])
                 self.assertEqual(st["room"]["id"], ta.id)
-                doc = await (await client.get("/api/jam/analysis?key=" + st["room"]["key"])).json()
+                doc = await (await client.get("/api/relay/analysis?key=" + st["room"]["key"])).json()
                 self.assertEqual(doc["kind"], "live")
         finally:
             shutil.rmtree(d, ignore_errors=True)
@@ -1461,7 +1460,7 @@ class TestStreamRoute(unittest.IsolatedAsyncioTestCase):
 
 class TestDemo(unittest.TestCase):
     def test_the_demo_plays_pauses_and_skips_like_a_phone(self):
-        from lightshow.studio.jam_demo import DemoSpotify
+        from lightshow.studio.party_demo import DemoSpotify
 
         relay = Relay(sr=8000, channels=2, capacity_s=30)
         demo = DemoSpotify(relay, Gate())
@@ -1484,31 +1483,31 @@ class TestTrackColors(unittest.TestCase):
     def test_a_tracks_colors_are_kept_and_can_be_cleared(self):
         d = tempfile.mkdtemp()
         try:
-            JamLibrary(d).set_colors("abc", "#8000ff", "#00ff00")
-            self.assertEqual(JamLibrary(d).colors(), {"abc": {"primary": "#8000ff", "secondary": "#00ff00"}})   # kept on disk
-            lib = JamLibrary(d)
-            lib.set_colors("abc", None, None)                  # back to the jam's colors
-            self.assertEqual(JamLibrary(d).colors(), {})
+            PartyLibrary(d).set_colors("abc", "#8000ff", "#00ff00")
+            self.assertEqual(PartyLibrary(d).colors(), {"abc": {"primary": "#8000ff", "secondary": "#00ff00"}})   # kept on disk
+            lib = PartyLibrary(d)
+            lib.set_colors("abc", None, None)                  # back to the party's colors
+            self.assertEqual(PartyLibrary(d).colors(), {})
         finally:
             shutil.rmtree(d)
 
     def test_a_songs_vibe_can_be_picked_by_hand(self):
         d = tempfile.mkdtemp()
         try:
-            JamLibrary(d).set_style("abc", "chill")                       # taken for a rager, but it is chill
-            self.assertEqual(JamLibrary(d).styles(), {"abc": "chill"})     # kept on disk
-            JamLibrary(d).set_style("abc", "banger")                      # not a style: back to the one found
-            self.assertEqual(JamLibrary(d).styles(), {})
+            PartyLibrary(d).set_style("abc", "chill")                       # taken for a rager, but it is chill
+            self.assertEqual(PartyLibrary(d).styles(), {"abc": "chill"})     # kept on disk
+            PartyLibrary(d).set_style("abc", "banger")                      # not a style: back to the one found
+            self.assertEqual(PartyLibrary(d).styles(), {})
         finally:
             shutil.rmtree(d)
 
     def test_a_song_can_keep_to_just_its_two_colors(self):
         d = tempfile.mkdtemp()
         try:
-            JamLibrary(d).set_colors("abc", "#ff0000", "#ff8000", only=True)     # a red and orange song
-            self.assertEqual(JamLibrary(d).colors(), {"abc": {"primary": "#ff0000", "secondary": "#ff8000", "only": True}})
-            JamLibrary(d).set_colors("abc", "#ff0000", "#ff8000")                # accents allowed again
-            self.assertNotIn("only", JamLibrary(d).colors()["abc"])
+            PartyLibrary(d).set_colors("abc", "#ff0000", "#ff8000", only=True)     # a red and orange song
+            self.assertEqual(PartyLibrary(d).colors(), {"abc": {"primary": "#ff0000", "secondary": "#ff8000", "only": True}})
+            PartyLibrary(d).set_colors("abc", "#ff0000", "#ff8000")                # accents allowed again
+            self.assertNotIn("only", PartyLibrary(d).colors()["abc"])
         finally:
             shutil.rmtree(d)
 
@@ -1518,13 +1517,13 @@ class TestPairPerSong(unittest.TestCase):
 
     def service(self, moods=None):
         from types import SimpleNamespace
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party_service import PartyService
         moods = moods or {}
         lib = SimpleNamespace(learned=lambda tid: {"analysis": {"mood": moods[tid]}} if tid in moods else None)
         s = SimpleNamespace(library=lib, _assigned={}, _moods={},
-                            _jam_colors=lambda: {**JamService.DEFAULT_COLORS, "mode": "mix"})
-        s._vibe_order = lambda tid, n: JamService._vibe_order(s, tid, n)
-        s.assign = lambda tracks: JamService._assign_colors(s, tracks)
+                            _color_settings=lambda: {**PartyService.DEFAULT_COLORS, "mode": "mix"})
+        s._vibe_order = lambda tid, n: PartyService._vibe_order(s, tid, n)
+        s.assign = lambda tracks: PartyService._assign_colors(s, tracks)
         return s
 
     def test_neighbors_differ_and_a_track_keeps_its_pair(self):
@@ -1547,7 +1546,7 @@ class TestPairPerSong(unittest.TestCase):
 class TestPartyHub(unittest.TestCase):
     def test_the_extras_are_picked_from_a_tracks_two_colors(self):
         import colorsys
-        from lightshow.studio.jam_service import extras_for
+        from lightshow.studio.party_service import extras_for
 
         hue = lambda hx: colorsys.rgb_to_hsv(*(int(hx[i:i + 2], 16) / 255 for i in (1, 3, 5)))[0] * 360
         red, orange = extras_for(["#8000ff", "#00ff00"])           # purple and green: red and orange
@@ -1558,14 +1557,14 @@ class TestPartyHub(unittest.TestCase):
 
     def test_the_party_colors_switch_off_for_every_song_or_one(self):
         from types import SimpleNamespace
-        from lightshow.studio.jam_service import JamService
+        from lightshow.studio.party_service import PartyService
 
-        def hub(jam_colors, track_colors):
+        def hub(color_settings, track_colors):
             room = {"id": "a", "label": "A", "kind": "live"}
             st = {"running": True, "room": room, "queue": [{"id": "b", "label": "B", "kind": "live"}],
-                  "jam_colors": {**JamService.DEFAULT_COLORS, **jam_colors}, "track_colors": track_colors, "assigned_colors": {}}
-            fake = SimpleNamespace(_state=lambda: st, party_level=1.0, studio=SimpleNamespace(rooms=None), _found_style=lambda t: None, _found_genres=lambda t: [])
-            return JamService._party(fake)
+                  "color_settings": {**PartyService.DEFAULT_COLORS, **color_settings}, "track_colors": track_colors, "assigned_colors": {}}
+            fake = SimpleNamespace(_state=lambda: st, party_energy=1.0, studio=SimpleNamespace(rooms=None), _found_style=lambda t: None, _found_genres=lambda t: [])
+            return PartyService._party(fake)
         pick = {"mode": "pick", "primary": "#8000ff", "secondary": "#00ff00"}
         on = hub(pick, {})
         self.assertEqual(on["room"]["colors"], ["#8000ff", "#00ff00"])
@@ -1581,8 +1580,8 @@ class TestPartyHub(unittest.TestCase):
 
     def test_only_the_home_network_may_use_it(self):
         from types import SimpleNamespace
-        from lightshow.studio.jam_service import JamService
-        ok = lambda ip: JamService._lan(SimpleNamespace(remote=ip))
+        from lightshow.studio.party_service import PartyService
+        ok = lambda ip: PartyService._lan(SimpleNamespace(remote=ip))
         self.assertTrue(ok("192.168.1.40"))
         self.assertTrue(ok("10.0.0.7"))
         self.assertTrue(ok("127.0.0.1"))
@@ -1590,8 +1589,8 @@ class TestPartyHub(unittest.TestCase):
         self.assertFalse(ok(""))
 
 
-class TestCueHold(unittest.TestCase):
-    """A Party Hub cue holds the room where it is, and gives it back from exactly there."""
+class TestShowMomentHold(unittest.TestCase):
+    """A phone remote moment holds the room where it is, and gives it back from exactly there."""
 
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -1599,7 +1598,7 @@ class TestCueHold(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def test_the_room_holds_through_a_cue_and_carries_on_from_there(self):
+    def test_the_room_holds_through_a_show_moment_and_carries_on_from_there(self):
         a, ta = song(120, 7)
         sim = Sim(self.dir, target=10.0)
         e = sim.engine
@@ -1612,12 +1611,12 @@ class TestCueHold(unittest.TestCase):
         self.assertFalse(sim.spotify.playing)
         sim.run(6, analyse=False)                              # the show plays: the room waits where it was
         self.assertEqual(e.room_capture_time(), rc)
-        sim.spotify.playing = True                             # Spotify heard playing mid-cue must not let the room go
+        sim.spotify.playing = True                             # Spotify heard playing mid-moment must not let the room go
         sim.run(1, analyse=False)
         self.assertTrue(e.gate.paused)
         sim.spotify.playing = False
         starts = sim.out.starts
-        e.release(restart=True)                                # the speakers get the jam's stream back...
+        e.release(restart=True)                                # the speakers get the party's stream back...
         self.assertEqual(sim.out.starts, starts + 1)
         sim.out.pump()                                         # the speaker pulls its first second
         self.assertAlmostEqual(e.room_capture_time(), rc, delta=0.05)   # ...from where the room stopped
@@ -1631,7 +1630,7 @@ class TestLiveWaveform(unittest.TestCase):
     def test_the_live_waveform_keeps_up_with_the_music(self):
         """Fed in uneven pieces (as the capture arrives), the waveform still covers exactly the time
         captured: it used to lose up to half a peak a piece and end about 8% short of the song."""
-        from lightshow.studio.jam import FeatureTrack
+        from lightshow.studio.party import FeatureTrack
         from lightshow.studio.analysis import WAVE_PPS
         relay = Relay(sr=22050, channels=2, capacity_s=400)
         ft = FeatureTrack(relay)

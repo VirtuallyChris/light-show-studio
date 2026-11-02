@@ -12,7 +12,7 @@ song and turns it into one of four show styles:
 The genre comes from a model that listens to the song (MAEST, trained on the
 styles Discogs gives music, run by genre_infer.py in the model environment; MIT's
 AudioSet model where MAEST cannot run, and in analyses saved before it) and, in
-Jam mode, from the genres Spotify gives the artist. Each genre has a place on a
+the party, from the genres Spotify gives the artist. Each genre has a place on a
 0 to 3 scale; the song's own drive (and AST's mood labels: exciting, angry,
 tender, sad) can move it a little, but never far: a loud rock song is still a
 rock song.
@@ -48,7 +48,7 @@ TIER = {
 # Where each Discogs style (MAEST's labels, "Genre---Style") sits on the same scale; a style not named here
 # takes its genre's place (DISCOGS_GENRE). Written from what the styles are, and checked on 60 of the user's
 # songs with their own drive (Oct 2026): 52 got the right show style, against 49 from AudioSet's labels; on
-# the 44 Jam songs not used to write it, 40 against 38.
+# the 44 Party songs not used to write it, 40 against 38.
 DISCOGS_TIER = {
     "Dubstep": 3.0, "Drum n Bass": 3.0, "Jungle": 3.0, "Hardstyle": 3.0, "Hardcore": 3.0, "Gabber": 3.0, "Breakcore": 3.0,
     "Halftime": 3.0, "Speedcore": 3.0, "Happy Hardcore": 3.0, "Jumpstyle": 3.0, "Bass Music": 2.7, "Glitch Hop": 2.6,

@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
-from lightshow.studio import addons, rooms, space
-from lightshow.studio.jam_service import DEFAULT_OPENER, JamService
+from lightshow.studio import addons, config_names, rooms, space
+from lightshow.studio.party_service import DEFAULT_OPENER, PartyService
 
 
 class TestAddons(unittest.TestCase):
@@ -29,20 +29,29 @@ class TestAddons(unittest.TestCase):
 
 class TestAddonsDoNothingWhileOff(unittest.TestCase):
     def test_a_saved_switch_survives_the_id_change(self):
-        cfg = addons.upgrade({"addons": {"bulbshow": True, "doorbell": False}})
+        cfg = config_names.upgrade({"addons": {"bulbshow": True, "doorbell": False}})
         self.assertEqual(cfg["addons"], {"bulbstudio": True, "doorbell": False})
-        self.assertEqual(addons.upgrade({}), {})
+        self.assertEqual(config_names.upgrade({}), {})
+
+    def test_an_older_config_keeps_everything_under_the_new_names(self):
+        old = {"cues": [1], "party_modes": [2], "party_level": 70, "party_ramp": {"on": True}, "jam_colors": {"on": True},
+               "jam_opener": "Song", "jam_hidden_output": "S/PDIF", "jam_level_target": 0.5,
+               "doorbell": {"cue": "doorbell", "host": "h"}, "color_sets": {"Halloween": 1}}
+        self.assertEqual(config_names.upgrade(old), {
+            "show_moments": [1], "color_moments": [2], "party_energy": 70, "energy_ramp": {"on": True}, "color_settings": {"on": True},
+            "party_opener": "Song", "party_hidden_output": "S/PDIF", "party_energy_target": 0.5,
+            "doorbell": {"show_moment": "doorbell", "host": "h"}, "color_sets": {"Halloween": 1}})
 
     def service(self, cfg):
         s = SimpleNamespace(load_config=lambda: cfg, studio=SimpleNamespace(bulbstudio=object()))
-        s.cue = lambda: JamService._doorbell_cue(s)
-        s.bulbs = lambda: JamService._bulbstudio(s)
+        s.show_moment = lambda: PartyService._doorbell_show_moment(s)
+        s.bulbs = lambda: PartyService._bulbstudio(s)
         return s
 
-    def test_the_doorbell_cue_is_left_on_the_hub_while_the_add_on_is_off(self):
-        bell = {"doorbell": {"on": True, "host": "10.0.0.5", "cue": "doorbell"}}
-        self.assertEqual(self.service(bell).cue(), "")                           # set up, but the add-on is off
-        self.assertEqual(self.service({**bell, "addons": {"doorbell": True}}).cue(), "doorbell")
+    def test_the_doorbell_show_moment_is_left_on_the_hub_while_the_add_on_is_off(self):
+        bell = {"doorbell": {"on": True, "host": "10.0.0.5", "show_moment": "doorbell"}}
+        self.assertEqual(self.service(bell).show_moment(), "")                           # set up, but the add-on is off
+        self.assertEqual(self.service({**bell, "addons": {"doorbell": True}}).show_moment(), "doorbell")
 
     def test_bulb_show_is_not_asked_about_while_the_add_on_is_off(self):
         self.assertIsNone(self.service({}).bulbs())

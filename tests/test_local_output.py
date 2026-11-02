@@ -1,4 +1,4 @@
-"""Jam output on this PC: run with  .venv\\Scripts\\python -m unittest tests.test_local_output -v
+"""Party output on this PC: run with  .venv\\Scripts\\python -m unittest tests.test_local_output -v
 
 The sound device is stood in for by a fake that keeps time like one; nothing is played.
 """
@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-from lightshow.studio.jam_service import JamService
+from lightshow.studio.party_service import PartyService
 from lightshow.studio.local_output import LocalOutput
 from lightshow.studio.relay import Relay
 
@@ -98,8 +98,8 @@ class TestLocalOutput(unittest.TestCase):
 
 
 class TestSameDevice(unittest.TestCase):
-    def test_the_jam_cannot_play_on_the_output_it_records(self):
-        same = JamService._same_device
+    def test_the_party_cannot_play_on_the_output_it_records(self):
+        same = PartyService._same_device
         self.assertTrue(same("Speakers (Realtek)", "Speakers (Realtek)"))
         self.assertTrue(same(None, None))
         self.assertFalse(same("Monitor (NVIDIA)", "Headphones (USB)"))

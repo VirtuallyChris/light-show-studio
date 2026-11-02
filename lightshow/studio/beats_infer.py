@@ -6,7 +6,7 @@ The request and the reply, as the host passes them:
     request  one JSON line, either
                {"path": "C:/.../song.mp3"}                  a file on disk (always a full path)
                {"samples": N, "sr": 22050}                  followed by N float32 mono samples
-                                                            (Jam mode never writes audio to disk)
+                                                            (the party never writes audio to disk)
     reply    one JSON line
                {"beats": {"beats": [...], "downbeats": [...]}, "seconds": 1.2}   (times in seconds)
                or {"error": "..."}

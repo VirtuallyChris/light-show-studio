@@ -33,10 +33,10 @@ import numpy as np
 from ..appdirs import data_dir, self_command
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-JAM = os.path.join(data_dir(), "shows", "_jam")
-FEAT = os.path.join(JAM, "features")                        # SongFormer's features, one set a song
+PARTY = os.path.join(data_dir(), "shows", "_party")
+FEAT = os.path.join(PARTY, "features")                        # SongFormer's features, one set a song
 CACHE = os.path.join(FEAT, "bars")                          # per-bar features, one file a song
-MODEL = os.path.join(JAM, "labeler.joblib")
+MODEL = os.path.join(PARTY, "labeler.joblib")
 TYPES = ["intro", "verse", "buildup", "drop", "breakdown", "outro"]
 SF = ["intro", "verse", "pre-chorus", "chorus", "bridge", "inst", "outro", "silence"]
 K = ("e", "bass", "dp", "drum", "voc", "other")
@@ -61,9 +61,9 @@ def _weights(songs) -> np.ndarray:
     return np.concatenate([np.full(int((s["y"] >= 0).sum()), CLAUDE_WEIGHT if s.get("by") == "claude" else 1.0) for s in songs])
 
 
-def truth(jam: str = JAM) -> dict:
+def truth(party: str = PARTY) -> dict:
     try:
-        with open(os.path.join(jam, "section_truth.json"), encoding="utf-8") as fh:
+        with open(os.path.join(party, "section_truth.json"), encoding="utf-8") as fh:
             return {k: v for k, v in json.load(fh).items() if not k.startswith("_") and v.get("sections")}
     except (OSError, ValueError):
         return {}
@@ -85,7 +85,7 @@ def _label_at(secs, t):
 
 def _lyrics(tid, spans):
     try:
-        with open(os.path.join(JAM, "lyrics", tid + ".json"), encoding="utf-8") as fh:
+        with open(os.path.join(PARTY, "lyrics", tid + ".json"), encoding="utf-8") as fh:
             d = json.load(fh)
     except (OSError, ValueError):
         return np.full((len(spans), 6), np.nan)
@@ -331,10 +331,10 @@ def trained_on() -> int:
     return int(m.get("songs", 0)) if m else 0
 
 
-def retrain_soon(jam: str = JAM, log=print) -> bool:
+def retrain_soon(party: str = PARTY, log=print) -> bool:
     """Retrain in the background (its own process: the studio is never held up) once RETRAIN_EVERY more songs have
     been reviewed than the model was trained on (and the first time, from 10). Returns whether one started."""
-    reviewed = sum(1 for t in truth(jam) if has_features(t))
+    reviewed = sum(1 for t in truth(party) if has_features(t))
     have = trained_on()
     if _RETRAIN["running"] or reviewed < 10 or (have and reviewed < have + RETRAIN_EVERY):
         return False

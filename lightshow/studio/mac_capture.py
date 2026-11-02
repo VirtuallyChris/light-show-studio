@@ -56,9 +56,9 @@ def helper_path() -> str | None:
 def problem() -> str:
     """Why Spotify cannot be recorded on this Mac, or ""."""
     if not version_ok():
-        return "Jam mode needs macOS 14.2 or later to record Spotify's sound"
+        return "the party needs macOS 14.2 or later to record Spotify's sound"
     if not helper_path():
-        return "the audio helper is missing: from source, Jam mode needs Xcode's command line tools (xcode-select --install)"
+        return "the audio helper is missing: from source, the party needs Xcode's command line tools (xcode-select --install)"
     return ""
 
 

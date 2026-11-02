@@ -1,6 +1,6 @@
 """Recording and playback in processes of their own.
 
-Python runs one thread at a time. While the studio analyses music (and in Jam
+Python runs one thread at a time. While the studio analyses music (and in Party
 mode it always is), a thread that has to hand audio to the sound card every
 few milliseconds can be kept waiting far too long. Measured: with three busy
 threads beside it, the in-process player stopped altogether. When recording

@@ -1,6 +1,6 @@
 """Big JSON answers for the studio page, kept off the event loop.
 
-A learned song's analysis is ~5.6 MB of JSON, two thirds of it align_bands (the spectrum the jam lines a song up
+A learned song's analysis is ~5.6 MB of JSON, two thirds of it align_bands (the spectrum the party lines a song up
 by, on the server only); turning it into JSON took ~140 ms on the event loop at every song start, while the
 speakers' stream and the lights waited. The page gets the analysis without what only the server uses, and the
 dump runs in a worker thread.
@@ -13,7 +13,7 @@ import json
 
 from aiohttp import web
 
-# what the server keeps for itself: the jam's line-up spectrum, the rules' own sections and the sections as first found
+# what the server keeps for itself: the party's line-up spectrum, the rules' own sections and the sections as first found
 SERVER_ONLY = ("align_bands", "sections_rules", "sections_found", "drops_found", "_songmap_bars")
 
 

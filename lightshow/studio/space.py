@@ -332,7 +332,7 @@ class Space:
         ]
 
     async def h_page(self, request):
-        # (never cached, like the Party Hub's page: a phone kept the map from before an update)
+        # (never cached, like the phone remote's page: a phone kept the map from before an update)
         return web.FileResponse(os.path.join(os.path.dirname(__file__), "static", "party", "map.html"), headers={"Cache-Control": "no-store"})
 
     async def h_get(self, request):

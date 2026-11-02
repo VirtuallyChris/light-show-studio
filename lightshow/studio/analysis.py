@@ -61,7 +61,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
                   use_model: bool = False, events: bool = True, bpm_hint: float | None = None, segment_fn=None) -> dict:
     """The whole analysis, from audio already in memory.
 
-    `analyze` is this plus loading a file. Jam mode calls it directly on audio it
+    `analyze` is this plus loading a file. The party calls it directly on audio it
     is relaying, which never touches the disk: `y` is mono at `sr`, `stereo` an
     optional (2, n) array at the same rate for the instrument detectors, and
     `bpm_hint` keeps a growing live analysis from flipping between half and
@@ -192,7 +192,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
     ev = {"events": {}, "fills": [], "hook": None, "curves": {}}
     # The drums and bass pulled out of the mix (Demucs, in the model environment), so the drums are
     # found in a track that has nothing else in it. Only where the models are in use anyway (a song
-    # file; Jam mode with SongFormer), and always in memory: a jam's audio never touches the disk.
+    # file; the party with SongFormer), and always in memory: a party's audio never touches the disk.
     stems = None
     problems = []                                            # whatever failed along the way (the show is made regardless)
     if structure_error and structure_error != "SongFormer was not asked":
@@ -241,7 +241,7 @@ def analyze_audio(y, sr: int = SR, stereo=None, path: str | None = None, cache_d
 
     out = {
         "duration": duration,
-        # the opening 45 seconds as band onsets: enough to find this song's 0:00 by ear in a jam
+        # the opening 45 seconds as band onsets: enough to find this song's 0:00 by ear in a party
         "align_bands": [[round(float(v), 2) for v in row] for row in match_features(y[: int(45 * sr)], sr, HOP)],
         "align_fps": round(sr / HOP, 4),
         "mood": mood,
@@ -1245,7 +1245,7 @@ def verses_without_synths(a: dict) -> list:
     where the other instruments (the synths, the guitars) fall to half of the drop's full bars or less while
     the drums play on (within 0.2) is a verse. Astrale's Frisson, mastered loud from end to end, was one drop
     of 184 s; its verses (0:34, 1:42) drop the synths to almost nothing and the voice carries them. Learned
-    from the songs the user set right by ear (shows/_jam/section_truth.json): 3 of their stretches found,
+    from the songs the user set right by ear (shows/_party/section_truth.json): 3 of their stretches found,
     none of their drops cut; 7 of the 246 learned songs change. Changes the analysis in place; returns what
     changed."""
     secs = [dict(x) for x in (a.get("sections") or [])]
@@ -1452,7 +1452,7 @@ def grid_on_the_backbeat(a: dict) -> list:
 
 def settle_sections(a: dict) -> list:
     """The rules that correct where sections start and what they are, from the stems and the hook: run
-    on every analysis, new or saved (a learned jam song, the cache), so they apply without relearning.
+    on every analysis, new or saved (a learned party song, the cache), so they apply without relearning.
     Always from the sections as first found (kept as sections_found): run twice, the same answer."""
     if "sections_found" in a:
         a["sections"] = [dict(s) for s in a["sections_found"]]
@@ -2002,7 +2002,7 @@ def fit_grid(onset: np.ndarray, times: np.ndarray, hint: float | None = None) ->
 
 
 MAX_BPM = 135.0
-ANALYSIS_VERSION = 32         # bumped when saved analyses (the cache, learned jam songs) go stale
+ANALYSIS_VERSION = 32         # bumped when saved analyses (the cache, learned party songs) go stale
 
 
 CLIMB_MIN = 0.18            # how much a run-in must brighten toward its drop to count as a buildup
@@ -2064,7 +2064,7 @@ def fix_half_tempo(y, sr, bpm, beats):
 def find_structure(y, sr, beats, rms, duration, phases=None):
     """Downbeat phase, sections and drops from per-bar features.
 
-    Cues, learned against hand-labelled dance/pop tracks:
+    Signals, learned against hand-labelled dance/pop tracks:
       drop       loud AND full-spectrum: mids and highs light up together
                  (a verse can be just as loud, but its mids are sparse)
       breakdown  the sub bass disappears and the level falls

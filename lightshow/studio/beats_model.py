@@ -122,7 +122,7 @@ def bar_places(g, downbeats):
 
 
 def model_grid(y, sr: int, duration: float):
-    """Ask the model about audio in memory (a jam's audio never touches the disk); None if it cannot."""
+    """Ask the model about audio in memory (a party's audio never touches the disk); None if it cannot."""
     r = WORKER.ask_audio(np.asarray(y, dtype=np.float32), sr)
     if not r:
         return None

@@ -1,4 +1,4 @@
-"""The Reolink doorbell ringing a cue. A fake doorbell only: nothing on the network is touched."""
+"""The Reolink doorbell ringing a moment. A fake doorbell only: nothing on the network is touched."""
 
 import asyncio
 import unittest
@@ -68,7 +68,7 @@ class FakeHost:
 
 class TestDoorbell(unittest.TestCase):
     def setUp(self):
-        self.st = Store({"doorbell": {"host": "192.168.1.50", "username": "admin", "password": "secret", "cue": "doorbell", "on": True}})
+        self.st = Store({"doorbell": {"host": "192.168.1.50", "username": "admin", "password": "secret", "show_moment": "doorbell", "on": True}})
         self.rung, self.t = [], [1000.0]
         self.hosts = []
 
@@ -85,7 +85,7 @@ class TestDoorbell(unittest.TestCase):
             await self.bell.close()
         asyncio.run(go())
 
-    def test_a_press_rings_the_cue_once(self):
+    def test_a_press_rings_the_show_moment_once(self):
         def presses():
             h = self.hosts[0]
             self.assertTrue(self.bell.connected)
@@ -103,7 +103,7 @@ class TestDoorbell(unittest.TestCase):
         self.assertEqual(self.rung, ["doorbell", "doorbell"])
         self.assertTrue(self.hosts[0].logged_out)
 
-    def test_a_cue_that_cannot_run_is_noted_not_raised(self):
+    def test_a_show_moment_that_cannot_run_is_noted_not_raised(self):
         def busy(cid):
             raise RuntimeError("Shot o'clock is still running")
         self.bell.on_ring = busy

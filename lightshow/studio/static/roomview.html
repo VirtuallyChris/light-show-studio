@@ -33,7 +33,7 @@
   const bg = document.getElementById('bg'), bctx = bg.getContext('2d'), glc = document.getElementById('gl');
   const note = document.getElementById('note');
   const gpu = (() => { try { return LightGL(glc); } catch (e) { console.warn('WebGL:', e); return null; } })();
-  // ?remote: on the Party Hub (a phone), its frames passed on by the studio (server.py roomview_ws), not this
+  // ?remote: on the phone remote (a phone), its frames passed on by the studio (server.py roomview_ws), not this
   // computer's BroadcastChannel; and it is never closed with the studio
   const remote = new URLSearchParams(location.search).has('remote');
   const ch = remote ? null : new BroadcastChannel('lss-roomview');

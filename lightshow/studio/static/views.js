@@ -54,18 +54,18 @@
     clearTimeout(partyTimer);
     if (view !== 'party') return;
     try {
-      const [state, jam] = await Promise.all([party('state'), get('/api/jam/state')]);
-      ps = { ...state, jam }; renderParty();
+      const [state, relay] = await Promise.all([party('state'), get('/api/relay/state')]);
+      ps = { ...state, relay }; renderParty();
     } catch (e) { $('#pvStatus').textContent = 'Can’t reach the app'; }
     partyTimer = setTimeout(pollParty, 1500);
   }
   function renderParty() {
-    const st = ps || {}, r = st.room, jam = st.jam || {};
+    const st = ps || {}, r = st.room, relay = st.relay || {};
     const status = $('#pvStatus');
     const lead = Math.round(st.delay || 0);
     status.textContent = !st.running ? 'Not playing' : st.paused ? 'Paused' : st.streaming ? (lead ? `Live, ${lead} s behind Spotify` : 'Live') : 'Getting ready…';
     status.className = 'pv-pill' + (st.running && st.streaming && !st.paused ? ' live' : '');
-    renderHeader(st, jam); renderProblems(st, jam); renderNow(st, r); renderColors(st); renderMoments(st); renderQueue(st); renderLevel(st); renderRooms(st);
+    renderHeader(st, relay); renderProblems(st, relay); renderNow(st, r); renderColors(st); renderMoments(st); renderQueue(st); renderLevel(st); renderRooms(st);
   }
 
   // start, stop, and where it plays
@@ -73,13 +73,13 @@
   async function loadCasts() {
     if (performance.now() - castLooked < 20000 && castLooked) return;
     castLooked = performance.now();
-    const d = await get('/api/cast/devices').catch(() => []); castNames = (Array.isArray(d) ? d : d.devices || []).map(x => x.name); headerSig = ''; if (ps) renderHeader(ps, ps.jam || {});
+    const d = await get('/api/cast/devices').catch(() => []); castNames = (Array.isArray(d) ? d : d.devices || []).map(x => x.name); headerSig = ''; if (ps) renderHeader(ps, ps.relay || {});
   }
   let headerSig = '';
-  function renderHeader(st, jam) {
+  function renderHeader(st, relay) {
     loadCasts();
-    const last = jam.last || {}, chosen = last.speakers === 'cast' && jam.cast_device ? `cast:${jam.cast_device}` : last.speakers === 'none' ? 'none' : last.speakers === 'cast' ? `cast:${jam.speaker || ''}` : 'pc';
-    const signedIn = !!(jam.spotify || {}).signed_in;
+    const last = relay.last || {}, chosen = last.speakers === 'cast' && relay.cast_device ? `cast:${relay.cast_device}` : last.speakers === 'none' ? 'none' : last.speakers === 'cast' ? `cast:${relay.speaker || ''}` : 'pc';
+    const signedIn = !!(relay.spotify || {}).signed_in;
     const sig = JSON.stringify([st.running, chosen, castNames, signedIn, String(st.mode || '')]);
     const sel = $('#pvPlayOn');
     if (sig !== headerSig && document.activeElement !== sel) {
@@ -96,30 +96,30 @@
   }
   $('#pvPlayOn').onchange = async e => {
     const v = e.target.value;
-    await post('/api/jam/prefs', v.startsWith('cast:') ? { speakers: 'cast', cast_device: v.slice(5) } : { speakers: v }).catch(() => {});
+    await post('/api/relay/prefs', v.startsWith('cast:') ? { speakers: 'cast', cast_device: v.slice(5) } : { speakers: v }).catch(() => {});
     headerSig = ''; pollParty();
   };
   $('#pvStart').onclick = async () => {
     const running = ps && ps.running, btn = $('#pvStart'); if (running && !confirm('End the party? The music and the lights stop.')) return; btn.disabled = true;
     try {
-      if (running) await post('/api/jam/stop', {});
+      if (running) await post('/api/relay/stop', {});
       else {
         await St.modelsReady('the party');
-        const jam = (ps && ps.jam) || {}, last = jam.last || {};
-        if (last.speakers === 'cast' && jam.cast_device && !(jam.speaker_connected && jam.speaker === jam.cast_device)) {
-          const c = await post('/api/cast/connect', { name: jam.cast_device }).catch(e => ({ error: e.message }));
-          if (c && c.error) St.toast(`${jam.cast_device}: ${c.error}`, true);
+        const relay = (ps && ps.relay) || {}, last = relay.last || {};
+        if (last.speakers === 'cast' && relay.cast_device && !(relay.speaker_connected && relay.speaker === relay.cast_device)) {
+          const c = await post('/api/cast/connect', { name: relay.cast_device }).catch(e => ({ error: e.message }));
+          if (c && c.error) St.toast(`${relay.cast_device}: ${c.error}`, true);
         }
-        const r = await post('/api/jam/start', { saved: true });
+        const r = await post('/api/relay/start', { saved: true });
         if (r && r.error) St.toast(r.error, true);
       }
     } catch (e) { St.toast(e.message, true); }
     headerSig = ''; btn.disabled = false; pollParty();
   };
-  function renderProblems(st, jam) {
-    const player = jam.player || {}, cap = jam.capture || {}, sp = jam.spotify || {};
-    const list = [cap.error && `Recording: ${cap.error}`, jam.output_error && `Playback: ${jam.output_error}`, jam.sync_warning, sp.error && `Spotify: ${sp.error}`,
-      jam.auto_error && `It could not start by itself: ${jam.auto_error}`, player.route_error && `Player: ${player.route_error}`, player.error && `Player: ${player.error}`,
+  function renderProblems(st, relay) {
+    const player = relay.player || {}, cap = relay.capture || {}, sp = relay.spotify || {};
+    const list = [cap.error && `Recording: ${cap.error}`, relay.output_error && `Playback: ${relay.output_error}`, relay.sync_warning, sp.error && `Spotify: ${sp.error}`,
+      relay.auto_error && `It could not start by itself: ${relay.auto_error}`, player.route_error && `Player: ${player.route_error}`, player.error && `Player: ${player.error}`,
       sp.signed_in && !sp.can_stream && 'Sign in to Spotify again: the player needs a permission the earlier sign-in did not ask for.'].filter(Boolean);
     const el = $('#pvProblems'), html = list.map(x => `<div class="warn">${esc(x)}</div>`).join('');
     if (el.dataset.sig !== html) { el.dataset.sig = html; el.innerHTML = html; }
@@ -198,19 +198,19 @@
           <label class="sheet-check"><input type="checkbox" id="sheetOnly" ${t.only ? 'checked' : ''}> Just these two colors</label>` : ''}
           ${t.own ? '<button id="sheetBack">Back to tonight’s colors</button>' : ''}`}
           <h4>Vibe</h4>${choice('vibe', t.vibe, vibes)}<h4>Genre</h4>${choice('genre', t.genre, genres)}`;
-        const saveColors = () => party('colors', { track_id: id, primary: cur.a, secondary: cur.b, only: !!(($('#sheetOnly') || {}).checked) }).then(st => { ps = { ...st, jam: (ps || {}).jam }; renderParty(); });
+        const saveColors = () => party('colors', { track_id: id, primary: cur.a, secondary: cur.b, only: !!(($('#sheetOnly') || {}).checked) }).then(st => { ps = { ...st, relay: (ps || {}).relay }; renderParty(); });
         for (const g of body.querySelectorAll('.sheet-colors')) for (const sw of g.querySelectorAll('[data-c]')) sw.onclick = () => {
           cur[g.dataset.k === 'Primary' ? 'b' : 'a'] = sw.dataset.c;
           for (const o of g.querySelectorAll('.on')) o.classList.remove('on');
           sw.classList.add('on'); saveColors();
         };
         const only = $('#sheetOnly'); if (only) only.onchange = saveColors;
-        const back = $('#sheetBack'); if (back) back.onclick = async () => { const st = await party('colors', { track_id: id }); ps = { ...st, jam: (ps || {}).jam }; renderParty(); draw(); };
+        const back = $('#sheetBack'); if (back) back.onclick = async () => { const st = await party('colors', { track_id: id }); ps = { ...st, relay: (ps || {}).relay }; renderParty(); draw(); };
         for (const b of body.querySelectorAll('[data-group] button')) b.onclick = async () => {
           const group = b.closest('[data-group]').dataset.group, v = b.dataset.v;
           const st = group === 'theme' ? await party('colors', v === 'cover' ? { track_id: id, theme: false } : { track_id: id })
             : group === 'vibe' ? await party('style', { track_id: id, style: v || null }) : await party('genre', { track_id: id, genre: v || null });
-          ps = { ...st, jam: (ps || {}).jam }; renderParty(); draw();
+          ps = { ...st, relay: (ps || {}).relay }; renderParty(); draw();
         };
       };
       draw();
@@ -219,10 +219,10 @@
 
   // colors for the whole night
   let colorSig = '';
-  const theme = body => party('theme', body).then(st => { ps = { ...st, jam: (ps || {}).jam }; colorSig = ''; renderColors(ps); }).catch(() => {});
+  const theme = body => party('theme', body).then(st => { ps = { ...st, relay: (ps || {}).relay }; colorSig = ''; renderColors(ps); }).catch(() => {});
   function renderColors(st) {
     const pc = st.party_colors || {}, mode = pc.mode || st.color_mode, source = st.color_source || (st.theme_on === false ? 'album' : 'party'), on = source === 'party';
-    const jc = (st.jam || {}).jam_colors || {}, pairs = mode === 'mix' ? (pc.pairs || []) : [[pc.primary, pc.secondary]];
+    const jc = (st.relay || {}).color_settings || {}, pairs = mode === 'mix' ? (pc.pairs || []) : [[pc.primary, pc.secondary]];
     const sig = JSON.stringify([source, mode, pairs, pc.set, pc.edited, pc.sets, jc.rainbow, jc.extras]);
     const box = $('#pvColors');
     if (sig === colorSig || box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
@@ -258,56 +258,56 @@
     const save = $('#pvSetSave'); if (save) save.onclick = () => theme({ save: true });
     $('#pvSetAs').onclick = () => { const n = (prompt('Name this set of colors', pc.set || '') || '').trim(); if (n) theme({ save_as: n }); };
     const del = $('#pvSetDel'); if (del) del.onclick = () => { if (confirm(`Delete the set “${pc.set}”? The colors stay as they are.`)) theme({ delete: pc.set }); };
-    const jamColors = body => post('/api/jam/colors', body).then(() => { colorSig = ''; pollParty(); });
-    $('#pvExtras').onchange = e => jamColors({ extras: e.target.checked });
-    const rb = $('#pvRainbow'); if (rb) rb.onchange = e => jamColors({ rainbow: e.target.checked });
+    const partyColors = body => post('/api/relay/colors', body).then(() => { colorSig = ''; pollParty(); });
+    $('#pvExtras').onchange = e => partyColors({ extras: e.target.checked });
+    const rb = $('#pvRainbow'); if (rb) rb.onchange = e => partyColors({ rainbow: e.target.checked });
   }
 
   // moments: one press
   let momentsSig = '';
   function renderMoments(st) {
-    const modes = st.modes || [], cues = (st.cues || []).filter(c => c.id !== st.doorbell_cue || (st.cue && st.cue.id === c.id && st.cue.phase !== 'done'));
-    const sig = JSON.stringify([modes.map(m => [m.id, m.name]), cues.map(c => [c.id, c.name])]);
+    const color_moments = st.color_moments || [], show_moments = (st.show_moments || []).filter(c => c.id !== st.doorbell_show_moment || (st.show_moment && st.show_moment.id === c.id && st.show_moment.phase !== 'done'));
+    const sig = JSON.stringify([color_moments.map(m => [m.id, m.name]), show_moments.map(c => [c.id, c.name])]);
     if (sig !== momentsSig) {
       momentsSig = sig;
-      $('#pvMoments').innerHTML = (modes.map(m => `<button class="pv-moment" data-mode="${esc(m.id)}" aria-pressed="false">${esc(m.name)}<span class="sub"></span></button>`).join('') +
-        cues.map(c => `<button class="pv-moment cue" data-cue="${esc(c.id)}">${esc(c.name)}<span class="sub"></span></button>`).join('')) || '<div class="pv-empty">No moments yet.</div>';
+      $('#pvMoments').innerHTML = (color_moments.map(m => `<button class="pv-moment" data-mode="${esc(m.id)}" aria-pressed="false">${esc(m.name)}<span class="sub"></span></button>`).join('') +
+        show_moments.map(c => `<button class="pv-moment show_moment" data-show_moment="${esc(c.id)}">${esc(c.name)}<span class="sub"></span></button>`).join('')) || '<div class="pv-empty">No moments yet.</div>';
       for (const b of $('#pvMoments').querySelectorAll('[data-mode]')) b.onclick = () => {
-        const m = ((ps && ps.modes) || []).find(x => x.id === b.dataset.mode); if (!m) return;
+        const m = ((ps && ps.color_moments) || []).find(x => x.id === b.dataset.mode); if (!m) return;
         const on = !m.on;
         if (on && m.confirm && !(confirm(`Turn on ${m.name}?`) && confirm(`Are you sure? ${m.name} starts now.`))) return;
         busy[m.id] = performance.now() + 4000; m.on = on; if (on) m.color = m.own || m.color; paintMoments(ps);
-        party('mode', { id: m.id, on }).then(pollParty).catch(() => { busy[m.id] = 0; });
+        party('color_moment', { id: m.id, on }).then(pollParty).catch(() => { busy[m.id] = 0; });
       };
-      for (const b of $('#pvMoments').querySelectorAll('[data-cue]')) b.onclick = async () => {
-        const c = ((ps && ps.cues) || []).find(x => x.id === b.dataset.cue);
-        const running = ps && ps.cue && ps.cue.id === b.dataset.cue && !['done', 'stopped'].includes(ps.cue.phase);
+      for (const b of $('#pvMoments').querySelectorAll('[data-show_moment]')) b.onclick = async () => {
+        const c = ((ps && ps.show_moments) || []).find(x => x.id === b.dataset.show_moment);
+        const running = ps && ps.show_moment && ps.show_moment.id === b.dataset.show_moment && !['done', 'stopped'].includes(ps.show_moment.phase);
         if (!running && c && !(c.shows || []).length && !c.show) { openMoments(); St.toast(`Pick a show for ${c.name} first`, true); return; }
-        await post(running ? '/api/cues/stop' : '/api/cues/run', { id: b.dataset.cue }).catch(() => {});
+        await post(running ? '/api/show_moments/stop' : '/api/show_moments/run', { id: b.dataset.show_moment }).catch(() => {});
         pollParty();
       };
     }
     paintMoments(st);
   }
   function paintMoments(st) {
-    for (const m of st.modes || []) {
+    for (const m of st.color_moments || []) {
       const b = $('#pvMoments').querySelector(`[data-mode="${CSS.escape(m.id)}"]`); if (!b) continue;
       if (performance.now() > (busy[m.id] || 0)) b.setAttribute('aria-pressed', m.on ? 'true' : 'false');
       b.style.setProperty('--on', shown(m.color)); b.style.setProperty('--on-text', ink(m.color));
       b.querySelector('.sub').textContent = b.getAttribute('aria-pressed') === 'true' ? 'On' : m.pause ? 'Pauses the music' : `Music ${Math.round(m.music * 100)}%`;
     }
-    for (const b of $('#pvMoments').querySelectorAll('[data-cue]')) {
-      const c = st.cue, run = c && c.id === b.dataset.cue && !['done', 'stopped'].includes(c.phase);
+    for (const b of $('#pvMoments').querySelectorAll('[data-show_moment]')) {
+      const c = st.show_moment, run = c && c.id === b.dataset.show_moment && !['done', 'stopped'].includes(c.phase);
       b.classList.toggle('running', !!run); b.querySelector('.sub').textContent = run ? 'Playing, press to stop' : 'Plays a show';
     }
-    const on = (st.modes || []).filter(m => m.on), box = $('#pvModeColors'), sig = on.map(m => m.id + m.color).join();
+    const on = (st.color_moments || []).filter(m => m.on), box = $('#pvModeColors'), sig = on.map(m => m.id + m.color).join();
     if (box.dataset.sig === sig || on.some(m => performance.now() < (colorBusy[m.id] || 0))) return;
     box.dataset.sig = sig;
     box.innerHTML = on.map(m => `<div class="pv-modecolors" data-for="${esc(m.id)}"><div class="hint">${esc(m.name)}: its color</div><div class="pv-swatches">${swatches(m.color)}</div></div>`).join('');
     for (const g of box.querySelectorAll('[data-for]')) for (const sw of g.querySelectorAll('[data-c]')) sw.onclick = () => {
       colorBusy[g.dataset.for] = performance.now() + 4000;
       for (const x of g.querySelectorAll('[data-c]')) x.classList.toggle('on', x === sw);
-      party('mode', { id: g.dataset.for, color: sw.dataset.c }).catch(() => { colorBusy[g.dataset.for] = 0; });
+      party('color_moment', { id: g.dataset.for, color: sw.dataset.c }).catch(() => { colorBusy[g.dataset.for] = 0; });
     };
   }
   $('#pvEditMoments').onclick = () => openMoments();
@@ -332,17 +332,17 @@
   // energy
   let levelDrag = false;
   function renderLevel(st) {
-    const v = Math.round((st.party_level ?? 1) * 100), s = $('#pvLevel');
+    const v = Math.round((st.party_energy ?? 1) * 100), s = $('#pvLevel');
     if (!levelDrag && document.activeElement !== s) s.value = v;
     $('#pvLevelVal').textContent = (levelDrag ? s.value : v) + '%';
-    const ramp = st.party_ramp;
+    const ramp = st.energy_ramp;
     $('#pvRamp').textContent = ramp ? 'Stop the build-up' : 'Build to 100% over an hour';
     $('#pvRamp').hidden = !ramp && v >= 100;
     $('#pvRampNote').textContent = ramp && ramp.minutes ? `${Math.round(ramp.minutes)} min to go` : '';
   }
   $('#pvLevel').oninput = e => { levelDrag = true; $('#pvLevelVal').textContent = e.target.value + '%'; };
-  $('#pvLevel').onchange = e => { party('level', { level: +e.target.value / 100 }).finally(() => { setTimeout(() => { levelDrag = false; }, 800); }); };
-  $('#pvRamp').onclick = () => party('ramp', { on: !(ps && ps.party_ramp) }).then(pollParty);
+  $('#pvLevel').onchange = e => { party('energy', { level: +e.target.value / 100 }).finally(() => { setTimeout(() => { levelDrag = false; }, 800); }); };
+  $('#pvRamp').onclick = () => party('energy_ramp', { on: !(ps && ps.energy_ramp) }).then(pollParty);
 
   // rooms: on or off, and how loud. The only place for either.
   let roomsSig = '', roomBusy = 0, volumes = { devices: [] }, volHeld = false, volTouched = 0;
@@ -406,12 +406,12 @@
   // editing moments, in a sheet over the Party screen
   function openMoments() {
     openSheet('Moments', async el => {
-      const st = await party('state').catch(() => ({})), cues = await get('/api/cues').catch(() => ({ cues: [], shows: [] }));
-      let modes = (st.modes || []).map(m => ({ ...m, color: m.own || m.color }));
+      const st = await party('state').catch(() => ({})), show_moments = await get('/api/show_moments').catch(() => ({ show_moments: [], shows: [] }));
+      let color_moments = (st.color_moments || []).map(m => ({ ...m, color: m.own || m.color }));
       const FADES = [[0, 'At once'], [1, '1 second'], [2, '2 seconds'], [5, '5 seconds'], [10, '10 seconds']];
       const draw = () => {
         el.innerHTML = `<h4>Hold a color</h4><p class="hint">Every light one color at full brightness, and the music turned down or paused.</p>` +
-          modes.map((m, i) => `<div class="st-mode" data-i="${i}">
+          color_moments.map((m, i) => `<div class="st-mode" data-i="${i}">
             <div class="st-mode-top"><input class="m-name" value="${esc(m.name)}" aria-label="Name"><button class="m-del" aria-label="Delete ${esc(m.name)}">Delete</button></div>
             <div class="st-mode-grid">
               <label>Music <span class="st-inline">${toggle('class="m-pause"', m.pause)} Pause it</span></label>
@@ -419,33 +419,33 @@
               <label>Lights fade <select class="m-fade">${FADES.map(([v, t]) => `<option value="${v}" ${Math.abs(m.fade - v) < 0.01 ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
               <label>Ask before turning on <span class="st-inline">${toggle('class="m-confirm"', m.confirm)}</span></label>
             </div>
-            <div class="pv-swatches">${swatches(m.color)}</div></div>`).join('') + '<button id="stAddMode">+ Add a moment</button>' +
+            <div class="pv-swatches">${swatches(m.color)}</div></div>`).join('') + '<button id="stAddColorMoment">+ Add a moment</button>' +
           `<h4>Play a show</h4><p class="hint">The music dips and a show of yours plays, then it fades back into the party.</p>` +
-          cues.cues.map((c, i) => `<div class="st-mode" data-cue-row="${i}"><div class="st-mode-top"><input class="c-name" value="${esc(c.name)}" aria-label="Moment name"><button class="c-del">Delete</button></div>
-            <p class="hint">${(c.shows || []).length > 1 ? 'One picked at random each time:' : 'Plays:'}</p><div class="st-shows">${cues.shows.filter(s => !s.name.startsWith('_')).map(s => `<label><input type="checkbox" value="${esc(s.name)}" ${(c.shows || []).includes(s.name) ? 'checked' : ''}> ${esc(St.niceName(s.name))}</label>`).join('') || '<span class="hint">Make a show in Shows first.</span>'}</div></div>`).join('') +
-          '<button id="stAddCue">+ Add a moment</button>';
+          show_moments.show_moments.map((c, i) => `<div class="st-mode" data-show_moment-row="${i}"><div class="st-mode-top"><input class="c-name" value="${esc(c.name)}" aria-label="Moment name"><button class="c-del">Delete</button></div>
+            <p class="hint">${(c.shows || []).length > 1 ? 'One picked at random each time:' : 'Plays:'}</p><div class="st-shows">${show_moments.shows.filter(s => !s.name.startsWith('_')).map(s => `<label><input type="checkbox" value="${esc(s.name)}" ${(c.shows || []).includes(s.name) ? 'checked' : ''}> ${esc(St.niceName(s.name))}</label>`).join('') || '<span class="hint">Make a show in Shows first.</span>'}</div></div>`).join('') +
+          '<button id="stAddShowMoment">+ Add a moment</button>';
         for (const r of el.querySelectorAll('[data-i]')) {
-          const m = modes[+r.dataset.i], q = c => r.querySelector(c);
-          q('.m-name').onchange = e => { m.name = e.target.value.trim() || m.name; saveModes(); };
-          q('.m-pause').onchange = e => { m.pause = e.target.checked; saveModes(); };
+          const m = color_moments[+r.dataset.i], q = c => r.querySelector(c);
+          q('.m-name').onchange = e => { m.name = e.target.value.trim() || m.name; saveColorMoments(); };
+          q('.m-pause').onchange = e => { m.pause = e.target.checked; saveColorMoments(); };
           q('.m-music').oninput = e => { q('.m-val').textContent = e.target.value + '%'; };
-          q('.m-music').onchange = e => { m.music = +e.target.value / 100; saveModes(); };
-          q('.m-fade').onchange = e => { m.fade = +e.target.value; saveModes(); };
-          q('.m-confirm').onchange = e => { m.confirm = e.target.checked; saveModes(); };
-          for (const sw of r.querySelectorAll('[data-c]')) sw.onclick = () => { m.color = sw.dataset.c; saveModes(); };
-          q('.m-del').onclick = () => { if (confirm(`Delete ${m.name}?`)) { modes.splice(+r.dataset.i, 1); saveModes(); } };
+          q('.m-music').onchange = e => { m.music = +e.target.value / 100; saveColorMoments(); };
+          q('.m-fade').onchange = e => { m.fade = +e.target.value; saveColorMoments(); };
+          q('.m-confirm').onchange = e => { m.confirm = e.target.checked; saveColorMoments(); };
+          for (const sw of r.querySelectorAll('[data-c]')) sw.onclick = () => { m.color = sw.dataset.c; saveColorMoments(); };
+          q('.m-del').onclick = () => { if (confirm(`Delete ${m.name}?`)) { color_moments.splice(+r.dataset.i, 1); saveColorMoments(); } };
         }
-        $('#stAddMode').onclick = () => { modes.push({ name: 'New moment', music: 0.2, pause: false, fade: 5, color: '#ffaa5a', confirm: false }); saveModes(); };
-        for (const r of el.querySelectorAll('[data-cue-row]')) {
-          const c = cues.cues[+r.dataset.cueRow];
-          r.querySelector('.c-name').onchange = e => { c.name = e.target.value.trim() || c.name; saveCues(); };
-          for (const box of r.querySelectorAll('.st-shows input')) box.onchange = () => { c.shows = [...r.querySelectorAll('.st-shows input:checked')].map(x => x.value); c.show = c.shows[0] || ''; saveCues(false); };
-          r.querySelector('.c-del').onclick = () => { if (confirm(`Delete ${c.name}?`)) { cues.cues.splice(+r.dataset.cueRow, 1); saveCues(); } };
+        $('#stAddColorMoment').onclick = () => { color_moments.push({ name: 'New moment', music: 0.2, pause: false, fade: 5, color: '#ffaa5a', confirm: false }); saveColorMoments(); };
+        for (const r of el.querySelectorAll('[data-show_moment-row]')) {
+          const c = show_moments.show_moments[+r.dataset.showMomentRow];
+          r.querySelector('.c-name').onchange = e => { c.name = e.target.value.trim() || c.name; saveShowMoments(); };
+          for (const box of r.querySelectorAll('.st-shows input')) box.onchange = () => { c.shows = [...r.querySelectorAll('.st-shows input:checked')].map(x => x.value); c.show = c.shows[0] || ''; saveShowMoments(false); };
+          r.querySelector('.c-del').onclick = () => { if (confirm(`Delete ${c.name}?`)) { show_moments.show_moments.splice(+r.dataset.showMomentRow, 1); saveShowMoments(); } };
         }
-        $('#stAddCue').onclick = () => { cues.cues.push({ name: 'New moment', show: '', shows: [] }); saveCues(); };
+        $('#stAddShowMoment').onclick = () => { show_moments.show_moments.push({ name: 'New moment', show: '', shows: [] }); saveShowMoments(); };
       };
-      const saveModes = async () => { const r = await party('modes', { modes }).catch(() => null); if (r && r.modes) modes = r.modes.map(m => ({ ...m, color: m.own || m.color })); momentsSig = ''; draw(); };
-      const saveCues = async (redraw = true) => { const r = await post('/api/cues', { cues: cues.cues }).catch(() => null); if (r && r.cues) cues.cues = r.cues; momentsSig = ''; if (redraw) draw(); };
+      const saveColorMoments = async () => { const r = await party('color_moments', { color_moments }).catch(() => null); if (r && r.color_moments) color_moments = r.color_moments.map(m => ({ ...m, color: m.own || m.color })); momentsSig = ''; draw(); };
+      const saveShowMoments = async (redraw = true) => { const r = await post('/api/show_moments', { show_moments: show_moments.show_moments }).catch(() => null); if (r && r.show_moments) show_moments.show_moments = r.show_moments; momentsSig = ''; if (redraw) draw(); };
       draw();
     });
   }
@@ -487,15 +487,15 @@
   // songs learned ahead of the party, silently: a playlist's, or the queue's
   $('#libLearn').onclick = () => openSheet('Learn a playlist', body => {
     const draw = async () => {
-      const st = await party('state').catch(() => ({})), p = st.prelisten || {}, on = !!p.running;
+      const st = await party('state').catch(() => ({})), p = st.playlist_learning || {}, on = !!p.running;
       body.innerHTML = `<p class="hint">The app studies these songs ahead of the party, silently, so each has its full show from the first beat. It takes as long as the songs do.</p>
         <input id="preLink" placeholder="Spotify playlist link" autocomplete="off" aria-label="Spotify playlist link" ${on ? 'disabled' : ''}>
         <div class="store-actions">${on ? '<button id="preStop">Stop</button>' : '<button id="preGo" class="accent">Learn this playlist</button><button id="preQueue">Learn the queue</button>'}</div>
         <p class="hint" id="preState">${esc(p.status || p.error || '')}</p>`;
-      const start = source => post('/api/prelisten', { source }).then(r => { if (r && r.error) St.toast(r.error, true); draw(); });
+      const start = source => post('/api/playlist_learning', { source }).then(r => { if (r && r.error) St.toast(r.error, true); draw(); });
       const go = $('#preGo'); if (go) go.onclick = () => { const link = $('#preLink').value.trim(); if (link) start(link); else St.toast('Paste a Spotify playlist link first', true); };
       const queue = $('#preQueue'); if (queue) queue.onclick = () => start('queue');
-      const stop = $('#preStop'); if (stop) stop.onclick = () => post('/api/prelisten/stop', {}).then(draw);
+      const stop = $('#preStop'); if (stop) stop.onclick = () => post('/api/playlist_learning/stop', {}).then(draw);
     };
     draw();
   });
@@ -558,10 +558,10 @@
         <label class="store-field">Doorbell address<input id="stBellHost" value="${esc(bell.host || '')}" placeholder="192.168.1.50"></label>
         <label class="store-field">Username<input id="stBellUser" value="${esc(bell.username || '')}" autocomplete="off"></label>
         <label class="store-field">Password${bell.has_password ? ' (saved, type a new one to change it)' : ''}<input id="stBellPass" type="password" autocomplete="new-password"></label>
-        <label class="store-field">When it rings, play<select id="stBellCue">${(st.cues || []).map(c => `<option value="${esc(c.id)}" ${c.id === bell.cue ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
+        <label class="store-field">When it rings, play<select id="stBellShowMoment">${(st.show_moments || []).map(c => `<option value="${esc(c.id)}" ${c.id === bell.show_moment ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
       el.innerHTML = head + body + `<div class="store-actions">${remove}</div>`;
-      const save = async () => { const b = { on: true, host: $('#stBellHost').value.trim(), username: $('#stBellUser').value.trim(), cue: $('#stBellCue').value }; const pw = $('#stBellPass').value; if (pw) b.password = pw; await post('/api/doorbell', b); renderAddons(); };
-      for (const id of ['stBellHost', 'stBellUser', 'stBellPass', 'stBellCue']) $('#' + id).onchange = save;
+      const save = async () => { const b = { on: true, host: $('#stBellHost').value.trim(), username: $('#stBellUser').value.trim(), show_moment: $('#stBellShowMoment').value }; const pw = $('#stBellPass').value; if (pw) b.password = pw; await post('/api/doorbell', b); renderAddons(); };
+      for (const id of ['stBellHost', 'stBellUser', 'stBellPass', 'stBellShowMoment']) $('#' + id).onchange = save;
     } else if (a.on && a.id === 'homeassistant') {
       const ha = await get('/api/homeassistant').catch(() => ({}));
       body += `<p class="${ha.connected && !ha.error ? 'store-good' : 'hint'}">${ha.error ? esc(ha.error) : ha.connected ? 'Home Assistant is being told' : 'Nothing sent yet'}</p>
@@ -598,7 +598,7 @@
   }
   const on = (id, fn) => { const b = $('#' + id); if (b) b.onclick = fn; };
   async function drawSpotify(el) {
-    const st = await get('/api/jam/state').catch(() => ({})), sp = st.spotify || {};
+    const st = await get('/api/relay/state').catch(() => ({})), sp = st.spotify || {};
     el.innerHTML = sp.signed_in ? card(`<div class="st-h">Spotify</div>` + row('Connected', 'Spotify picks the music, and the app sets up its own audio.', '<button id="stSignAgain">Sign in again</button> <button id="stSignOut">Sign out</button>'))
       : card(`<div class="st-h">Spotify</div><ol class="st-steps">
           <li>You need <b>Spotify Premium</b>: Spotify only lets Premium accounts play through apps like this one.</li>
@@ -615,7 +615,7 @@
     const signIn = async () => {
       if (cid && cid.value.trim() !== (sp.client_id || '')) await post('/api/spotify/client', { client_id: cid.value.trim() });
       window.open('/api/spotify/login', 'spotify', 'width=520,height=760');
-      const t = setInterval(async () => { const s2 = await get('/api/jam/state').catch(() => ({})); if ((s2.spotify || {}).signed_in && !sp.signed_in) { clearInterval(t); if (view === 'settings') drawSpotify(el); } }, 2000);
+      const t = setInterval(async () => { const s2 = await get('/api/relay/state').catch(() => ({})); if ((s2.spotify || {}).signed_in && !sp.signed_in) { clearInterval(t); if (view === 'settings') drawSpotify(el); } }, 2000);
       setTimeout(() => clearInterval(t), 180000);
     };
     on('stSignIn', signIn); on('stSignAgain', signIn);
@@ -625,7 +625,7 @@
     el.innerHTML = card(`<div class="st-h">Your phone</div><div class="st-phone">${link.qr_svg || ''}<div><p class="st-lead">Host the party from your phone, on the same Wi-Fi as this computer.</p><ol class="st-steps">
         <li>Scan the code with the camera, or open <code>${esc(link.url)}</code> <button id="stCopyLink">Copy</button></li>
         <li>On iPhone: Share › Add to Home Screen. On Android: the menu › Add to Home screen.</li></ol></div></div>`);
-    $('#stCopyLink').onclick = () => copy(link.url);
+    el.querySelector('#stCopyLink').onclick = () => copy(link.url);
   }
   async function drawApp(el) {
     const draw = async () => {
@@ -653,32 +653,33 @@
     draw();
   }
   async function drawTuning(el) {
-    const [jam, dev, shows, st] = await Promise.all([get('/api/jam/state').catch(() => ({})), get('/api/audio/devices').catch(() => ({ inputs: [], outputs: [] })), get('/api/cues').catch(() => ({ shows: [] })), party('state').catch(() => ({}))]);
-    const last = jam.last || {}, f = jam.fetch || {}, help = dev.hidden_help || {};
+    const [relay, dev, shows, st] = await Promise.all([get('/api/relay/state').catch(() => ({})), get('/api/audio/devices').catch(() => ({ inputs: [], outputs: [] })), get('/api/show_moments').catch(() => ({ shows: [] })), party('state').catch(() => ({}))]);
+    const last = relay.last || {}, f = relay.fetch || {}, help = dev.hidden_help || {};
     const pick = (id, list, value, auto) => `<select id="${id}"><option value="">${esc(auto)}</option>${list.map(n => `<option value="${esc(n)}" ${n === value ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
-    const hiddenFound = dev.jam_hidden_output ? dev.outputs.some(o => o.toLowerCase().includes(dev.jam_hidden_output.toLowerCase())) : !!dev.auto_output;
+    const hiddenFound = dev.party_hidden_output ? dev.outputs.some(o => o.toLowerCase().includes(dev.party_hidden_output.toLowerCase())) : !!dev.auto_output;
+    $('#parked').appendChild($('#latency').closest('label'));      // (a second draw must not take it with the old panel)
     el.innerHTML = `<div class="st-h">Timing</div>` +
-      row('Sync check', jam.streaming && jam.output_kind === 'cast' ? 'Listens with the microphone and sets the speakers’ delay by itself.' : 'Available while a party plays on speakers.', `<button id="stSync" ${jam.streaming && jam.output_kind === 'cast' ? '' : 'disabled'}>Run it</button>`) +
+      row('Sync check', relay.streaming && relay.output_kind === 'cast' ? 'Listens with the microphone and sets the speakers’ delay by itself.' : 'Available while a party plays on speakers.', `<button id="stSync" ${relay.streaming && relay.output_kind === 'cast' ? '' : 'disabled'}>Run it</button>`) +
       row('Lights’ timing', 'Send the lights this far ahead of the music, for every song.', '<span id="stLatency"></span>') +
       `<div class="st-h">The party’s music</div>` +
       row('The room hears it this far behind Spotify', 'The lights study this much music first. Longer gives a better first listen.', `<input id="stDelay" class="num" type="number" min="${f.on ? 3 : 10}" max="180" step="${f.on ? 1 : 5}" value="${Math.round(f.on ? (f.delay || 5) : (last.target_delay || 90))}"> s`) +
       row('On a skip', 'Keeping the delay, the room hears a skip that much later. Jumping, it hears it at once but the new song starts with almost no lead.', `<select id="stSkip"><option value="keep" ${last.skip_jumps ? '' : 'selected'}>Keep the delay</option><option value="jump" ${last.skip_jumps ? 'selected' : ''}>Jump right away</option></select>`) +
       row('Spotify crossfade', 'If Spotify’s own crossfade is on, set the same here, so a song ending isn’t taken for a skip.', `<input id="stXfade" class="num" type="number" min="0" max="12" step="1" value="${Math.round(last.crossfade || 0)}"> s`) +
       row('Even out song volume', 'Brings quiet and loud songs closer together.', toggle('id="stEven"', st.even_levels !== false)) +
-      row('Start by itself', 'Starts when music begins playing on Light Show Studio in Spotify.', toggle('id="stAuto"', jam.auto)) +
+      row('Start by itself', 'Starts when music begins playing on Light Show Studio in Spotify.', toggle('id="stAuto"', relay.auto)) +
       (f.available ? row('Learn songs ahead', 'Studies queued songs before they play, from a copy found on YouTube.', toggle('id="stFetch"', f.on)) : '') +
-      (f.on ? '' : row('Open with', 'A saved show plays first, while Spotify fills up behind it.', `<select id="stOpener"><option value="">Nothing</option>${(shows.shows || []).filter(s => s.length >= 60 || s.name === jam.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === jam.opener_choice ? 'selected' : ''}>${esc(St.niceName(s.name))}</option>`).join('')}</select>`)) +
+      (f.on ? '' : row('Open with', 'A saved show plays first, while Spotify fills up behind it.', `<select id="stOpener"><option value="">Nothing</option>${(shows.shows || []).filter(s => s.length >= 60 || s.name === relay.opener_choice).map(s => `<option value="${esc(s.name)}" ${s.name === relay.opener_choice ? 'selected' : ''}>${esc(St.niceName(s.name))}</option>`).join('')}</select>`)) +
       row('Spotify plays in', 'This app, hidden, or the Spotify app on this computer.', `<select id="stSource"><option value="studio" ${last.source === 'app' ? '' : 'selected'}>This app</option><option value="app" ${last.source === 'app' ? 'selected' : ''}>The Spotify app</option></select>`) +
       `<div class="st-h">Sound devices</div>` +
       row('Microphone', 'Listens to the room for the sync check.', pick('stMic', dev.inputs, dev.mic_device, `Default${dev.default_input ? ': ' + dev.default_input : ''}`) + ' <button id="stMicTest">Test</button> <span id="stMicLevel" class="hint"></span>') +
-      row('The room hears this computer on', 'When the party plays on this computer.', pick('stRoomOut', dev.outputs, dev.jam_room_output, `Default${dev.default_output ? ': ' + dev.default_output : ''}`)) +
+      row('The room hears this computer on', 'When the party plays on this computer.', pick('stRoomOut', dev.outputs, dev.party_room_output, `Default${dev.default_output ? ': ' + dev.default_output : ''}`)) +
       (help.label === 'nothing to install' ? '' : row('Spotify plays into', 'An output nobody listens to: the app mutes the one it picks, records it, and plays it to the room in time with the lights.' +
-        (hiddenFound || !help.url ? '' : ` This computer has one output: <a href="${esc(help.url)}" target="_blank" rel="noopener">install ${esc(help.label)}</a>.`), pick('stHidden', dev.outputs, dev.jam_hidden_output, dev.auto_output ? `Automatic: ${dev.auto_output}` : 'Automatic'))) +
+        (hiddenFound || !help.url ? '' : ` This computer has one output: <a href="${esc(help.url)}" target="_blank" rel="noopener">install ${esc(help.label)}</a>.`), pick('stHidden', dev.outputs, dev.party_hidden_output, dev.auto_output ? `Automatic: ${dev.auto_output}` : 'Automatic'))) +
       `<div class="st-h">Troubleshooting</div>` +
-      row('Silent demo', 'Made-up songs and a pretend Spotify, with no sound, to see the app work.', jam.running ? '' : '<button id="stDemo">Run it</button>') +
-      (jam.running ? `<details class="st-log"><summary>Log</summary>${(jam.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('')}</details>` : '');
+      row('Silent demo', 'Made-up songs and a pretend Spotify, with no sound, to see the app work.', relay.running ? '' : '<button id="stDemo">Run it</button>') +
+      (relay.running ? `<details class="st-log"><summary>Log</summary>${(relay.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('')}</details>` : '');
     const lat = $('#latency').closest('label'); $('#stLatency').appendChild(lat); lat.title = '';
-    const prefs = body => post('/api/jam/prefs', body);
+    const prefs = body => post('/api/relay/prefs', body);
     const change = (id, fn) => { const e = $('#' + id); if (e) e.onchange = () => fn(e); };
     change('stDelay', e => prefs({ delay: +e.value }));
     change('stSkip', e => prefs({ skip_jumps: e.value === 'jump' }));
@@ -689,15 +690,15 @@
     change('stOpener', e => prefs({ opener: e.value }));
     change('stSource', e => prefs({ source: e.value }));
     change('stMic', e => post('/api/audio/devices', { mic_device: e.value }));
-    change('stRoomOut', e => post('/api/audio/devices', { jam_room_output: e.value }));
-    change('stHidden', e => post('/api/audio/devices', { jam_hidden_output: e.value }));
+    change('stRoomOut', e => post('/api/audio/devices', { party_room_output: e.value }));
+    change('stHidden', e => post('/api/audio/devices', { party_hidden_output: e.value }));
     const mic = $('#stMicTest'); if (mic) mic.onclick = async () => {
       $('#stMicLevel').textContent = 'Listening…';
       const r = await get('/api/audio/miclevel').catch(e => ({ error: e.message }));
       $('#stMicLevel').textContent = r.error ? `Could not listen: ${r.error}` : r.level_db < -70 ? 'Heard nothing: is it muted?' : `Hears the room (${r.level_db} dB)`;
     };
-    const sync = $('#stSync'); if (sync) sync.onclick = async () => { St.toast('Listening to the room…'); const r = await post('/api/jam/synccheck', {}); St.toast(r.confidence >= 0.5 ? `Speakers corrected by ${r.offset_ms} ms (now ${r.speaker_offset_ms} ms)` : (r.reason || 'Could not get a clear reading; try again in a moment'), !(r.confidence >= 0.5)); };
-    const demo = $('#stDemo'); if (demo) demo.onclick = async () => { await post('/api/jam/start', { demo: true, speakers: 'none', target_delay: 20 }); St.toast('Silent demo running: made-up songs, no sound.'); showView('party'); };
+    const sync = $('#stSync'); if (sync) sync.onclick = async () => { St.toast('Listening to the room…'); const r = await post('/api/relay/synccheck', {}); St.toast(r.confidence >= 0.5 ? `Speakers corrected by ${r.offset_ms} ms (now ${r.speaker_offset_ms} ms)` : (r.reason || 'Could not get a clear reading; try again in a moment'), !(r.confidence >= 0.5)); };
+    const demo = $('#stDemo'); if (demo) demo.onclick = async () => { await post('/api/relay/start', { demo: true, speakers: 'none', target_delay: 20 }); St.toast('Silent demo running: made-up songs, no sound.'); showView('party'); };
   }
 
   // where the app opens: Party, or the last place; #party, #home/rooms and so on are links to a place

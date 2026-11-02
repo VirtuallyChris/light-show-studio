@@ -541,7 +541,7 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
     }
     if (S.tool === 'room' || S.tool === 'thing') {
       const first = !sh.rooms.length, [w, d] = S.tool === 'room' ? [12, 10] : [4, 3], x0 = snapFt(x - w / 2), y0 = snapFt(y - d / 2);
-      if (S.tool === 'room') {                                  // named after the next Party Hub room not drawn yet
+      if (S.tool === 'room') {                                  // named after the next phone remote room not drawn yet
         const used = new Set(sh.rooms.map(r => r.name.toLowerCase())), next = S.rooms.map(r => r.name).find(n => !used.has(n.toLowerCase()));
         sh.rooms.push({ name: next || `Room ${sh.rooms.length + 1}`, poly: corners([x0, y0, w, d]) });
         S.bsel = { type: 'room', i: sh.rooms.length - 1 };
@@ -595,7 +595,7 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
         (room ? planShapes().rooms : planShapes().fixtures).splice(it.i, 1); S.bsel = null; save(); pickLights(); renderBuilder(); draw();
       };
     }
-    // the Party Hub's rooms, each on the map or left off it (a room away from the party, say an office with a test strip)
+    // the phone remote's rooms, each on the map or left off it (a room away from the party, say an office with a test strip)
     $('#onmap').innerHTML = S.rooms.map((r, i) => `<button class="chip ${r.map !== false ? 'on' : ''}" data-i="${i}">${esc(r.name)}</button>`).join('')
       || '<span class="muted">No rooms yet: add them first (Home › Rooms on the computer, or Rooms › Edit rooms on your phone).</span>';
     for (const b of $('#onmap').querySelectorAll('[data-i]')) b.onclick = async () => {
