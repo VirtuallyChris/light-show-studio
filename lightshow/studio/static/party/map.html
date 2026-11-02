@@ -7,6 +7,7 @@
 <meta name="description" content="Where every light stands in the house: pin each segment, pole and tube on the floor plan, then try the map on the lights.">
 <meta name="theme-color" content="#f4f4f8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0e0f14" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="icon" href="/static/party/icon-192.png">
 <script>
 (() => { let t = 'auto'; try { t = localStorage.getItem('party-look') || 'auto'; } catch (e) { /* no storage: Auto */ }
@@ -37,9 +38,12 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif; }
-  .main { max-width: 1100px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 10px) 16px calc(env(safe-area-inset-bottom) + 24px); display: grid; gap: 12px; }
+  .main { max-width: 1100px; margin: 0 auto; padding: 0 16px calc(env(safe-area-inset-bottom) + 24px); display: grid; gap: 12px; }
   .main > * { min-width: 0; }                          /* (the row of lights scrolls, never widens the page) */
-  .top { display: flex; align-items: center; gap: 10px; }
+  /* Sticky and frosted, edge to edge: without a bar like this iOS 27 blurs the top of the page. */
+  .top { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 20; margin: 0 -16px;
+    padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: color-mix(in srgb, var(--bg) 85%, transparent);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
   .embedded .top { display: none; }
   .embedded .main { padding-top: 0; }
   .top h1 { font-size: 24px; margin: 0; flex: 1; }

@@ -9,7 +9,9 @@
 <meta name="theme-color" content="#0e0f14" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Default, not translucent: on iOS 27 a translucent status bar blurs the top of the page. iOS keeps the
+     style an icon was added with, so an older icon has to be added again. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Light Show">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="/party/manifest.webmanifest">
@@ -45,13 +47,15 @@
   html { -webkit-text-size-adjust: 100%; }
   /* A full-screen column: only the content scrolls, and the tab bar is its last row, not pinned with position: fixed
      (on iOS a fixed bottom bar rose up the screen as the page scrolled, the page showing beneath it: the user) */
-  /* The screen's height as the user's other home-screen apps have it (social-scheduler): the large viewport in the
-     app on the home screen (iOS says so to CSS, or navigator.standalone: html.standalone), the dynamic one in a
-     browser; the status bar see-through, a strip of the page's color behind it. (100vh, or a fixed box, left the
-     tab bar standing a status bar's height above the bottom: the user.) */
+  /* The screen's height as the user's other home-screen apps have it: the dynamic viewport, except on an icon added
+     back when the status bar was see-through, where it comes up one status bar short and the large one is the whole
+     screen. (100vh, or a fixed box, left the tab bar standing a status bar's height above the bottom: the user.)
+     Set from navigator.standalone and the top inset, first thing in the body. */
   :root { --app-h: 100dvh; }
-  @media (display-mode: standalone), (display-mode: fullscreen) { :root { --app-h: 100lvh; } }
-  html.standalone { --app-h: 100lvh; }
+  html.see-through-bar { --app-h: 100lvh; }
+  /* The home-screen app pinned to the screen: on iOS 27 an app that scrolls inside a frame blurs the top of the
+     page unless the frame itself is fixed (the user's other apps found the same). */
+  html.standalone:not(.see-through-bar) body { position: fixed; top: 0; left: 0; right: 0; }
   html { height: var(--app-h); overflow: hidden; overscroll-behavior: none; }
   body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: var(--bg); z-index: 40; pointer-events: none; }
   body {
@@ -318,6 +322,16 @@
 </style>
 </head>
 <body>
+<script>
+  if (navigator.standalone) {
+    document.documentElement.classList.add('standalone');
+    const probe = document.createElement('div');
+    probe.style.paddingTop = 'env(safe-area-inset-top)';
+    document.body.append(probe);
+    if (parseFloat(getComputedStyle(probe).paddingTop) > 0) document.documentElement.classList.add('see-through-bar');
+    probe.remove();
+  }
+</script>
 <nav class="nav" aria-label="Sections">
   <button class="nav-btn" data-tab="now" type="button" aria-current="page">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.6v6.8l5.4-3.4z"/></svg><span>Now</span></button>
