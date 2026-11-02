@@ -86,16 +86,17 @@ class TestProcessCapture(unittest.TestCase):
                 t0 = time.monotonic()                    # (before it starts: it records from before start() returns)
                 cap.start()
                 self.assertIsNone(cap.error)
-                time.sleep(2.0)
-                first, t1 = relay.capture_time, time.monotonic()
-                time.sleep(4.0)
+                started = time.monotonic()
+                time.sleep(6.0)
             time.sleep(0.3)
             second, t2 = relay.capture_time, time.monotonic()
             x = relay.frames(0.0, relay.capture_time)[:, 0].astype(np.int64)
             steps = np.diff(x)
             broken = int(np.sum((steps != 1) & (steps != -29999)))      # the ramp wraps at 30000
             self.assertEqual(broken, 0, f"{broken} breaks in the recording")
-            self.assertAlmostEqual(second - first, t2 - t1, delta=0.5, msg="the recording ran at the wrong speed")
+            # With the clock overall. (Not between two readings: while this process is hogged, the reading lags and
+            # then catches up, which only looks like recording fast.) It was recording by the time start() returned.
+            self.assertGreater(second, t2 - started - 0.5, "the recording fell behind the clock")
             # never ahead of the clock by more than the recorder's own 0.25 s margin
             self.assertLess(second, t2 - t0 + 0.3)
             self.assertEqual(cap.lost, 0.0)

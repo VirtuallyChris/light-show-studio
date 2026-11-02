@@ -1,8 +1,10 @@
 """Every song at about the same volume: measuring loudness, the correction, and the relay applying it."""
 
+import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -104,6 +106,26 @@ class TestPartyLevels(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_a_file_held_open_for_a_moment_does_not_lose_the_save(self):
+        from lightshow.studio import party
+        real, calls = os.replace, []
+
+        def busy_twice(a, b):
+            calls.append(a)
+            if len(calls) < 3:
+                raise PermissionError("in use")
+            real(a, b)
+        path = os.path.join(self.dir, "x.json")
+        with mock.patch.object(party.os, "replace", busy_twice):
+            party._save_json(path, {"a": 1})
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(party._load_json(path), {"a": 1})
+
+        def always(a, b):
+            raise PermissionError("in use")
+        with mock.patch.object(party.os, "replace", always), mock.patch.object(party.time, "sleep"), self.assertRaises(PermissionError):
+            party._save_json(path, {"a": 2})
 
     def test_levels_are_kept_and_what_played_wins_over_the_copy(self):
         from lightshow.studio.party import PartyEngine, PartyLibrary, PartySettings

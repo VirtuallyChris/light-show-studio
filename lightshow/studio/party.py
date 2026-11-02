@@ -58,7 +58,14 @@ def _save_json(path: str, doc, indent: int | None = None) -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(doc, fh, indent=indent)
-    os.replace(tmp, path)
+    for wait in (0.05, 0.1, 0.2, 0.4, None):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:                     # Windows: something (a virus scan, the indexer) has it open for a moment
+            if wait is None:
+                raise
+            time.sleep(wait)
 
 
 # ======================================================================= the library
