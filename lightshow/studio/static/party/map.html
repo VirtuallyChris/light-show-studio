@@ -40,10 +40,9 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif; }
   .main { max-width: 1100px; margin: 0 auto; padding: 0 16px calc(env(safe-area-inset-bottom) + 24px); display: grid; gap: 12px; }
   .main > * { min-width: 0; }                          /* (the row of lights scrolls, never widens the page) */
-  /* Sticky and frosted, edge to edge: without a bar like this iOS 27 blurs the top of the page. */
+  /* Sticky, solid and edge to edge: without a bar like this iOS 27 blurs the top of the page. */
   .top { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 20; margin: 0 -16px;
-    padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: color-mix(in srgb, var(--bg) 85%, transparent);
-    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+    padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); }
   .embedded .top { display: none; }
   .embedded .main { padding-top: 0; }
   .top h1 { font-size: 24px; margin: 0; flex: 1; }

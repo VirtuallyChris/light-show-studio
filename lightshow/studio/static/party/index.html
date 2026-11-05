@@ -275,6 +275,8 @@
   /* A phone's header and margins, as in the user's other home-screen apps: 2px above a 44px row and 10px under it, the
      title at the same height on every screen, and 12px at each side. */
   @media (max-width: 600px), (orientation: landscape) and (max-height: 500px) {
+    /* No glow behind the page on a phone: it showed as a step in color right under the status bar. */
+    body { background: var(--bg); background-attachment: scroll; }
     :root { --phone-top: calc(2px + env(safe-area-inset-top)); --phone-left: calc(12px + env(safe-area-inset-left)); --phone-right: calc(12px + env(safe-area-inset-right)); }
     .main { padding: var(--phone-top) var(--phone-right) 24px var(--phone-left); }
     .topbar h1 { flex: 1 0 auto; font-size: 26px; letter-spacing: -0.03em; }   /* (a long status gives way, not the title) */
