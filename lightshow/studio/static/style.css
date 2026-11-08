@@ -532,11 +532,14 @@ button.pv-track:hover { background: var(--bg3); }
 
 .store-body { flex: 1; min-height: 0; overflow-y: auto; padding: 1.1rem 1.8rem 1.8rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; }
 .store-grid { flex: 999 1 26rem; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: .8rem; }
-.store-app { display: flex; align-items: center; gap: .9rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 1rem; padding: .9rem; min-width: 0; }
+.store-app { display: flex; align-items: center; gap: .9rem; background: var(--bg2); border: 1px solid var(--line); border-radius: 1rem; padding: .9rem; min-width: 0; cursor: pointer; transition: background .12s, border-color .12s; }
+.store-app:hover { background: var(--bg4); border-color: #4d5566; }
 .store-app.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 40%, var(--bg2)); }
+.store-app.sel:hover { background: color-mix(in srgb, var(--accent-soft) 60%, var(--bg4)); }
 .store-tile { width: 3.4rem; height: 3.4rem; border-radius: .9rem; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; }
 .store-tile svg { width: 1.8rem; height: 1.8rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .store-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; background: none; border: none; text-align: left; padding: 0; min-height: 0; color: inherit; font-weight: 400; white-space: normal; }
+.store-open:hover { background: none; }
 .store-open b { font-size: 1rem; }
 .store-open span { color: var(--muted); font-size: .85rem; line-height: 1.35; }
 .store-get { border-radius: 999px; flex: none; padding: 0 1.1rem; }

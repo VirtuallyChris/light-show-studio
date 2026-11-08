@@ -543,7 +543,7 @@
     $('#storeGrid').innerHTML = list.map(a => `<div class="store-app ${a.id === storePick ? 'sel' : ''}" data-app="${esc(a.id)}">${tile(a.id)}
         <button class="store-open" data-pick="${esc(a.id)}"><b>${esc(STORE_NAMES[a.id] || a.name)}</b><span>${esc(a.on && a.missing ? a.missing : STORE_ABOUT[a.id] || a.about)}</span></button>
         ${a.on ? '<span class="store-added">Added</span>' : `<button class="accent store-get" data-add="${esc(a.id)}">Add</button>`}</div>`).join('');
-    for (const b of $('#storeGrid').querySelectorAll('[data-pick]')) b.onclick = () => { storePick = b.dataset.pick; renderAddons(); };
+    for (const c of $('#storeGrid').querySelectorAll('[data-app]')) c.onclick = e => { if (e.target.closest('[data-add]')) return; storePick = c.dataset.app; renderAddons(); };
     for (const b of $('#storeGrid').querySelectorAll('[data-add]')) b.onclick = async () => { await post('/api/addons', { id: b.dataset.add, on: true }); storePick = b.dataset.add; renderAddons(); };
     renderStoreCard(list.find(a => a.id === storePick));
   }
