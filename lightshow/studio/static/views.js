@@ -457,6 +457,7 @@
     const cur = $('#libContinue'); cur.hidden = !open; if (open) cur.textContent = `Back to ${$('#projectName').value || 'the editor'}`;
     if (!songs.length) $('#libGrid').innerHTML = '<div class="pv-empty">Finding your songs…</div>';
     const [list, every] = await Promise.all([get('/api/projects').catch(() => []), get('/api/review/every').then(d => d.songs || []).catch(() => [])]);
+    St.refreshRecent([list, every]);                                     // (what a click on a song opens: these, not fetched again)
     const seen = new Set(); songs = [];
     for (const p of list) { seen.add(p.name); if (!p.name.startsWith('_')) songs.push({ name: p.name, label: St.niceName(p.name), kind: p.has_project ? 'mine' : 'song', length: p.length }); }
     for (const s of every) if (!s.show && !seen.has(s.label)) songs.push({ name: s.label, label: St.niceName(s.label), kind: 'auto', reviewed: s.reviewed });
@@ -473,7 +474,6 @@
       return `<button class="lib-song" data-name="${esc(s.name)}"><span class="lib-art" style="background:linear-gradient(135deg,hsl(${h} 70% 42%),hsl(${(h + 50) % 360} 80% 58%))" aria-hidden="true"></span><span class="lib-t">${esc(s.label)}</span><span class="lib-tag ${cls}">${text}</span></button>`; }).join('')
       || `<div class="pv-empty">${songs.length ? 'No songs match.' : 'No songs yet. Add one, or start a party and the app learns each song as it plays.'}</div>`;
     for (const b of $('#libGrid').querySelectorAll('[data-name]')) b.onclick = async () => {
-      await St.refreshRecent();
       showView('editor');
       if (!await St.openNamed(b.dataset.name)) St.toast('That song could not be opened', true);
     };

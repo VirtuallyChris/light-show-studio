@@ -125,7 +125,7 @@ class PartyLibrary:
         self._cache_lock = threading.RLock()
         self._truth: tuple | None = None                            # (section_truth.json's time, its contents)
         self._twins: dict | None = None                             # twins.json: confirmed pairs
-        self._lidx: dict = {}                                       # the learned index (_learned_index)
+        self._lidx: dict = {}                                       # the learned index (learned_index)
         self._summary: dict = {}                                    # track id -> (the file's time, its summary)
         self._locked_cache: dict = {}                               # locked file -> (its time, its contents)
         self._lyrics: dict = {}                                     # track id -> (the file's time, its lyrics)
@@ -378,13 +378,14 @@ class PartyLibrary:
     # (within 1.5 s), and their loudness curves match (0.9 or more) at some offset (two
     # YouTube copies may start apart: Found - Live's by 1.6 s). 13 such pairs among 246 learned songs; Pay No
     # Mind's live version (45 s longer) is not one. Confirmed pairs are kept in twins.json.
-    def twins(self, track_id: str) -> list:
-        """[(twin id, seconds to add to the twin's times for this copy)], confirmed by the audio."""
-        idx = self._learned_index()
+    def twins(self, track_id: str, idx: dict | None = None) -> list:
+        """[(twin id, seconds to add to the twin's times for this copy)], confirmed by the audio. idx: the learned
+        index, when asking for many songs at once (reading it is a listing of the whole folder)."""
+        idx = self.learned_index() if idx is None else idx
         me = idx.get(track_id)
         if not me:
             return []
-        cands = {t: _same_title(v[1], me[1]) for t, v in idx.items() if v and t != track_id and v[0] & me[0] and abs(v[2] - me[2]) <= 1.5}
+        cands = {t: _same_title(v[1], me[1]) for t, v in idx.items() if v and abs(v[2] - me[2]) <= 1.5 and t != track_id and v[0] & me[0]}
         cands = {t: k for t, k in cands.items() if k}
         if not cands:
             return []
@@ -513,7 +514,7 @@ class PartyLibrary:
     # Spotify often has one recording under two ids (the single, and the album it is on): learned under one,
     # it played under the other as a song never heard (Knox Hamilton's Set It on Fire, learned at 16:51 and
     # learned again from scratch at 17:50, glowing meanwhile). A twin is found by its artist, name and length.
-    def _learned_index(self) -> dict:
+    def learned_index(self) -> dict:
         """track id -> (artist words, name, length) of each learned song, read from the head of its file (the
         track comes right after the version: the megabytes after it are not read). Kept, and topped up."""
         with self._cache_lock:
@@ -545,7 +546,7 @@ class PartyLibrary:
         name, artists = " ".join(_norm(track.name)), frozenset(w for a in track.artists for w in _norm(a))
         if not name or not artists:
             return None
-        for tid, v in self._learned_index().items():
+        for tid, v in self.learned_index().items():
             if v and tid != track.id and v[1] == name and v[0] & artists and abs(v[2] - float(track.duration)) <= 1.5                     and self.has_learned(tid):
                 return tid
         return None

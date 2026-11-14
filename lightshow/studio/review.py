@@ -149,8 +149,12 @@ class Review:
             if t and os.path.exists(self.copy_path(tid)):
                 yield tid, _track(tid, t)
 
-    def _twins(self, track_id: str) -> list[str]:
-        return [t for t, _ in self.library.twins(track_id)] if hasattr(self.library, "twins") else []
+    def _twins(self, track_id: str, idx: dict | None) -> list[str]:
+        return [t for t, _ in self.library.twins(track_id, idx)] if hasattr(self.library, "twins") else []
+
+    def _index(self) -> dict | None:
+        """The learned index, read once for a whole list of songs (once per song, 1,700 songs took 6 s)."""
+        return self.library.learned_index() if hasattr(self.library, "learned_index") else None
 
     @staticmethod
     def _once(songs: list[dict]) -> list[dict]:
@@ -165,14 +169,14 @@ class Review:
     def songs(self) -> list[dict]:
         """The learned songs with a kept copy and no saved show: the most doubted first (review_order.json), else by
         artist and title."""
-        truth, props, out = self.truth(), self.proposals(), []
+        truth, props, idx, out = self.truth(), self.proposals(), self._index(), []
         for tid, track in self._with_copies():
             if self.library.match_project(track):
                 continue
             seen = truth.get(tid) or {}
             out.append({"id": tid, "name": track.name, "artists": track.artists, "label": track.label,
                         "reviewed": seen.get("reviewed") or ("drops" if seen else ""), "proposal": tid in props and not seen,
-                        "twins": self._twins(tid)})
+                        "twins": self._twins(tid, idx)})
         out = self._once(sorted(out, key=lambda s: (not s["reviewed"], s["id"])))     # (the reviewed one if any)
         # the songs the learned labeler and the rules disagree on most come first (tools/section_labeler.py order):
         # each review there teaches the most; without a ranking, by artist and title
@@ -184,10 +188,10 @@ class Review:
     def every_song(self) -> list[dict]:
         """Every learned song with a kept copy, for the studio's song box: {id, label, show} (show: the saved show
         it plays, if it has one), each song once (twins: the one with a show, else the reviewed one, else any)."""
-        truth, out = self.truth(), []
+        truth, idx, out = self.truth(), self._index(), []
         for tid, track in self._with_copies():
             out.append({"id": tid, "label": track.label, "show": self.library.match_project(track), "reviewed": bool(truth.get(tid)),
-                        "twins": self._twins(tid)})
+                        "twins": self._twins(tid, idx)})
         keep = self._once(sorted(out, key=lambda s: (not s["show"], not s["reviewed"], s["id"])))
         return sorted(({k: s[k] for k in ("id", "label", "show")} for s in keep), key=lambda s: s["label"].lower())
 

@@ -2302,9 +2302,11 @@ def _z(a: np.ndarray) -> np.ndarray:
     return (a - a.mean(axis=1, keepdims=True)) / (a.std(axis=1, keepdims=True) + 1e-9)
 
 
-def analyze_cached(path: str, cache_dir: str) -> dict:
-    """Analyse once per (path, size, mtime); cache the JSON next to the project."""
-    os.makedirs(cache_dir, exist_ok=True)
+def analyze_cached(path: str, cache_dir: str, save: bool = True) -> dict:
+    """Analyse once per (path, size, mtime); cache the JSON next to the project. save=False (a test copy): a saved
+    analysis is read, but nothing is written beside the song."""
+    if save:
+        os.makedirs(cache_dir, exist_ok=True)
     st = os.stat(path)
     key = f"{os.path.basename(path)}.{st.st_size}.{int(st.st_mtime)}.v{ANALYSIS_VERSION}.json"
     cache = os.path.join(cache_dir, key)
@@ -2312,12 +2314,14 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     if os.path.exists(cache):
         with open(cache, encoding="utf-8") as fh:
             data = json.load(fh)
-        # an analysis saved while SongFormer could not run is not kept for ever: try again
+        # an analysis saved while SongFormer could not run is not kept for ever: try again (not a sound effect too
+        # short for it: those were analysed again at every start, the doorbell's howl and laugh)
         from . import structure_model
-        if data.get("structure_source") != "loudness+songformer" and structure_model.available():
+        too_short = float(data.get("duration") or 0) < structure_model.MIN_S
+        if data.get("structure_source") != "loudness+songformer" and not too_short and structure_model.available():
             data = None
     if data is None:
-        data = analyze(path, cache_dir)
+        data = analyze(path, cache_dir if save else None)
     # The genre is added to an existing analysis rather than bumping the cache version:
     # it needs only the model, and re-running everything else for it would be a waste.
     from .genre import add_genre
@@ -2326,7 +2330,7 @@ def analyze_cached(path: str, cache_dir: str) -> dict:
     except Exception as e:  # noqa: BLE001 - a song without a genre still gets a show
         print(f"[genre] skipped: {type(e).__name__}: {e}")
         changed = False
-    if changed or not os.path.exists(cache):
+    if save and (changed or not os.path.exists(cache)):
         with open(cache, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
     from .genre import restyle                             # (decided by the newest rule, on what was heard)

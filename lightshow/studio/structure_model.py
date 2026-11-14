@@ -27,6 +27,7 @@ import os
 from .model_worker import ModelWorker
 
 CACHE_SUFFIX = ".songformer.json"
+MIN_S = 8.0            # the least audio SongFormer finds sections in (models_host._sections)
 WORKER = ModelWorker("lightshow.studio.songformer_infer", "segments")
 
 def available() -> bool:

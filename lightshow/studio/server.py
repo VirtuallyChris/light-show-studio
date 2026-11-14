@@ -1344,14 +1344,15 @@ class Studio:
             raise web.HTTPNotFound()
         loop = asyncio.get_running_loop()
         cache_dir = os.path.join(pdir, "cache")
-        if request.query.get("fresh") == "1" and os.path.isdir(cache_dir):
+        if request.query.get("fresh") == "1" and os.path.isdir(cache_dir) and not self.read_only:
             # Re-detect: every analysis saved for this song (all versions, and the section model's own
             # results) is thrown away, and the song is analysed from scratch by the newest code
             for f in os.listdir(cache_dir):
                 fp = os.path.join(cache_dir, f)
                 if os.path.isfile(fp) and f.endswith(".json"):
                     os.remove(fp)
-        analysis = await loop.run_in_executor(None, analyze_cached, os.path.join(pdir, song[0]), cache_dir)
+        # (a test copy reads a saved analysis but never writes one: it shares your shows folder)
+        analysis = await loop.run_in_executor(None, analyze_cached, os.path.join(pdir, song[0]), cache_dir, not self.read_only)
         project = None
         pj = os.path.join(pdir, "project.json")
         if os.path.exists(pj):

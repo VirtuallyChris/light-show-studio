@@ -210,6 +210,44 @@ class TestTheOffsetRoute(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(saved, {})
 
 
+class TestASoundEffectIsAnalysedOnce(unittest.TestCase):
+    """Too short for SongFormer, a doorbell's howl was analysed again at every start; a song saved without it is not."""
+
+    def saved(self, d, duration):
+        song = os.path.join(d, "song.wav")
+        with open(song, "wb") as fh:
+            fh.write(b"x")
+        st = os.stat(song)
+        cache = os.path.join(d, "cache")
+        os.makedirs(cache)
+        with open(os.path.join(cache, f"song.wav.{st.st_size}.{int(st.st_mtime)}.v{analysis.ANALYSIS_VERSION}.json"), "w") as fh:
+            json.dump({"duration": duration, "structure_source": "loudness"}, fh)
+        return song, cache
+
+    def analysed_again(self, duration, save=True):
+        with tempfile.TemporaryDirectory() as d:
+            song, cache = self.saved(d, duration)
+            before = {f: os.path.getmtime(os.path.join(cache, f)) for f in os.listdir(cache)}
+            with (mock.patch("lightshow.studio.structure_model.available", return_value=True),
+                  mock.patch.object(analysis, "analyze", return_value={"duration": duration}) as fresh,
+                  mock.patch("lightshow.studio.genre.add_genre", return_value=False),
+                  mock.patch.object(analysis, "settle_sections")):
+                analysis.analyze_cached(song, cache, save=save)
+            self.written = {f: os.path.getmtime(os.path.join(cache, f)) for f in os.listdir(cache)} != before or None
+            return fresh.call_args
+
+    def test_a_sound_effect_is_kept(self):
+        self.assertIsNone(self.analysed_again(5.0))
+
+    def test_a_song_saved_without_songformer_is_tried_again(self):
+        self.assertIsNotNone(self.analysed_again(200.0))
+
+    def test_a_test_copy_reads_but_never_writes_beside_the_song(self):
+        call = self.analysed_again(200.0, save=False)
+        self.assertEqual(call.args[1], None)                            # (nor do the models write their own caches)
+        self.assertIsNone(self.written)
+
+
 class TestTheProjectList(unittest.TestCase):
     def test_the_apps_own_folders_are_not_songs(self):
         import asyncio

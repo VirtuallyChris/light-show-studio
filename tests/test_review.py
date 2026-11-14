@@ -26,6 +26,21 @@ class FakeLibrary:
         return track.name if track.name in self.shows else None
 
 
+class CountingLibrary(FakeLibrary):
+    """Twins as PartyLibrary has them: the learned index is a listing of the whole folder, so it is counted."""
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.listings = 0
+
+    def learned_index(self):
+        self.listings += 1
+        return {fn[:-5]: None for fn in os.listdir(self.learned_dir)}
+
+    def twins(self, track_id, idx=None):
+        assert idx is not None, "asked for the index once per song"
+        return []
+
+
 class ReviewTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -97,6 +112,17 @@ class ReviewTest(unittest.TestCase):
     def test_every_song_lists_all_learned_songs_with_a_copy_and_their_shows(self):
         songs = Review(self.lib).every_song()
         self.assertEqual([(s["id"], s["show"]) for s in songs], [("ddd", None), ("aaa", None), ("bbb", "Has A Show")])       # by artist and title
+
+    def test_a_list_of_songs_reads_the_learned_folder_once(self):
+        """Once per song, 1,700 learned songs took 6 s to list: the wait after clicking a song."""
+        lib = CountingLibrary(os.path.join(self.tmp.name, "counted"))
+        for tid in ("aaa", "bbb", "ccc"):
+            lib.add(tid, tid.title(), ["X"])
+        r = Review(lib)
+        self.assertEqual(len(r.every_song()), 3)
+        self.assertEqual(lib.listings, 1)
+        self.assertEqual(len(r.songs()), 3)
+        self.assertEqual(lib.listings, 2)
 
     def test_a_hand_edited_party_song_becomes_a_show_of_its_own(self):
         # "if i start adding a bunch of additional lights then it would be a custom show fully"

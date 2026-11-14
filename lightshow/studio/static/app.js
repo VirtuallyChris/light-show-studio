@@ -564,10 +564,11 @@
     if (S.review && S.review.id && P() && secKey() !== S.review.orig)
       try { navigator.sendBeacon('/api/review/truth', new Blob([reviewBody(false)], { type: 'application/json' })); } catch (e) { /* closing anyway */ }
   });
-  /** The song box: your saved shows and every song learned in a party (its show as the party plays it), by name. */
-  async function refreshRecent() {
+  /** The song box: your saved shows and every song learned in a party (its show as the party plays it), by name.
+   *  have: [shows, learned songs] the Shows page just fetched, so a click there need not fetch them again. */
+  async function refreshRecent(have) {
     try {
-      const [list, every] = await Promise.all([fetch('/api/projects').then(r => r.json()),
+      const [list, every] = have || await Promise.all([fetch('/api/projects').then(r => r.json()),
         fetch('/api/review/every').then(r => r.json()).then(d => d.songs || []).catch(() => [])]);
       const to = new Map();
       for (const p of list) to.set(p.name, { show: p.name });
@@ -577,6 +578,7 @@
   }
   /** Open what the song box names: a saved show, or a party song in review (one song, no stepping on). */
   async function openNamed(v) {
+    if (!(S.songBox && S.songBox.has(v))) await refreshRecent();
     const t = S.songBox && S.songBox.get(v); if (!t) return false;
     if (t.show) { await openProject(t.show); return true; }
     if (S.review) await reviewStop();
