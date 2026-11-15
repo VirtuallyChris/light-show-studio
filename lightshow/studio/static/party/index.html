@@ -66,8 +66,11 @@
   }
   button { cursor: pointer; }
   .scroller { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
-  .main { max-width: 560px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 12px) max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left)); }
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin-bottom: 10px; }
+  .main { max-width: 560px; margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left)); }
+  /* The header is outside what scrolls, a row above it in the column, in the same 560px as the page. (min-height
+     counts the padding: the row itself is 44px.) */
+  .topbar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; max-width: 560px; margin: 0 auto;
+    padding: calc(env(safe-area-inset-top) + 12px) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); min-height: calc(env(safe-area-inset-top) + 66px); }
   .topbar h1 { font-size: 30px; font-weight: 700; margin: 0; letter-spacing: -0.01em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tab { display: grid; gap: 14px; animation: fade .18s ease-out; }
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -285,7 +288,13 @@
     /* No glow behind the page on a phone: it showed as a step in color right under the status bar. */
     body { background: var(--bg); background-attachment: scroll; }
     :root { --phone-top: calc(2px + env(safe-area-inset-top)); --phone-left: calc(12px + env(safe-area-inset-left)); --phone-right: calc(12px + env(safe-area-inset-right)); }
-    .main { padding: var(--phone-top) var(--phone-right) 24px var(--phone-left); }
+    .main { padding: 0 var(--phone-right) 24px var(--phone-left); }
+    /* Pinned, never inside what scrolls: on iOS 27 a header that rides the scroller's rubber-band bounce blurs (the
+       user's other home-screen apps found the same). What scrolls starts right under it, at --topbar-h, which the script
+       after the header keeps up to date. */
+    .topbar { position: fixed; top: 0; left: 0; right: 0; z-index: 30; background: var(--bg);
+      padding: var(--phone-top) var(--phone-right) 10px var(--phone-left); min-height: calc(var(--phone-top) + 54px); }
+    .scroller { margin-top: var(--topbar-h, calc(var(--phone-top) + 54px)); }
     .topbar h1 { flex: 1 0 auto; font-size: 26px; letter-spacing: -0.03em; }   /* (a long status gives way, not the title) */
     .sixteen .sheet { padding-left: var(--phone-left); padding-right: var(--phone-right); }
     .rv-btn { top: var(--phone-top); right: var(--phone-right); width: 44px; height: 44px; }
@@ -312,9 +321,17 @@
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.3 2.9a2 2 0 0 0-2.6 0L3.7 8.9A2 2 0 0 0 3 10.4V19a2 2 0 0 0 2 2h3.5a1 1 0 0 0 1-1v-4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V20a1 1 0 0 0 1 1H19a2 2 0 0 0 2-2v-8.6a2 2 0 0 0-.7-1.5l-7-6Z"/></svg></button>
 </nav>
 
+<header class="topbar"><h1 id="title">Now</h1><span id="status" class="pill" role="status">connecting…</span></header>
+<script>
+  (() => {   // the header's height, for what scrolls under it (its height changes with an old see-through status bar)
+    const head = document.currentScript.previousElementSibling;
+    const set = () => { const h = head.offsetHeight; if (h) document.documentElement.style.setProperty('--topbar-h', h + 'px'); };
+    set();
+    if ('ResizeObserver' in window) new ResizeObserver(set).observe(head); else addEventListener('resize', set);
+  })();
+</script>
 <div class="scroller" id="scroller">
 <main class="main">
-<header class="topbar"><h1 id="title">Now</h1><span id="status" class="pill" role="status">connecting…</span></header>
 
 <!-- ======================================================== NOW -->
 <section class="tab" id="tab-now">

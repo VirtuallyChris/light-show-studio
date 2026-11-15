@@ -47,8 +47,9 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
   body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif; }
   .main { max-width: 1100px; margin: 0 auto; padding: 0 16px calc(env(safe-area-inset-bottom) + 24px); display: grid; gap: 12px; }
   .main > * { min-width: 0; }                          /* (the row of lights scrolls, never widens the page) */
-  /* Sticky, solid and edge to edge: without a bar like this iOS 27 blurs the top of the page. */
-  .top { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 20; margin: 0 -16px;
+  /* Solid, and outside the page's column so it is never inside what scrolls: without a bar like this iOS 27 blurs the
+     top of the page. Sticky on a computer, pinned on a phone (below). As wide as the column, its text in line with it. */
+  .top { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 20; max-width: 1100px; margin: 0 auto 12px;
     padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; background: var(--bg); }
   .embedded .top { display: none; }
   .embedded .main { padding-top: 0; }
@@ -80,20 +81,32 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
   h2 { font-size: 15px; margin: 0 0 8px; }
   .err { color: var(--accent2); font-size: 13px; }
   /* A phone's header and margins, the same as the party page's: 2px above a 44px row and 10px under it (the first card
-     that close, so the column's gap comes off), and 12px at each side. Not in the studio's Settings, whose frame on the
-     computer can be this narrow too. */
+     that close), and 12px at each side. Not in the studio's Settings, whose frame on the computer can be this narrow too.
+     The header is pinned and the page scrolls in a fixed frame that starts right under it, at --top-h, which the script
+     after the header keeps up to date: on iOS 27 a sticky header rides the page's rubber-band bounce, and blurs. The
+     plan's own drags and pinches are unchanged (touch-action: none on it). */
   @media (max-width: 600px), (orientation: landscape) and (max-height: 500px) {
     html:not(.embedded) { --phone-top: calc(2px + env(safe-area-inset-top)); --phone-left: calc(12px + env(safe-area-inset-left)); --phone-right: calc(12px + env(safe-area-inset-right)); }
-    html:not(.embedded) .main { padding-left: var(--phone-left); padding-right: var(--phone-right); }
-    .top { margin: 0 calc(-1 * var(--phone-right)) -12px calc(-1 * var(--phone-left)); padding: var(--phone-top) var(--phone-right) 10px var(--phone-left); }
+    html:not(.embedded) .main { position: fixed; top: var(--top-h, calc(var(--phone-top) + 54px)); left: 0; right: 0; bottom: 0;
+      overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch;
+      padding-left: var(--phone-left); padding-right: var(--phone-right); }
+    .top { position: fixed; top: 0; left: 0; right: 0; max-width: none; margin: 0; padding: var(--phone-top) var(--phone-right) 10px var(--phone-left); }
     .top h1 { font-size: 26px; letter-spacing: -0.03em; white-space: nowrap; }
     a.back { flex: none; display: flex; align-items: center; min-height: 44px; margin: 0; padding: 0 8px 0 0; }
   }
 </style>
 </head>
 <body>
+<div class="top"><a class="back" href="/party#editrooms">&lsaquo; Rooms</a><h1>House map</h1><span id="saved" class="muted"></span></div>
+<script>
+  (() => {   // the header's height, for the frame under it on a phone (its height changes with an old see-through status bar)
+    const head = document.currentScript.previousElementSibling;
+    const set = () => { const h = head.offsetHeight; if (h) document.documentElement.style.setProperty('--top-h', h + 'px'); };
+    set();
+    if ('ResizeObserver' in window) new ResizeObserver(set).observe(head); else addEventListener('resize', set);
+  })();
+</script>
 <div class="main">
-  <div class="top"><a class="back" href="/party#editrooms">&lsaquo; Rooms</a><h1>House map</h1><span id="saved" class="muted"></span></div>
 
   <div class="card">
     <div class="planwrap" id="wrap">
