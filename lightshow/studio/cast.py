@@ -43,21 +43,48 @@ class CastManager:
 
     # -- discovery -----------------------------------------------------------------
     def discover(self, timeout: float = 5.0) -> list[dict]:
+        """Every speaker and group on the network. One discovery runs for the studio's whole life and keeps
+        listening; a look after the first only reads what it has heard, and a speaker already known keeps its
+        connection. (Looking again used to stop the last discovery, and pychromecast's stop_discovery() closes
+        the Zeroconf that every speaker found by it reconnects through: with the Party screen asking every
+        20 s, the speaker playing the party lost its connection and could not get it back, and a new
+        connection to every speaker was opened at each look.)"""
         import pychromecast
         import zeroconf
+        from pychromecast.discovery import CastBrowser, SimpleCastListener
 
         with self.lock:
-            if self.browser is not None:
-                self.browser.stop_discovery()
             if self.zc is None:
                 self.zc = zeroconf.Zeroconf(interfaces=[self.interface_ip]) if self.interface_ip else zeroconf.Zeroconf()
-            casts, self.browser = pychromecast.get_chromecasts(timeout=timeout, zeroconf_instance=self.zc)
-            self.casts = list(casts)
+            if self.browser is None:
+                self.browser = CastBrowser(SimpleCastListener(), self.zc)
+                self.browser.start_discovery()
+                time.sleep(timeout)                      # the first look: whatever answers in this time
+            self.casts = self._reconcile(self.browser.devices, pychromecast.get_chromecast_from_cast_info)
         out = []
         for c in self.casts:
             i = c.cast_info
             out.append({"name": i.friendly_name, "model": i.model_name, "type": i.cast_type, "host": i.host})
         out.sort(key=lambda d: (d["type"] != "group", d["name"].lower()))
+        return out
+
+    def _reconcile(self, devices: dict, make) -> list:
+        """The speakers discovery knows now (devices: uuid -> CastInfo), each the object already made for it while
+        its connection lives, a new one if new or let go (disconnect()). One that left the network is let go,
+        unless it is the speaker being cast to."""
+        known = {str(c.uuid): c for c in self.casts}
+        out = []
+        for uuid, info in list(devices.items()):
+            c = known.pop(str(uuid), None)
+            if c is None or c.socket_client.stop.is_set():
+                c = make(info, self.zc)
+            out.append(c)
+        for c in known.values():
+            if c is not self.cast:
+                try:
+                    c.disconnect(timeout=0)
+                except Exception:  # noqa: BLE001 - it is gone anyway
+                    pass
         return out
 
     # -- connection ------------------------------------------------------------------

@@ -138,3 +138,59 @@ class TestSpeakerVolumes(unittest.TestCase):
         self.assertIsNone(group.set_to)
         with self.assertRaises(ValueError):
             m.set_device_volume("Nowhere", 0.5)
+
+
+class TestLookingForSpeakersAgain(unittest.TestCase):
+    """The Party screen looks for speakers every 20 s. A look must never cut the speakers' connections: it used to
+    stop the last discovery, which closed what every speaker reconnects through (the party's speaker could not get
+    back, and a new connection to every speaker was opened each time). Nothing here reaches the network."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from lightshow.studio import cast as cast_mod
+        self.ns, self.mock = SimpleNamespace, mock
+        self.m = cast_mod.CastManager(None)
+        self.made = []
+
+    def cast(self, uuid):
+        info = self.ns(friendly_name=uuid, model_name="", cast_type="audio", host="")
+        c = self.ns(uuid=uuid, cast_info=info, socket_client=self.ns(stop=__import__("threading").Event()), let_go=False)
+        c.disconnect = lambda timeout=None: setattr(c, "let_go", True)
+        return c
+
+    def make(self, info, zc):
+        c = self.cast(info)
+        self.made.append(info)
+        return c
+
+    def test_a_second_look_keeps_the_discovery_and_every_connection(self):
+        import pychromecast.discovery as disc
+        browser = self.mock.Mock(devices={"a": "a", "b": "b"})
+        with self.mock.patch.object(disc, "CastBrowser", return_value=browser) as made, \
+                self.mock.patch("zeroconf.Zeroconf"), \
+                self.mock.patch("pychromecast.get_chromecast_from_cast_info", side_effect=self.make), \
+                self.mock.patch("lightshow.studio.cast.time.sleep"):
+            self.m.discover(0.1)
+            first = list(self.m.casts)
+            self.m.discover(0.1)
+        made.assert_called_once()                                   # one discovery, for the studio's whole life
+        browser.stop_discovery.assert_not_called()
+        self.assertEqual([id(c) for c in self.m.casts], [id(c) for c in first])   # the same connections
+        self.assertEqual(self.made, ["a", "b"])
+
+    def test_new_speakers_join_gone_ones_are_let_go_but_not_the_one_playing(self):
+        a, b, c = self.cast("a"), self.cast("b"), self.cast("c")
+        self.m.casts, self.m.cast = [a, b, c], c
+        out = self.m._reconcile({"a": "a", "d": "d"}, self.make)
+        self.assertEqual([x.uuid for x in out], ["a", "d"])
+        self.assertIs(out[0], a)
+        self.assertTrue(b.let_go)
+        self.assertFalse(c.let_go)                                   # cast to right now: left alone
+
+    def test_a_speaker_let_go_is_made_again(self):
+        a = self.cast("a")
+        a.socket_client.stop.set()                                   # disconnect(): its connection cannot start again
+        self.m.casts = [a]
+        out = self.m._reconcile({"a": "a"}, self.make)
+        self.assertIsNot(out[0], a)
