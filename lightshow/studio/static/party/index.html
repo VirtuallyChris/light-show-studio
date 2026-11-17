@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Light Show Studio</title>
 <meta name="description" content="The Light Show Studio's relay, from your phone: what is playing, what comes next and its colors, play and pause, and how hard the lights go.">
 <meta name="theme-color" content="#f4f4f8" media="(prefers-color-scheme: light)">
@@ -18,6 +18,11 @@
 <link rel="apple-touch-icon" href="/static/party/apple-touch-icon.png">
 <link rel="icon" href="/static/party/icon-192.png">
 
+<script>
+// No page zoom (pwa-standards rule 10): the viewport tag turns it off, and this stops Safari's pinch where iOS
+// ignores that tag (a browser tab).
+for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+</script>
 <style>
   :root {
     color-scheme: light;
@@ -44,7 +49,7 @@
   *::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--muted) 70%, transparent); }
   *::-webkit-scrollbar-button { display: none; }
   [hidden] { display: none !important; }
-  html { -webkit-text-size-adjust: 100%; }
+  html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }   /* no double-tap zoom (rule 10) */
   /* A full-screen column: only the content scrolls, and the tab bar is its last row, not pinned with position: fixed
      (on iOS a fixed bottom bar rose up the screen as the page scrolled, the page showing beneath it: the user) */
   /* The screen's height as the user's other home-screen apps have it: the dynamic viewport, except on an icon added

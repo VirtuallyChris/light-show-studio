@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>House Map</title>
 <meta name="description" content="Where every light stands in the house: pin each segment, pole and tube on the floor plan, then try the map on the lights.">
 <meta name="theme-color" content="#f4f4f8" media="(prefers-color-scheme: light)">
@@ -13,8 +13,12 @@
 (() => { let t = 'auto'; try { t = localStorage.getItem('party-look') || 'auto'; } catch (e) { /* no storage: Auto */ }
   if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
 if (window.self !== window.top) document.documentElement.classList.add('embedded');   // (inside the studio's Settings: no header of its own)
+// No page zoom (pwa-standards rule 10): the viewport tag turns it off, and this stops Safari's pinch where iOS
+// ignores that tag (a browser tab).
+for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
 </script>
 <style>
+  html { touch-action: manipulation; }   /* no double-tap zoom (rule 10); the plan keeps its own pinch */
   :root {
     color-scheme: light;
     --bg: #f4f4f8; --card: #ffffff; --card2: #f2f2f7; --line: rgb(20 16 40 / 0.09);
@@ -92,6 +96,7 @@ if (window.self !== window.top) document.documentElement.classList.add('embedded
       padding-left: var(--phone-left); padding-right: var(--phone-right); }
     .top { position: fixed; top: 0; left: 0; right: 0; max-width: none; margin: 0; padding: var(--phone-top) var(--phone-right) 10px var(--phone-left); }
     .top h1 { font-size: 26px; letter-spacing: -0.03em; white-space: nowrap; }
+    input[type=number] { font-size: 16px; }   /* smaller, and iOS zooms in when it is tapped (rule 10) */
     a.back { flex: none; display: flex; align-items: center; min-height: 44px; margin: 0; padding: 0 8px 0 0; }
   }
 </style>
