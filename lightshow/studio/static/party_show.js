@@ -246,7 +246,7 @@
   }
 
   function adopt(analysis, name, saved, data) {
-    S.analysis = analysis; S.name = saved ? name : '';
+    S.analysis = J.analysis = analysis; S.name = saved ? name : '';
     S.project = saved || St.newProject(analysis, name);
     St.migrateProject(S.project);
     if (saved && data) St.freshenSaved(data);                     // built by older show logic: built again (in memory)
@@ -454,7 +454,7 @@
     const doc = await api('relay/analysis?key=' + encodeURIComponent(room.key));
     if (!doc.analysis || room.key !== J.key) return;
     const a = doc.analysis, p = St.P();
-    S.analysis = a; J.lastFeat = performance.now(); applyGenre(J.doc && J.doc.track);
+    S.analysis = J.analysis = a; J.lastFeat = performance.now(); applyGenre(J.doc && J.doc.track);
     if (doc.light) { J.version = doc.version; buildLight(); return; }   // the beat, a little further along
     // your own lights, or sections you set by hand: kept as they are (the song's features above still update)
     if (J.custom || J.secsByHand) { J.version = doc.version; return; }
@@ -563,6 +563,15 @@
     St.updateTransport(); St.stopOutput(); St.draw();
     toast('The party stopped.');
   }
+
+  /** Shows during a party opens the song the room is playing. A song opened from the list meanwhile is put
+   *  away, and the party's song is loaded again on the next tick (a moment keeps the room until it ends). */
+  St.watchParty = () => {
+    if (!J.live) return false;
+    if (!C.run && S.analysis !== J.analysis) { J.key = null; tick(); }
+    return true;
+  };
+  St.partySong = () => (J.live && J.state && J.state.room && J.state.room.label) || '';
 
   window.addEventListener('focus', () => tick());       // back from the Spotify sign-in window
   setInterval(tick, 1000);

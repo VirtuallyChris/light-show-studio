@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 
 FROZEN = bool(getattr(sys, "frozen", False))
 SOURCE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +47,17 @@ def data_dir() -> str:
     return path
 
 
+def _replace(source: str, target: str) -> None:
+    """os.replace, tried again for a moment when Windows refuses it: a virus scanner holds a file just written for a
+    fraction of a second (a folder's move was refused this way)."""
+    for wait in (0.05, 0.1, 0.2, 0.4):
+        try:
+            return os.replace(source, target)
+        except PermissionError:
+            time.sleep(wait)
+    os.replace(source, target)
+
+
 def move_data(old: str, new: str, renames: dict | None = None) -> None:
     """Move what an older version kept in folder `old` into `new`, never over anything already there. A file in
     use stays and moves the next time, so nothing is lost."""
@@ -58,7 +70,7 @@ def move_data(old: str, new: str, renames: dict | None = None) -> None:
             if name == "__pycache__":
                 shutil.rmtree(source)
             elif not os.path.exists(target):
-                os.replace(source, target)
+                _replace(source, target)
         except OSError as e:
             print(f"[data] could not move {source} yet: {e}")
     try:

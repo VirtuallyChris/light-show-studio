@@ -991,7 +991,7 @@ class PartyService:
 
     async def party_manifest(self, request):
         return web.json_response({
-            "name": "phone remote", "short_name": "phone remote", "start_url": "/party", "scope": "/party",
+            "name": "Light Show Studio", "short_name": "Light Show Studio", "start_url": "/party", "scope": "/party",
             "display": "standalone", "background_color": "#0e0f14", "theme_color": "#0e0f14",
             "icons": [{"src": "/static/party/icon-192.png", "sizes": "192x192", "type": "image/png"},
                       {"src": "/static/party/icon-512.png", "sizes": "512x512", "type": "image/png"}]},

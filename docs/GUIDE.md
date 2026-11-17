@@ -26,7 +26,7 @@ The app has five places, on the left rail, and the phone has the first of them i
 | **Add-ons** | Bulb Studio, the Reolink doorbell and Home Assistant, each set up on its own card. |
 | **Settings** | Spotify, your phone's QR code, AI models and kept song copies, updates, and **Fine tuning**: timing, the delay, sound devices, the silent demo and the log. |
 
-The **phone remote** has three tabs: **Now** (the song, up next, colors), **Moments**, and **Rooms** (Energy, rooms and
+**Light Show Studio on your phone** has three tabs: **Now** (the song, up next, colors), **Moments**, and **Rooms** (Energy, rooms and
 volumes, the live view, and Edit rooms). Set up everything else on the computer, which has to be open during a party,
 because it drives the lights. Bulb Studio opens on the computer only; on the phone its shows have their switches.
 
@@ -574,9 +574,9 @@ starts playing anywhere else (a phone taking over) or a party is started, it ste
 aside. Reading playlists needs one more Spotify permission: sign in to Spotify again
 once in **Settings**.
 
-## The phone remote
+## Light Show Studio on your phone
 
-The studio also serves a phone remote on the home network. In **Settings**, **Your
+The studio also serves itself to phones on the home network. In **Settings**, **Your
 phone**, scan the code with the camera or open `http://<this computer's address>:8765/party`,
 then choose **Share, Add to Home Screen** on an iPhone (on Android, the menu, **Add to
 Home screen**): it opens full screen like an app. It answers only devices on the home
@@ -672,7 +672,7 @@ it was. Each moment's show is analyzed ahead of time, and the studio page keeps 
 moment's show loaded and asks for the running moment five times a second, so its lights
 start with its song; when the moment is over, the party's show is taken up again as it
 was, not loaded again. A test copy of the studio (`--no-lights`) only ever
-rehearses: every step on its real timing, marked *rehearsal* on the phone remote,
+rehearses: every step on its real timing, marked *rehearsal* on the phone,
 with nothing touched. Moments have not yet been tried on the real speakers.
 
 ## The doorbell plays a moment

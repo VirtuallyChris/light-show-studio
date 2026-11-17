@@ -214,15 +214,17 @@ class TestFetchAhead(unittest.TestCase):
 
     def test_the_analyses_follow_the_queue_as_it_is_now(self):
         f, lib, _, order = self.make()
-        analysed, gate = [], threading.Event()
+        analysed, started, gate = [], [], threading.Event()
         real = f.analyze
-        f.analyze = lambda p, c: (gate.wait(2), analysed.append(os.path.basename(p)[:2]), real(p, c))[2]
+        name = lambda p: os.path.basename(p)[:2]
+        f.analyze = lambda p, c: (started.append(name(p)), gate.wait(5), analysed.append(name(p)), real(p, c))[3]
         f.submit([track(1), track(2), track(3)])
-        self.assertTrue(self.wait(lambda: len(f.ready) == 2))             # t1 being analysed, t2 and t3 downloaded
+        self.assertTrue(self.wait(lambda: len(f.ready) == 2 and len(started) == 1))   # one being analysed, two downloaded
+        first = started[0]                                                # (whichever finished downloading first: usually t1)
         f.submit([track(3), track(2)])                                    # the queue changed: t3 now plays first
         gate.set()
         self.assertTrue(self.wait(lambda: f.idle() and len(analysed) == 3))
-        self.assertEqual(analysed, ["t1", "t3", "t2"])
+        self.assertEqual(analysed, [first] + [t for t in ("t3", "t2", "t1") if t != first])   # then the queue as it is now
 
     def test_without_spotdl_nothing_happens(self):
         f = FetchAhead(FakeLibrary(), is_available=lambda: False)

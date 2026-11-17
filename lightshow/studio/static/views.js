@@ -42,7 +42,11 @@
     if (v === 'editor') requestAnimationFrame(() => { if (St.P()) St.draw(); });
     try { localStorage.setItem('lss-view', v === 'editor' ? 'shows' : v); } catch (e) { /* not kept */ }
   }
-  for (const b of document.querySelectorAll('.view-btn[data-view]')) b.onclick = () => showView(b.dataset.view);
+  for (const b of document.querySelectorAll('.view-btn[data-view]')) b.onclick = () => {
+    // during a party, Shows opens on the song playing; the list is a click away (Shows again, or ‹ Shows)
+    if (b.dataset.view === 'shows' && view !== 'editor' && St.watchParty && St.watchParty()) return showView('editor');
+    showView(b.dataset.view);
+  };
   $('#btnBackShows').onclick = () => showView('shows');
   // a song opened or dropped anywhere goes to the editor
   $('#fileInput').addEventListener('change', () => showView('editor'));
@@ -453,8 +457,9 @@
   // ------------------------------------------------------------------ Shows: every song in one list
   let libFilter = 'all', songs = [];
   async function renderLibrary() {
-    const open = St.P() && $('#emptyState').hidden;
-    const cur = $('#libContinue'); cur.hidden = !open; if (open) cur.textContent = `Back to ${$('#projectName').value || 'the editor'}`;
+    const live = St.partySong && St.partySong(), open = live || (St.P() && $('#emptyState').hidden);
+    const cur = $('#libContinue'); cur.hidden = !open;
+    if (open) cur.textContent = live ? `Now playing: ${St.niceName(live)}` : `Back to ${$('#projectName').value || 'the editor'}`;
     if (!songs.length) $('#libGrid').innerHTML = '<div class="pv-empty">Finding your songs…</div>';
     const [list, every] = await Promise.all([get('/api/projects').catch(() => []), get('/api/review/every').then(d => d.songs || []).catch(() => [])]);
     St.refreshRecent([list, every]);                                     // (what a click on a song opens: these, not fetched again)
@@ -483,7 +488,7 @@
   for (const f of document.querySelectorAll('#libFilters button')) f.onclick = () => { libFilter = f.dataset.f; drawLibrary(); };
   $('#libAdd').onclick = () => $('#fileInput').click();
   $('#libReview').onclick = () => { showView('editor'); St.reviewStart(); };
-  $('#libContinue').onclick = () => showView('editor');
+  $('#libContinue').onclick = () => { if (St.watchParty) St.watchParty(); showView('editor'); };
   // songs learned ahead of the party, silently: a playlist's, or the queue's
   $('#libLearn').onclick = () => openSheet('Learn a playlist', body => {
     const draw = async () => {
